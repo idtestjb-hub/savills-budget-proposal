@@ -1205,7 +1205,7 @@ def build_additional_revenue_sheet(wb, project):
     lease_headers = ['Metric', 'Value', 'Basis', '', '', 'Source']
     for label, val, basis in [
         ('Car Slots (from Project Info)', car_slots, ''),
-        ('Estimated Parking NFA (m²)', est_parking_nfa, f'= Car Slots × {PARKING_LEASE_NFA_PER_SLOT:g} m²/slot (real ratio, n=3)'),
+        ('Estimated Parking NFA (m²)', est_parking_nfa, f'Car Slots × {PARKING_LEASE_NFA_PER_SLOT:g} m²/slot (real ratio, n=3)'),
         ('Estimated Monthly Lease Revenue — low end (VND)', round(est_parking_nfa * 17391.30), 'At the lowest real comparable rate (Sunrise Riverside)'),
         ('Estimated Monthly Lease Revenue — average (VND)', round(est_parking_nfa * PARKING_LEASE_RATE_AVG), f'At the {PARKING_LEASE_RATE_AVG:,.0f} VND/m² average of 3 real comparables'),
         ('Estimated Monthly Lease Revenue — high end (VND)', round(est_parking_nfa * 77880.10), 'At the highest real comparable rate (Sunrise City Central)'),
@@ -1231,7 +1231,7 @@ def build_additional_revenue_sheet(wb, project):
     c2.font = Font(bold=True)
     c2.fill = HIGHLIGHT_FILL
     ws.cell(row=r, column=3,
-            value=(f'= (Lease revenue at average rate, annualized) ÷ (Car parking fee revenue at 100% fill, annualized). '
+            value=(f'(Lease revenue at average rate, annualized) ÷ (Car parking fee revenue at 100% fill, annualized). '
                    f'Below this fill %, the fixed lease ({lease_avg_annual:,.0f}/year at the average rate) exceeds what '
                    f'per-vehicle billing would actually collect at that fill level — a real, computed crossover, not a rule of thumb.')
             ).alignment = LEFT
@@ -1810,7 +1810,7 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
         return category_grand_row, (f'B{must_have_row}' if must_have_row else None)
 
     r = 4
-    _, staff_must_have_row = _section('Staff', staff['category_annual_cells'], STAFF_NECESSITY,
+    staff_total_row, staff_must_have_row = _section('Staff', staff['category_annual_cells'], STAFF_NECESSITY,
               {'Security': 1782300800, 'Cleaning': 323340000, 'Cleaning — Supervisory': 152160000, 'Landscape': 268182000,
                'Property Manager': 516076000, 'Chief Engineer': 417806000, 'Technician': 679965000,
                'Reception': 215560000, 'Customer Service': 217462000, 'Shift Leader': 928936800,
@@ -1822,9 +1822,9 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
     capex_annual = {k: f"=Capex!{v}" for k, v in capex['category_subtotal_cells'].items()}
     opex_annual = {k: f"=OPEX!{v}" for k, v in opex['category_annual_cells'].items()}
 
-    _, capex_must_have_row = _section('Capex (one-time, shown as-is, not annualized)', capex_annual, CAPEX_NECESSITY,
+    capex_total_row, capex_must_have_row = _section('Capex (one-time, shown as-is, not annualized)', capex_annual, CAPEX_NECESSITY,
               {'M&E Equipment': 152403000, 'MO Equipment': 253082215, 'Public Area': 216863000, 'Amenity Area': 13689000})
-    _, opex_must_have_row = _section('OPEX', opex_annual, OPEX_NECESSITY,
+    opex_total_row, opex_must_have_row = _section('OPEX', opex_annual, OPEX_NECESSITY,
               {'Electricity': 3842128512, 'Water': 440442996, 'Diesel (Generator Fuel)': 87792096,
                'Repairs & Maintenance (materials only)': 40496844, 'Administrative Expense (office overhead)': 82282236,
                'Pool Salt': 79884000})
@@ -1834,8 +1834,9 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
                    'threshold. "Must-Have of which" subtotals show the minimum a project needs regardless of scale/'
                    'amenities/service-tier choices; the gap between that and the category total is what\'s actually '
                    'negotiable (service level, amenities offered) rather than structurally required. The Summary sheet\'s '
-                   '"Total Profit Value" pulls these 3 Must-Have subtotals directly — a Must-Have-only view of the '
-                   'bottom line, stripped of optional service-tier costs.')
+                   '"Total Profit Value" reads these 3 Must-Have subtotals (or the category TOTAL rows for the Full '
+                   'Cost view) via a Cost Basis dropdown on that sheet, so the bottom line can show either the '
+                   'stripped-down floor or the full picture on demand.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:F{r}')
@@ -1846,7 +1847,10 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
 
     return dict(staff_must_have_cell=f"'Cost Priority'!{staff_must_have_row}",
                 capex_must_have_cell=f"'Cost Priority'!{capex_must_have_row}",
-                opex_must_have_cell=f"'Cost Priority'!{opex_must_have_row}")
+                opex_must_have_cell=f"'Cost Priority'!{opex_must_have_row}",
+                staff_total_cell=f"'Cost Priority'!B{staff_total_row}",
+                capex_total_cell=f"'Cost Priority'!B{capex_total_row}",
+                opex_total_cell=f"'Cost Priority'!B{opex_total_row}")
 
 
 # ============================================================================================
@@ -1856,17 +1860,21 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     without re-reading a paragraph of caveats inline — the caveats live once, in the NOTES legend
     at the bottom, keyed by the same numbers.
 
-    Total Profit Value uses ONLY Must-Have costs (Cost Priority sheet's "of which Must-Have"
-    subtotals for Staff/Capex/OPEX) — Conditional (pool/garden-dependent) and Optional
-    (service-tier choices like Shift Leader/Customer Service/Reception) costs are excluded from
-    this bottom line entirely, on the premise that this is the number a PM needs to know a project
-    clears NO MATTER what service-tier/amenity choices get made later. The full-cost picture,
-    including everything excluded here, is still on the Cost Priority sheet in full."""
+    Total Profit Value is driven by a Cost Basis dropdown (COST BASIS TOGGLE section): "Must-Have
+    Only" pulls Cost Priority sheet's "of which Must-Have" subtotals for Staff/Capex/OPEX,
+    excluding Conditional (pool/garden-dependent) and Optional (service-tier choices like Shift
+    Leader/Customer Service/Reception) costs entirely; "Full Cost (incl. Optional/Conditional)"
+    pulls the category grand totals instead. Every downstream number (Total Profit Value, %
+    Profit, the Fill-up Scenarios table, Key Figures (4)/(6)/(7)) reads from 3 small IF()-driven
+    "Selected Cost" cells keyed off that one dropdown, so picking a value recalculates the whole
+    sheet with no macro involved. The itemized breakdown either way is still on the Cost Priority
+    sheet in full."""
     title_block(ws, f"Project Budget Output — {project['name']}",
                 'Phase 1 summary — see the Management Fee / Staff (Roster) / Service / Capex / OPEX / Additional '
                 'Revenue / Cost Priority sheets for detail. Figures below are numbered (1)-(9) — see NOTES at the '
-                'bottom for what each one means. Total Profit Value uses MUST-HAVE costs only — see Cost Priority '
-                'sheet for the full picture including Conditional/Optional costs.', 'A1:E1')
+                'bottom for what each one means. Total Profit Value switches between Must-Have-only and Full Cost '
+                'via the Cost Basis dropdown below — see Cost Priority sheet for the itemized breakdown either way.',
+                'A1:E1')
 
     r = 4
     section(ws, r, 'PROPERTY', ncols=4); r += 1
@@ -1882,31 +1890,74 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         capex=cost_priority['capex_must_have_cell'],
         opex=cost_priority['opex_must_have_cell'],
     )
+    FULL_COST_CELLS = dict(
+        staff=cost_priority['staff_total_cell'],
+        capex=cost_priority['capex_total_cell'],
+        opex=cost_priority['opex_total_cell'],
+    )
 
-    section(ws, r, 'TOTAL PROFIT VALUE (MUST-HAVE COSTS ONLY), AT 100% FILL', ncols=5); r += 1
-    ws.cell(row=r, column=1, value='Total Profit Value = Mgmt Fee Revenue (3) − Must-Have Staff (4) − Must-Have OPEX (7) − Must-Have Capex (6)').font = Font(bold=True, size=12)
+    section(ws, r, 'COST BASIS TOGGLE', ncols=5); r += 1
+    ws.cell(row=r, column=1, value='View:').font = Font(bold=True, size=12)
+    toggle_cell = ws.cell(row=r, column=2, value='Must-Have Only')
+    toggle_cell.fill = PatternFill('solid', fgColor='FFF7CC')
+    toggle_cell.font = Font(bold=True, size=12)
+    toggle_cell.border = BORDER
+    dv_toggle = DataValidation(type='list', formula1='"Must-Have Only,Full Cost (incl. Optional/Conditional)"',
+                                showErrorMessage=True, errorTitle='Invalid selection',
+                                error='Pick "Must-Have Only" or "Full Cost (incl. Optional/Conditional)" from the dropdown.')
+    ws.add_data_validation(dv_toggle)
+    dv_toggle.add(toggle_cell)
+    TOGGLE_CELL = f'$B${r}'
+    r += 1
+    ws.cell(row=r, column=1,
+            value=('Pick from the dropdown — Total Profit Value, % Profit, the Fill-up Scenarios table, and Key '
+                   'Figures (4)/(6)/(7) below all switch instantly between the Must-Have-only floor and the full cost '
+                   'picture (incl. Optional/Conditional items). No macro, just recalculates on selection.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:E{r}')
+    r += 2
+
+    def _selected(label, must_cell, full_cell):
+        nonlocal r
+        ws.cell(row=r, column=1, value=label).font = Font(size=9, color='7F7F7F')
+        c = ws.cell(row=r, column=2,
+                    value=f'=IF({TOGGLE_CELL}="Full Cost (incl. Optional/Conditional)",{full_cell},{must_cell})')
+        c.number_format = MONEY_FMT
+        c.font = Font(size=9, color='7F7F7F')
+        cell_ref = f'B{r}'
+        r += 1
+        return cell_ref
+
+    SELECTED_STAFF_CELL = _selected('Selected Staff Cost (per toggle, VND)', MUST_HAVE_CELLS['staff'], FULL_COST_CELLS['staff'])
+    SELECTED_OPEX_CELL = _selected('Selected OPEX (per toggle, VND)', MUST_HAVE_CELLS['opex'], FULL_COST_CELLS['opex'])
+    SELECTED_CAPEX_CELL = _selected('Selected Capex (per toggle, VND)', MUST_HAVE_CELLS['capex'], FULL_COST_CELLS['capex'])
+    r += 1
+
+    section(ws, r, 'TOTAL PROFIT VALUE (per Cost Basis toggle above), AT 100% FILL', ncols=5); r += 1
+    ws.cell(row=r, column=1, value='Total Profit Value = Mgmt Fee Revenue (3) − Selected Staff (4) − Selected OPEX (7) − Selected Capex (6)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2,
-                value=f"='Management Fee'!{mgmt['annual_revenue_cell']}-{MUST_HAVE_CELLS['staff']}"
-                      f"-{MUST_HAVE_CELLS['opex']}-{MUST_HAVE_CELLS['capex']}")
+                value=f"='Management Fee'!{mgmt['annual_revenue_cell']}-{SELECTED_STAFF_CELL}"
+                      f"-{SELECTED_OPEX_CELL}-{SELECTED_CAPEX_CELL}")
     c.number_format = MONEY_FMT
     c.font = Font(bold=True, size=12)
     c.fill = HIGHLIGHT_FILL
     PROFIT_CELL = f'B{r}'
     r += 1
-    ws.cell(row=r, column=1, value='% Profit (Total Profit Value ÷ Must-Have Costs) (9)').font = Font(bold=True, size=12)
+    ws.cell(row=r, column=1, value='% Profit (Total Profit Value ÷ Selected Costs) (9)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2,
-                value=f"={PROFIT_CELL}/({MUST_HAVE_CELLS['staff']}+{MUST_HAVE_CELLS['opex']}+{MUST_HAVE_CELLS['capex']})")
+                value=f"={PROFIT_CELL}/({SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL})")
     c.number_format = '+0.0%;-0.0%'
     c.font = Font(bold=True, size=12)
     c.fill = HIGHLIGHT_FILL
     PROFIT_PCT_CELL = f'B{r}'
     r += 1
-    ws.cell(row=r, column=1, value=('Must-Have costs only — Conditional (pool/garden-dependent) and Optional (service-'
-                                     'tier choices, e.g. Shift Leader/Customer Service/Reception) costs are excluded '
-                                     'entirely from this bottom line, not just discounted. See Cost Priority sheet for '
-                                     'the full cost picture and exactly which items are excluded here. At full (100%) '
-                                     'fill — see FILL-UP SCENARIOS below for earlier-stage ramp-up. Year 1 specific, '
-                                     'not steady-state (would exclude the one-time Capex).')
+    ws.cell(row=r, column=1, value=('"Must-Have Only" excludes Conditional (pool/garden-dependent) and Optional '
+                                     '(service-tier choices, e.g. Shift Leader/Customer Service/Reception) costs '
+                                     'entirely, not just discounts them — see Cost Priority sheet for exactly which '
+                                     'items. "Full Cost" includes everything. At full (100%) fill — see FILL-UP '
+                                     'SCENARIOS below for earlier-stage ramp-up. Year 1 specific, not steady-state '
+                                     '(would exclude the one-time Capex).')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:E{r}')
@@ -1917,20 +1968,21 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         mgmt=f"'Management Fee'!{mgmt['annual_revenue_cell']}",
         extra=f"'Additional Revenue'!{extra_revenue['annual_total_cell']}",
     )
-    section(ws, r, 'FILL-UP SCENARIOS — revenue ramps with fill %, Must-Have costs assumed at full regardless', ncols=6); r += 1
+    section(ws, r, 'FILL-UP SCENARIOS — revenue ramps with fill %, costs (per toggle above) assumed at full regardless', ncols=6); r += 1
     ws.cell(row=r, column=1,
             value=('Simplifying assumption, not derived from real data: Mgmt Fee Revenue (3) scales with fill % (fewer '
-                   'paying units at lower fill); Must-Have Staff (4)/OPEX (7)/Capex (6) are held at full regardless of '
-                   'fill % (the building still needs full must-have staffing and utilities even during ramp-up). Total '
-                   'Profit Value here uses the SAME components as the figure above, so the 100% row matches it exactly. '
-                   'Additional Revenue (8) is shown alongside for reference, scaled the same way, but is NOT added into '
-                   'the Total column (see NOTE 8).')
+                   'paying units at lower fill); Staff (4)/OPEX (7)/Capex (6) — per the Cost Basis toggle above — are '
+                   'held at full regardless of fill % (the building still needs full staffing and utilities even '
+                   'during ramp-up, at whichever service tier the toggle selects). Total Profit Value here uses the '
+                   'SAME components as the figure above, so the 100% row matches it exactly. Additional Revenue (8) is '
+                   'shown alongside for reference, scaled the same way, but is NOT added into the Total column (see '
+                   'NOTE 8).')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:F{r}')
     ws.row_dimensions[r].height = 55
     r += 1
-    fill_headers = ['Fill %', 'Mgmt Fee Revenue (3)', 'Must-Have Staff (4) + OPEX (7) + Capex (6)',
+    fill_headers = ['Fill %', 'Mgmt Fee Revenue (3)', 'Staff (4) + OPEX (7) + Capex (6) — per toggle',
                      'Total Profit Value', '% Profit', 'Additional Revenue (8) — reference only']
     for c, h in enumerate(fill_headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
@@ -1946,7 +1998,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         c2 = ws.cell(row=r, column=2, value=f"={NET_TOTAL_CELLS['mgmt']}*A{r}")
         c2.number_format = MONEY_FMT
         c2.border = BORDER
-        c3 = ws.cell(row=r, column=3, value=f"={MUST_HAVE_CELLS['staff']}+{MUST_HAVE_CELLS['opex']}+{MUST_HAVE_CELLS['capex']}")
+        c3 = ws.cell(row=r, column=3, value=f"={SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL}")
         c3.number_format = MONEY_FMT
         c3.border = BORDER
         c4 = ws.cell(row=r, column=4, value=f'=B{r}-C{r}')
@@ -1972,12 +2024,12 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         ('(1) Derived Apartment Rate (VND/m²/mo)', mgmt['derived_rate']),
         ('(2) Monthly Management Fee Revenue (VND)', f"='Management Fee'!{mgmt['monthly_revenue_cell']}"),
         ('(3) Annual Management Fee Revenue (VND)', f"='Management Fee'!{mgmt['annual_revenue_cell']}"),
-        ('(4) Annual Staff Cost — Must-Have only (VND)', f"={MUST_HAVE_CELLS['staff']}"),
+        ('(4) Annual Staff Cost — per Cost Basis toggle (VND)', f"={SELECTED_STAFF_CELL}"),
         ('(5) Annual Service Reference Cost (VND)', f"=Service!{service['annual_total_cell']}"),
-        ('(6) Capex — Must-Have only (VND)', f"={MUST_HAVE_CELLS['capex']}"),
-        ('(7) Annual OPEX — Must-Have only (VND)', f"={MUST_HAVE_CELLS['opex']}"),
+        ('(6) Capex — per Cost Basis toggle (VND)', f"={SELECTED_CAPEX_CELL}"),
+        ('(7) Annual OPEX — per Cost Basis toggle (VND)', f"={SELECTED_OPEX_CELL}"),
         ('(8) Annual Additional Revenue (VND)', f"='Additional Revenue'!{extra_revenue['annual_total_cell']}"),
-        ('(9) % Profit (Total Profit Value ÷ Must-Have Costs)', f'={PROFIT_PCT_CELL}'),
+        ('(9) % Profit (Total Profit Value ÷ Selected Costs)', f'={PROFIT_PCT_CELL}'),
     ]
     for label, val in rows:
         ws.cell(row=r, column=1, value=label).font = Font(bold=True)
@@ -1991,12 +2043,12 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     notes = [
         '(1) Derived from the 2 nearest real comparables by Total NFA — see Management Fee sheet for which ones and the gap vs. any known real rate.',
         '(2)/(3) Apartment NFA × Derived Rate (1); Annual = Monthly × 12. IN Total Profit Value.',
-        '(4) Must-Have-only bottom-up roster cost — real per-position rates × real headcount, EXCLUDING Optional roles (Shift Leader/Customer Service/Reception/Building Executive) and Conditional roles (Landscape/Pool/Amenities Attendant). Full breakdown on Cost Priority sheet. IN Total Profit Value.',
-        '(5) Top-down citywide-post reference (Security/Cleaning/Landscape only, plus a market-rate cross-check for every other position) — NOT in Total Profit Value. Excluded because it prices the same roles as (4) a second way; including both would double-count them.',
-        '(6) Must-Have-only Capex (M&E Equipment + MO Equipment), EXCLUDING Conditional (Amenity Area) and Mixed (Public Area) categories. One-time, PM-entered quantities — see Capex/Cost Priority sheets. IN Total Profit Value (as a Year-1 lump sum, not amortized).',
-        '(7) Must-Have-only OPEX (Electricity/Water/Diesel/Repairs & Maintenance/Administrative Expense), EXCLUDING Conditional Pool Salt. Real but thin data (n=1 per category — see OPEX sheet). IN Total Profit Value.',
-        '(8) Real Parking Fee (at 100% occupancy — a ceiling, not a realistic average) + Elevator Advertising (real rate, Qty PRE-FILLED from an assumption, still PM-editable) + a fixed-lease parking alternative with a computed breakeven fill % — see Additional Revenue sheet. NOT in Total Profit Value.',
-        '(9) Total Profit Value ÷ (Must-Have Staff + Must-Have OPEX + Must-Have Capex) — how much profit per VND of unavoidable cost, not per VND of revenue.',
+        '(4) Bottom-up roster cost — real per-position rates × real headcount. "Must-Have Only" excludes Optional roles (Shift Leader/Customer Service/Reception/Building Executive) and Conditional roles (Landscape/Pool/Amenities Attendant); "Full Cost" includes them. Full breakdown on Cost Priority sheet. IN Total Profit Value.',
+        '(5) Top-down citywide-post reference (Security/Cleaning/Landscape only, plus a market-rate cross-check for every other position) — NOT in Total Profit Value, and NOT affected by the toggle. Excluded because it prices the same roles as (4) a second way; including both would double-count them.',
+        '(6) Capex (M&E Equipment + MO Equipment always; "Full Cost" adds Conditional Amenity Area + Mixed Public Area). One-time, PM-entered quantities — see Capex/Cost Priority sheets. IN Total Profit Value (as a Year-1 lump sum, not amortized).',
+        '(7) OPEX (Electricity/Water/Diesel/Repairs & Maintenance/Administrative Expense always; "Full Cost" adds Conditional Pool Salt). Real but thin data (n=1 per category — see OPEX sheet). IN Total Profit Value.',
+        '(8) Real Parking Fee (at 100% occupancy — a ceiling, not a realistic average) + Elevator Advertising (real rate, Qty PRE-FILLED from an assumption, still PM-editable) + a fixed-lease parking alternative with a computed breakeven fill % — see Additional Revenue sheet. NOT in Total Profit Value, and NOT affected by the toggle.',
+        '(9) Total Profit Value ÷ (Selected Staff + Selected OPEX + Selected Capex, per the Cost Basis toggle) — how much profit per VND of cost at the selected service tier, not per VND of revenue.',
     ]
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
@@ -2060,6 +2112,31 @@ def _strip_onedrive_zip_artifacts(path, quiet_checks_needed=2, poll_interval=2.5
         print('Could not check/strip zip artifacts (non-fatal):', e)
 
 
+def _fix_fake_formula_strings(wb):
+    """
+    Safety net for a real bug class: a plain-text annotation/note string that happens to
+    start with "=" (e.g. "= Car Slots × 12.5 m²/slot...") gets written by openpyxl as an
+    actual FORMULA (any cell string value starting with "=" is serialized as <f>...</f>),
+    and Excel then fails to parse the prose as a formula and strips it on open ("We found
+    a problem with some content... Removed Records: Formula from ..."). Every real formula
+    in this file immediately follows "=" with a reference/function/quote/paren/digit, never
+    whitespace — so "=" followed by a space is a reliable, cheap signal that this is prose
+    that leaked into formula position, not an intentional formula. Strips the leading "="
+    so it saves as plain text instead.
+    """
+    import re
+    fixed = 0
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if isinstance(v, str) and re.match(r'^=\s', v):
+                    cell.value = v[1:].lstrip()
+                    fixed += 1
+    if fixed:
+        print(f'Fixed {fixed} text annotation(s) that were accidentally in formula position (leading "= ").')
+
+
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
 
@@ -2078,6 +2155,8 @@ def main():
     extra_revenue = build_additional_revenue_sheet(wb, project)
     cost_priority = build_cost_priority_sheet(wb, project, staff, capex, opex)
     build_summary_sheet(ws_summary, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority)
+
+    _fix_fake_formula_strings(wb)
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     import tempfile, shutil
