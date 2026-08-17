@@ -1230,6 +1230,7 @@ def build_additional_revenue_sheet(wb, project):
     c2.number_format = '0.0%'
     c2.font = Font(bold=True)
     c2.fill = HIGHLIGHT_FILL
+    BREAKEVEN_PCT_CELL = f'B{r}'
     ws.cell(row=r, column=3,
             value=(f'(Lease revenue at average rate, annualized) ÷ (Car parking fee revenue at 100% fill, annualized). '
                    f'Below this fill %, the fixed lease ({lease_avg_annual:,.0f}/year at the average rate) exceeds what '
@@ -1313,7 +1314,8 @@ def build_additional_revenue_sheet(wb, project):
     for col, w in {'A': 40, 'B': 22, 'C': 20, 'D': 20, 'E': 20, 'F': 60}.items():
         ws.column_dimensions[col].width = w
 
-    return dict(annual_total_cell=TOTAL_ANNUAL_CELL)
+    return dict(annual_total_cell=TOTAL_ANNUAL_CELL, lease_breakeven_cell=f"'Additional Revenue'!{BREAKEVEN_PCT_CELL}",
+                advertising_annual_cell=f"'Additional Revenue'!{AD_ANNUAL_CELL}")
 
 
 # ============================================================================================
@@ -1853,6 +1855,200 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
                 opex_total_cell=f"'Cost Priority'!B{opex_total_row}")
 
 
+def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
+    """How to avoid negative profit before the building reaches full occupancy. Every number in
+    LEVERS 1-4 is a live cross-sheet formula reading cells this workbook already computes
+    elsewhere (Cost Basis toggle, Cost Priority necessity split, the parking-lease alternative,
+    elevator advertising) — nothing new is estimated here. LEVER 5 is explicitly labeled
+    ADVISORY: real industry practice, not modeled as a workbook formula, because none of it
+    reduces to a cell in THIS project's real source data the way Levers 1-4 do."""
+    ws = wb.create_sheet('Year 1 Strategy')
+    title_block(ws, 'Year 1 Strategy — Avoiding Negative Profit Before Full Occupancy',
+                'Real projects rarely open at 90%+ fill. This sheet lays out how to still clear Year 1 while '
+                'ramping up — Levers 1-4 are live formulas reading numbers already built into this workbook; '
+                'Lever 5 is real-world practice this workbook doesn\'t model with a cell. See NOTES at the bottom.',
+                'A1:F1')
+
+    MUST_HAVE = dict(staff=cost_priority['staff_must_have_cell'], capex=cost_priority['capex_must_have_cell'],
+                      opex=cost_priority['opex_must_have_cell'])
+    FULL = dict(staff=cost_priority['staff_total_cell'], capex=cost_priority['capex_total_cell'],
+                opex=cost_priority['opex_total_cell'])
+    MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
+
+    r = 4
+    section(ws, r, 'THE PROBLEM, IN NUMBERS', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('Below the breakeven fill % (A), Must-Have-only staffing still loses money — no lever below '
+                   'closes that gap on its own, only occupancy or a developer subsidy does. Between (A) and (B), '
+                   'switching to Must-Have-only staffing (Lever 1) is the difference between profit and loss at '
+                   'that fill level. Above (B), even the full service tier clears Year 1.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    ws.cell(row=r, column=1, value='(A) Breakeven Fill % — Must-Have Only staffing').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"=({MUST_HAVE['staff']}+{MUST_HAVE['opex']}+{MUST_HAVE['capex']})/{MGMT_100}")
+    c.number_format = '0.0%'
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    A_CELL = f'B{r}'
+    r += 1
+    ws.cell(row=r, column=1, value='(B) Breakeven Fill % — Full Cost (all service tiers)').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"=({FULL['staff']}+{FULL['opex']}+{FULL['capex']})/{MGMT_100}")
+    c.number_format = '0.0%'
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    B_CELL = f'B{r}'
+    r += 2
+
+    section(ws, r, 'LEVER 1 — Cost Basis Toggle (Summary sheet, cell B11)', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=(f'Switching the Summary sheet\'s toggle to "Must-Have Only" during ramp-up drops the breakeven '
+                   f'fill % from (B) to (A) above — a real, computed gap, not a rule of thumb. It works because '
+                   f'Optional roles (Shift Leader especially — a 24/7-coverage role on the same scale as Security, '
+                   f'not a minor add-on) and Conditional amenity-dependent roles can be phased in only once '
+                   f'occupancy or amenity usage actually justifies them, rather than staffed from day one.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 55
+    r += 1
+    ws.cell(row=r, column=1, value='Cost deferred by staying Must-Have-only (Optional + Conditional, all categories)').font = Font(bold=True)
+    c = ws.cell(row=r, column=2,
+                value=f"=({FULL['staff']}-{MUST_HAVE['staff']})+({FULL['opex']}-{MUST_HAVE['opex']})+({FULL['capex']}-{MUST_HAVE['capex']})")
+    c.number_format = MONEY_FMT
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    r += 2
+
+    section(ws, r, 'LEVER 2 — Phase Non-Essential Capex (Cost Priority sheet)', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('The Conditional/Mixed Capex categories (Amenity Area, Public Area) are one-time purchases, not '
+                   'recurring cost — deferring them doesn\'t just lower Year 1 cost, it delays the cash outlay '
+                   'itself until amenity usage or move-ins justify buying the equipment.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    ws.cell(row=r, column=1, value='Deferrable Capex (Conditional + Mixed categories, VND)').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"={FULL['capex']}-{MUST_HAVE['capex']}")
+    c.number_format = MONEY_FMT
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    r += 2
+
+    section(ws, r, 'LEVER 3 — Lease Parking to an Operator Instead of Per-Vehicle Billing (Additional Revenue sheet)', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('A fixed monthly lease to a parking operator trades upside at high occupancy for a guaranteed '
+                   'floor at low occupancy — exactly what Year 1 needs. Below the breakeven % below, leasing '
+                   'collects more than per-vehicle billing would at that same fill level (real comparable data, '
+                   'not a rule of thumb — see Additional Revenue sheet for the 3 real comparables behind it).')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    ws.cell(row=r, column=1, value='Breakeven fill % — below this, leasing beats per-vehicle billing').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"={extra_revenue['lease_breakeven_cell']}")
+    c.number_format = '0.0%'
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    r += 2
+
+    section(ws, r, 'LEVER 4 — Elevator Advertising (Additional Revenue sheet)', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('Ad revenue from elevator/lobby screens doesn\'t depend on residential fill % the way the '
+                   'management fee does — it\'s driven by foot traffic and device placement, so it\'s cash flow '
+                   'that doesn\'t wait for occupancy to ramp up.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    ws.cell(row=r, column=1, value='Annual elevator advertising revenue (VND)').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"={extra_revenue['advertising_annual_cell']}")
+    c.number_format = MONEY_FMT
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    r += 2
+
+    section(ws, r, 'LEVER 5 — Real Industry Practices (ADVISORY — not modeled as a formula in this workbook)', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('These are genuine, commonly-used practices in Vietnamese residential management, but none of '
+                   'them reduce to a cell in this project\'s real source data the way Levers 1-4 do — shown here '
+                   'as advisory context, not computed figures.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 25
+    r += 1
+    advisory_headers = ['Practice', 'How it helps Year 1']
+    for c, h in enumerate(advisory_headers, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    ws.merge_cells(f'B{r}:F{r}')
+    r += 1
+    advisory_rows = [
+        ('Developer revenue-guarantee / subsidy agreement',
+         'During handover ramp-up, the developer (not the PM company) contractually covers the gap between actual '
+         'fee collections and the operating-cost floor for an agreed period — the developer, not the building, '
+         'carries unsold/unoccupied-unit risk.'),
+        ('Handover-linked fee collection, front-loaded',
+         'Management fee is typically collectible from each unit\'s own handover date, not building completion — '
+         'developers commonly accelerate handover schedules specifically to front-load fee collection ahead of '
+         'full occupancy.'),
+        ('Tiered / early-bird parking pricing',
+         'A discounted monthly rate for the first 6-12 months accelerates parking lease-up, raising realized '
+         'occupancy faster than flat pricing would.'),
+        ('External / non-resident parking rental',
+         'Renting excess slots to nearby offices or non-owner residents fills capacity independent of the building\'s '
+         'own move-in pace, rather than waiting for resident demand alone.'),
+    ]
+    for practice, why in advisory_rows:
+        ws.cell(row=r, column=1, value=practice).border = BORDER
+        ws.cell(row=r, column=1).alignment = LEFT
+        ws.cell(row=r, column=1).font = Font(bold=True)
+        ws.merge_cells(f'B{r}:F{r}')
+        c2 = ws.cell(row=r, column=2, value=why)
+        c2.border = BORDER
+        c2.alignment = LEFT
+        for col in range(2, 7):
+            ws.cell(row=r, column=col).border = BORDER
+        ws.row_dimensions[r].height = 40
+        r += 1
+    r += 1
+
+    section(ws, r, 'NOTES', ncols=4); r += 1
+    notes = [
+        '(A)/(B) Both are LIVE formulas: (Selected costs at that basis) ÷ (Management Fee Revenue at 100% fill). They '
+        'move automatically if project inputs (NFA, headcount, rates) change and the workbook is regenerated.',
+        'Lever 1 pulls the same Cost Priority "of which Must-Have"/category-total cells the Summary sheet\'s toggle '
+        'uses — necessity classification (Must-Have/Conditional/Optional) is domain judgment, not extracted from a '
+        'real data source; see Cost Priority sheet for exactly which items are in which bucket.',
+        'Lever 2 is the same VND gap as Lever 1\'s Capex component, isolated here because — unlike Staff/OPEX, which '
+        'are recurring — deferring Capex delays an actual one-time cash outlay, not just a Year 1 expense line.',
+        'Levers 3-4 are real data (see Additional Revenue sheet for the comparables and rates behind them); neither '
+        'is currently added into the Summary sheet\'s Total Profit Value (see that sheet\'s NOTE 8).',
+        'Lever 5 is included for completeness because it\'s standard industry practice, not because this workbook '
+        'has real data behind it for THIS project — treat it as a checklist to raise with the developer/client, not '
+        'a number to plug in.',
+    ]
+    for note in notes:
+        ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
+        ws.cell(row=r, column=1).alignment = LEFT
+        ws.merge_cells(f'A{r}:F{r}')
+        ws.row_dimensions[r].height = 28
+        r += 1
+
+    for col, w in {'A': 46, 'B': 20, 'C': 20, 'D': 20, 'E': 20, 'F': 20}.items():
+        ws.column_dimensions[col].width = w
+
+
 # ============================================================================================
 def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority):
     """Key Figures rows are numbered (1)-(9) and the Total Profit Value formula/scenario table
@@ -2155,6 +2351,7 @@ def main():
     extra_revenue = build_additional_revenue_sheet(wb, project)
     cost_priority = build_cost_priority_sheet(wb, project, staff, capex, opex)
     build_summary_sheet(ws_summary, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority)
+    build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue)
 
     _fix_fake_formula_strings(wb)
 
