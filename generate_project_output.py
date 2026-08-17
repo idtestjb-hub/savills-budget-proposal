@@ -2010,6 +2010,56 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
 
 
 # ============================================================================================
+def _strip_onedrive_zip_artifacts(path, quiet_checks_needed=2, poll_interval=2.5, max_polls=8):
+    """
+    OneDrive/SharePoint sync silently patches .xlsx files at some variable delay after
+    they land in a synced document-library folder (injecting SharePoint content-type
+    metadata such as customXml/docProps-custom.xml). Its patch tool leaves behind extra
+    zip entries literally named "[trash]/NNNN.dat" — tiny, unreferenced (not listed in
+    [Content_Types].xml or any .rels file) garbage entries that Excel's strict OOXML
+    parser flags as unreadable content, forcing a "we found a problem... repair?" dialog
+    on open. The injection delay isn't fixed (observed anywhere from under 1.5s to several
+    seconds), so this polls repeatedly, re-stripping each time trash reappears, and only
+    stops once it sees `quiet_checks_needed` consecutive clean checks (or hits
+    max_polls). Repacking without the trash entries leaves every real part, including the
+    legitimate SharePoint metadata, untouched.
+    """
+    import zipfile, time
+
+    def _strip_once():
+        with zipfile.ZipFile(path, 'r') as zin:
+            names = zin.namelist()
+            trash = [n for n in names if n.startswith('[trash]/')]
+            if not trash:
+                return 0
+            tmp = path + '.repack.tmp'
+            with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+                for name in names:
+                    if name not in trash:
+                        zout.writestr(name, zin.read(name))
+        os.replace(tmp, path)
+        return len(trash)
+
+    quiet_streak = 0
+    total_stripped = 0
+    try:
+        for _ in range(max_polls):
+            time.sleep(poll_interval)
+            n = _strip_once()
+            if n:
+                total_stripped += n
+                quiet_streak = 0
+            else:
+                quiet_streak += 1
+                if quiet_streak >= quiet_checks_needed:
+                    break
+        if total_stripped:
+            print(f'Stripped {total_stripped} OneDrive-injected "[trash]" zip artifact(s) '
+                  f'from (stable after {quiet_streak} clean check(s)):', path)
+    except Exception as e:
+        print('Could not check/strip zip artifacts (non-fatal):', e)
+
+
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
 
@@ -2037,6 +2087,7 @@ def main():
     try:
         shutil.copyfile(local_out, OUTPUT_PATH)
         print('Copied into place:', OUTPUT_PATH)
+        _strip_onedrive_zip_artifacts(OUTPUT_PATH)
     except PermissionError as e:
         print('Could not copy into place yet (still locked):', e)
         print('Local copy remains valid at:', local_out)
