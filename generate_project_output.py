@@ -2279,6 +2279,26 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
 
 YEAR_FILL_PATH = [('Year 1', 0.50), ('Year 2', 0.70), ('Year 3', 0.90), ('Year 4', 1.00)]
 
+# Smooth month-by-month ramp, anchored at the SAME 4 year-end fill % points used everywhere else
+# in this workbook (0.50/0.70/0.90/1.00), linearly interpolated between them starting from 0% at
+# month 0 — one added assumption (the 0% starting point), disclosed wherever this is used. Flat
+# per-year averages understate how bad early months really are (a real building doesn't jump
+# straight to 50% fill on day 1 of Year 1), so this gives more realistic month-level resolution.
+_MONTH_ANCHORS = [(0, 0.0), (12, 0.50), (24, 0.70), (36, 0.90), (48, 1.00)]
+
+
+def _monthly_fill_path():
+    path = []
+    for month in range(1, 49):
+        for (m0, f0), (m1, f1) in zip(_MONTH_ANCHORS, _MONTH_ANCHORS[1:]):
+            if m0 < month <= m1:
+                fill = f0 + (f1 - f0) * (month - m0) / (m1 - m0)
+                break
+        year_num = (month - 1) // 12 + 1
+        month_in_year = (month - 1) % 12 + 1
+        path.append((month, f'Y{year_num} M{month_in_year}', fill))
+    return path
+
 
 def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy):
     """Tracks whether the BUILDING's own operating account — resident collections vs. Staff/OPEX/
@@ -2351,6 +2371,61 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     ws.conditional_formatting.add(f'F{year_first_row}:F{year_last_row}', red_rule)
     r += 1
 
+    section(ws, r, 'MONTHLY BREAKDOWN (48 months, smooth ramp — see NOTES for the interpolation assumption)', ncols=7); r += 1
+    ws.cell(row=r, column=1,
+            value=('Fill % ramps smoothly month to month toward the SAME 50/70/90/100% year-end anchors used above '
+                   '— starting near 0%, not flat for all 12 months of Year 1. This shows worse early-month numbers '
+                   'than the flat yearly average above, on purpose: a real building doesn\'t open at 50% fill on '
+                   'day 1.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:G{r}')
+    ws.row_dimensions[r].height = 28
+    r += 1
+    m_headers = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Monthly Operating Cost (VND)',
+                 'Monthly Surplus / (Deficit) (VND)', 'Margin (Profit ÷ Revenue)', 'Cumulative Balance (VND)']
+    for c, h in enumerate(m_headers, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    month_first_row = r
+    prev_cum_cell = None
+    for month_num, month_label, fill in _monthly_fill_path():
+        ws.cell(row=r, column=1, value=month_label).border = BORDER
+        ws.cell(row=r, column=1).alignment = CENTER
+        c2 = ws.cell(row=r, column=2, value=fill)
+        c2.number_format = '0.0%'
+        c2.border = BORDER
+        c2.alignment = CENTER
+        c3 = ws.cell(row=r, column=3, value=f'=({MGMT_100}/12)*B{r}')
+        c3.number_format = MONEY_FMT
+        c3.border = BORDER
+        c4 = ws.cell(row=r, column=4, value=f'={OPERATING_COST}/12')
+        c4.number_format = MONEY_FMT
+        c4.border = BORDER
+        c5 = ws.cell(row=r, column=5, value=f'=C{r}-D{r}')
+        c5.number_format = MONEY_FMT
+        c5.border = BORDER
+        c6 = ws.cell(row=r, column=6, value=f'=E{r}/C{r}')
+        c6.number_format = '+0.0%;-0.0%'
+        c6.border = BORDER
+        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
+        c7 = ws.cell(row=r, column=7, value=cum_formula)
+        c7.number_format = MONEY_FMT
+        c7.border = BORDER
+        c7.font = Font(bold=True)
+        prev_cum_cell = f'G{r}'
+        r += 1
+    month_last_row = r - 1
+    ws.conditional_formatting.add(f'G{month_first_row}:G{month_last_row}',
+                                   FormulaRule(formula=[f'G{month_first_row}>=0'], fill=PatternFill('solid', fgColor='C6EFCE')))
+    ws.conditional_formatting.add(f'G{month_first_row}:G{month_last_row}',
+                                   FormulaRule(formula=[f'G{month_first_row}<0'], fill=PatternFill('solid', fgColor='FFC7CE')))
+    r += 1
+
     section(ws, r, 'CROSS-CHECK — breakeven fill %, from the Year 1 Strategy sheet', ncols=5); r += 1
     ws.cell(row=r, column=1,
             value=('The year the cumulative balance above turns green (≥0) should be the first year whose Fill % '
@@ -2381,6 +2456,10 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         'profit target on top and never structurally exceeds 100%-fill revenue by construction.',
         'Year 1-4 / 50-100% fill is the same disclosed simplifying assumption used on the Summary sheet\'s Fill-up '
         'Scenarios and the Year 1 Strategy sheet — not a contractually defined ramp-up schedule.',
+        'The Monthly Breakdown adds ONE more assumption on top of that: fill % ramps smoothly (linearly) between '
+        'the same year-end anchors, starting from 0% at month 0, instead of jumping straight to each year\'s value. '
+        'The yearly table above holds fill % flat within each year, which understates how bad early months really '
+        'are — the monthly table is the more realistic view for that reason.',
         'Every VND figure here is a live formula reading the Summary sheet\'s Cost Basis toggle output — nothing '
         'is re-derived independently.',
     ]
@@ -2391,7 +2470,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         ws.row_dimensions[r].height = 40
         r += 1
 
-    for col, w in {'A': 12, 'B': 12, 'C': 22, 'D': 30, 'E': 22, 'F': 22}.items():
+    for col, w in {'A': 12, 'B': 12, 'C': 22, 'D': 30, 'E': 22, 'F': 22, 'G': 22}.items():
         ws.column_dimensions[col].width = w
 
 
@@ -2534,6 +2613,52 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         r += 1
     r += 1
 
+    section(ws, r, 'MONTHLY BREAKDOWN — the rollover receivable (48 months, smooth ramp — see NOTES)', ncols=6); r += 1
+    ws.cell(row=r, column=1,
+            value=('Same smooth month-by-month fill % ramp used on the Owner Operating Position sheet, applied to '
+                   'the receivable above. Full Package Owed is held flat per month (1/12th of the annual figure) '
+                   'since Savills\' guaranteed package doesn\'t itself ramp with fill %.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 28
+    r += 1
+    m_headers2 = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Monthly Full Package Owed (VND)',
+                  'Monthly Shortfall (VND)', 'Cumulative Receivable Owed by Owner (VND)']
+    for c, h in enumerate(m_headers2, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    prev_cum_cell = None
+    for month_num, month_label, fill in _monthly_fill_path():
+        ws.cell(row=r, column=1, value=month_label).border = BORDER
+        ws.cell(row=r, column=1).alignment = CENTER
+        c2 = ws.cell(row=r, column=2, value=fill)
+        c2.number_format = '0.0%'
+        c2.border = BORDER
+        c2.alignment = CENTER
+        c3 = ws.cell(row=r, column=3, value=f'=({MGMT_100}/12)*B{r}')
+        c3.number_format = MONEY_FMT
+        c3.border = BORDER
+        c4 = ws.cell(row=r, column=4, value=f'={FULL_PACKAGE_CELL}/12')
+        c4.number_format = MONEY_FMT
+        c4.border = BORDER
+        c5 = ws.cell(row=r, column=5, value=f'=D{r}-C{r}')
+        c5.number_format = MONEY_FMT
+        c5.border = BORDER
+        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
+        c6 = ws.cell(row=r, column=6, value=cum_formula)
+        c6.number_format = MONEY_FMT
+        c6.border = BORDER
+        c6.font = Font(bold=True)
+        c6.fill = HIGHLIGHT_FILL
+        prev_cum_cell = f'F{r}'
+        r += 1
+    r += 1
+
     section(ws, r, 'NOTES', ncols=4); r += 1
     notes = [
         'Two DIFFERENT lines, both real: Savills\' recognized profit (top table) is always positive by design — '
@@ -2549,6 +2674,9 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         'float-financing the shortfall and carries real credit risk if the owner can\'t eventually cover it.',
         'Year 1-4 / 50-100% fill is the same disclosed simplifying assumption used across this workbook — not a '
         'contractually defined ramp-up schedule.',
+        'The Monthly Breakdown adds ONE more assumption: fill % ramps smoothly (linearly) between the same '
+        'year-end anchors, starting from 0% at month 0, instead of jumping straight to each year\'s value — same '
+        'interpolation as the Owner Operating Position sheet, so the two stay comparable month for month.',
     ]
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
