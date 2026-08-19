@@ -2048,6 +2048,9 @@ def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
     for col, w in {'A': 46, 'B': 20, 'C': 20, 'D': 20, 'E': 20, 'F': 20}.items():
         ws.column_dimensions[col].width = w
 
+    return dict(breakeven_must_have_cell=f"'Year 1 Strategy'!{A_CELL}",
+                breakeven_full_cost_cell=f"'Year 1 Strategy'!{B_CELL}")
+
 
 # ============================================================================================
 def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority):
@@ -2274,33 +2277,183 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
                 margin_cell=f"'Summary'!{MARGIN_CELL}")
 
 
-def build_fee_rollover_sheet(wb, project, mgmt, summary):
-    """Models the agency-model mechanic described by the PM: Savills is always paid its FULL
-    package (staff cost reimbursement + its own service fee/profit) regardless of actual fill %;
-    any gap between actual resident collections and that full package is a deficit owed by the
-    OWNER, not a Savills loss. Every number here is a live formula reading Summary sheet cells
-    (so it stays in sync with the Cost Basis toggle) — nothing here re-derives Staff/OPEX/Capex
-    independently. What this sheet does NOT model, because it isn't yet confirmed: the actual
-    settlement mechanism/timing (reserve fund vs. periodic cash-call vs. true rollover to contract
-    end) and whether Savills carries real timing risk in the meantime — see NOTES."""
-    ws = wb.create_sheet('Fee Rollover')
-    title_block(ws, 'Fee Rollover — Savills Always Collects Its Full Package',
-                'Agency-model mechanic: Savills\' staff-cost reimbursement + its own service fee/profit are '
-                'guaranteed regardless of fill % — any shortfall vs. actual resident collections is the OWNER\'S '
-                'deficit, tracked here, not a Savills loss. Settlement mechanism/timing not yet confirmed — see '
-                'NOTES.', 'A1:F1')
+YEAR_FILL_PATH = [('Year 1', 0.50), ('Year 2', 0.70), ('Year 3', 0.90), ('Year 4', 1.00)]
+
+
+def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy):
+    """Tracks whether the BUILDING's own operating account — resident collections vs. Staff/OPEX/
+    Capex reimbursement, deliberately EXCLUDING Savills' own fee — becomes self-sustaining as fill
+    ramps year over year, with a running cumulative balance. Unlike the Savills Fee Position sheet,
+    this one genuinely CAN and does cross from deficit to surplus within the model: Collections
+    scale with fill % up to 100%, while the operating cost floor (no Savills profit layered on
+    top) sits below that ceiling once fill passes the breakeven % already computed on the Year 1
+    Strategy sheet. Cross-references that sheet's (A)/(B) cells rather than recomputing them."""
+    ws = wb.create_sheet('Owner Operating Position')
+    title_block(ws, "Owner Operating Position — Does the Building's Own Account Self-Fund?",
+                'Resident collections vs. the building\'s own Staff/OPEX/Capex reimbursement (per the Cost Basis '
+                'toggle, NOT including Savills\' own fee) — tracked year by year as fill ramps, with a running '
+                'cumulative balance. Years/fill path are a disclosed simplifying assumption — see NOTES.', 'A1:F1')
+
+    MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
+    OPERATING_COST = f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']}+{summary['selected_capex_cell']})"
+
+    r = 4
+    section(ws, r, 'YEAR-BY-YEAR OPERATING POSITION', ncols=6); r += 1
+    ws.cell(row=r, column=1,
+            value=('Simplifying assumption, not derived from a real ramp-up schedule: treats the same 50/70/90/100% '
+                   'fill path used elsewhere in this workbook as 4 sequential years, one stage per year. Operating '
+                   'cost is held at full each year (per the Cost Basis toggle) — the building still needs full '
+                   'staffing/utilities during ramp-up.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    headers = ['Year', 'Fill %', 'Annual Collections (VND)', 'Annual Operating Cost — per toggle, excl. Savills fee (VND)',
+               'Annual Surplus / (Deficit) (VND)', 'Cumulative Balance (VND)']
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    year_first_row = r
+    prev_cum_cell = None
+    for year_label, pct in YEAR_FILL_PATH:
+        ws.cell(row=r, column=1, value=year_label).border = BORDER
+        ws.cell(row=r, column=1).alignment = CENTER
+        ws.cell(row=r, column=2, value=pct).number_format = '0%'
+        ws.cell(row=r, column=2).border = BORDER
+        ws.cell(row=r, column=2).alignment = CENTER
+        c3 = ws.cell(row=r, column=3, value=f'={MGMT_100}*B{r}')
+        c3.number_format = MONEY_FMT
+        c3.border = BORDER
+        c4 = ws.cell(row=r, column=4, value=f'={OPERATING_COST}')
+        c4.number_format = MONEY_FMT
+        c4.border = BORDER
+        c5 = ws.cell(row=r, column=5, value=f'=C{r}-D{r}')
+        c5.number_format = MONEY_FMT
+        c5.border = BORDER
+        c5.font = Font(bold=True)
+        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
+        c6 = ws.cell(row=r, column=6, value=cum_formula)
+        c6.number_format = MONEY_FMT
+        c6.border = BORDER
+        c6.font = Font(bold=True)
+        prev_cum_cell = f'F{r}'
+        r += 1
+    year_last_row = r - 1
+
+    green_rule = FormulaRule(formula=[f'F{year_first_row}>=0'], fill=PatternFill('solid', fgColor='C6EFCE'))
+    red_rule = FormulaRule(formula=[f'F{year_first_row}<0'], fill=PatternFill('solid', fgColor='FFC7CE'))
+    ws.conditional_formatting.add(f'F{year_first_row}:F{year_last_row}', green_rule)
+    ws.conditional_formatting.add(f'F{year_first_row}:F{year_last_row}', red_rule)
+    r += 1
+
+    section(ws, r, 'CROSS-CHECK — breakeven fill %, from the Year 1 Strategy sheet', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('The year the cumulative balance above turns green (≥0) should be the first year whose Fill % '
+                   'passes one of these two breakeven thresholds — whichever matches the Cost Basis toggle\'s '
+                   'current setting on the Summary sheet. Not a new calculation, just the same numbers checked '
+                   'two ways.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:E{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    ws.cell(row=r, column=1, value='(A) Breakeven Fill % — Must-Have Only staffing').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"={year1_strategy['breakeven_must_have_cell']}")
+    c.number_format = '0.0%'
+    c.font = Font(bold=True)
+    r += 1
+    ws.cell(row=r, column=1, value='(B) Breakeven Fill % — Full Cost (all service tiers)').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f"={year1_strategy['breakeven_full_cost_cell']}")
+    c.number_format = '0.0%'
+    c.font = Font(bold=True)
+    r += 2
+
+    section(ws, r, 'NOTES', ncols=4); r += 1
+    notes = [
+        'This is the building\'s OWN operating account — Staff/OPEX/Capex reimbursement only, deliberately '
+        'excluding Savills\' own fee. It genuinely crosses from deficit to surplus once collections pass the '
+        'operating cost floor — unlike the Savills Fee Position sheet, whose "required" line includes Savills\' '
+        'profit target on top and never structurally exceeds 100%-fill revenue by construction.',
+        'Year 1-4 / 50-100% fill is the same disclosed simplifying assumption used on the Summary sheet\'s Fill-up '
+        'Scenarios and the Year 1 Strategy sheet — not a contractually defined ramp-up schedule.',
+        'Every VND figure here is a live formula reading the Summary sheet\'s Cost Basis toggle output — nothing '
+        'is re-derived independently.',
+    ]
+    for note in notes:
+        ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
+        ws.cell(row=r, column=1).alignment = LEFT
+        ws.merge_cells(f'A{r}:F{r}')
+        ws.row_dimensions[r].height = 40
+        r += 1
+
+    for col, w in {'A': 12, 'B': 12, 'C': 22, 'D': 30, 'E': 22, 'F': 22}.items():
+        ws.column_dimensions[col].width = w
+
+
+def build_savills_fee_position_sheet(wb, project, mgmt, summary):
+    """Models the agency-model mechanic the PM described: Savills recognizes its FULL package
+    (staff/OPEX/capex reimbursement + its own service fee/profit) every year regardless of actual
+    fill % — that recognized-profit line is always positive, by design, tracked year over year.
+    Separately, actual CASH collected from the building may fall short of that package; the gap
+    accumulates as a receivable owed by the owner, settled per the PM's description at contract
+    end. Unlike Owner Operating Position, this cumulative receivable does NOT structurally clear
+    to zero within the ramp horizon on its own (see NOTES for exactly why) — it only clears via
+    the real, still-unconfirmed settlement mechanism."""
+    ws = wb.create_sheet('Savills Fee Position')
+    title_block(ws, "Savills Fee Position — Full Package Recognized Every Year",
+                'Savills\' recognized profit is always positive, protected regardless of fill % — tracked '
+                'separately from the cash-timing gap (the rollover receivable owed by the owner), which does '
+                'NOT self-clear the way the Owner Operating Position sheet\'s balance does. See NOTES.', 'A1:F1')
 
     MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
 
     r = 4
-    section(ws, r, "SAVILLS' FULL PACKAGE (guaranteed regardless of fill %)", ncols=5); r += 1
+    section(ws, r, "SAVILLS' RECOGNIZED PROFIT — ALWAYS POSITIVE, PROTECTED", ncols=5); r += 1
     ws.cell(row=r, column=1,
-            value=('Reads the SAME toggle-driven cells as the Summary sheet\'s Cost Basis dropdown, so this stays '
-                   'in sync automatically — switching the toggle there changes the required package here too.')
+            value=('Savills books its full profit target every year regardless of actual fill % — this is the '
+                   '"we always take full profit" the PM described. Reads the same Total Profit Value the Summary '
+                   'sheet\'s Cost Basis toggle drives, so it stays in sync automatically.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:E{r}')
+    ws.row_dimensions[r].height = 28
     r += 1
+    headers = ['Year', 'Fill %', "Savills' Recognized Profit (VND)", 'Cumulative Recognized Profit (VND)', '', '']
+    for c, h in enumerate(headers, start=1):
+        if not h:
+            continue
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    prev_cum_cell = None
+    for year_label, pct in YEAR_FILL_PATH:
+        ws.cell(row=r, column=1, value=year_label).border = BORDER
+        ws.cell(row=r, column=1).alignment = CENTER
+        ws.cell(row=r, column=2, value=pct).number_format = '0%'
+        ws.cell(row=r, column=2).border = BORDER
+        ws.cell(row=r, column=2).alignment = CENTER
+        c3 = ws.cell(row=r, column=3, value=f"={summary['profit_cell']}")
+        c3.number_format = MONEY_FMT
+        c3.border = BORDER
+        cum_formula = f'=C{r}' if prev_cum_cell is None else f'={prev_cum_cell}+C{r}'
+        c4 = ws.cell(row=r, column=4, value=cum_formula)
+        c4.number_format = MONEY_FMT
+        c4.border = BORDER
+        c4.font = Font(bold=True)
+        c4.fill = HIGHLIGHT_FILL
+        prev_cum_cell = f'D{r}'
+        r += 1
+    r += 1
+
+    section(ws, r, "SAVILLS' FULL PACKAGE (guaranteed regardless of fill %)", ncols=5); r += 1
     package_rows = [
         ('Staff Cost Reimbursement (per Cost Basis toggle, VND)', summary['selected_staff_cell']),
         ('OPEX Reimbursement (per Cost Basis toggle, VND)', summary['selected_opex_cell']),
@@ -2325,97 +2478,86 @@ def build_fee_rollover_sheet(wb, project, mgmt, summary):
     r += 1
     ws.cell(row=r, column=1,
             value=('This always equals Management Fee Revenue at 100% fill exactly (Costs + Profit = Revenue by '
-                   'construction) — shown as a cross-check, not a coincidence.')
+                   'construction) — a cross-check, not a coincidence, and the reason the receivable below never '
+                   'self-clears: the required package is defined as the full 100%-fill revenue ceiling, and actual '
+                   'collections can never structurally exceed that ceiling within a 0-100% fill range.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:E{r}')
+    ws.row_dimensions[r].height = 40
     r += 2
 
-    section(ws, r, 'ACTUAL COLLECTIONS vs. REQUIRED, BY FILL STAGE', ncols=6); r += 1
+    section(ws, r, 'CASH COLLECTED vs. FULL PACKAGE OWED — THE ROLLOVER RECEIVABLE', ncols=6); r += 1
     ws.cell(row=r, column=1,
-            value=('Same 4 fill-stage snapshots as the Summary sheet\'s Fill-up Scenarios. At every fill % below '
-                   '100%, actual resident collections fall short of the Full Package above — that gap is what '
-                   'rolls over to the owner, not a Savills loss.')
+            value=('Same year path as above. The gap between what the building actually collects and Savills\' '
+                   'full package accumulates as a receivable owed by the owner — modeled here as a deferred '
+                   'rollover, per the PM\'s description (settled at contract end), NOT paid down year to year. If '
+                   'the real mechanism is periodic cash-calls instead, this balance would clear each year rather '
+                   'than accumulate — see NOTES.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:F{r}')
-    ws.row_dimensions[r].height = 28
+    ws.row_dimensions[r].height = 40
     r += 1
-    stage_headers = ['Fill %', 'Actual Collections (VND)', 'Required Full Package (VND)',
-                      'Shortfall — rolled over to owner (VND)', '', '']
-    for c, h in enumerate(stage_headers, start=1):
-        if not h:
-            continue
+    headers2 = ['Year', 'Fill %', 'Actual Collections (VND)', 'Full Package Owed (VND)',
+                'Shortfall This Year (VND)', 'Cumulative Receivable Owed by Owner (VND)']
+    for c, h in enumerate(headers2, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = CENTER
         cell.border = BORDER
     r += 1
-    stage_first_row = r
-    for pct in (0.50, 0.70, 0.90, 1.00):
-        ws.cell(row=r, column=1, value=pct).number_format = '0%'
-        ws.cell(row=r, column=1).border = BORDER
+    prev_cum_cell = None
+    for year_label, pct in YEAR_FILL_PATH:
+        ws.cell(row=r, column=1, value=year_label).border = BORDER
         ws.cell(row=r, column=1).alignment = CENTER
-        c2 = ws.cell(row=r, column=2, value=f'={MGMT_100}*A{r}')
-        c2.number_format = MONEY_FMT
-        c2.border = BORDER
-        c3 = ws.cell(row=r, column=3, value=f'={FULL_PACKAGE_CELL}')
+        ws.cell(row=r, column=2, value=pct).number_format = '0%'
+        ws.cell(row=r, column=2).border = BORDER
+        ws.cell(row=r, column=2).alignment = CENTER
+        c3 = ws.cell(row=r, column=3, value=f'={MGMT_100}*B{r}')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        c4 = ws.cell(row=r, column=4, value=f'=C{r}-B{r}')
+        c4 = ws.cell(row=r, column=4, value=f'={FULL_PACKAGE_CELL}')
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        c4.font = Font(bold=True)
-        if pct == 1.00:
-            for col in range(1, 5):
-                ws.cell(row=r, column=col).fill = HIGHLIGHT_FILL
+        c5 = ws.cell(row=r, column=5, value=f'=D{r}-C{r}')
+        c5.number_format = MONEY_FMT
+        c5.border = BORDER
+        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
+        c6 = ws.cell(row=r, column=6, value=cum_formula)
+        c6.number_format = MONEY_FMT
+        c6.border = BORDER
+        c6.font = Font(bold=True)
+        c6.fill = HIGHLIGHT_FILL
+        prev_cum_cell = f'F{r}'
         r += 1
-    stage_last_row = r - 1
     r += 1
-
-    section(ws, r, 'ILLUSTRATIVE CUMULATIVE EXPOSURE (simplifying assumption — see note)', ncols=5); r += 1
-    ws.cell(row=r, column=1,
-            value=('Simplifying assumption, NOT derived from a real ramp-up timeline: treats the 4 fill stages as '
-                   'sequential periods of roughly equal length and sums their shortfalls. The source data doesn\'t '
-                   'define how long each stage actually lasts, so treat this as illustrative scale, not a forecast.')
-            ).font = Font(italic=True, size=9, color='7F7F7F')
-    ws.cell(row=r, column=1).alignment = LEFT
-    ws.merge_cells(f'A{r}:E{r}')
-    ws.row_dimensions[r].height = 40
-    r += 1
-    ws.cell(row=r, column=1, value='Illustrative total rolled over across all 4 stages (VND)').font = Font(bold=True)
-    c = ws.cell(row=r, column=2, value=f'=SUM(D{stage_first_row}:D{stage_last_row})')
-    c.number_format = MONEY_FMT
-    c.font = Font(bold=True)
-    c.fill = HIGHLIGHT_FILL
-    r += 2
 
     section(ws, r, 'NOTES', ncols=4); r += 1
     notes = [
-        'This sheet models the AMOUNT of the deficit under the agency-model assumption the PM described — it does '
-        'NOT model the settlement mechanism or timing, because that isn\'t confirmed yet. The real answer changes '
-        'how much risk this actually represents for Savills:',
-        '  • If an owner-funded working capital reserve exists upfront, or the owner is billed periodically '
-        '(monthly/quarterly cash calls) — Savills carries little to no real risk, just administers the numbers above.',
-        '  • If the deficit is genuinely deferred and only settled at contract end with no reserve/guarantee behind '
-        'it — Savills is float-financing the shortfall until then, and carries real credit risk if the owner can\'t '
-        'cover it eventually.',
-        'Confirm which applies with the PM/actual contract terms, then this sheet can be extended with the real '
-        'settlement timing (e.g., a running balance that clears on each true-up date) instead of the illustrative '
-        'cumulative above.',
-        'Every VND figure here is a live formula reading the Summary sheet\'s Cost Basis toggle and Total Profit '
-        'Value — nothing is re-derived independently, so this always stays consistent with the Summary/Year 1 '
-        'Strategy sheets.',
+        'Two DIFFERENT lines, both real: Savills\' recognized profit (top table) is always positive by design — '
+        'that answers "we always take full profit." The cumulative receivable (bottom table) tracks the separate '
+        'question of whether that profit has actually been PAID IN CASH yet, or is still owed — it does not '
+        'shrink on its own within this ramp horizon, because the required package is pinned to 100%-fill revenue, '
+        'which actual collections can approach but never exceed. Compare to the Owner Operating Position sheet, '
+        'whose balance genuinely does cross to positive, because it excludes Savills\' own profit target from the '
+        'required amount.',
+        'The settlement mechanism/timing is still NOT confirmed with the PM/actual contract terms. If there\'s an '
+        'owner-funded working capital reserve or periodic cash-calls, Savills carries little real risk from this '
+        'receivable. If it\'s genuinely deferred to contract end with nothing backing it, Savills is '
+        'float-financing the shortfall and carries real credit risk if the owner can\'t eventually cover it.',
+        'Year 1-4 / 50-100% fill is the same disclosed simplifying assumption used across this workbook — not a '
+        'contractually defined ramp-up schedule.',
     ]
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
         ws.cell(row=r, column=1).alignment = LEFT
         ws.merge_cells(f'A{r}:F{r}')
-        ws.row_dimensions[r].height = 28
+        ws.row_dimensions[r].height = 40
         r += 1
 
-    for col, w in {'A': 46, 'B': 24, 'C': 24, 'D': 30, 'E': 20, 'F': 20}.items():
+    for col, w in {'A': 12, 'B': 22, 'C': 24, 'D': 24, 'E': 22, 'F': 28}.items():
         ws.column_dimensions[col].width = w
 
 
@@ -2513,8 +2655,9 @@ def main():
     extra_revenue = build_additional_revenue_sheet(wb, project)
     cost_priority = build_cost_priority_sheet(wb, project, staff, capex, opex)
     summary = build_summary_sheet(ws_summary, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority)
-    build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue)
-    build_fee_rollover_sheet(wb, project, mgmt, summary)
+    year1_strategy = build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue)
+    build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy)
+    build_savills_fee_position_sheet(wb, project, mgmt, summary)
 
     _fix_fake_formula_strings(wb)
 
