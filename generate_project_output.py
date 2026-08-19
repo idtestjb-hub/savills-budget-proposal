@@ -2140,15 +2140,25 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     c.fill = HIGHLIGHT_FILL
     PROFIT_CELL = f'B{r}'
     r += 1
-    ws.cell(row=r, column=1, value='% Profit (Total Profit Value ÷ Selected Costs) (9)').font = Font(bold=True, size=12)
-    c = ws.cell(row=r, column=2,
-                value=f"={PROFIT_CELL}/({SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL})")
+    ws.cell(row=r, column=1, value='Margin (Total Profit Value ÷ Mgmt Fee Revenue) (9)').font = Font(bold=True, size=12)
+    c = ws.cell(row=r, column=2, value=f"={PROFIT_CELL}/('Management Fee'!{mgmt['annual_revenue_cell']})")
     c.number_format = '+0.0%;-0.0%'
     c.font = Font(bold=True, size=12)
     c.fill = HIGHLIGHT_FILL
-    PROFIT_PCT_CELL = f'B{r}'
+    MARGIN_CELL = f'B{r}'
     r += 1
-    ws.cell(row=r, column=1, value=('"Must-Have Only" excludes Conditional (pool/garden-dependent) and Optional '
+    ws.cell(row=r, column=1, value='Markup (Total Profit Value ÷ Selected Costs) — for pricing reference only').font = Font(size=10, italic=True)
+    c = ws.cell(row=r, column=2,
+                value=f"={PROFIT_CELL}/({SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL})")
+    c.number_format = '+0.0%;-0.0%'
+    c.font = Font(size=10, italic=True)
+    MARKUP_CELL = f'B{r}'
+    r += 1
+    ws.cell(row=r, column=1, value=('Margin (profit ÷ revenue) is the standard accounting definition — use this for '
+                                     'reporting/benchmarking. Markup (profit ÷ cost) answers a different question '
+                                     '("how far above cost is the fee priced") and is shown only as a secondary '
+                                     'reference; the two will always differ for the same underlying numbers. '
+                                     '"Must-Have Only" excludes Conditional (pool/garden-dependent) and Optional '
                                      '(service-tier choices, e.g. Shift Leader/Customer Service/Reception) costs '
                                      'entirely, not just discounts them — see Cost Priority sheet for exactly which '
                                      'items. "Full Cost" includes everything. At full (100%) fill — see FILL-UP '
@@ -2157,7 +2167,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:E{r}')
-    ws.row_dimensions[r].height = 55
+    ws.row_dimensions[r].height = 68
     r += 2
 
     NET_TOTAL_CELLS = dict(
@@ -2179,7 +2189,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     ws.row_dimensions[r].height = 55
     r += 1
     fill_headers = ['Fill %', 'Mgmt Fee Revenue (3)', 'Staff (4) + OPEX (7) + Capex (6) — per toggle',
-                     'Total Profit Value', '% Profit', 'Additional Revenue (8) — reference only']
+                     'Total Profit Value', 'Margin (Profit ÷ Revenue)', 'Additional Revenue (8) — reference only']
     for c, h in enumerate(fill_headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
@@ -2201,7 +2211,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         c4.number_format = MONEY_FMT
         c4.border = BORDER
         c4.font = Font(bold=True)
-        c5 = ws.cell(row=r, column=5, value=f'=D{r}/C{r}')
+        c5 = ws.cell(row=r, column=5, value=f'=D{r}/B{r}')
         c5.number_format = '+0.0%;-0.0%'
         c5.border = BORDER
         c5.font = Font(bold=True)
@@ -2225,7 +2235,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         ('(6) Capex — per Cost Basis toggle (VND)', f"={SELECTED_CAPEX_CELL}"),
         ('(7) Annual OPEX — per Cost Basis toggle (VND)', f"={SELECTED_OPEX_CELL}"),
         ('(8) Annual Additional Revenue (VND)', f"='Additional Revenue'!{extra_revenue['annual_total_cell']}"),
-        ('(9) % Profit (Total Profit Value ÷ Selected Costs)', f'={PROFIT_PCT_CELL}'),
+        ('(9) Margin (Total Profit Value ÷ Mgmt Fee Revenue)', f'={MARGIN_CELL}'),
     ]
     for label, val in rows:
         ws.cell(row=r, column=1, value=label).font = Font(bold=True)
@@ -2244,7 +2254,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         '(6) Capex (M&E Equipment + MO Equipment always; "Full Cost" adds Conditional Amenity Area + Mixed Public Area). One-time, PM-entered quantities — see Capex/Cost Priority sheets. IN Total Profit Value (as a Year-1 lump sum, not amortized).',
         '(7) OPEX (Electricity/Water/Diesel/Repairs & Maintenance/Administrative Expense always; "Full Cost" adds Conditional Pool Salt). Real but thin data (n=1 per category — see OPEX sheet). IN Total Profit Value.',
         '(8) Real Parking Fee (at 100% occupancy — a ceiling, not a realistic average) + Elevator Advertising (real rate, Qty PRE-FILLED from an assumption, still PM-editable) + a fixed-lease parking alternative with a computed breakeven fill % — see Additional Revenue sheet. NOT in Total Profit Value, and NOT affected by the toggle.',
-        '(9) Total Profit Value ÷ (Selected Staff + Selected OPEX + Selected Capex, per the Cost Basis toggle) — how much profit per VND of cost at the selected service tier, not per VND of revenue.',
+        '(9) Margin, the standard accounting definition (profit ÷ revenue), not markup (profit ÷ cost) — the two answer different questions and will always differ for the same numbers. Markup is shown as a secondary reference next to Total Profit Value above, for pricing conversations specifically.',
     ]
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
@@ -2254,6 +2264,158 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         r += 1
 
     for col, w in {'A': 42, 'B': 24, 'C': 24, 'D': 20, 'E': 20, 'F': 24}.items():
+        ws.column_dimensions[col].width = w
+
+    return dict(toggle_cell=f"'Summary'!{TOGGLE_CELL}",
+                selected_staff_cell=f"'Summary'!{SELECTED_STAFF_CELL}",
+                selected_opex_cell=f"'Summary'!{SELECTED_OPEX_CELL}",
+                selected_capex_cell=f"'Summary'!{SELECTED_CAPEX_CELL}",
+                profit_cell=f"'Summary'!{PROFIT_CELL}",
+                margin_cell=f"'Summary'!{MARGIN_CELL}")
+
+
+def build_fee_rollover_sheet(wb, project, mgmt, summary):
+    """Models the agency-model mechanic described by the PM: Savills is always paid its FULL
+    package (staff cost reimbursement + its own service fee/profit) regardless of actual fill %;
+    any gap between actual resident collections and that full package is a deficit owed by the
+    OWNER, not a Savills loss. Every number here is a live formula reading Summary sheet cells
+    (so it stays in sync with the Cost Basis toggle) — nothing here re-derives Staff/OPEX/Capex
+    independently. What this sheet does NOT model, because it isn't yet confirmed: the actual
+    settlement mechanism/timing (reserve fund vs. periodic cash-call vs. true rollover to contract
+    end) and whether Savills carries real timing risk in the meantime — see NOTES."""
+    ws = wb.create_sheet('Fee Rollover')
+    title_block(ws, 'Fee Rollover — Savills Always Collects Its Full Package',
+                'Agency-model mechanic: Savills\' staff-cost reimbursement + its own service fee/profit are '
+                'guaranteed regardless of fill % — any shortfall vs. actual resident collections is the OWNER\'S '
+                'deficit, tracked here, not a Savills loss. Settlement mechanism/timing not yet confirmed — see '
+                'NOTES.', 'A1:F1')
+
+    MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
+
+    r = 4
+    section(ws, r, "SAVILLS' FULL PACKAGE (guaranteed regardless of fill %)", ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('Reads the SAME toggle-driven cells as the Summary sheet\'s Cost Basis dropdown, so this stays '
+                   'in sync automatically — switching the toggle there changes the required package here too.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:E{r}')
+    r += 1
+    package_rows = [
+        ('Staff Cost Reimbursement (per Cost Basis toggle, VND)', summary['selected_staff_cell']),
+        ('OPEX Reimbursement (per Cost Basis toggle, VND)', summary['selected_opex_cell']),
+        ('Capex Reimbursement (per Cost Basis toggle, VND)', summary['selected_capex_cell']),
+        ("Savills' Own Service Fee / Profit, at 100% fill (VND)", summary['profit_cell']),
+    ]
+    package_cells = []
+    for label, cell in package_rows:
+        ws.cell(row=r, column=1, value=label).border = BORDER
+        ws.cell(row=r, column=1).alignment = LEFT
+        c2 = ws.cell(row=r, column=2, value=f'={cell}')
+        c2.number_format = MONEY_FMT
+        c2.border = BORDER
+        package_cells.append(f'B{r}')
+        r += 1
+    ws.cell(row=r, column=1, value='TOTAL FULL PACKAGE (VND)').font = Font(bold=True, size=12)
+    c = ws.cell(row=r, column=2, value='=' + '+'.join(package_cells))
+    c.number_format = MONEY_FMT
+    c.font = Font(bold=True, size=12)
+    c.fill = HIGHLIGHT_FILL
+    FULL_PACKAGE_CELL = f'B{r}'
+    r += 1
+    ws.cell(row=r, column=1,
+            value=('This always equals Management Fee Revenue at 100% fill exactly (Costs + Profit = Revenue by '
+                   'construction) — shown as a cross-check, not a coincidence.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:E{r}')
+    r += 2
+
+    section(ws, r, 'ACTUAL COLLECTIONS vs. REQUIRED, BY FILL STAGE', ncols=6); r += 1
+    ws.cell(row=r, column=1,
+            value=('Same 4 fill-stage snapshots as the Summary sheet\'s Fill-up Scenarios. At every fill % below '
+                   '100%, actual resident collections fall short of the Full Package above — that gap is what '
+                   'rolls over to the owner, not a Savills loss.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 28
+    r += 1
+    stage_headers = ['Fill %', 'Actual Collections (VND)', 'Required Full Package (VND)',
+                      'Shortfall — rolled over to owner (VND)', '', '']
+    for c, h in enumerate(stage_headers, start=1):
+        if not h:
+            continue
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    stage_first_row = r
+    for pct in (0.50, 0.70, 0.90, 1.00):
+        ws.cell(row=r, column=1, value=pct).number_format = '0%'
+        ws.cell(row=r, column=1).border = BORDER
+        ws.cell(row=r, column=1).alignment = CENTER
+        c2 = ws.cell(row=r, column=2, value=f'={MGMT_100}*A{r}')
+        c2.number_format = MONEY_FMT
+        c2.border = BORDER
+        c3 = ws.cell(row=r, column=3, value=f'={FULL_PACKAGE_CELL}')
+        c3.number_format = MONEY_FMT
+        c3.border = BORDER
+        c4 = ws.cell(row=r, column=4, value=f'=C{r}-B{r}')
+        c4.number_format = MONEY_FMT
+        c4.border = BORDER
+        c4.font = Font(bold=True)
+        if pct == 1.00:
+            for col in range(1, 5):
+                ws.cell(row=r, column=col).fill = HIGHLIGHT_FILL
+        r += 1
+    stage_last_row = r - 1
+    r += 1
+
+    section(ws, r, 'ILLUSTRATIVE CUMULATIVE EXPOSURE (simplifying assumption — see note)', ncols=5); r += 1
+    ws.cell(row=r, column=1,
+            value=('Simplifying assumption, NOT derived from a real ramp-up timeline: treats the 4 fill stages as '
+                   'sequential periods of roughly equal length and sums their shortfalls. The source data doesn\'t '
+                   'define how long each stage actually lasts, so treat this as illustrative scale, not a forecast.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:E{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    ws.cell(row=r, column=1, value='Illustrative total rolled over across all 4 stages (VND)').font = Font(bold=True)
+    c = ws.cell(row=r, column=2, value=f'=SUM(D{stage_first_row}:D{stage_last_row})')
+    c.number_format = MONEY_FMT
+    c.font = Font(bold=True)
+    c.fill = HIGHLIGHT_FILL
+    r += 2
+
+    section(ws, r, 'NOTES', ncols=4); r += 1
+    notes = [
+        'This sheet models the AMOUNT of the deficit under the agency-model assumption the PM described — it does '
+        'NOT model the settlement mechanism or timing, because that isn\'t confirmed yet. The real answer changes '
+        'how much risk this actually represents for Savills:',
+        '  • If an owner-funded working capital reserve exists upfront, or the owner is billed periodically '
+        '(monthly/quarterly cash calls) — Savills carries little to no real risk, just administers the numbers above.',
+        '  • If the deficit is genuinely deferred and only settled at contract end with no reserve/guarantee behind '
+        'it — Savills is float-financing the shortfall until then, and carries real credit risk if the owner can\'t '
+        'cover it eventually.',
+        'Confirm which applies with the PM/actual contract terms, then this sheet can be extended with the real '
+        'settlement timing (e.g., a running balance that clears on each true-up date) instead of the illustrative '
+        'cumulative above.',
+        'Every VND figure here is a live formula reading the Summary sheet\'s Cost Basis toggle and Total Profit '
+        'Value — nothing is re-derived independently, so this always stays consistent with the Summary/Year 1 '
+        'Strategy sheets.',
+    ]
+    for note in notes:
+        ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
+        ws.cell(row=r, column=1).alignment = LEFT
+        ws.merge_cells(f'A{r}:F{r}')
+        ws.row_dimensions[r].height = 28
+        r += 1
+
+    for col, w in {'A': 46, 'B': 24, 'C': 24, 'D': 30, 'E': 20, 'F': 20}.items():
         ws.column_dimensions[col].width = w
 
 
@@ -2350,8 +2512,9 @@ def main():
     opex = build_opex_sheet(wb, project)
     extra_revenue = build_additional_revenue_sheet(wb, project)
     cost_priority = build_cost_priority_sheet(wb, project, staff, capex, opex)
-    build_summary_sheet(ws_summary, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority)
+    summary = build_summary_sheet(ws_summary, project, mgmt, staff, service, capex, opex, extra_revenue, cost_priority)
     build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue)
+    build_fee_rollover_sheet(wb, project, mgmt, summary)
 
     _fix_fake_formula_strings(wb)
 
