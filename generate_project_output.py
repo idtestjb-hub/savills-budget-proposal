@@ -2342,7 +2342,8 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     ws.merge_cells(f'A{r}:F{r}')
     ws.row_dimensions[r].height = 55
     r += 1
-    headers = ['Year', 'Fill %', 'Annual Collections (VND)', 'Annual Operating Cost (Staff+OPEX; Capex per sinking-fund) (VND)',
+    headers = ['Year', 'Fill %', 'Annual Collections (VND)', 'Staff + OPEX, per toggle (VND)',
+               'Capex — per sinking-fund (VND)', 'Total Operating Cost (VND)',
                'Annual Surplus / (Deficit) (VND)', 'Cumulative Balance (VND)']
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
@@ -2362,30 +2363,41 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         c3 = ws.cell(row=r, column=3, value=f'={MGMT_100}*B{r}')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        capex_term = f'{CAPEX_CELL}' if i == 0 else f'{CAPEX_CELL}*{CAPEX_RESERVE_RATE}'
-        c4 = ws.cell(row=r, column=4, value=f'={RECURRING_COST}+{capex_term}')
+        c4 = ws.cell(row=r, column=4, value=f'={RECURRING_COST}')
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        c5 = ws.cell(row=r, column=5, value=f'=C{r}-D{r}')
+        capex_formula = f'={CAPEX_CELL}' if i == 0 else f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}'
+        c5 = ws.cell(row=r, column=5, value=capex_formula)
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        c5.font = Font(bold=True)
-        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
-        c6 = ws.cell(row=r, column=6, value=cum_formula)
+        c5.fill = PatternFill('solid', fgColor='FFF7CC') if i == 0 else PatternFill('solid', fgColor='E2EFDA')
+        c6 = ws.cell(row=r, column=6, value=f'=D{r}+E{r}')
         c6.number_format = MONEY_FMT
         c6.border = BORDER
-        c6.font = Font(bold=True)
-        prev_cum_cell = f'F{r}'
+        c7 = ws.cell(row=r, column=7, value=f'=C{r}-F{r}')
+        c7.number_format = MONEY_FMT
+        c7.border = BORDER
+        c7.font = Font(bold=True)
+        cum_formula = f'=G{r}' if prev_cum_cell is None else f'={prev_cum_cell}+G{r}'
+        c8 = ws.cell(row=r, column=8, value=cum_formula)
+        c8.number_format = MONEY_FMT
+        c8.border = BORDER
+        c8.font = Font(bold=True)
+        prev_cum_cell = f'H{r}'
         r += 1
     year_last_row = r - 1
 
-    green_rule = FormulaRule(formula=[f'F{year_first_row}>=0'], fill=PatternFill('solid', fgColor='C6EFCE'))
-    red_rule = FormulaRule(formula=[f'F{year_first_row}<0'], fill=PatternFill('solid', fgColor='FFC7CE'))
-    ws.conditional_formatting.add(f'F{year_first_row}:F{year_last_row}', green_rule)
-    ws.conditional_formatting.add(f'F{year_first_row}:F{year_last_row}', red_rule)
+    green_rule = FormulaRule(formula=[f'H{year_first_row}>=0'], fill=PatternFill('solid', fgColor='C6EFCE'))
+    red_rule = FormulaRule(formula=[f'H{year_first_row}<0'], fill=PatternFill('solid', fgColor='FFC7CE'))
+    ws.conditional_formatting.add(f'H{year_first_row}:H{year_last_row}', green_rule)
+    ws.conditional_formatting.add(f'H{year_first_row}:H{year_last_row}', red_rule)
+    r += 1
+    ws.cell(row=r, column=1,
+            value='Capex column: yellow = Year 1 full lump sum, green = Years 2-4 reserve contribution (10% of Year 1).'
+            ).font = Font(italic=True, size=8, color='7F7F7F')
     r += 1
 
-    section(ws, r, 'MONTHLY BREAKDOWN (48 months, smooth ramp — see NOTES for the interpolation assumption)', ncols=7); r += 1
+    section(ws, r, 'MONTHLY BREAKDOWN (48 months, smooth ramp — see NOTES for the interpolation assumption)', ncols=8); r += 1
     ws.cell(row=r, column=1,
             value=(f'Fill % ramps smoothly month to month toward the SAME 50/70/90/100% year-end anchors used above '
                    f'— starting near 0%, not flat for all 12 months of Year 1. This shows worse early-month numbers '
@@ -2395,11 +2407,12 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
                    f'contribution spread evenly per month — Months 2-12 have no additional Capex.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
-    ws.merge_cells(f'A{r}:G{r}')
+    ws.merge_cells(f'A{r}:H{r}')
     ws.row_dimensions[r].height = 50
     r += 1
-    m_headers = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Monthly Operating Cost (Staff+OPEX; Capex per sinking-fund) (VND)',
-                 'Monthly Surplus / (Deficit) (VND)', 'Margin (Profit ÷ Revenue)', 'Cumulative Balance (VND)']
+    m_headers = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Staff + OPEX (VND)', 'Capex — per sinking-fund (VND)',
+                 'Total Operating Cost (VND)', 'Monthly Surplus / (Deficit) (VND)', 'Margin (Profit ÷ Revenue)',
+                 'Cumulative Balance (VND)']
     for c, h in enumerate(m_headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
@@ -2419,33 +2432,41 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         c3 = ws.cell(row=r, column=3, value=f'=({MGMT_100}/12)*B{r}')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        if month_num == 1:
-            capex_term = f'+{CAPEX_CELL}'
-        elif month_num <= 12:
-            capex_term = ''
-        else:
-            capex_term = f'+{CAPEX_CELL}*{CAPEX_RESERVE_RATE}/12'
-        c4 = ws.cell(row=r, column=4, value=f'={RECURRING_COST}/12{capex_term}')
+        c4 = ws.cell(row=r, column=4, value=f'={RECURRING_COST}/12')
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        c5 = ws.cell(row=r, column=5, value=f'=C{r}-D{r}')
+        if month_num == 1:
+            capex_formula, capex_fill = f'={CAPEX_CELL}', 'FFF7CC'
+        elif month_num <= 12:
+            capex_formula, capex_fill = 0, None
+        else:
+            capex_formula, capex_fill = f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}/12', 'E2EFDA'
+        c5 = ws.cell(row=r, column=5, value=capex_formula)
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        c6 = ws.cell(row=r, column=6, value=f'=E{r}/C{r}')
-        c6.number_format = '+0.0%;-0.0%'
+        if capex_fill:
+            c5.fill = PatternFill('solid', fgColor=capex_fill)
+        c6 = ws.cell(row=r, column=6, value=f'=D{r}+E{r}')
+        c6.number_format = MONEY_FMT
         c6.border = BORDER
-        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
-        c7 = ws.cell(row=r, column=7, value=cum_formula)
+        c7 = ws.cell(row=r, column=7, value=f'=C{r}-F{r}')
         c7.number_format = MONEY_FMT
         c7.border = BORDER
-        c7.font = Font(bold=True)
-        prev_cum_cell = f'G{r}'
+        c8 = ws.cell(row=r, column=8, value=f'=G{r}/C{r}')
+        c8.number_format = '+0.0%;-0.0%'
+        c8.border = BORDER
+        cum_formula = f'=G{r}' if prev_cum_cell is None else f'={prev_cum_cell}+G{r}'
+        c9 = ws.cell(row=r, column=9, value=cum_formula)
+        c9.number_format = MONEY_FMT
+        c9.border = BORDER
+        c9.font = Font(bold=True)
+        prev_cum_cell = f'I{r}'
         r += 1
     month_last_row = r - 1
-    ws.conditional_formatting.add(f'G{month_first_row}:G{month_last_row}',
-                                   FormulaRule(formula=[f'G{month_first_row}>=0'], fill=PatternFill('solid', fgColor='C6EFCE')))
-    ws.conditional_formatting.add(f'G{month_first_row}:G{month_last_row}',
-                                   FormulaRule(formula=[f'G{month_first_row}<0'], fill=PatternFill('solid', fgColor='FFC7CE')))
+    ws.conditional_formatting.add(f'I{month_first_row}:I{month_last_row}',
+                                   FormulaRule(formula=[f'I{month_first_row}>=0'], fill=PatternFill('solid', fgColor='C6EFCE')))
+    ws.conditional_formatting.add(f'I{month_first_row}:I{month_last_row}',
+                                   FormulaRule(formula=[f'I{month_first_row}<0'], fill=PatternFill('solid', fgColor='FFC7CE')))
     r += 1
 
     section(ws, r, 'CROSS-CHECK — breakeven fill %, from the Year 1 Strategy sheet', ncols=5); r += 1
@@ -2495,11 +2516,11 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
         ws.cell(row=r, column=1).alignment = LEFT
-        ws.merge_cells(f'A{r}:F{r}')
+        ws.merge_cells(f'A{r}:I{r}')
         ws.row_dimensions[r].height = 40
         r += 1
 
-    for col, w in {'A': 12, 'B': 12, 'C': 22, 'D': 30, 'E': 22, 'F': 22, 'G': 22}.items():
+    for col, w in {'A': 12, 'B': 12, 'C': 20, 'D': 20, 'E': 22, 'F': 20, 'G': 20, 'H': 20, 'I': 22}.items():
         ws.column_dimensions[col].width = w
 
 
@@ -2565,18 +2586,20 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
 
     section(ws, r, "SAVILLS' FULL PACKAGE (guaranteed regardless of fill %)", ncols=5); r += 1
     package_rows = [
-        ('Staff Cost Reimbursement (per Cost Basis toggle, VND)', summary['selected_staff_cell']),
-        ('OPEX Reimbursement (per Cost Basis toggle, VND)', summary['selected_opex_cell']),
-        ('Capex Reimbursement (per Cost Basis toggle, VND)', summary['selected_capex_cell']),
-        ("Savills' Own Service Fee / Profit, at 100% fill (VND)", summary['profit_cell']),
+        ('Staff Cost Reimbursement (per Cost Basis toggle, VND)', summary['selected_staff_cell'], None),
+        ('OPEX Reimbursement (per Cost Basis toggle, VND)', summary['selected_opex_cell'], None),
+        ('Capex Reimbursement — YEAR 1 full lump sum (VND)', summary['selected_capex_cell'], 'FFF7CC'),
+        ("Savills' Own Service Fee / Profit, at 100% fill (VND)", summary['profit_cell'], None),
     ]
     package_cells = []
-    for label, cell in package_rows:
+    for label, cell, hl in package_rows:
         ws.cell(row=r, column=1, value=label).border = BORDER
         ws.cell(row=r, column=1).alignment = LEFT
         c2 = ws.cell(row=r, column=2, value=f'={cell}')
         c2.number_format = MONEY_FMT
         c2.border = BORDER
+        if hl:
+            c2.fill = PatternFill('solid', fgColor=hl)
         package_cells.append(f'B{r}')
         r += 1
     ws.cell(row=r, column=1, value='TOTAL FULL PACKAGE, YEAR 1 (VND)').font = Font(bold=True, size=12)
@@ -2585,6 +2608,12 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     c.font = Font(bold=True, size=12)
     c.fill = HIGHLIGHT_FILL
     FULL_PACKAGE_CELL = f'B{r}'
+    r += 1
+    ws.cell(row=r, column=1, value=f'Capex Reimbursement — YEARS 2-4 reserve ({CAPEX_RESERVE_RATE:.0%} of Year 1) (VND)').font = Font(size=10, italic=True)
+    c = ws.cell(row=r, column=2, value=f"={summary['selected_capex_cell']}*{CAPEX_RESERVE_RATE}")
+    c.number_format = MONEY_FMT
+    c.font = Font(size=10, italic=True)
+    c.fill = PatternFill('solid', fgColor='E2EFDA')
     r += 1
     ws.cell(row=r, column=1, value='RECURRING PACKAGE, YEARS 2-4 (Staff+OPEX+Profit; Capex at reserve rate) (VND)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2,
@@ -2617,11 +2646,12 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
                    'Years 2-4) — see NOTES.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
-    ws.merge_cells(f'A{r}:F{r}')
+    ws.merge_cells(f'A{r}:G{r}')
     ws.row_dimensions[r].height = 40
     r += 1
-    headers2 = ['Year', 'Fill %', 'Actual Collections (VND)', 'Package Owed (Yr 1 full; Yrs 2-4 recurring) (VND)',
-                'Shortfall This Year (VND)', 'Cumulative Receivable Owed by Owner (VND)']
+    headers2 = ['Year', 'Fill %', 'Actual Collections (VND)', 'Capex Component (VND)',
+                'Package Owed — Staff+OPEX+Profit+Capex (VND)', 'Shortfall This Year (VND)',
+                'Cumulative Receivable Owed by Owner (VND)']
     for c, h in enumerate(headers2, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
@@ -2639,24 +2669,28 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         c3 = ws.cell(row=r, column=3, value=f'={MGMT_100}*B{r}')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        owed_cell = FULL_PACKAGE_CELL if i == 0 else RECURRING_PACKAGE_CELL
-        c4 = ws.cell(row=r, column=4, value=f'={owed_cell}')
+        capex_formula = f'={CAPEX_CELL}' if i == 0 else f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}'
+        c4 = ws.cell(row=r, column=4, value=capex_formula)
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        c5 = ws.cell(row=r, column=5, value=f'=D{r}-C{r}')
+        c4.fill = PatternFill('solid', fgColor='FFF7CC') if i == 0 else PatternFill('solid', fgColor='E2EFDA')
+        c5 = ws.cell(row=r, column=5, value=f"={BASE_PACKAGE}+D{r}")
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
-        c6 = ws.cell(row=r, column=6, value=cum_formula)
+        c6 = ws.cell(row=r, column=6, value=f'=E{r}-C{r}')
         c6.number_format = MONEY_FMT
         c6.border = BORDER
-        c6.font = Font(bold=True)
-        c6.fill = HIGHLIGHT_FILL
-        prev_cum_cell = f'F{r}'
+        cum_formula = f'=F{r}' if prev_cum_cell is None else f'={prev_cum_cell}+F{r}'
+        c7 = ws.cell(row=r, column=7, value=cum_formula)
+        c7.number_format = MONEY_FMT
+        c7.border = BORDER
+        c7.font = Font(bold=True)
+        c7.fill = HIGHLIGHT_FILL
+        prev_cum_cell = f'G{r}'
         r += 1
     r += 1
 
-    section(ws, r, 'MONTHLY BREAKDOWN — the rollover receivable (48 months, smooth ramp — see NOTES)', ncols=6); r += 1
+    section(ws, r, 'MONTHLY BREAKDOWN — the rollover receivable (48 months, smooth ramp — see NOTES)', ncols=7); r += 1
     ws.cell(row=r, column=1,
             value=(f'Same smooth month-by-month fill % ramp used on the Owner Operating Position sheet, applied to '
                    f'the receivable above. Staff/OPEX/Profit portion is held flat per month; Capex follows the same '
@@ -2664,11 +2698,11 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
                    f'then a {CAPEX_RESERVE_RATE:.0%} reserve contribution spread evenly across Months 13-48.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
-    ws.merge_cells(f'A{r}:F{r}')
+    ws.merge_cells(f'A{r}:G{r}')
     ws.row_dimensions[r].height = 40
     r += 1
-    m_headers2 = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Monthly Package Owed (Mo. 1 full; Mos. 13-48 reserve) (VND)',
-                  'Monthly Shortfall (VND)', 'Cumulative Receivable Owed by Owner (VND)']
+    m_headers2 = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Capex Component (VND)',
+                  'Monthly Package Owed (VND)', 'Monthly Shortfall (VND)', 'Cumulative Receivable Owed by Owner (VND)']
     for c, h in enumerate(m_headers2, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
@@ -2688,24 +2722,29 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         c3.number_format = MONEY_FMT
         c3.border = BORDER
         if month_num == 1:
-            capex_term = f'+{CAPEX_CELL}'
+            capex_formula, capex_fill = f'={CAPEX_CELL}', 'FFF7CC'
         elif month_num <= 12:
-            capex_term = ''
+            capex_formula, capex_fill = 0, None
         else:
-            capex_term = f'+{CAPEX_CELL}*{CAPEX_RESERVE_RATE}/12'
-        c4 = ws.cell(row=r, column=4, value=f'={BASE_PACKAGE}/12{capex_term}')
+            capex_formula, capex_fill = f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}/12', 'E2EFDA'
+        c4 = ws.cell(row=r, column=4, value=capex_formula)
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        c5 = ws.cell(row=r, column=5, value=f'=D{r}-C{r}')
+        if capex_fill:
+            c4.fill = PatternFill('solid', fgColor=capex_fill)
+        c5 = ws.cell(row=r, column=5, value=f'={BASE_PACKAGE}/12+D{r}')
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        cum_formula = f'=E{r}' if prev_cum_cell is None else f'={prev_cum_cell}+E{r}'
-        c6 = ws.cell(row=r, column=6, value=cum_formula)
+        c6 = ws.cell(row=r, column=6, value=f'=E{r}-C{r}')
         c6.number_format = MONEY_FMT
         c6.border = BORDER
-        c6.font = Font(bold=True)
-        c6.fill = HIGHLIGHT_FILL
-        prev_cum_cell = f'F{r}'
+        cum_formula = f'=F{r}' if prev_cum_cell is None else f'={prev_cum_cell}+F{r}'
+        c7 = ws.cell(row=r, column=7, value=cum_formula)
+        c7.number_format = MONEY_FMT
+        c7.border = BORDER
+        c7.font = Font(bold=True)
+        c7.fill = HIGHLIGHT_FILL
+        prev_cum_cell = f'G{r}'
         r += 1
     r += 1
 
@@ -2737,11 +2776,11 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
         ws.cell(row=r, column=1).alignment = LEFT
-        ws.merge_cells(f'A{r}:F{r}')
+        ws.merge_cells(f'A{r}:G{r}')
         ws.row_dimensions[r].height = 40
         r += 1
 
-    for col, w in {'A': 12, 'B': 22, 'C': 24, 'D': 24, 'E': 22, 'F': 28}.items():
+    for col, w in {'A': 12, 'B': 24, 'C': 22, 'D': 22, 'E': 24, 'F': 22, 'G': 28}.items():
         ws.column_dimensions[col].width = w
 
 
