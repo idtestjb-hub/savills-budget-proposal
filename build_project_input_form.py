@@ -233,9 +233,30 @@ def main():
     ws1['A1'] = 'Project Info — fill in the yellow cells, then run generate_project_budget.py'
     ws1['A1'].font = TITLE_FONT
     ws1.merge_cells('A1:D1')
-    ws1['A2'] = 'Shaped after the real "0. Info" sheet used across Savills\' 8 real project budget files, so it matches what a new prospect would actually be able to supply up front.'
+    ws1['A2'] = ('Shaped after the real "0. Info" sheet used across Savills\' 8 real project budget files, so it '
+                 'matches what a new prospect would actually be able to supply up front. Residential only for now — '
+                 'see the Property Segment note below.')
     ws1['A2'].font = SUB_FONT
     ws1.merge_cells('A2:D2')
+
+    ws1['A3'] = 'Property Segment'
+    ws1['A3'].font = Font(bold=True)
+    c_segment = ws1.cell(row=3, column=2, value='Residential')
+    c_segment.fill = INPUT_FILL
+    c_segment.border = BORDER
+    c_segment.alignment = CENTER
+    dv_segment = DataValidation(type='list', formula1='"Residential,Commercial"',
+                                 showErrorMessage=True, errorTitle='Invalid segment',
+                                 error='Pick Residential or Commercial')
+    ws1.add_data_validation(dv_segment)
+    dv_segment.add(c_segment)
+    c_segment.comment = Comment(
+        'Commercial isn\'t built out yet — this pipeline\'s cost logic (management-fee rate, staffing pattern, '
+        'Capex/OPEX scaling) is entirely Residential apartment-building math, comparable-matched on Apartment NFA. '
+        'Selecting Commercial here will make generate_project_budget.py stop immediately with a clear error instead '
+        'of silently running Residential math on a Commercial project. Real Commercial data does exist '
+        '(Dim_Property_Commercial.csv, 59 comparables) but nothing in the generator reads it yet.',
+        'Budget Planning Agent')
 
     section(ws1, 4, 'PROJECT SCALE')
     labeled_input(ws1, 5, 'Project Name', 'New Prospect')

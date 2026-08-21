@@ -88,8 +88,19 @@ def read_input(path):
     wb = openpyxl.load_workbook(path, data_only=True)
 
     pi = wb['Project Info']
+    segment = str(pi['B3'].value or 'Residential').strip()
+    if segment.lower() != 'residential':
+        raise ValueError(
+            f"Project Info!B3 (Property Segment) = '{segment}' — this pipeline only supports Residential today. "
+            "Its cost logic (management-fee rate, staffing pattern, Capex/OPEX scaling) is Residential "
+            "apartment-building math, comparable-matched on Apartment NFA; none of it applies to a Commercial "
+            "property, and running it anyway would silently produce wrong numbers rather than a useful budget. "
+            "Real Commercial comparable data exists (Dim_Property_Commercial.csv) but nothing in this generator "
+            "reads it yet — that's a real scoping/build task, not a quick fix. Set Project Info!B3 back to "
+            "'Residential' to continue."
+        )
     project = dict(
-        name=pi['B5'].value, site_area=pi['B6'].value, garden_area=pi['B7'].value,
+        name=pi['B5'].value, segment=segment, site_area=pi['B6'].value, garden_area=pi['B7'].value,
         open_space=pi['B8'].value, floor_count=pi['B9'].value, towers=pi['B10'].value,
         car_slots=pi['B21'].value, moto_slots=pi['B22'].value,
         has_pool=str(pi['B25'].value).strip().lower() == 'yes',
