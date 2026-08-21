@@ -275,7 +275,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # function's docstring for the source maths this mirrors. ----
     from generate_project_output import (
         NIGHT_SHIFT_CODES, NIGHT_DIFFERENTIAL, SERVICE_CATEGORY_KEYWORDS, SERVICE_EXCLUDE_KEYWORDS,
-        PARKING_FEE_CAR_MONTHLY, PARKING_FEE_MOTO_MONTHLY,
+        PARKING_FEE_CAR_MONTHLY, PARKING_FEE_MOTO_MONTHLY, EMPLOYER_INSURANCE_RATE,
     )
 
     def position_annual_cost(d):
@@ -290,7 +290,11 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             if is_night:
                 monthly *= NIGHT_DIFFERENTIAL
             total += monthly
-        return total
+        # Employer Social/Health/Unemployment Insurance contribution — real rate, see
+        # EMPLOYER_INSURANCE_RATE's definition in generate_project_output.py. Required by
+        # input/logic/EXENSIVE LOGIC.xlsx's EMH2 formula; matches build_staff_sheet's own
+        # 'Annual Total (incl. Employer Insurance)' column so this fill never drifts from it.
+        return total * (1 + EMPLOYER_INSURANCE_RATE)
 
     per_position = {d['Position']: position_annual_cost(d) for d in demand}
     staff_grand_total = sum(per_position.values())

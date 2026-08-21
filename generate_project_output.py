@@ -47,6 +47,20 @@ MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'O
 NIGHT_SHIFT_CODES = {'D', '24H'}  # from the Shift Types reference — Night Shift? = Yes
 NIGHT_DIFFERENTIAL = 1.3  # +30% night-shift premium, same factor build_staff_sheet applies
 
+# Real, from data/generation_A_star_schema/Fact_StaffCost.csv (SI_HI_Company / Unemployment ÷
+# GrossSalary): exactly 20.5% and 1.0% respectively across every one of the 911 real rows with
+# nonzero insurance data (verified — not an average of a spread). Matches Vietnamese law's employer
+# Social+Health Insurance (20.5%) and Unemployment Insurance (1%) contribution rates on top of gross
+# salary — required by input/logic/EXENSIVE LOGIC.xlsx's own EMH2 formula ("Sum(Headcount x Salary
+# x 12) + Employer insurance contribution"), never wired into this sheet before. A handful of real
+# rows show a lower ratio (as low as 15.99%) — Vietnamese law caps the SI/HI contribution BASE at a
+# multiple of the regional statutory salary, so very high individual salaries pay a lower effective
+# % of their actual gross; that cap isn't modeled here (matches what the uncapped majority of the
+# real rows show, appropriate for the operational-role salary levels in this pipeline).
+EMPLOYER_SI_HI_RATE = 0.205
+EMPLOYER_UNEMPLOYMENT_RATE = 0.01
+EMPLOYER_INSURANCE_RATE = EMPLOYER_SI_HI_RATE + EMPLOYER_UNEMPLOYMENT_RATE
+
 # Shared between build_staff_sheet (for its Service-equivalent comparison columns) and
 # build_service_sheet (for its own Qty matching) — kept in one place so the two sheets can never
 # silently drift onto different definitions of "which Staffing Demand rows count as Security".
@@ -432,9 +446,19 @@ def build_staff_sheet(wb, project, demand, year):
     ws['A3'].font = Font(bold=True)
     ws['B3'] = year
 
-    headers = ['Position', 'Staff Count'] + MONTH_NAMES + ['Annual Total']
+    headers = ['Position', 'Staff Count'] + MONTH_NAMES + ['Annual Total (Gross)']
     HEADER_ROW = 5
     for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=HEADER_ROW, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    # Columns 16-19 (P-S) are hidden per-row helper cells (StaffPerDay/CoverageDays/AvgDailyRate/
+    # IsNight, written per-row below) — these 2 new columns sit right after them rather than being
+    # inserted earlier, so none of the existing formula column references above need to shift.
+    for c, h in [(20, f'Employer Insurance ({EMPLOYER_INSURANCE_RATE:.1%}, real — Fact_StaffCost.csv)'),
+                 (21, 'Annual Total (incl. Employer Insurance)')]:
         cell = ws.cell(row=HEADER_ROW, column=c, value=h)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
@@ -474,6 +498,14 @@ def build_staff_sheet(wb, project, demand, year):
         annual.number_format = MONEY_FMT
         annual.border = BORDER
         annual.font = Font(bold=True)
+        annual_letter = get_column_letter(annual_col)
+        insurance = ws.cell(row=r, column=20, value=f'={annual_letter}{r}*{EMPLOYER_INSURANCE_RATE}')
+        insurance.number_format = MONEY_FMT
+        insurance.border = BORDER
+        total_incl = ws.cell(row=r, column=21, value=f'={annual_letter}{r}+T{r}')
+        total_incl.number_format = MONEY_FMT
+        total_incl.border = BORDER
+        total_incl.font = Font(bold=True)
         # Hidden helper columns: P=StaffPerDay, Q=CoverageDays, R=AvgDailyRate, S=IsNight(1/0)
         ws.cell(row=r, column=16, value=d['StaffPerDay'])
         ws.cell(row=r, column=17, value=d['CoverageDays'])
@@ -494,7 +526,13 @@ def build_staff_sheet(wb, project, demand, year):
     c = ws.cell(row=r, column=annual_col, value=f'=SUM({annual_letter}{first_row}:{annual_letter}{last_row})')
     c.number_format = MONEY_FMT
     c.font = SECTION_FONT
-    ANNUAL_TOTAL_CELL = f'{annual_letter}{r}'
+    c = ws.cell(row=r, column=20, value=f'=SUM(T{first_row}:T{last_row})')
+    c.number_format = MONEY_FMT
+    c.font = SECTION_FONT
+    c = ws.cell(row=r, column=21, value=f'=SUM(U{first_row}:U{last_row})')
+    c.number_format = MONEY_FMT
+    c.font = SECTION_FONT
+    ANNUAL_TOTAL_CELL = f'U{r}'  # incl. employer insurance — see EMPLOYER_INSURANCE_RATE
     r += 2
 
     section(ws, r, 'REAL BENCHMARK CROSS-CHECK — from the Master List (derive_staffing_benchmarks.py)', ncols=6); r += 1
@@ -527,16 +565,20 @@ def build_staff_sheet(wb, project, demand, year):
     for i in range(12):
         ws.column_dimensions[get_column_letter(3 + i)].width = 12
     ws.column_dimensions[get_column_letter(annual_col)].width = 16
+    ws.column_dimensions['T'].width = 20
+    ws.column_dimensions['U'].width = 22
 
     r += 2
     build_roster_detail_grid(ws, demand, r)
 
     # Category-level annual cost, as a live cross-sheet formula summing this sheet's own Annual
-    # Total cells — for the Service sheet's comparison columns. Same matching AND exclusion rules
-    # Service itself uses (SERVICE_CATEGORY_KEYWORDS / SERVICE_EXCLUDE_KEYWORDS), so "Security" here
-    # means the exact same 7 rows Service prices as Security, not a looser/different definition.
+    # Total (incl. Employer Insurance) cells — for the Service sheet's comparison columns and Cost
+    # Priority. Same matching AND exclusion rules Service itself uses (SERVICE_CATEGORY_KEYWORDS /
+    # SERVICE_EXCLUDE_KEYWORDS), so "Security" here means the exact same 7 rows Service prices as
+    # Security, not a looser/different definition. Column U (not the bare-gross O) so every
+    # downstream sheet that sums this dict picks up the loaded cost automatically.
     def _cell_sum(rows):
-        return ("='Staff (Roster)'!" + "+'Staff (Roster)'!".join(f'{annual_letter}{rr}' for rr in rows)) if rows else '=0'
+        return ("='Staff (Roster)'!" + "+'Staff (Roster)'!".join(f'U{rr}' for rr in rows)) if rows else '=0'
 
     category_annual_cells = {}
     for cat, keywords in SERVICE_CATEGORY_KEYWORDS.items():
@@ -713,7 +755,7 @@ def build_service_sheet(wb, demand, staff):
 
     headers = ['Category', 'Citywide Rate (VND/post/month, real)', 'Shift Roles/Post', 'Night-Shift Blend',
                'Per-Person Monthly Rate (derived)', 'Qty (real staff headcount)', 'Monthly Total (VND)',
-               'Annual (×12)', 'Staff (Roster) Equivalent (VND/year)', 'Gap %', 'Gap Assessment', 'Qty source']
+               'Annual (×12)', 'Staff (Roster) Equivalent, incl. Employer Insurance (VND/year)', 'Gap %', 'Gap Assessment', 'Qty source']
     r = 4
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
@@ -814,7 +856,7 @@ def build_service_sheet(wb, demand, staff):
     ws.row_dimensions[r].height = 28
     r += 1
     mkt_headers = ['Position', 'Real Market Rate (VND/month)', 'n', 'Qty (real headcount)',
-                   'Market-Rate Monthly Total (VND)', 'Staff (Roster) Equivalent (VND/year)', 'Gap %', 'Gap Assessment', 'Source item']
+                   'Market-Rate Monthly Total (VND)', 'Staff (Roster) Equivalent, incl. Employer Insurance (VND/year)', 'Gap %', 'Gap Assessment', 'Source item']
     for c, h in enumerate(mkt_headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
