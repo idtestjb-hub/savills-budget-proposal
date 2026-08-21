@@ -189,6 +189,36 @@ def read_input(path):
 # Budget workbook
 # ============================================================================================
 
+# A handful of leaf rows across this template's real-data sheets carry a leftover date/time
+# number_format on their H:S cells (residue from whatever real project this template copy was
+# last used on) — writing a plain VND integer into a date-formatted cell reads back fine in-memory,
+# but the NEXT openpyxl load+save cycle (add_comparison_sheet, right after these run) reinterprets
+# the out-of-range serial as an error and bakes in a literal #VALUE!, which then poisons every
+# SUM()/SUBTOTAL() that rolls up through it. Forcing a real number format on every cell these
+# helpers write avoids that corruption — see fill_management_fund_sheet's original discovery of
+# this bug for the full story.
+_NUM_FMT = '#,##0'
+
+
+def _write_even_monthly_row(ws, row, annual_amount):
+    """Even 1/12 split — the right default for a flat run-rate cost/revenue that doesn't depend on
+    occupancy fill (management fee, staff, utilities, service contracts)."""
+    monthly = round(annual_amount / 12)
+    ws.cell(row=row, column=3, value='Monthly')  # C: Frequency
+    for col in (6, *range(8, 20)):  # F: Unit Price (monthly, drives G=F*12); H:S shown for transparency
+        cell = ws.cell(row=row, column=col, value=monthly)
+        cell.number_format = _NUM_FMT
+
+
+def _write_year1_lump_row(ws, row, annual_amount):
+    """Year-1 lump sum in month 1 (Schedule frequency, G=SUM(H:S)) — for one-time Capex, matching
+    the sinking-fund treatment (100% Year 1) already used elsewhere in this pipeline."""
+    ws.cell(row=row, column=3, value='Schedule')  # C: Frequency -> G = SUM(H:S)
+    for col, value in [(8, round(annual_amount))] + [(c, 0) for c in range(9, 20)]:
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.number_format = _NUM_FMT
+
+
 # Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
 # Resi template) that generate_project_output.py's pipeline actually computes real numbers for —
 # everything else in that sheet (hundreds of granular sub-system Repairs & Maintenance rows, ~19
@@ -238,37 +268,13 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     the Year-1 (full lump) value. Both choices confirmed with the PM (2026-08-21)."""
     ws = wb['2. Budget-Management Fund']
 
-    # A handful of leaf rows in this template carry a leftover date/time number_format on their
-    # H:S cells (residue from whatever real project this template copy was last used on) — writing
-    # a plain VND integer into a date-formatted cell reads back fine in-memory, but the NEXT
-    # openpyxl load+save cycle (add_comparison_sheet, right after this function runs) reinterprets
-    # the out-of-range serial as an error and bakes in a literal #VALUE!, which then poisons every
-    # SUM()/SUBTOTAL() that rolls up through it. Forcing a real number format on every cell this
-    # function writes avoids that corruption.
-    NUM_FMT = '#,##0'
-
-    def _set(row, col, value):
-        cell = ws.cell(row=row, column=col, value=value)
-        cell.number_format = NUM_FMT
-
     def write_even_monthly(key, annual_amount):
-        if not annual_amount:
-            return
-        row = MGMT_FUND_ROWS[key]
-        monthly = round(annual_amount / 12)
-        ws.cell(row=row, column=3, value='Monthly')  # C: Frequency
-        _set(row, 6, monthly)     # F: Unit Price (monthly) -> G = F*12
-        for col in range(8, 20):  # H:S — 12 monthly cells, shown for transparency
-            _set(row, col, monthly)
+        if annual_amount:
+            _write_even_monthly_row(ws, MGMT_FUND_ROWS[key], annual_amount)
 
     def write_year1_lump(key, annual_amount):
-        if not annual_amount:
-            return
-        row = MGMT_FUND_ROWS[key]
-        ws.cell(row=row, column=3, value='Schedule')  # C: Frequency -> G = SUM(H:S)
-        _set(row, 8, round(annual_amount))  # H: month 1 = full lump
-        for col in range(9, 20):  # I:S: remaining 11 months = 0
-            _set(row, col, 0)
+        if annual_amount:
+            _write_year1_lump_row(ws, MGMT_FUND_ROWS[key], annual_amount)
 
     # ---- Staff (roster) — replicated in pure Python from the same `demand` rows and formula
     # build_staff_sheet (generate_project_output.py) writes as live Excel formulas; see that
@@ -346,6 +352,45 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     write_year1_lump('capex_me', capex_annual.get('M&E Equipment', 0))
     write_year1_lump('capex_public', capex_annual.get('Public Area', 0))
     write_year1_lump('capex_amenity', capex_annual.get('Amenity Area', 0))
+
+
+# "2.2 Common area Fund" is a SEPARATE real fund from "2. Budget-Management Fund" — same ~500-code
+# catalog structure, but scoped to common-area commercial exploitation (advertising/rentals/visitor
+# parking) rather than the whole-building management fee. Its EMH/ESS/EN/EE/etc. rows are the exact
+# same codes already filled on "2. Budget-Management Fund"; writing the same Staff/OPEX/Capex
+# numbers here too would double-count them, since this pipeline has no real cost-allocation split
+# telling us how much of each belongs to which fund — so only genuinely NEW, fund-specific revenue
+# goes here. Row numbers verified once against the real file, same caveat as MGMT_FUND_ROWS above.
+COMMON_AREA_FUND_ROWS = {
+    'lcd_ad': 20,     # RA1.A  LCD Advertising for Apartment
+    'lift_ad': 26,    # RA2    Decal Advertising for Lift
+}
+
+
+def fill_common_area_fund_sheet(wb, project):
+    """Elevator/lobby advertising revenue — real per-device rates (Fact_MasterRateCard.csv) already
+    computed by generate_project_output.py's build_additional_revenue_sheet (ELEVATOR_AD_ITEMS),
+    just never placed into the real template before. "Ad frame (tower lobby, inside elevator)" maps
+    to RA2 (elevator-specific); the two LCD screen items (tower + basement lobby) combine into RA1.A
+    (a generic lobby LCD line, no separate "basement" row in this template). Qty is a stated
+    assumption (towers × qty-per-tower, or a flat count), not real per-project elevator-count data —
+    same disclosure as the source sheet. Confirmed with the PM (2026-08-21) rather than assumed."""
+    from generate_project_output import ELEVATOR_AD_ITEMS
+    ws = wb['2.2 Common area Fund']
+
+    towers = project.get('towers') or 1
+    lift_annual = 0.0
+    lcd_annual = 0.0
+    for item, rate, qty_per_tower, flat_qty, _assumption in ELEVATOR_AD_ITEMS:
+        qty = (qty_per_tower * towers) if qty_per_tower is not None else flat_qty
+        annual = rate * qty * 12
+        if 'inside elevator' in item.lower():
+            lift_annual += annual
+        else:
+            lcd_annual += annual
+
+    _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lift_ad'], lift_annual)
+    _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lcd_ad'], lcd_annual)
 
 
 def build_budget(project, demand, year):
@@ -429,6 +474,10 @@ def build_budget(project, demand, year):
     # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
     fill_management_fund_sheet(wb, project, demand, year, derived_rate)
+
+    # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
+    # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
+    fill_common_area_fund_sheet(wb, project)
 
     out_filename = f"{project['name']} - Sample Consulting Budget.xlsx"
     local_out = os.path.join(tempfile.gettempdir(), out_filename)
