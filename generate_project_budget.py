@@ -35,6 +35,8 @@ from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
     RATE_CARD_SOURCE, nearest_comparables, derive_mgmt_rate,
 )
+from estimate_opex import estimate_opex
+from estimate_capex_qty import estimate_capex_items
 
 SOURCE_DIR = os.path.dirname(__file__)
 BUDGET_AGENT = os.path.abspath(os.path.join(SOURCE_DIR, '..'))
@@ -187,7 +189,162 @@ def read_input(path):
 # Budget workbook
 # ============================================================================================
 
-def build_budget(project):
+# Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
+# Resi template) that generate_project_output.py's pipeline actually computes real numbers for —
+# everything else in that sheet (hundreds of granular sub-system Repairs & Maintenance rows, ~19
+# Admin Expense office-line-items, Insurance, Bank/Audit, Tax, etc.) has no matching real data in
+# this pipeline and is deliberately left as the template's own blank default rather than guessed;
+# confirmed with the PM (2026-08-21) rather than assumed. Row numbers are fixed positions in the
+# template, not computed — verified once against the real file; if Savills ever reshapes this
+# template, these will need re-verifying against the new row numbers.
+MGMT_FUND_ROWS = {
+    'mgmt_fee_revenue': 14,     # RM.AP  Management fee of Apartment (revenue)
+    'mgmt_fee_expense': 82,     # EMH1   Management fee for Savills (fund pays it out to Savills)
+    'staff_remainder': 83,      # EMH2   Staff cost for Savills (all roster positions except Security/Cleaning/Landscape, which get their own outsourced-contract rows below)
+    'parking_moto': 26,         # RP1    Motorbike monthly parking (revenue)
+    'parking_car': 27,          # RP2    Car monthly parking (revenue)
+    'security': 145,            # ESS1   Security service
+    'cleaning': 148,            # ESS4   Cleaning service for common area
+    'landscape': 160,           # ESS16  Landscaping service
+    'pool_salt': 196,           # ESM4   Chemicals for pool (only written if project has a pool)
+    'water': 230,               # EEW.C  Water for Common Area and Facilities
+    'electricity': 240,         # EEE.C  Electricity for Common Area
+    'diesel': 251,              # EED.C  Diesel for back up generators of Common Area and Facilities
+    'capex_mo': 223,            # EN1    New capital expenditure for MO
+    'capex_me': 224,            # EN2    New capital expenditure for ME team
+    'capex_public': 225,        # EN3    New capital expenditure for Common area
+    'capex_amenity': 226,       # EN4    New capital expenditure for Tenant area
+}
+
+
+def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
+    """Populates the real computed OPEX/Capex/Staff/Parking/Management-Fee numbers this pipeline
+    already derives elsewhere (generate_project_output.py) into '2. Budget-Management Fund''s
+    pre-labeled leaf rows (MGMT_FUND_ROWS above). Only leaf-row cells (C/F/H:S) are touched — every
+    parent/section row above them (e.g. row 13's =SUBTOTAL(9,G14:G24)) is already a live formula in
+    the template and rolls these up automatically, verified against the real file before writing
+    this.
+
+    Security/Cleaning/Landscape are pulled OUT of the generic staff total and given their own
+    outsourced-contract rows (ESS1/ESS4/ESS16) — the template already has dedicated rate/m² detail
+    sheets for exactly those 3, so leaving them inside the lump staff-cost line would double-count
+    them. Confirmed with the PM (2026-08-21) rather than assumed.
+
+    Monthly columns (H:S): OPEX/Staff/Revenue use an even 1/12 split (flat run-rate regardless of
+    occupancy fill — management/utility costs don't scale with how full the building is). Capex
+    uses a Year-1 lump sum in month 1 (Schedule frequency), matching the sinking-fund treatment
+    (100% Year 1, reserve thereafter) already used in generate_project_output.py's Owner Operating
+    Position / Savills Fee Position sheets — this sheet only covers one calendar year, so it gets
+    the Year-1 (full lump) value. Both choices confirmed with the PM (2026-08-21)."""
+    ws = wb['2. Budget-Management Fund']
+
+    # A handful of leaf rows in this template carry a leftover date/time number_format on their
+    # H:S cells (residue from whatever real project this template copy was last used on) — writing
+    # a plain VND integer into a date-formatted cell reads back fine in-memory, but the NEXT
+    # openpyxl load+save cycle (add_comparison_sheet, right after this function runs) reinterprets
+    # the out-of-range serial as an error and bakes in a literal #VALUE!, which then poisons every
+    # SUM()/SUBTOTAL() that rolls up through it. Forcing a real number format on every cell this
+    # function writes avoids that corruption.
+    NUM_FMT = '#,##0'
+
+    def _set(row, col, value):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.number_format = NUM_FMT
+
+    def write_even_monthly(key, annual_amount):
+        if not annual_amount:
+            return
+        row = MGMT_FUND_ROWS[key]
+        monthly = round(annual_amount / 12)
+        ws.cell(row=row, column=3, value='Monthly')  # C: Frequency
+        _set(row, 6, monthly)     # F: Unit Price (monthly) -> G = F*12
+        for col in range(8, 20):  # H:S — 12 monthly cells, shown for transparency
+            _set(row, col, monthly)
+
+    def write_year1_lump(key, annual_amount):
+        if not annual_amount:
+            return
+        row = MGMT_FUND_ROWS[key]
+        ws.cell(row=row, column=3, value='Schedule')  # C: Frequency -> G = SUM(H:S)
+        _set(row, 8, round(annual_amount))  # H: month 1 = full lump
+        for col in range(9, 20):  # I:S: remaining 11 months = 0
+            _set(row, col, 0)
+
+    # ---- Staff (roster) — replicated in pure Python from the same `demand` rows and formula
+    # build_staff_sheet (generate_project_output.py) writes as live Excel formulas; see that
+    # function's docstring for the source maths this mirrors. ----
+    from generate_project_output import (
+        NIGHT_SHIFT_CODES, NIGHT_DIFFERENTIAL, SERVICE_CATEGORY_KEYWORDS, SERVICE_EXCLUDE_KEYWORDS,
+        PARKING_FEE_CAR_MONTHLY, PARKING_FEE_MOTO_MONTHLY,
+    )
+
+    def position_annual_cost(d):
+        staff_per_day, coverage_days, daily_rate = d['StaffPerDay'], d['CoverageDays'], d['AvgDailyRate']
+        is_night = d['ShiftCode'] in NIGHT_SHIFT_CODES
+        eff_count = math.ceil(staff_per_day * 7 / 6) if coverage_days >= 7 else staff_per_day
+        frac_days = 6 if coverage_days >= 7 else coverage_days
+        total = 0.0
+        for m in range(1, 13):
+            days_in_month = cal.monthrange(year, m)[1]
+            monthly = eff_count * math.floor(days_in_month * frac_days / 7 + 0.5) * daily_rate
+            if is_night:
+                monthly *= NIGHT_DIFFERENTIAL
+            total += monthly
+        return total
+
+    per_position = {d['Position']: position_annual_cost(d) for d in demand}
+    staff_grand_total = sum(per_position.values())
+
+    def category_cost(cat, excluded=False):
+        keywords = SERVICE_CATEGORY_KEYWORDS[cat]
+        return sum(v for pos, v in per_position.items()
+                   if any(kw in pos.lower() for kw in keywords)
+                   and (any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS) if excluded
+                        else not any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS)))
+
+    security_cost = category_cost('Security')
+    cleaning_cost = category_cost('Cleaning') + category_cost('Cleaning', excluded=True)
+    landscape_cost = category_cost('Landscape')
+    staff_remainder = staff_grand_total - security_cost - cleaning_cost - landscape_cost
+
+    write_even_monthly('security', security_cost)
+    write_even_monthly('cleaning', cleaning_cost)
+    write_even_monthly('landscape', landscape_cost)
+    write_even_monthly('staff_remainder', staff_remainder)
+
+    # ---- Management fee revenue (Apartment only — same scope as this pipeline's other real
+    # writes on '0. Info'!I8; other product types aren't priced here today) ----
+    mgmt_fee_annual = derived_rate * project['apartment_nfa'] * 12
+    write_even_monthly('mgmt_fee_revenue', mgmt_fee_annual)
+    write_even_monthly('mgmt_fee_expense', mgmt_fee_annual)
+
+    # ---- Parking Fee revenue (real rate x real slot counts, at 100% occupancy — see
+    # build_additional_revenue_sheet's docstring for why that's a ceiling, not a realistic average) ----
+    write_even_monthly('parking_moto', PARKING_FEE_MOTO_MONTHLY * (project.get('moto_slots') or 0) * 12)
+    write_even_monthly('parking_car', PARKING_FEE_CAR_MONTHLY * (project.get('car_slots') or 0) * 12)
+
+    # ---- OPEX (Electricity/Water/Diesel — common-area usage; Repairs & Maintenance and Admin
+    # Expense are single aggregates in this pipeline but split into 30+/19 specific sub-system rows
+    # in the template, so are deliberately left blank rather than forced into one arbitrary row) ----
+    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False))
+    write_even_monthly('water', opex.get('Water', {}).get('monthly_vnd', 0) * 12)
+    write_even_monthly('electricity', opex.get('Electricity', {}).get('monthly_vnd', 0) * 12)
+    write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12)
+    if project.get('has_pool'):
+        write_even_monthly('pool_salt', opex.get('Pool Salt', {}).get('monthly_vnd', 0) * 12)
+
+    # ---- Capex — Year-1 lump sum (see docstring above) ----
+    capex_items, _ = estimate_capex_items(project['total_nfa'], exclude_name=project['name'])
+    capex_annual = {}
+    for it in capex_items:
+        capex_annual[it['category']] = capex_annual.get(it['category'], 0) + it['unit_price'] * it['qty']
+    write_year1_lump('capex_mo', capex_annual.get('MO Equipment', 0))
+    write_year1_lump('capex_me', capex_annual.get('M&E Equipment', 0))
+    write_year1_lump('capex_public', capex_annual.get('Public Area', 0))
+    write_year1_lump('capex_amenity', capex_annual.get('Amenity Area', 0))
+
+
+def build_budget(project, demand, year):
     top2 = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'], n=2)
     all_ranked = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'], n=len(MASTER_COMPARABLES))
     derived_rate, rate_note = derive_mgmt_rate(top2, all_ranked=all_ranked)
@@ -264,6 +421,10 @@ def build_budget(project):
     parking = wb['B5. Đơn giá gửi xe - Parking pr']
     parking['B7'] = 'Placeholder — no per-project parking-fee reference in master data yet'
     parking['C7'], parking['E7'] = 4812500, 217000  # Fact_MasterRateCard.csv market reference (Marq), for context only
+
+    # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
+    # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
+    fill_management_fund_sheet(wb, project, demand, year, derived_rate)
 
     out_filename = f"{project['name']} - Sample Consulting Budget.xlsx"
     local_out = os.path.join(tempfile.gettempdir(), out_filename)
@@ -671,7 +832,7 @@ def build_roster(project, ratios, month, year, holiday_days, demand):
 
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
-    budget_path = build_budget(project)
+    budget_path = build_budget(project, demand, year)
     roster_path = build_roster(project, ratios, month, year, holiday_days, demand)
     print('\nDone.')
     print('Budget:', budget_path)
