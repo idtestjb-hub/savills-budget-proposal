@@ -41,7 +41,13 @@ BUDGET_AGENT = os.path.abspath(os.path.join(SOURCE_DIR, '..'))
 BASE = os.path.abspath(os.path.join(SOURCE_DIR, '..', '..'))
 
 INPUT_PATH = os.path.join(BUDGET_AGENT, 'reports', 'Project_Budget_Input.xlsx')
-TEMPLATE_PATH = os.path.join(BASE, 'input', 'template', 'template 2026.xlsx')
+# Swapped 2026-08-21 to the new Resi-specific template — verified all 19 sheet names and every
+# cell this script writes to line up identically with the old "template 2026.xlsx" (same labels,
+# same layout), so no other change was needed here. The old file is left in place, untouched.
+# Commercial has its own new template ("202608 - 2027 Commercial Budget Form.xlsx") but this
+# script's cost logic is still Residential-only (see the Property Segment guard in read_input()
+# above) — swapping in the Commercial template would load fine but fill it with wrong numbers.
+TEMPLATE_PATH = os.path.join(BASE, 'input', 'template', '202608 - 2027 Resi Budget Form.xlsx')
 BUDGET_OUT_DIR = os.path.join(BUDGET_AGENT, 'sample_output')
 ROSTER_OUT_DIR = os.path.join(BUDGET_AGENT, 'reports')
 ROSTER_FINAL_OUT = os.path.join(ROSTER_OUT_DIR, 'Roster_Demand_Model.xlsx')
@@ -239,7 +245,9 @@ def build_budget(project):
 
     # ---- Everything below has no equivalent on the input form -- a real prospect wouldn't have
     # these numbers yet either. Marked clearly as placeholders, not derived or real. ----
-    wb['A5. Trợ cấp PCCC']['C2'] = 0.06
+    # A5!C2 (PCCC subsidy rate) used to be force-set to 0.06 here, but the 2026-08-21 Resi template
+    # ships its own updated default (0.078) in that cell — left alone now so the template's own,
+    # more current reference value survives instead of being overwritten by this older guess.
     scent = wb['B2. Mùi hương - Scent']
     scent['G6'], scent['G7'], scent['G8'] = 2, 4, 3
     consumable = wb['B3. Vật tư vệ sinh - Consumable']
