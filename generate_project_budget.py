@@ -200,7 +200,20 @@ def read_input(path):
 _NUM_FMT = '#,##0'
 
 
-def _write_even_monthly_row(ws, row, annual_amount):
+_REMARKS_COL = 20  # T — real header in every real-data sheet: "Remarks (please give the full,
+                   # detailed reason for each cost item's increase/decrease)". Every cell this
+                   # generator fills gets a real remark explaining the actual formula/source/numbers
+                   # used, not just a value with no explanation of where it came from.
+
+
+def _write_remark(ws, row, remark):
+    if not remark:
+        return
+    cell = ws.cell(row=row, column=_REMARKS_COL, value=remark)
+    cell.alignment = Alignment(wrap_text=True, vertical='top')
+
+
+def _write_even_monthly_row(ws, row, annual_amount, remark=None):
     """Even 1/12 split — the right default for a flat run-rate cost/revenue that doesn't depend on
     occupancy fill (management fee, staff, utilities, service contracts)."""
     monthly = round(annual_amount / 12)
@@ -208,15 +221,17 @@ def _write_even_monthly_row(ws, row, annual_amount):
     for col in (6, *range(8, 20)):  # F: Unit Price (monthly, drives G=F*12); H:S shown for transparency
         cell = ws.cell(row=row, column=col, value=monthly)
         cell.number_format = _NUM_FMT
+    _write_remark(ws, row, remark)
 
 
-def _write_year1_lump_row(ws, row, annual_amount):
+def _write_year1_lump_row(ws, row, annual_amount, remark=None):
     """Year-1 lump sum in month 1 (Schedule frequency, G=SUM(H:S)) — for one-time Capex, matching
     the sinking-fund treatment (100% Year 1) already used elsewhere in this pipeline."""
     ws.cell(row=row, column=3, value='Schedule')  # C: Frequency -> G = SUM(H:S)
     for col, value in [(8, round(annual_amount))] + [(c, 0) for c in range(9, 20)]:
         cell = ws.cell(row=row, column=col, value=value)
         cell.number_format = _NUM_FMT
+    _write_remark(ws, row, remark)
 
 
 # Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
@@ -268,13 +283,13 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     the Year-1 (full lump) value. Both choices confirmed with the PM (2026-08-21)."""
     ws = wb['2. Budget-Management Fund']
 
-    def write_even_monthly(key, annual_amount):
+    def write_even_monthly(key, annual_amount, remark=None):
         if annual_amount:
-            _write_even_monthly_row(ws, MGMT_FUND_ROWS[key], annual_amount)
+            _write_even_monthly_row(ws, MGMT_FUND_ROWS[key], annual_amount, remark)
 
-    def write_year1_lump(key, annual_amount):
+    def write_year1_lump(key, annual_amount, remark=None):
         if annual_amount:
-            _write_year1_lump_row(ws, MGMT_FUND_ROWS[key], annual_amount)
+            _write_year1_lump_row(ws, MGMT_FUND_ROWS[key], annual_amount, remark)
 
     # ---- Staff (roster) — replicated in pure Python from the same `demand` rows and formula
     # build_staff_sheet (generate_project_output.py) writes as live Excel formulas; see that
@@ -317,41 +332,100 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     landscape_cost = category_cost('Landscape')
     staff_remainder = staff_grand_total - security_cost - cleaning_cost - landscape_cost
 
-    write_even_monthly('security', security_cost)
-    write_even_monthly('cleaning', cleaning_cost)
-    write_even_monthly('landscape', landscape_cost)
-    write_even_monthly('staff_remainder', staff_remainder)
+    n_security = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Security']))
+    n_cleaning = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Cleaning']))
+    n_landscape = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Landscape']))
+
+    write_even_monthly('security', security_cost, remark=(
+        f"= {n_security} Security position(s) from Staffing Demand (headcount x real AvgDailyRate x coverage days, "
+        f"annualized) x {EMPLOYER_INSURANCE_RATE:.1%} employer insurance (Fact_StaffCost.csv, real) = "
+        f"{security_cost:,.0f} VND/year. Source: Staff (Roster) sheet, Project_Budget_Output.xlsx."))
+    write_even_monthly('cleaning', cleaning_cost, remark=(
+        f"= {n_cleaning} Cleaning position(s) (incl. Supervisory) from Staffing Demand, same headcount x rate x "
+        f"coverage-days formula as Security above, x {EMPLOYER_INSURANCE_RATE:.1%} employer insurance = "
+        f"{cleaning_cost:,.0f} VND/year."))
+    write_even_monthly('landscape', landscape_cost, remark=(
+        f"= {n_landscape} Landscape/Gardener position(s) from Staffing Demand, same formula, x "
+        f"{EMPLOYER_INSURANCE_RATE:.1%} employer insurance = {landscape_cost:,.0f} VND/year. "
+        f"(Conditional — 0 and left blank if the project has no garden area.)"))
+    write_even_monthly('staff_remainder', staff_remainder, remark=(
+        f"= Full roster annual cost incl. {EMPLOYER_INSURANCE_RATE:.1%} employer insurance ({staff_grand_total:,.0f}) "
+        f"MINUS Security ({security_cost:,.0f}) MINUS Cleaning ({cleaning_cost:,.0f}) MINUS Landscape "
+        f"({landscape_cost:,.0f}) — those 3 are priced separately above (ESS1/ESS4/ESS16) so they aren't "
+        f"double-counted here. = {staff_remainder:,.0f} VND/year. Source: Staff (Roster) sheet."))
 
     # ---- Management fee revenue (Apartment only — same scope as this pipeline's other real
     # writes on '0. Info'!I8; other product types aren't priced here today) ----
     mgmt_fee_annual = derived_rate * project['apartment_nfa'] * 12
-    write_even_monthly('mgmt_fee_revenue', mgmt_fee_annual)
-    write_even_monthly('mgmt_fee_expense', mgmt_fee_annual)
+    write_even_monthly('mgmt_fee_revenue', mgmt_fee_annual, remark=(
+        f"= Derived Apartment management-fee rate ({derived_rate:,.0f} VND/m²/month, nearest-comparable-matched — "
+        f"see '0. Info'!I8 and the Comparison sheet) x Apartment NFA ({project['apartment_nfa']:,.0f} m²) x 12 "
+        f"= {mgmt_fee_annual:,.0f} VND/year."))
+    write_even_monthly('mgmt_fee_expense', mgmt_fee_annual, remark=(
+        "= Same value as RM.AP (Management fee revenue, above) — the fund pays Savills the full collected "
+        f"management fee. = {mgmt_fee_annual:,.0f} VND/year."))
 
     # ---- Parking Fee revenue (real rate x real slot counts, at 100% occupancy — see
     # build_additional_revenue_sheet's docstring for why that's a ceiling, not a realistic average) ----
-    write_even_monthly('parking_moto', PARKING_FEE_MOTO_MONTHLY * (project.get('moto_slots') or 0) * 12)
-    write_even_monthly('parking_car', PARKING_FEE_CAR_MONTHLY * (project.get('car_slots') or 0) * 12)
+    moto_slots = project.get('moto_slots') or 0
+    car_slots = project.get('car_slots') or 0
+    parking_moto_annual = PARKING_FEE_MOTO_MONTHLY * moto_slots * 12
+    parking_car_annual = PARKING_FEE_CAR_MONTHLY * car_slots * 12
+    write_even_monthly('parking_moto', parking_moto_annual, remark=(
+        f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/month (real rate, A&K Tower's own proposed parking price) x "
+        f"{moto_slots:,.0f} motorbike slots (Project Info) x 12 = {parking_moto_annual:,.0f} VND/year. "
+        f"At 100% occupancy — a ceiling, not a realistic average (no real occupancy data exists)."))
+    write_even_monthly('parking_car', parking_car_annual, remark=(
+        f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/month (real rate, A&K Tower's own proposed parking price) x "
+        f"{car_slots:,.0f} car slots (Project Info) x 12 = {parking_car_annual:,.0f} VND/year. "
+        f"At 100% occupancy — a ceiling, not a realistic average (no real occupancy data exists)."))
 
     # ---- OPEX (Electricity/Water/Diesel — common-area usage; Repairs & Maintenance and Admin
     # Expense are single aggregates in this pipeline but split into 30+/19 specific sub-system rows
     # in the template, so are deliberately left blank rather than forced into one arbitrary row) ----
     opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False))
-    write_even_monthly('water', opex.get('Water', {}).get('monthly_vnd', 0) * 12)
-    write_even_monthly('electricity', opex.get('Electricity', {}).get('monthly_vnd', 0) * 12)
-    write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12)
+
+    def _opex_remark(category):
+        entry = opex.get(category, {})
+        annual = entry.get('monthly_vnd', 0) * 12
+        if entry.get('ratio_per_m2') is not None:
+            return (f"= A&K Tower's real per-m² NFA ratio for {category} ({entry['ratio_per_m2']:,.2f} VND/m²/month, "
+                    f"n=1 — the only residential property with independently-verified OPEX data) x this project's "
+                    f"Total NFA ({project['total_nfa']:,.0f} m²) x 12 = {annual:,.0f} VND/year.")
+        return f"= A&K Tower's real flat monthly reference for {category} x 12 = {annual:,.0f} VND/year (not NFA-scaled)."
+
+    write_even_monthly('water', opex.get('Water', {}).get('monthly_vnd', 0) * 12, remark=_opex_remark('Water'))
+    write_even_monthly('electricity', opex.get('Electricity', {}).get('monthly_vnd', 0) * 12, remark=_opex_remark('Electricity'))
+    write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
+                        remark=_opex_remark('Diesel (Generator Fuel)'))
     if project.get('has_pool'):
-        write_even_monthly('pool_salt', opex.get('Pool Salt', {}).get('monthly_vnd', 0) * 12)
+        write_even_monthly('pool_salt', opex.get('Pool Salt', {}).get('monthly_vnd', 0) * 12,
+                            remark=(_opex_remark('Pool Salt') +
+                                    " Not scaled by pool size/volume — no real data ties pool-salt cost to pool "
+                                    "area across more than one property."))
 
     # ---- Capex — Year-1 lump sum (see docstring above) ----
-    capex_items, _ = estimate_capex_items(project['total_nfa'], exclude_name=project['name'])
+    capex_items, capex_source = estimate_capex_items(project['total_nfa'], exclude_name=project['name'])
     capex_annual = {}
+    capex_counts = {}
     for it in capex_items:
         capex_annual[it['category']] = capex_annual.get(it['category'], 0) + it['unit_price'] * it['qty']
-    write_year1_lump('capex_mo', capex_annual.get('MO Equipment', 0))
-    write_year1_lump('capex_me', capex_annual.get('M&E Equipment', 0))
-    write_year1_lump('capex_public', capex_annual.get('Public Area', 0))
-    write_year1_lump('capex_amenity', capex_annual.get('Amenity Area', 0))
+        capex_counts[it['category']] = capex_counts.get(it['category'], 0) + 1
+    source_project = capex_source.get('source_project', 'the nearest real comparable') if capex_source else 'the nearest real comparable'
+    scale_factor = capex_source.get('scale_factor') if capex_source else None
+
+    def _capex_remark(category):
+        n = capex_counts.get(category, 0)
+        amount = capex_annual.get(category, 0)
+        scale_note = f" (NFA scale factor {scale_factor}x)" if scale_factor else ""
+        return (f"= Sum(Qty x real Unit Price) across {n} {category} item(s), scaled from {source_project}'s own "
+                f"real Capex line items (Fact_Capex_Rescanned.csv) by Total NFA ratio{scale_note} = {amount:,.0f} "
+                f"VND — booked as a full Year-1 lump sum (sinking-fund treatment: 100% Year 1, reserve thereafter).")
+
+    write_year1_lump('capex_mo', capex_annual.get('MO Equipment', 0), remark=_capex_remark('MO Equipment'))
+    write_year1_lump('capex_me', capex_annual.get('M&E Equipment', 0), remark=_capex_remark('M&E Equipment'))
+    write_year1_lump('capex_public', capex_annual.get('Public Area', 0), remark=_capex_remark('Public Area'))
+    write_year1_lump('capex_amenity', capex_annual.get('Amenity Area', 0), remark=_capex_remark('Amenity Area'))
 
 
 # "2.2 Common area Fund" is a SEPARATE real fund from "2. Budget-Management Fund" — same ~500-code
@@ -379,18 +453,25 @@ def fill_common_area_fund_sheet(wb, project):
     ws = wb['2.2 Common area Fund']
 
     towers = project.get('towers') or 1
-    lift_annual = 0.0
-    lcd_annual = 0.0
-    for item, rate, qty_per_tower, flat_qty, _assumption in ELEVATOR_AD_ITEMS:
+    lift_annual, lcd_annual = 0.0, 0.0
+    lift_parts, lcd_parts = [], []
+    for item, rate, qty_per_tower, flat_qty, assumption in ELEVATOR_AD_ITEMS:
         qty = (qty_per_tower * towers) if qty_per_tower is not None else flat_qty
         annual = rate * qty * 12
+        part = f"{item}: {rate:,.0f} VND/device/month x {qty:g} device(s) x 12 = {annual:,.0f} ({assumption})"
         if 'inside elevator' in item.lower():
             lift_annual += annual
+            lift_parts.append(part)
         else:
             lcd_annual += annual
+            lcd_parts.append(part)
 
-    _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lift_ad'], lift_annual)
-    _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lcd_ad'], lcd_annual)
+    _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lift_ad'], lift_annual, remark=(
+        "= " + " + ".join(lift_parts) + f" = {lift_annual:,.0f} VND/year total. "
+        "Rate: Fact_MasterRateCard.csv, Service domain, 'Elevator advertising' (real)."))
+    _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lcd_ad'], lcd_annual, remark=(
+        "= " + " + ".join(lcd_parts) + f" = {lcd_annual:,.0f} VND/year total. "
+        "Rate: Fact_MasterRateCard.csv, Service domain, 'Elevator advertising' (real)."))
 
 
 def build_budget(project, demand, year):
