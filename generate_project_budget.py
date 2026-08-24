@@ -560,6 +560,15 @@ def build_budget(project, demand, year):
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
     fill_common_area_fund_sheet(wb, project)
 
+    # Safety net for a real bug class hit this session: Remarks text like "= Derived Apartment
+    # management-fee rate... = 13,089,600,000 VND/year" gets serialized by openpyxl as an actual
+    # FORMULA (any string cell value starting with "=" is written as <f>...</f>), which Excel then
+    # can't parse and strips on open ("Removed Records: Formula from .../sheetN.xml part" —
+    # exactly the repair dialog this produced). Same fix generate_project_output.py already applies
+    # to its own workbook; reused here rather than re-implemented, so both stay in sync.
+    from generate_project_output import _fix_fake_formula_strings
+    _fix_fake_formula_strings(wb)
+
     out_filename = f"{project['name']} - Sample Consulting Budget.xlsx"
     local_out = os.path.join(tempfile.gettempdir(), out_filename)
     wb.save(local_out)
