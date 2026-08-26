@@ -508,6 +508,16 @@ def build_budget(project, demand, year):
     ]:
         wb[sheet][coord] = project['name']
 
+    # The two "Report-" sheets ship with a hardcoded 'AAA' placeholder in their project-name header,
+    # so they were the only sheets still showing 'AAA' in the delivered file. "3.1 Report-Sinking
+    # Fund" solves this in the template itself with a cross-sheet formula; reusing that exact
+    # convention here keeps ONE source of truth (Budget-Management Fund!AH5, set just above) instead
+    # of writing the literal name into three separate places that could later drift apart.
+    # NB: do NOT reach for AH5 on every sheet — on "2.2 Common area Fund" that same cell holds the
+    # budget YEAR (2027), not a name.
+    for sheet in ('2.1 Report-Management Fund', '2.2.1 Report-Common area Fund'):
+        wb[sheet]['H4'] = "='2. Budget-Management Fund'!AH5"
+
     # ---- 0. Info: user-input scale + derived rate. Template's fee table only has rows for
     # Apartment(8)/Officetel(9)/Office(10)/Shopping Mall(11) — Shophouse and Nursery entered on
     # the input form have no equivalent row in this template version, so they're not written here.
