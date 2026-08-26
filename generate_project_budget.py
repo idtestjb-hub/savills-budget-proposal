@@ -566,7 +566,10 @@ def build_budget(project, demand, year):
     # can't parse and strips on open ("Removed Records: Formula from .../sheetN.xml part" —
     # exactly the repair dialog this produced). Same fix generate_project_output.py already applies
     # to its own workbook; reused here rather than re-implemented, so both stay in sync.
-    from generate_project_output import _fix_fake_formula_strings
+    # Imported locally, not at module level: generate_project_output imports read_input/INPUT_PATH/
+    # PRODUCT_ROWS from THIS module, so a top-level import here would be circular. Same pattern as
+    # the other cross-module imports in this file.
+    from generate_project_output import _fix_fake_formula_strings, _strip_onedrive_zip_artifacts
     _fix_fake_formula_strings(wb)
 
     out_filename = f"{project['name']} - Sample Consulting Budget.xlsx"
@@ -581,6 +584,12 @@ def build_budget(project, demand, year):
     try:
         shutil.copyfile(local_out, out_path)
         print('Copied into place:', out_path)
+        # sample_output/ is inside the synced OneDrive tree, same as reports/ — so it gets the same
+        # "[trash]/*.dat" zip-artifact injection that makes Excel throw a repair dialog. This call
+        # was missing here (only generate_project_output.py had it), which is how a delivered budget
+        # file was found corrupted on 2026-08-26. The injection lands at a VARIABLE delay after the
+        # copy, so the stripper polls until stable rather than checking once.
+        _strip_onedrive_zip_artifacts(out_path)
     except PermissionError as e:
         print('Could not copy into place yet (still locked):', e)
         print('Local copy remains valid at:', local_out)
@@ -962,10 +971,12 @@ def build_roster(project, ratios, month, year, holiday_days, demand):
 
     wb.save(ROSTER_OUT)
     print('Saved locally:', ROSTER_OUT)
+    from generate_project_output import _strip_onedrive_zip_artifacts  # local import — see build_budget()
     try:
         os.makedirs(ROSTER_OUT_DIR, exist_ok=True)
         shutil.copyfile(ROSTER_OUT, ROSTER_FINAL_OUT)
         print('Copied into place:', ROSTER_FINAL_OUT)
+        _strip_onedrive_zip_artifacts(ROSTER_FINAL_OUT)  # reports/ is OneDrive-synced — see build_budget()
         return ROSTER_FINAL_OUT
     except PermissionError as e:
         print('Could not copy into place yet (still locked):', e)
