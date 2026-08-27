@@ -234,11 +234,26 @@ def _write_year1_lump_row(ws, row, annual_amount, remark=None):
     _write_remark(ws, row, remark)
 
 
+# Real, cited flat reference costs added 2026-08-27 from input/logic/EXENSIVE LOGIC.xlsx's new
+# Sheet2 (a "COST NATURE DESCRIPTION" column added alongside a second real capex catalog file —
+# both re-scanned per the PM's request). Each cites a real regulation, vendor quote, or lab price
+# in the source cell; see the write_even_monthly() calls below for the exact figure and citation.
+# Public liability insurance (ESI2, real: ~1,000 USD/year premium, real: 1M USD liability cap) is
+# NOT included — no real USD/VND conversion rate exists anywhere in this codebase, and guessing one
+# would be exactly the kind of fabrication this pipeline has avoided everywhere else.
+ENV_REPORT_ANNUAL = 25_000_000            # ESM2 — Decree 40/2019/NĐ-CP Article 47; real service quote
+WATER_TEST_SAMPLE_PRICE = 1_352_000       # ESM3 — Pasteur Institute HCMC quote, per QCVN 01-2024/BYT
+WATER_TEST_SAMPLES_PER_ROUND = 3          # rooftop tank + basement + 1 random tap, 2 rounds/year
+POOL_TEST_SAMPLE_PRICE = 1_366_000        # ESM5 — real estimate, 4 microbiological parameters/sample
+POOL_TEST_SAMPLES_PER_YEAR = 8            # 4 rounds/year x 2 samples/round
+FIRE_DEPT_CONNECTION_MONTHLY = 500_000    # ESM8 — GSAFE package G500, HCMC Fire Fighting Dept transmission
+
 # Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
-# Resi template) that generate_project_output.py's pipeline actually computes real numbers for —
-# everything else in that sheet (hundreds of granular sub-system Repairs & Maintenance rows, ~19
-# Admin Expense office-line-items, Insurance, Bank/Audit, Tax, etc.) has no matching real data in
-# this pipeline and is deliberately left as the template's own blank default rather than guessed;
+# Resi template) that generate_project_output.py's pipeline actually computes real numbers for, PLUS
+# (as of 2026-08-27) 4 real flat-reference costs cited directly in the logic spec above — everything
+# ELSE in that sheet (hundreds of granular sub-system Repairs & Maintenance rows, ~19 Admin Expense
+# office-line-items, most Insurance/Bank/Audit/Tax rows) still has no matching real data in this
+# pipeline and is deliberately left as the template's own blank default rather than guessed;
 # confirmed with the PM (2026-08-21) rather than assumed. Row numbers are fixed positions in the
 # template, not computed — verified once against the real file; if Savills ever reshapes this
 # template, these will need re-verifying against the new row numbers.
@@ -259,6 +274,10 @@ MGMT_FUND_ROWS = {
     'capex_me': 224,            # EN2    New capital expenditure for ME team
     'capex_public': 225,        # EN3    New capital expenditure for Common area
     'capex_amenity': 226,       # EN4    New capital expenditure for Tenant area
+    'env_report': 194,          # ESM2   Outsourcing Environmental Report
+    'water_testing': 195,       # ESM3   Domestic water testing
+    'pool_testing': 197,        # ESM5   Pool water testing (only written if project has a pool)
+    'fire_dept_connect': 200,   # ESM8   Connect to HCMC Fire Fighting Dept
 }
 
 
@@ -403,6 +422,32 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
                             remark=(_opex_remark('Pool Salt') +
                                     " Not scaled by pool size/volume — no real data ties pool-salt cost to pool "
                                     "area across more than one property."))
+
+    # ---- Real flat-reference costs from input/logic/EXENSIVE LOGIC.xlsx's Sheet2 (see
+    # ENV_REPORT_ANNUAL etc.'s definitions above for the exact citation each one carries) ----
+    write_even_monthly('env_report', ENV_REPORT_ANNUAL, remark=(
+        f"{ENV_REPORT_ANNUAL:,.0f} VND/year — real periodic environmental report service quote. "
+        f"Legally required every 6 months per Decree 40/2019/ND-CP Article 47 (air quality & "
+        f"emissions monitoring). Source: input/logic/EXENSIVE LOGIC.xlsx."))
+    water_test_annual = WATER_TEST_SAMPLE_PRICE * WATER_TEST_SAMPLES_PER_ROUND * 2
+    write_even_monthly('water_testing', water_test_annual, remark=(
+        f"= {WATER_TEST_SAMPLE_PRICE:,.0f} VND/sample x {WATER_TEST_SAMPLES_PER_ROUND} samples "
+        f"(rooftop tank + basement + 1 random tap) x 2 rounds/year = {water_test_annual:,.0f} VND/year. "
+        f"Real Pasteur Institute HCMC quote; 12 parameters tested per QCVN 01-2024/BYT (eff. Jul 2025). "
+        f"Source: input/logic/EXENSIVE LOGIC.xlsx."))
+    if project.get('has_pool'):
+        pool_test_annual = POOL_TEST_SAMPLE_PRICE * POOL_TEST_SAMPLES_PER_YEAR
+        write_even_monthly('pool_testing', pool_test_annual, remark=(
+            f"= {POOL_TEST_SAMPLE_PRICE:,.0f} VND/sample x {POOL_TEST_SAMPLES_PER_YEAR} samples "
+            f"(4 rounds/year x 2 samples/round, 4 microbiological parameters each incl. E.coli) "
+            f"= {pool_test_annual:,.0f} VND/year. Source: input/logic/EXENSIVE LOGIC.xlsx."))
+    fire_dept_annual = FIRE_DEPT_CONNECTION_MONTHLY * 12
+    write_even_monthly('fire_dept_connect', fire_dept_annual, remark=(
+        f"= {FIRE_DEPT_CONNECTION_MONTHLY:,.0f} VND/month (GSAFE package G500, fire-alarm transmission "
+        f"to HCMC Fire Fighting Dept) x 12 = {fire_dept_annual:,.0f} VND/year. Real vendor package price, "
+        f"referenced across similar Savills-managed HCMC projects. Applies to HCMC projects specifically — "
+        f"a project outside HCMC would connect to a different local authority at a different real price, "
+        f"not this one. Source: input/logic/EXENSIVE LOGIC.xlsx."))
 
     # ---- Capex — Year-1 lump sum (see docstring above) ----
     capex_items, capex_source = estimate_capex_items(project['total_nfa'], exclude_name=project['name'])

@@ -37,13 +37,19 @@ from collections import defaultdict
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))  # Budget_Agent/ — for output/ paths
+# Real bug, found 2026-08-27: every input/ reference in this file used BASE (Budget_Agent/), but
+# input/ actually lives one level further up, beside Budget_Agent/, not inside it — same PROJECT_ROOT
+# vs BUDGET_AGENT distinction generate_project_budget.py already makes correctly. This meant
+# build_staff_rates() (and therefore this whole script) has been unable to find its own source file
+# and would fail before ever reaching build_capex_rates() — the glob-order bug below was unreachable.
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 OUT_DIR = os.path.join(BASE, 'output', 'simple_reports')
 DATA_DIR = os.path.join(BASE, 'output', 'copilot_studio_package', 'data')
 
 
 def build_staff_rates():
-    staff_src = os.path.join(BASE, 'input', 'staff_cost', '2026 Staff Cost Data (Master Data) update.xlsx')
+    staff_src = os.path.join(PROJECT_ROOT, 'input', 'staff_cost', '2026 Staff Cost Data (Master Data) update.xlsx')
     wb_staff = openpyxl.load_workbook(staff_src, data_only=True)
     ws_staff = wb_staff['DS Staff cost (KT - 2025)']
     rows = list(ws_staff.iter_rows(min_row=11, max_row=ws_staff.max_row, values_only=True))
@@ -145,7 +151,13 @@ def _is_category_row(col_a):
 
 
 def build_capex_rates():
-    capex_file = glob.glob(os.path.join(BASE, 'input', 'capex', '*.xlsx'))[0]
+    # Real bug, found 2026-08-27 when a second file landed in this folder: glob.glob()'s order is
+    # filesystem-dependent, not sorted, so [0] could silently pick either file depending on how
+    # Windows happens to list the directory that run — including the STALE one, with no warning.
+    # Newest-by-mtime is the correct, deterministic choice (a replacement file is always meant to
+    # supersede, per how "Danh mục Capex 2026 2.xlsx" relates to "Danh mục Capex 2026.xlsx").
+    candidates = sorted(glob.glob(os.path.join(PROJECT_ROOT, 'input', 'capex', '*.xlsx')), key=os.path.getmtime)
+    capex_file = candidates[-1]
     wb_capex = openpyxl.load_workbook(capex_file, data_only=True)
     capex_sheets = ['1. Capex MO', '2. Capex M&E', '3. Capex khu công cộng']
     for sn in list(wb_capex.sheetnames):
