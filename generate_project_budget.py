@@ -113,7 +113,15 @@ def read_input(path):
         car_slots=pi['B21'].value, moto_slots=pi['B22'].value,
         has_pool=str(pi['B25'].value).strip().lower() == 'yes',
         pool_area=pi['B26'].value, gate_count=pi['B27'].value,
+        # Real, negotiated contract terms — see build_project_input_form.py's comment on these
+        # cells. Both None (the real, honest default) until the PM enters the actual contract.
+        savills_fee_fixed_monthly=pi['B30'].value, savills_fee_pct=pi['B31'].value,
     )
+    if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
+        raise ValueError(
+            "Project Info!B30 (Fixed Monthly Fee) and B31 (% of Collected Fee) are BOTH filled in — "
+            "pick one basis for Savills' management fee, not both. Clear whichever doesn't apply."
+        )
     products = {}
     for i, name in enumerate(PRODUCT_ROWS, start=14):
         gfa = pi.cell(row=i, column=2).value or 0
@@ -380,9 +388,25 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         f"= Derived Apartment management-fee rate ({derived_rate:,.0f} VND/m²/month, nearest-comparable-matched — "
         f"see '0. Info'!I8 and the Comparison sheet) x Apartment NFA ({project['apartment_nfa']:,.0f} m²) x 12 "
         f"= {mgmt_fee_annual:,.0f} VND/year."))
-    write_even_monthly('mgmt_fee_expense', mgmt_fee_annual, remark=(
-        "= Same value as RM.AP (Management fee revenue, above) — the fund pays Savills the full collected "
-        f"management fee. = {mgmt_fee_annual:,.0f} VND/year."))
+    # EMH1 (Savills' own fee) is NOT the collected management fee — that's the fund's REVENUE, most
+    # of which is meant to pay for the real staff/OPEX/Capex costs already itemized elsewhere on
+    # this sheet. Before 2026-08-28 this wrongly set EMH1 = mgmt_fee_annual (the entire collected
+    # fee), which double-counted against every other cost line and produced a large fake "deficit"
+    # (confirmed on Blue Skyline: 6.3bn of a ~7.5bn gap against the real Green Skyline back-test was
+    # this one bug). The correct value is a real, negotiated, per-project contract term this
+    # pipeline cannot derive — see Project Info!B30/B31 (build_project_input_form.py's comment).
+    # Left BLANK, not defaulted to 0 or to the old wrong assumption, until the PM enters one.
+    if project.get('savills_fee_fixed_monthly'):
+        savills_fee_annual = project['savills_fee_fixed_monthly'] * 12
+        write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
+            f"= Real fixed fee (Project Info!B30) {project['savills_fee_fixed_monthly']:,.0f} VND/month x 12 "
+            f"= {savills_fee_annual:,.0f} VND/year."))
+    elif project.get('savills_fee_pct'):
+        savills_fee_annual = mgmt_fee_annual * project['savills_fee_pct']
+        write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
+            f"= Real fee rate (Project Info!B31) {project['savills_fee_pct']:.1%} x Management Fee Revenue "
+            f"(RM.AP, above) {mgmt_fee_annual:,.0f} = {savills_fee_annual:,.0f} VND/year."))
+    # else: left blank — no real contract term entered yet (Project Info!B30/B31 both empty).
 
     # ---- Parking Fee revenue (real rate x real slot counts, at 100% occupancy — see
     # build_additional_revenue_sheet's docstring for why that's a ceiling, not a realistic average) ----

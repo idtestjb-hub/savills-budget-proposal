@@ -302,6 +302,23 @@ def main():
     labeled_input(ws1, 26, 'Pool Area (m²) — optional', 0)
     labeled_input(ws1, 27, 'Gate / Entrance Count', 2)
 
+    section(ws1, 29, "SAVILLS' MANAGEMENT FEE (EMH1) — leave BOTH blank until this project's real contract terms are known")
+    c_fixed_fee = labeled_input(ws1, 30, 'Fixed Monthly Fee (VND) — leave blank if not fixed-fee', None)
+    c_fee_pct = labeled_input(ws1, 31, "% of Collected Management Fee — leave blank if not %-based", None, fmt='0.0%')
+    fee_comment_text = (
+        "Real, negotiated per-project contract terms — cannot be derived or assumed. Blank means "
+        "'not yet known', not zero: the generator leaves EMH1 (\"Management fee for Savills\") "
+        "blank on the real template rather than defaulting to the wrong assumption this pipeline "
+        "used before 2026-08-28 (Savills keeping 100% of the collected management fee, which "
+        "double-counts against the real staff/OPEX/Capex costs the fee is meant to cover). Fill in "
+        "ONE of these two fields once the real contract is known — a fixed VND/month amount (e.g. "
+        "Green Skyline's real 88,000,000/month), or a % of the collected management fee — never "
+        "both at once.")
+    # Two separate Comment instances, not one shared object — openpyxl comments track their own
+    # per-cell state, and reusing a single instance across cells risks corrupting the saved file.
+    c_fixed_fee.comment = Comment(fee_comment_text, 'Budget Planning Agent')
+    c_fee_pct.comment = Comment(fee_comment_text, 'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14}.items():
         ws1.column_dimensions[col].width = w
 
