@@ -519,6 +519,101 @@ def fill_common_area_fund_sheet(wb, project):
         "Rate: Fact_MasterRateCard.csv, Service domain, 'Elevator advertising' (real)."))
 
 
+# "1. Staff cost From 08.2026 (VN)" was pasted into the template by the PM on 2026-08-28 — a REAL
+# Savills payroll-calculator sheet (13th month, PIT brackets, SI/HI, Trade Union 2%, 10% admin
+# markup — see that sheet's own formulas), not something this pipeline built. Only column G
+# (Current Gross Salary, the one real INPUT cell) is written here; every other column is the
+# template's own live formula chain computing net pay/insurance/tax/admin fee FROM that input —
+# left completely untouched, so the sheet's own math does the work, not a re-implementation of it.
+#
+# Only positions that exist in THIS project's own Staffing Demand AND have a matching row-group in
+# the template get filled — Security/Cleaning/Landscape are deliberately excluded (those are
+# outsourced-contract lines already priced separately on "2. Budget-Management Fund" ESS1/ESS4/
+# ESS16, exactly matching what EMH2 "Staff cost for Savills" already excludes); Reception has no
+# row-group in this sheet at all (it lives on the dedicated "B1. Lịch Lễ tân" sheet instead).
+# APM/OM/CSS/ACC/CSR/ACE/ADCE genuinely aren't in Blue Skyline's current Staffing Demand — left
+# blank rather than invented; add those positions to Staffing Demand first if they should be
+# costed. Real 25-workdays/month conversion sourced from this same template's own
+# "1.1 Allowance" sheet (E7=25), not assumed. Night-shift/holiday premiums are NOT folded in here —
+# they're what that Allowance sheet's own formulas already exist to compute separately.
+STAFF_COST_SHEET = '1. Staff cost From 08.2026 (VN)'
+WORKDAYS_PER_MONTH = 25  # real — '1.1 Allowance (From 08.2026)'!E7 in this same template
+
+# keyword -> template abbreviation code (column D groups), matched the same way
+# SERVICE_CATEGORY_KEYWORDS/STAFF_MARKET_KEYWORDS already match Staffing Demand positions elsewhere
+STAFF_COST_KEYWORDS = {
+    'PM': ['property manager'],
+    'BE': ['building executive'],
+    'CS': ['customer service'],
+    'CE': ['chief engineer'],
+    'TDS': ['shift leader'],
+    'TN': ['technician'],
+}
+# Split across two template row-groups both abbreviated 'AA' (pool staff vs. gym staff) — resolved
+# by keyword instead of the shared abbreviation, using the row's own item label (Z/B column text
+# containing "hồ bơi"/"pool" vs "gym") to tell the two groups apart.
+STAFF_COST_AA_KEYWORDS = {'pool': ['pool attendant'], 'gym': ['amenities attendant']}
+
+
+def fill_staff_cost_sheet(wb, project, demand, year):
+    if STAFF_COST_SHEET not in wb.sheetnames:
+        return  # older template version without this sheet — nothing to fill
+    ws = wb[STAFF_COST_SHEET]
+
+    def eff_headcount(d):
+        p, q = d['StaffPerDay'], d['CoverageDays']
+        return math.ceil(p * 7 / 6) if q >= 7 else p
+
+    def group_stats(keywords):
+        matched = [d for d in demand if any(kw in d['Position'].lower() for kw in keywords)]
+        if not matched:
+            return 0, 0
+        total_headcount = sum(eff_headcount(d) for d in matched)
+        if total_headcount == 0:
+            return 0, 0
+        weighted_daily = sum(eff_headcount(d) * d['AvgDailyRate'] for d in matched) / total_headcount
+        monthly_gross = round(weighted_daily * WORKDAYS_PER_MONTH)
+        return total_headcount, monthly_gross
+
+    # Find each abbreviation's contiguous row-group by scanning column D (template's own layout,
+    # not hardcoded row numbers — self-verifying against whatever row positions this copy has).
+    rows_by_code = {}
+    for r in range(15, 89):
+        code = ws.cell(row=r, column=4).value
+        label = ws.cell(row=r, column=2).value
+        # Pool and gym staff share the same 'AA' abbreviation in this template — the label is the
+        # only thing that tells them apart, so it's checked BEFORE falling back to the code column
+        # (checking code first would silently merge both groups under one generic 'AA' bucket).
+        if label and 'hồ bơi' in str(label).lower():
+            rows_by_code.setdefault('AA_POOL', []).append(r)
+        elif label and 'gym' in str(label).lower():
+            rows_by_code.setdefault('AA_GYM', []).append(r)
+        elif code:
+            rows_by_code.setdefault(str(code).strip(), []).append(r)
+    # Property Manager (row 15) has no abbreviation of its own — it's the sheet's single named row.
+    pm_row = 15
+
+    def fill_group(rows, headcount, monthly_gross):
+        if not rows or headcount == 0:
+            return
+        for r in rows[:headcount]:
+            c = ws.cell(row=r, column=7, value=monthly_gross)  # G: Current Gross Salary
+            c.number_format = '#,##0'
+
+    for code, keywords in STAFF_COST_KEYWORDS.items():
+        headcount, monthly_gross = group_stats(keywords)
+        if code == 'PM':
+            if monthly_gross:
+                c = ws.cell(row=pm_row, column=7, value=monthly_gross)
+                c.number_format = '#,##0'
+            continue
+        fill_group(rows_by_code.get(code, []), headcount, monthly_gross)
+
+    for suffix, keywords in STAFF_COST_AA_KEYWORDS.items():
+        headcount, monthly_gross = group_stats(keywords)
+        fill_group(rows_by_code.get(f'AA_{suffix.upper()}', []), headcount, monthly_gross)
+
+
 def build_budget(project, demand, year):
     top2 = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'], n=2)
     all_ranked = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'], n=len(MASTER_COMPARABLES))
@@ -614,6 +709,10 @@ def build_budget(project, demand, year):
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
     fill_common_area_fund_sheet(wb, project)
+
+    # ---- 1. Staff cost: real per-position headcount/salary from Staffing Demand, mapped onto
+    # the PM's own payroll-calculator sheet — see fill_staff_cost_sheet()'s docstring above. ----
+    fill_staff_cost_sheet(wb, project, demand, year)
 
     # Safety net for a real bug class hit this session: Remarks text like "= Derived Apartment
     # management-fee rate... = 13,089,600,000 VND/year" gets serialized by openpyxl as an actual
