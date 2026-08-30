@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  Company: Savills Asia Pacific (Vietnam), Project Management (PM) department.
+  Project: Budget Agent — ETL + reporting pipeline that turns raw per-project budget
+  workbooks (staff cost, service cost, capex) into standardized star-schema tables
+  and rate-card reports used for annual budget planning (currently 2027 cycle).
+
+  Tech stack: Python (ETL scripts, no framework), pandas/openpyxl-style Excel
+  processing, output consumed by a Copilot Studio agent and Excel reports
+  (Master_Rate_Card.xlsx, Staff_Cost_Summary.xlsx, Project_Index.xlsx, etc.).
+
+  Two parallel pipelines exist by design:
+  - Generation A: generic ETL producing a star schema (Dim_Project, Dim_Position,
+    Dim_ServiceType, Dim_Equipment, Fact_StaffCost, Fact_ServiceCost, Fact_Capex).
+    Real per-project rates, but not yet deduplicated/reconciled.
+  - Generation B: hand-verified flat tables (Dim_Property_v2_verified,
+    Fact_MasterRateCard) — currently the live data behind the Copilot package.
+  See docs/Fact_Dim_Master_Mapping.md before changing how these two joins/keys work.
+
+  This `source_code/` folder is the current, consolidated, live version (as of
+  2026-08-12) — copied from the sibling `loaders_v2/` folder one level up. The
+  top-level `PM/Project/loaders/` (no _v2 suffix) is the superseded first-pass
+  ETL; treat it as historical reference only, not a place to make changes.
+
+  Conventions:
+  - Write proposals/specs in plain, non-technical language a PM/Finance
+    stakeholder can review, not just engineers.
+  - Money and headcount figures must state currency (VND/USD) and unit
+    explicitly in any spec or report change.
+  - Flag any change touching the Fact/Dim join keys as high-risk — it affects
+    the Copilot Studio agent's live data.
+
+rules:
+  specs:
+    - State which generation (A or B) a data change affects, and whether it
+      changes join keys used by the Copilot Studio package.
+  tasks:
+    - Include a manual spot-check task against a known project's numbers
+      whenever an ETL script's aggregation logic changes.
