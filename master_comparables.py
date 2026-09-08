@@ -78,6 +78,13 @@ PRODUCT_RATE_COLUMNS = {
     # per-product rate exists for it in this dataset, full stop.
     'Apartment': 'Fee_Apartment', 'Officetel': 'Fee_Officetel', 'Shophouse': 'Fee_Shophouse',
     'Shopping Mall': 'Fee_Retail',
+    # Added 2026-09-08 with the per-product revenue rows. 'Retail' reads the same column as
+    # 'Shopping Mall' — both are commercial retail space priced separately from apartments, and the
+    # source data has one Fee_Retail column covering them. 'Villas' has its own column.
+    # Coverage is thin: Fee_Retail is filled on 2 of 105 properties and Fee_Villa on 2, so both will
+    # often find no rate among the nearest comparables and fall back to the Apartment rate, stated
+    # in the output. 'Office' and 'Shop Apartment' have no column anywhere in the source data.
+    'Retail': 'Fee_Retail', 'Villas': 'Fee_Villa',
 }
 
 # The 7 hand-verified projects — nfa switched to TotalNFA (whole-building), same verified figures

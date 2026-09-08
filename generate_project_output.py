@@ -577,28 +577,68 @@ def build_staff_sheet(wb, project, demand, year):
     # SERVICE_EXCLUDE_KEYWORDS), so "Security" here means the exact same 7 rows Service prices as
     # Security, not a looser/different definition. Column U (not the bare-gross O) so every
     # downstream sheet that sums this dict picks up the loaded cost automatically.
-    def _cell_sum(rows):
-        return ("='Staff (Roster)'!" + "+'Staff (Roster)'!".join(f'U{rr}' for rr in rows)) if rows else '=0'
+    def _cell_sum(rows, col='U'):
+        return (("='Staff (Roster)'!" + "+'Staff (Roster)'!".join(f'{col}{rr}' for rr in rows))
+                if rows else '=0')
+
+    # Which column each category sums, and why it matters:
+    #   U = Annual Total INCL. employer insurance — Savills' own payroll.
+    #   O = the bare annual, no employer contribution — outsourced vendor contracts.
+    # Everything under SERVICE_CATEGORY_KEYWORDS (Security / Cleaning / Landscape, and their
+    # Supervisory variants) is an outsourced contract: the template files them under ES =
+    # Expenses for Outsource Service, and their daily rates come from Fact_MasterRateCard.csv's
+    # SERVICE domain — vendor post prices that already cover the vendor's own staff insurance.
+    # Loading them again would charge it twice. See openspec change
+    # fix-outsourced-service-cost-basis and docs/05-decisions.md D3. generate_project_budget.py
+    # makes the identical split, so the two workbooks report the same figures.
+    OUTSOURCED_COL = get_column_letter(annual_col)   # bare annual, no employer contribution
 
     category_annual_cells = {}
+    # The SAME categories on the in-house basis (column U, loaded). Used only by the Service
+    # sheet's "Staff (Roster) Equivalent, incl. Employer Insurance" column, which exists to answer
+    # "what would this cost if Savills employed them directly" — that comparison is meaningless if
+    # the column silently switches to the outsourced basis, and its header would then be false.
+    category_annual_cells_inhouse = {}
     for cat, keywords in SERVICE_CATEGORY_KEYWORDS.items():
         rows = [position_row[pos] for pos in position_row
                 if any(kw in pos.lower() for kw in keywords)
                 and not any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS)]
-        category_annual_cells[cat] = _cell_sum(rows)
+        category_annual_cells[cat] = _cell_sum(rows, OUTSOURCED_COL)
+        category_annual_cells_inhouse[cat] = _cell_sum(rows)
         # Rows excluded from the citywide-comparable bucket (e.g. Cleaning - Supervisor) are still
         # a real cost — captured here under their own key so nothing silently drops out of any
         # sheet that sums category_annual_cells for a full-coverage total (e.g. Cost Priority).
+        # They are part of the same outsourced contract, so they take the same basis.
         excluded_rows = [position_row[pos] for pos in position_row
                           if any(kw in pos.lower() for kw in keywords)
                           and any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS)]
         if excluded_rows:
-            category_annual_cells[f'{cat} — Supervisory'] = _cell_sum(excluded_rows)
+            category_annual_cells[f'{cat} — Supervisory'] = _cell_sum(excluded_rows, OUTSOURCED_COL)
+            category_annual_cells_inhouse[f'{cat} — Supervisory'] = _cell_sum(excluded_rows)
     for cat, keywords in STAFF_MARKET_KEYWORDS.items():
         rows = [position_row[pos] for pos in position_row if any(kw in pos.lower() for kw in keywords)]
         category_annual_cells[cat] = _cell_sum(rows)
+        category_annual_cells_inhouse[cat] = _cell_sum(rows)
 
-    return dict(annual_total_cell=ANNUAL_TOTAL_CELL, category_annual_cells=category_annual_cells)
+    # ---- Cost the three outsourced services the way EXENSIVE LOGIC.xlsx says to ----
+    # ESS1 "Monthly contract fee x 12", ESS4 "m2 x unit price x 12 OR monthly contract x 12",
+    # ESS16 "Monthly contract x 12". None of those is a roster sum, so these three categories point
+    # at the Service sheet's own contract calculation (its column H) rather than at Staff (Roster).
+    # generate_project_budget.py's ESS rows use the identical figure, so the deliverable and this
+    # workbook now cost them the same — before this they differed by 210,372,000 VND on the sample.
+    #
+    # The Service sheet writes Security/Cleaning/Landscape at fixed rows 5/6/7 (header at row 4,
+    # three categories in a fixed order — see build_service_sheet). Their Supervisory variants are
+    # part of the same vendor contract and are therefore already inside that figure, so they are
+    # dropped here rather than added on top.
+    SERVICE_CONTRACT_ROW = {'Security': 5, 'Cleaning': 6, 'Landscape': 7}
+    for cat, row in SERVICE_CONTRACT_ROW.items():
+        if cat in category_annual_cells:
+            category_annual_cells[cat] = f"='Service'!H{row}"
+        category_annual_cells.pop(f'{cat} — Supervisory', None)
+
+    return dict(annual_total_cell=ANNUAL_TOTAL_CELL, category_annual_cells=category_annual_cells,
+                category_annual_cells_inhouse=category_annual_cells_inhouse)
 
 
 def build_roster_detail_grid(ws, demand, start_row):
@@ -802,7 +842,9 @@ def build_service_sheet(wb, demand, staff):
         c8 = ws.cell(row=r, column=8, value=f'=G{r}*12')
         c8.number_format = MONEY_FMT
         c8.border = BORDER
-        c9 = ws.cell(row=r, column=9, value=staff['category_annual_cells'][name])
+        # Deliberately the IN-HOUSE (loaded) figure: this column is the "what if Savills employed
+        # them" side of the comparison, and its header says incl. Employer Insurance.
+        c9 = ws.cell(row=r, column=9, value=staff['category_annual_cells_inhouse'][name])
         c9.number_format = MONEY_FMT
         c9.border = BORDER
         c10 = ws.cell(row=r, column=10, value=f'=IF(I{r}=0,"n/a",(H{r}-I{r})/I{r})')
@@ -1388,7 +1430,8 @@ def build_opex_sheet(wb, project):
                 'separate one-time fund, not the ongoing management fee (see notes below). Included in Total Project '
                 'Value (Net).', 'A1:F1')
 
-    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False))
+    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
+                         pool_volume_m3=project.get('pool_volume_m3'))
 
     r = 4
     section(ws, r, 'ESTIMATED MONTHLY OPEX', ncols=6); r += 1
@@ -1418,7 +1461,11 @@ def build_opex_sheet(wb, project):
         c5 = ws.cell(row=r, column=5, value=entry['n'])
         c5.border = BORDER
         c5.alignment = CENTER
-        c6 = ws.cell(row=r, column=6, value=entry['source'])
+        # Pool Salt carries a `method` (a formula the costing spec states) rather than an A&K
+        # ratio; show it ahead of the sourcing note so the calculation is what's read first.
+        c6 = ws.cell(row=r, column=6,
+                     value=f"{entry['method']} {entry['source']}".strip() if entry.get('method')
+                           else entry['source'])
         c6.border = BORDER
         c6.alignment = LEFT
         if entry.get('reference_only'):
@@ -2325,10 +2372,57 @@ YEAR_FILL_PATH = [('Year 1', 0.50), ('Year 2', 0.70), ('Year 3', 0.90), ('Year 4
 # pattern — Year 1 carries the full initial fit-out lump sum (matches the Summary/Cost Priority
 # sheets' "Year-1 lump sum" framing exactly), then Years 2-4 drop to a smaller ongoing reserve
 # contribution instead of repeating the full purchase every year (equipment like elevators/
-# generators gets replaced on a multi-year cycle, not annually). 10% ~ a ~10-year replacement
-# cycle for M&E/MO equipment, a commonly cited property-management rule of thumb — not this
-# project's own real reserve policy, which isn't in the source data.
-CAPEX_RESERVE_RATE = 0.10
+# generators gets replaced on a multi-year cycle, not annually). The rate is DERIVED from real
+# projects — see _load_capex_reserve() below — not assumed.
+CAPEX_RESERVE_CSV = os.path.join(BUDGET_AGENT, 'data', 'generation_A_star_schema',
+                                 'Fact_CapexReserve.csv')
+
+
+def _load_capex_reserve():
+    """Derive the ongoing Capex reserve rate from what real projects actually did.
+
+    Replaces a hardcoded 0.10 whose own comment admitted it was "a commonly cited
+    property-management rule of thumb, NOT this project's own real reserve policy, which isn't in
+    the source data". It IS in the source data — see rescan_capex_reserve.py, which measures it.
+
+    Uses the ANNUALISED reading: three of the four reserve observations write exactly Year-1 / 12
+    into a year that is 8, 9 or 12 months long, so the literal ratio understates a full year for the
+    short ones. Both readings are recorded in the table; the literal mean is 8.46%, the annualised
+    10.93%. Neither is anywhere near the 0.1% that EXENSIVE LOGIC.xlsx states — that figure would
+    imply a thousand-year replacement cycle, and correcting Savills' document is their call.
+
+    Full-repeat years (a later year at ~100% of Year 1, i.e. equipment bought across two years) are
+    excluded: they set the DROP YEAR, not the rate.
+    """
+    import csv as _csv
+    if not os.path.exists(CAPEX_RESERVE_CSV):
+        raise FileNotFoundError(
+            f'Capex reserve reference data not found at {CAPEX_RESERVE_CSV}. Run '
+            f'"python rescan_capex_reserve.py" to extract it from the real project budgets. '
+            f'Refusing to fall back to a hardcoded rate — an unevidenced reserve rate is exactly '
+            f'what this reads real data to avoid.')
+    with open(CAPEX_RESERVE_CSV, encoding='utf-8-sig') as fh:
+        rows = [r for r in _csv.DictReader(fh) if r.get('ObservationType') == 'reserve']
+    if not rows:
+        raise ValueError(
+            f'{CAPEX_RESERVE_CSV} contains no "reserve" observations — only full-repeat years, or '
+            f'nothing at all. Re-run rescan_capex_reserve.py.')
+    rates = [float(r['ImpliedRateAnnualised']) for r in rows]
+    names = [r['Project'].split(' - ')[-1][:28] for r in rows]
+    return (sum(rates) / len(rates), len(rates), min(rates), max(rates), names)
+
+
+(CAPEX_RESERVE_RATE, CAPEX_RESERVE_N, CAPEX_RESERVE_LO,
+ CAPEX_RESERVE_HI, CAPEX_RESERVE_PROJECTS) = _load_capex_reserve()
+
+# One sentence that travels with the rate wherever it is quoted, so the figure is never shown
+# without its evidence and its sample size.
+CAPEX_RESERVE_SOURCE = (
+    f'{CAPEX_RESERVE_RATE:.1%} is DERIVED from {CAPEX_RESERVE_N} real Savills projects '
+    f'(range {CAPEX_RESERVE_LO:.1%}-{CAPEX_RESERVE_HI:.1%}), measured as each project\'s later-year '
+    f'Capex against its Year-1 Capex and annualised for short years — see Fact_CapexReserve.csv and '
+    f'rescan_capex_reserve.py. It is NOT a rule of thumb. Note the written cost spec '
+    f'(EXENSIVE LOGIC.xlsx, EN1-EN3) states ~0.1%, which no real project comes close to.')
 
 # Smooth month-by-month ramp, anchored at the SAME 4 year-end fill % points used everywhere else
 # in this workbook (0.50/0.70/0.90/1.00), linearly interpolated between them starting from 0% at
@@ -2376,7 +2470,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
                    f'fill path used elsewhere in this workbook as 4 sequential years, one stage per year. Staff/OPEX '
                    f'are held at full each year (per the Cost Basis toggle). Capex follows a sinking-fund pattern: '
                    f'Year 1 carries the full initial lump sum (matching the Summary/Cost Priority sheets exactly), '
-                   f'Years 2-4 drop to a {CAPEX_RESERVE_RATE:.0%} ongoing reserve contribution instead of repeating '
+                   f'Years 2-4 drop to a {CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead of repeating '
                    f'the full purchase — a disclosed assumption, not this project\'s own real reserve policy (see '
                    f'NOTES).')
             ).font = Font(italic=True, size=9, color='7F7F7F')
@@ -2445,7 +2539,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
                    f'— starting near 0%, not flat for all 12 months of Year 1. This shows worse early-month numbers '
                    f'than the flat yearly average above, on purpose: a real building doesn\'t open at 50% fill on '
                    f'day 1. Capex follows the same sinking-fund pattern as the yearly table: the full lump sum hits '
-                   f'in Month 1 only, then Months 13-48 (Years 2-4) carry a {CAPEX_RESERVE_RATE:.0%} reserve '
+                   f'in Month 1 only, then Months 13-48 (Years 2-4) carry a {CAPEX_RESERVE_RATE:.1%} reserve '
                    f'contribution spread evenly per month — Months 2-12 have no additional Capex.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
@@ -2547,11 +2641,9 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         'are — the monthly table is the more realistic view for that reason.',
         f'Capex follows a sinking-fund pattern: Year 1 carries the FULL initial lump sum — the exact same figure '
         f'and treatment as the Summary/Cost Priority sheets\' "Year-1 lump sum, not amortized" — so those sheets '
-        f'and this one now agree on Year 1. Years 2-4 drop to a {CAPEX_RESERVE_RATE:.0%} ongoing reserve '
+        f'and this one now agree on Year 1. Years 2-4 drop to a {CAPEX_RESERVE_RATE:.1%} ongoing reserve '
         f'contribution instead of repeating the full purchase, since equipment like elevators/generators gets '
-        f'replaced on a multi-year cycle, not annually. The {CAPEX_RESERVE_RATE:.0%} figure (~a 10-year replacement '
-        f'cycle) is a commonly cited property-management rule of thumb, NOT this project\'s own real reserve '
-        f'policy — replace it with real guidance from the PM/contract if available.',
+        f'replaced on a multi-year cycle, not annually. {CAPEX_RESERVE_SOURCE}',
         'Every VND figure here is a live formula reading the Summary sheet\'s Cost Basis toggle output — nothing '
         'is re-derived independently.',
     ]
@@ -2651,7 +2743,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     c.fill = HIGHLIGHT_FILL
     FULL_PACKAGE_CELL = f'B{r}'
     r += 1
-    ws.cell(row=r, column=1, value=f'Capex Reimbursement — YEARS 2-4 reserve ({CAPEX_RESERVE_RATE:.0%} of Year 1) (VND)').font = Font(size=10, italic=True)
+    ws.cell(row=r, column=1, value=f'Capex Reimbursement — YEARS 2-4 reserve ({CAPEX_RESERVE_RATE:.1%} of Year 1) (VND)').font = Font(size=10, italic=True)
     c = ws.cell(row=r, column=2, value=f"={summary['selected_capex_cell']}*{CAPEX_RESERVE_RATE}")
     c.number_format = MONEY_FMT
     c.font = Font(size=10, italic=True)
@@ -2669,7 +2761,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     ws.cell(row=r, column=1,
             value=(f'Year 1\'s full package always equals Management Fee Revenue at 100% fill exactly (Costs + '
                    f'Profit = Revenue by construction) — a cross-check, not a coincidence. Years 2-4\'s recurring '
-                   f'package is LOWER (drops {1-CAPEX_RESERVE_RATE:.0%} of the Capex reimbursement, per the '
+                   f'package is LOWER (drops {1-CAPEX_RESERVE_RATE:.1%} of the Capex reimbursement, per the '
                    f'sinking-fund assumption — see NOTES), which means the receivable below CAN partially unwind '
                    f'in high-fill later years, unlike Year 1 where it structurally can\'t.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
@@ -2737,7 +2829,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
             value=(f'Same smooth month-by-month fill % ramp used on the Owner Operating Position sheet, applied to '
                    f'the receivable above. Staff/OPEX/Profit portion is held flat per month; Capex follows the same '
                    f'sinking-fund pattern as the yearly table — full lump sum in Month 1, no Capex in Months 2-12, '
-                   f'then a {CAPEX_RESERVE_RATE:.0%} reserve contribution spread evenly across Months 13-48.')
+                   f'then a {CAPEX_RESERVE_RATE:.1%} reserve contribution spread evenly across Months 13-48.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:G{r}')
@@ -2810,10 +2902,8 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         'interpolation as the Owner Operating Position sheet, so the two stay comparable month for month.',
         f'Capex follows a sinking-fund pattern: Year 1 carries the FULL lump sum — matching the Summary/Cost '
         f'Priority sheets\' "Year-1 lump sum, not amortized" exactly — then Years 2-4 drop to a '
-        f'{CAPEX_RESERVE_RATE:.0%} ongoing reserve contribution instead of repeating the full purchase. The '
-        f'{CAPEX_RESERVE_RATE:.0%} figure (~a 10-year replacement cycle) is a commonly cited property-management '
-        f'rule of thumb, NOT this project\'s own real reserve policy — replace it with real guidance from the '
-        f'PM/contract if available.',
+        f'{CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead of repeating the full purchase. '
+        f'{CAPEX_RESERVE_SOURCE}',
     ]
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')

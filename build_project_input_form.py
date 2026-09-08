@@ -44,7 +44,7 @@ SHIFT_REF = [
 _TOWER_COUNT = "'Project Info'!$B$10"
 _GARDEN_AREA = "'Project Info'!$B$7"
 _OPEN_SPACE = "'Project Info'!$B$8"
-_GATE_COUNT = "'Project Info'!$B$27"
+_GATE_COUNT = "'Project Info'!$B$32"   # B27 -> B31 (Product Mix grew) -> B32 (Pool Volume added)
 # Cell refs into the Roster Setup sheet's Staffing Ratios block.
 _STAFF_PER_GATE = "'Roster Setup'!$B$4"
 _SQM_PER_PATROL = "'Roster Setup'!$B$5"
@@ -97,7 +97,7 @@ _POOL_ATTENDANT_NOTE = (
     f'(real, n=1) ÷ 26 working days ≈ {_POOL_ATTENDANT_DAILY:,.0f}/day. A&K Tower\'s own real staffing plan runs this '
     f'role 2 shifts (Morning/Afternoon), pool closed Mondays — modeled here as 6-day coverage, but this template\'s '
     f'day-off convention is always Sunday (same as every other <7-day role) — it does NOT reproduce the real Monday '
-    f'closure; edit by hand if that specific fidelity matters. Delete both rows if Project Info!B25 = No.'
+    f'closure; edit by hand if that specific fidelity matters. Delete both rows if Project Info!B29 = No.'
 )
 
 # Added after re-scanning ALL 8 real project files' own staffing sheets AND the portfolio-wide
@@ -275,7 +275,12 @@ def main():
         cell.font = HEADER_FONT
         cell.alignment = CENTER
         cell.border = BORDER
-    products = ['Apartment', 'Officetel', 'Shophouse', 'Shopping Mall', 'Nursery / Nhà trẻ']
+    # Nine products, matching generate_project_budget.py's PRODUCT_ROWS and PRODUCT_REVENUE_ROWS.
+    # Order follows the template's own RM.* revenue rows so the form reads in the same sequence as
+    # the deliverable. Adding or removing one here shifts every section below — see the row
+    # constants immediately after this block, and read_input()'s matching cell references.
+    products = ['Apartment', 'Officetel', 'Office', 'Shopping Mall', 'Retail',
+                'Shop Apartment', 'Shophouse', 'Villas', 'Nursery / Nhà trẻ']
     example_apartment = (85000, 70000, 1300)
     for i, name in enumerate(products, start=14):
         c1 = ws1.cell(row=i, column=1, value=name)
@@ -289,22 +294,32 @@ def main():
             c.alignment = CENTER
     APT_NFA_ROW = 14  # Apartment row — generate_project_budget.py reads C14 (NFA)
 
-    section(ws1, 20, 'PARKING')
-    labeled_input(ws1, 21, 'Car Parking Slots', 300)
-    labeled_input(ws1, 22, 'Moto Parking Slots', 2000)
+    section(ws1, 24, 'PARKING')
+    labeled_input(ws1, 25, 'Car Parking Slots', 300)
+    labeled_input(ws1, 26, 'Moto Parking Slots', 2000)
 
-    section(ws1, 24, 'AMENITIES (drive roster staffing)')
+    section(ws1, 28, 'AMENITIES (drive roster staffing)')
     dv_yn = DataValidation(type='list', formula1='"Yes,No"', showErrorMessage=True,
                             errorTitle='Invalid', error='Pick Yes or No')
     ws1.add_data_validation(dv_yn)
-    c_pool = labeled_input(ws1, 25, 'Has Swimming Pool?', 'No')
+    c_pool = labeled_input(ws1, 29, 'Has Swimming Pool?', 'No')
     dv_yn.add(c_pool)
-    labeled_input(ws1, 26, 'Pool Area (m²) — optional', 0)
-    labeled_input(ws1, 27, 'Gate / Entrance Count', 2)
+    labeled_input(ws1, 30, 'Pool Area (m²) — optional', 0)
+    c_pool_vol = labeled_input(ws1, 31, 'Pool Volume (m³) — total water volume, all pools', 0)
+    c_pool_vol.comment = Comment(
+        "Total water volume across every pool, in cubic metres. EXENSIVE LOGIC.xlsx (ESM4) costs "
+        "pool chemicals from VOLUME, not area: salt-electrolysis pools hold 4,000 ppm and consume "
+        "roughly 1-4 kg of salt per m3 per month at about 6,000 VND/kg. Its worked example is an "
+        "adult pool of 320 m3 plus a children's pool of 120 m3 = 440 m3. "
+        "Leave at 0 if you do not know it — the budget then falls back to a flat reference figure "
+        "taken from one real project and says so on the row. That fallback does NOT change with "
+        "pool size, so a large pool and a small one cost the same.",
+        'Budget Planning Agent')
+    labeled_input(ws1, 32, 'Gate / Entrance Count', 2)
 
-    section(ws1, 29, "SAVILLS' MANAGEMENT FEE (EMH1) — leave BOTH blank until this project's real contract terms are known")
-    c_fixed_fee = labeled_input(ws1, 30, 'Fixed Monthly Fee (VND) — leave blank if not fixed-fee', None)
-    c_fee_pct = labeled_input(ws1, 31, "% of Collected Management Fee — leave blank if not %-based", None, fmt='0.0%')
+    section(ws1, 34, "SAVILLS' MANAGEMENT FEE (EMH1) — leave BOTH blank until this project's real contract terms are known")
+    c_fixed_fee = labeled_input(ws1, 35, 'Fixed Monthly Fee (VND) — leave blank if not fixed-fee', None)
+    c_fee_pct = labeled_input(ws1, 36, "% of Collected Management Fee — leave blank if not %-based", None, fmt='0.0%')
     fee_comment_text = (
         "Real, negotiated per-project contract terms — cannot be derived or assumed. Blank means "
         "'not yet known', not zero: the generator leaves EMH1 (\"Management fee for Savills\") "

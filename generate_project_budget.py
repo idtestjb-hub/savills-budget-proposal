@@ -37,6 +37,7 @@ from master_comparables import (
 )
 from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
+from input_labels import SheetLabels
 
 SOURCE_DIR = os.path.dirname(__file__)
 BUDGET_AGENT = os.path.abspath(os.path.join(SOURCE_DIR, '..'))
@@ -61,7 +62,30 @@ DAY_COL_END = DAY_COL_START + MAX_DAYS - 1
 COL_DAYOFF = DAY_COL_END + 1
 COL_SHIFTCODE = DAY_COL_END + 2
 
-PRODUCT_ROWS = ['Apartment', 'Officetel', 'Shophouse', 'Shopping Mall', 'Nursery / Nhà trẻ']
+# ORDER MATTERS: read_input() pairs this list positionally with the intake form's Product Mix rows
+# (row 14 upward), and build_project_input_form.py writes them in this same order. The sequence
+# follows the template's own RM.* revenue rows, so form, deliverable and analysis all read alike.
+# Changing this list means changing the form's `products` list and the row constants below it.
+PRODUCT_ROWS = ['Apartment', 'Officetel', 'Office', 'Shopping Mall', 'Retail',
+                'Shop Apartment', 'Shophouse', 'Villas', 'Nursery / Nhà trẻ']
+
+# Where each product's management-fee revenue is written in "2. Budget-Management Fund".
+# Fixed positions in the Savills template, verified against the real file — rows 14-24 are the
+# RM.* per-product revenue block. Only the nine products this pipeline can price appear here:
+#   RM.0A (Other Area — developer pays on unsold units) needs the occupancy fill-up curve, and
+#   RM.PA (management fee on parking areas) needs parking area in m². Neither input exists yet, so
+#   both rows are deliberately left blank rather than guessed. See the change's proposal.
+PRODUCT_REVENUE_ROWS = {
+    'Apartment':          14,   # RM.AP
+    'Officetel':          15,   # RM.OT
+    'Office':             16,   # RM.OF
+    'Shopping Mall':      17,   # RM.SM
+    'Retail':             18,   # RM.RE
+    'Shop Apartment':     19,   # RM.SA
+    'Shophouse':          20,   # RM.SH
+    'Villas':             21,   # RM.VI
+    'Nursery / Nhà trẻ':  22,   # RM.KG  (Kindergarten)
+}
 
 # Ratio-driven Staffing Demand rows — matches the ROUNDUP(...) formulas build_project_input_form.py
 # bakes into the Staffing Demand sheet's "Staff On Duty / Day" cells for these exact position
@@ -96,7 +120,7 @@ def read_input(path):
     wb = openpyxl.load_workbook(path, data_only=True)
 
     pi = wb['Project Info']
-    segment = str(pi['B3'].value or 'Residential').strip()
+    segment = str(SheetLabels(pi).value('Property Segment') or 'Residential').strip()
     if segment.lower() != 'residential':
         raise ValueError(
             f"Project Info!B3 (Property Segment) = '{segment}' — this pipeline only supports Residential today. "
@@ -107,27 +131,49 @@ def read_input(path):
             "reads it yet — that's a real scoping/build task, not a quick fix. Set Project Info!B3 back to "
             "'Residential' to continue."
         )
+    # Every field is found by its LABEL, not its address. Row positions in this sheet have moved
+    # before (the Product Mix block grew from 5 products to 9 and pushed everything below it down
+    # four rows) and reading by address silently returned the wrong cells. See input_labels.py.
+    L = SheetLabels(pi)
     project = dict(
-        name=pi['B5'].value, segment=segment, site_area=pi['B6'].value, garden_area=pi['B7'].value,
-        open_space=pi['B8'].value, floor_count=pi['B9'].value, towers=pi['B10'].value,
-        car_slots=pi['B21'].value, moto_slots=pi['B22'].value,
-        has_pool=str(pi['B25'].value).strip().lower() == 'yes',
-        pool_area=pi['B26'].value, gate_count=pi['B27'].value,
+        name=L.value('Project Name'), segment=segment,
+        site_area=L.value('Site Area'), garden_area=L.value('Garden / Landscape Area'),
+        open_space=L.value('Circulation / Hardscape Area'),
+        floor_count=L.value('Floor Count'), towers=L.value('Tower Count'),
+        car_slots=L.value('Car Parking Slots'), moto_slots=L.value('Moto Parking Slots'),
+        has_pool=str(L.value('Has Swimming Pool?')).strip().lower() == 'yes',
+        pool_area=L.value('Pool Area'),
+        # Optional: absent on workbooks created before ESM4 was costed from volume.
+        pool_volume_m3=(L.value('Pool Volume') if L.has('Pool Volume') else None),
+        gate_count=L.value('Gate / Entrance Count'),
         # Real, negotiated contract terms — see build_project_input_form.py's comment on these
         # cells. Both None (the real, honest default) until the PM enters the actual contract.
-        savills_fee_fixed_monthly=pi['B30'].value, savills_fee_pct=pi['B31'].value,
+        # A blank cell here is an EMPTY FIELD, not a missing one — the resolver returns None.
+        savills_fee_fixed_monthly=L.value('Fixed Monthly Fee'),
+        savills_fee_pct=L.value('% of Collected Management Fee'),
     )
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
         raise ValueError(
-            "Project Info!B30 (Fixed Monthly Fee) and B31 (% of Collected Fee) are BOTH filled in — "
+            "Project Info!B34 (Fixed Monthly Fee) and B35 (% of Collected Fee) are BOTH filled in — "
             "pick one basis for Savills' management fee, not both. Clear whichever doesn't apply."
         )
+    # Each product read from the row bearing ITS OWN name, inside the Product Mix block. Reading
+    # positionally from a fixed start row is what once made the PARKING rows below the block get
+    # read as product areas when the block grew.
     products = {}
-    for i, name in enumerate(PRODUCT_ROWS, start=14):
-        gfa = pi.cell(row=i, column=2).value or 0
-        nfa = pi.cell(row=i, column=3).value or 0
-        units = pi.cell(row=i, column=4).value or 0
-        products[name] = dict(gfa=gfa, nfa=nfa, units=units)
+    for name in PRODUCT_ROWS:
+        if not L.has(name):
+            # A product row the form does not carry. Unlike a missing SCALAR field — which is an
+            # error, because every scalar has always existed — an absent product simply means this
+            # workbook predates that product being offered. "Not on the form" and "on the form with
+            # no area" mean the same thing to the budget: nothing to price, row left blank.
+            # This is what lets a workbook filled in before the Product Mix grew still be read.
+            products[name] = dict(gfa=0, nfa=0, units=0)
+            continue
+        row = L.row_of(name)
+        products[name] = dict(gfa=pi.cell(row=row, column=2).value or 0,
+                              nfa=pi.cell(row=row, column=3).value or 0,
+                              units=pi.cell(row=row, column=4).value or 0)
     project['products'] = products
     project['apartment_gfa'] = products['Apartment']['gfa']
     project['apartment_nfa'] = products['Apartment']['nfa']
@@ -143,22 +189,33 @@ def read_input(path):
                           "matching is by Apartment NFA.")
 
     rs = wb['Roster Setup']
+    R = SheetLabels(rs)
     ratios = dict(
-        staff_per_gate=rs['B4'].value, sqm_per_patrol=rs['B5'].value,
-        sqm_per_cleaner=rs['B6'].value, towers_per_supervisor=rs['B7'].value,
-        sqm_per_gardener=rs['B8'].value,
+        staff_per_gate=R.value('Security: Staff per Gate'),
+        sqm_per_patrol=R.value('Security: m² Open Space per Patrol Staff'),
+        sqm_per_cleaner=R.value('Cleaning: m² Open Space per Cleaner'),
+        towers_per_supervisor=R.value('Cleaning: Towers per Supervisor'),
+        sqm_per_gardener=R.value('Landscape: m² Garden per Gardener'),
     )
-    month, year = rs['B12'].value, rs['B13'].value
+    month, year = R.value('Month'), R.value('Year')
     if not month or not year:
-        raise ValueError("Roster Setup!B12 (Month) and B13 (Year) must both be filled in.")
+        raise ValueError("Roster Setup's Month and Year must both be filled in.")
     month, year = int(month), int(year)
 
+    # Holidays sit under their own section header, one date per row. Found by the header rather
+    # than the old fixed range 20-30, so the list can grow or the section can move.
     holiday_days = set()
-    for r in range(20, 30):
-        d = rs.cell(row=r, column=1).value
-        if d is None or str(d).strip() == '':
-            continue
-        holiday_days.add(int(d))
+    holiday_header = 'PUBLIC HOLIDAYS THIS MONTH'
+    if R.has(holiday_header):
+        first = R.section_row(holiday_header)
+        for r in range(first + 1, first + 20):
+            d = rs.cell(row=r, column=1).value
+            if d is None or str(d).strip() == '':
+                continue
+            try:
+                holiday_days.add(int(d))
+            except (TypeError, ValueError):
+                continue          # the block's own 'Date (DD)' column header, or a note row
 
     ws_demand = wb['Staffing Demand']
     demand = []
@@ -255,6 +312,8 @@ WATER_TEST_SAMPLES_PER_ROUND = 3          # rooftop tank + basement + 1 random t
 POOL_TEST_SAMPLE_PRICE = 1_366_000        # ESM5 — real estimate, 4 microbiological parameters/sample
 POOL_TEST_SAMPLES_PER_YEAR = 8            # 4 rounds/year x 2 samples/round
 FIRE_DEPT_CONNECTION_MONTHLY = 500_000    # ESM8 — GSAFE package G500, HCMC Fire Fighting Dept transmission
+# ESM4 pool chemicals is computed by estimate_opex(), because BOTH generators call that and a
+# second copy here is how the two workbooks drift apart. See POOL_SALT_* in estimate_opex.py.
 
 # Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
 # Resi template) that generate_project_output.py's pipeline actually computes real numbers for, PLUS
@@ -266,7 +325,7 @@ FIRE_DEPT_CONNECTION_MONTHLY = 500_000    # ESM8 — GSAFE package G500, HCMC Fi
 # template, not computed — verified once against the real file; if Savills ever reshapes this
 # template, these will need re-verifying against the new row numbers.
 MGMT_FUND_ROWS = {
-    'mgmt_fee_revenue': 14,     # RM.AP  Management fee of Apartment (revenue)
+    'mgmt_fee_revenue': 14,     # RM.AP  Management fee of Apartment (revenue) — see PRODUCT_REVENUE_ROWS
     'mgmt_fee_expense': 82,     # EMH1   Management fee for Savills (fund pays it out to Savills)
     'staff_remainder': 83,      # EMH2   Staff cost for Savills (all roster positions except Security/Cleaning/Landscape, which get their own outsourced-contract rows below)
     'parking_moto': 26,         # RP1    Motorbike monthly parking (revenue)
@@ -324,9 +383,16 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     from generate_project_output import (
         NIGHT_SHIFT_CODES, NIGHT_DIFFERENTIAL, SERVICE_CATEGORY_KEYWORDS, SERVICE_EXCLUDE_KEYWORDS,
         PARKING_FEE_CAR_MONTHLY, PARKING_FEE_MOTO_MONTHLY, EMPLOYER_INSURANCE_RATE,
+        SERVICE_SHIFT_ROLES_PER_POST,
     )
+    from master_comparables import (
+        SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
+    )
+    SERVICE_CITYWIDE_RATES = {'Security': SECURITY_RATE_CITYWIDE,
+                              'Cleaning': CLEANING_RATE_CITYWIDE,
+                              'Landscape': LANDSCAPE_RATE_CITYWIDE}
 
-    def position_annual_cost(d):
+    def position_bare_annual_cost(d):
         staff_per_day, coverage_days, daily_rate = d['StaffPerDay'], d['CoverageDays'], d['AvgDailyRate']
         is_night = d['ShiftCode'] in NIGHT_SHIFT_CODES
         eff_count = math.ceil(staff_per_day * 7 / 6) if coverage_days >= 7 else staff_per_day
@@ -338,75 +404,191 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             if is_night:
                 monthly *= NIGHT_DIFFERENTIAL
             total += monthly
-        # Employer Social/Health/Unemployment Insurance contribution — real rate, see
-        # EMPLOYER_INSURANCE_RATE's definition in generate_project_output.py. Required by
-        # input/logic/EXENSIVE LOGIC.xlsx's EMH2 formula; matches build_staff_sheet's own
-        # 'Annual Total (incl. Employer Insurance)' column so this fill never drifts from it.
-        return total * (1 + EMPLOYER_INSURANCE_RATE)
+        # Returns the BARE cost — headcount x rate x coverage, night differential applied, no
+        # employer contribution. Callers choose the basis they need; see position_annual_cost().
+        return total
+
+    def position_annual_cost(d):
+        """In-house cost: bare cost plus the employer contribution.
+
+        Employer Social/Health/Unemployment Insurance — real rate, see EMPLOYER_INSURANCE_RATE's
+        definition in generate_project_output.py. Required by input/logic/EXENSIVE LOGIC.xlsx's
+        EMH2 formula; matches build_staff_sheet's 'Annual Total (incl. Employer Insurance)' column
+        so this fill never drifts from it.
+
+        This is the right basis for Savills' own payroll (EMH2). It is NOT the right basis for the
+        outsourced service contracts — see position_annual_cost_outsourced().
+        """
+        return position_bare_annual_cost(d) * (1 + EMPLOYER_INSURANCE_RATE)
+
+    def position_annual_cost_outsourced(d):
+        """Outsourced cost: the bare cost, with no employer contribution added.
+
+        Security, cleaning and landscape are vendor contracts (ES = Expenses for Outsource Service
+        in the template), and their daily rates already come from Fact_MasterRateCard.csv's SERVICE
+        domain — a vendor post price, which by construction already covers that vendor's own staff
+        insurance. Adding an employer contribution on top would charge it twice.
+
+        Evidence these roles are not Savills payroll: Dim_Position.csv has 408 positions across
+        ME/GEN/CS/MGT/AMN/ACC/ADM with no security, cleaning or landscape department; the 12,897
+        salary rows in Fact_StaffCost.csv contain none of them; and the rate card has no
+        Staff-domain rate for any of the three. See openspec change
+        fix-outsourced-service-cost-basis, and docs/05-decisions.md D3.
+        """
+        return position_bare_annual_cost(d)
 
     per_position = {d['Position']: position_annual_cost(d) for d in demand}
+    per_position_outsourced = {d['Position']: position_annual_cost_outsourced(d) for d in demand}
     staff_grand_total = sum(per_position.values())
 
-    def category_cost(cat, excluded=False):
+    def category_cost(cat, excluded=False, costs=None):
         keywords = SERVICE_CATEGORY_KEYWORDS[cat]
-        return sum(v for pos, v in per_position.items()
+        costs = per_position if costs is None else costs
+        return sum(v for pos, v in costs.items()
                    if any(kw in pos.lower() for kw in keywords)
                    and (any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS) if excluded
                         else not any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS)))
 
-    security_cost = category_cost('Security')
-    cleaning_cost = category_cost('Cleaning') + category_cost('Cleaning', excluded=True)
-    landscape_cost = category_cost('Landscape')
-    staff_remainder = staff_grand_total - security_cost - cleaning_cost - landscape_cost
+    def category_total(cat, costs):
+        total = category_cost(cat, costs=costs)
+        if cat == 'Cleaning':                      # Cleaning splits into line and supervisory rows
+            total += category_cost(cat, excluded=True, costs=costs)
+        return total
+
+    # ---- ESS1 / ESS4 / ESS16 priced the way EXENSIVE LOGIC.xlsx says to price them ----
+    # The spec's methods are:
+    #   ESS1  Security  : "Monthly contract fee x 12 OR (Headcount x Cost per guard x 12)"
+    #   ESS4  Cleaning  : "m2 x Unit price x 12 OR Monthly contract x 12"
+    #   ESS16 Landscape : "Monthly contract x 12"
+    # Only ESS1 sanctions a headcount basis, which is what all three used before 2026-09-08.
+    #
+    # The m2 branch for ESS4 CANNOT be implemented: Fact_MasterRateCard.csv has no per-m2 cleaning
+    # rate anywhere — every Service-domain row is priced VND/position/month. So all three use the
+    # "monthly contract x 12" branch, where a vendor contract is what it actually is in practice:
+    # a number of posts at a post price. That is exactly what the Service sheet computes in its
+    # column H, so the deliverable and the analysis now agree by construction.
+    #
+    # TRADE-OFF, stated because it is real: the post rates are citywide and n=1 (A&K Tower), so
+    # this is less project-specific than the roster basis it replaces — the roster differentiated a
+    # cleaning supervisor from a line cleaner, this does not. It is more faithful to the written
+    # method and less granular. Widening those rates is R-D02, separate work.
+    def contract_cost(cat):
+        keywords = SERVICE_CATEGORY_KEYWORDS[cat]
+        matched = [d for d in demand if any(kw in d['Position'].lower() for kw in keywords)
+                   and not any(ex in d['Position'].lower() for ex in SERVICE_EXCLUDE_KEYWORDS)]
+        qty = sum(math.ceil(d['StaffPerDay'] * 7 / 6) if d['CoverageDays'] >= 7 else d['StaffPerDay']
+                  for d in matched)
+        if not qty:
+            return 0.0, 0, 1.0
+        night_qty = sum(math.ceil(d['StaffPerDay'] * 7 / 6) if d['CoverageDays'] >= 7 else d['StaffPerDay']
+                        for d in matched if d['ShiftCode'] in NIGHT_SHIFT_CODES)
+        # Rounded to 4dp because the Service sheet writes the blend into a cell at that precision
+        # and multiplies by the rounded value. Using the exact one here would leave the two
+        # workbooks differing by tens of thousands of VND on Security.
+        blend = round(1 + (night_qty / qty) * (NIGHT_DIFFERENTIAL - 1), 4)
+        post_rate = SERVICE_CITYWIDE_RATES[cat]
+        roles = SERVICE_SHIFT_ROLES_PER_POST[cat]
+        return (post_rate / roles) * blend * qty * 12, qty, blend
+
+    security_cost, n_sec_posts, sec_blend = contract_cost('Security')
+    cleaning_cost, n_cln_posts, cln_blend = contract_cost('Cleaning')
+    landscape_cost, n_lsc_posts, lsc_blend = contract_cost('Landscape')
+
+    security_loaded = category_total('Security', per_position)
+    cleaning_loaded = category_total('Cleaning', per_position)
+    landscape_loaded = category_total('Landscape', per_position)
+    staff_remainder = staff_grand_total - security_loaded - cleaning_loaded - landscape_loaded
 
     n_security = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Security']))
     n_cleaning = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Cleaning']))
     n_landscape = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Landscape']))
 
+    _CONTRACT_BASIS = (
+        "Method: EXENSIVE LOGIC.xlsx's stated basis for this code — monthly contract x 12, where the "
+        "contract is priced as posts x citywide post rate (Fact_MasterRateCard.csv, SERVICE domain, "
+        "n=1 A&K Tower). NO employer insurance is added: a vendor post price already covers the "
+        "vendor's own staff costs.")
     write_even_monthly('security', security_cost, remark=(
-        f"= {n_security} Security position(s) from Staffing Demand (headcount x real AvgDailyRate x coverage days, "
-        f"annualized) x {EMPLOYER_INSURANCE_RATE:.1%} employer insurance (Fact_StaffCost.csv, real) = "
-        f"{security_cost:,.0f} VND/year. Source: Staff (Roster) sheet, Project_Budget_Output.xlsx."))
+        f"= {SERVICE_CITYWIDE_RATES['Security']:,.0f} VND/post/month / {SERVICE_SHIFT_ROLES_PER_POST['Security']} "
+        f"shift roles x {sec_blend:.4f} night-shift blend x {n_sec_posts} posts x 12 = "
+        f"{security_cost:,.0f} VND/year. {_CONTRACT_BASIS}"))
     write_even_monthly('cleaning', cleaning_cost, remark=(
-        f"= {n_cleaning} Cleaning position(s) (incl. Supervisory) from Staffing Demand, same headcount x rate x "
-        f"coverage-days formula as Security above, x {EMPLOYER_INSURANCE_RATE:.1%} employer insurance = "
-        f"{cleaning_cost:,.0f} VND/year."))
+        f"= {SERVICE_CITYWIDE_RATES['Cleaning']:,.0f} VND/post/month / {SERVICE_SHIFT_ROLES_PER_POST['Cleaning']} "
+        f"shift role(s) x {cln_blend:.4f} blend x {n_cln_posts} posts x 12 = {cleaning_cost:,.0f} VND/year. "
+        f"{_CONTRACT_BASIS} The spec's alternative 'm2 x unit price' branch is not used because no "
+        f"per-m2 cleaning rate exists in the source data.")) 
     write_even_monthly('landscape', landscape_cost, remark=(
-        f"= {n_landscape} Landscape/Gardener position(s) from Staffing Demand, same formula, x "
-        f"{EMPLOYER_INSURANCE_RATE:.1%} employer insurance = {landscape_cost:,.0f} VND/year. "
-        f"(Conditional — 0 and left blank if the project has no garden area.)"))
+        f"= {SERVICE_CITYWIDE_RATES['Landscape']:,.0f} VND/post/month / {SERVICE_SHIFT_ROLES_PER_POST['Landscape']} "
+        f"shift role(s) x {lsc_blend:.4f} blend x {n_lsc_posts} posts x 12 = {landscape_cost:,.0f} VND/year. "
+        f"{_CONTRACT_BASIS} (Conditional — 0 and left blank if the project has no garden area.)"))
     write_even_monthly('staff_remainder', staff_remainder, remark=(
         f"= Full roster annual cost incl. {EMPLOYER_INSURANCE_RATE:.1%} employer insurance ({staff_grand_total:,.0f}) "
-        f"MINUS Security ({security_cost:,.0f}) MINUS Cleaning ({cleaning_cost:,.0f}) MINUS Landscape "
-        f"({landscape_cost:,.0f}) — those 3 are priced separately above (ESS1/ESS4/ESS16) so they aren't "
-        f"double-counted here. = {staff_remainder:,.0f} VND/year. Source: Staff (Roster) sheet."))
+        f"MINUS Security ({security_loaded:,.0f}) MINUS Cleaning ({cleaning_loaded:,.0f}) MINUS Landscape "
+        f"({landscape_loaded:,.0f}) — those 3 are priced separately above (ESS1/ESS4/ESS16) so they aren't "
+        f"double-counted here. = {staff_remainder:,.0f} VND/year. This is Savills' own payroll, so it DOES "
+        f"include the {EMPLOYER_INSURANCE_RATE:.1%} employer insurance contribution. The figures subtracted here "
+        f"are the loaded equivalents of those 3 positions — the ESS rows above show them on their outsourced "
+        f"basis, which is lower; the difference is the employer contribution Savills does not pay on a vendor "
+        f"contract. Source: Staff (Roster) sheet."))
 
-    # ---- Management fee revenue (Apartment only — same scope as this pipeline's other real
-    # writes on '0. Info'!I8; other product types aren't priced here today) ----
-    mgmt_fee_annual = derived_rate * project['apartment_nfa'] * 12
-    write_even_monthly('mgmt_fee_revenue', mgmt_fee_annual, remark=(
-        f"= Derived Apartment management-fee rate ({derived_rate:,.0f} VND/m²/month, nearest-comparable-matched — "
-        f"see '0. Info'!I8 and the Comparison sheet) x Apartment NFA ({project['apartment_nfa']:,.0f} m²) x 12 "
-        f"= {mgmt_fee_annual:,.0f} VND/year."))
+    # ---- Management fee revenue, priced PER PRODUCT ----
+    # Every product the project reports area for gets its own real rate and its own template row,
+    # using the identical rate logic as generate_project_output.py's Management Fee sheet
+    # (derive_product_rate, falling back to the Apartment rate) so the two workbooks agree by
+    # construction. Before 2026-09-08 only Apartment was priced here, which understated the
+    # deliverable's revenue against the analysis by 1,930,800,000 VND (14.8%) — finding X-01.
+    from master_comparables import derive_product_rate, nearest_comparables, MASTER_COMPARABLES
+    all_ranked = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'],
+                                     n=len(MASTER_COMPARABLES))
+    # The fallback is the Apartment rate as derive_product_rate computes it — NOT the derive_mgmt_rate
+    # figure passed in as `derived_rate`. The two are different functions and give different answers
+    # (on a test project: 14,750 vs 15,675). generate_project_output.py falls back to the
+    # derive_product_rate value, so using anything else here makes the two workbooks disagree on
+    # every fallback-priced product.
+    apt_rate, _apt_used, _apt_note = derive_product_rate(all_ranked, 'Apartment', n=2)
+    if apt_rate is None:
+        apt_rate = derived_rate
+    mgmt_fee_annual = 0.0
+    for product, row in PRODUCT_REVENUE_ROWS.items():
+        nfa = (project['products'].get(product) or {}).get('nfa')
+        if not nfa:
+            continue                      # no area for this product — leave the row blank, not 0
+        rate, used, _note = derive_product_rate(all_ranked, product, n=2)
+        is_fallback = rate is None
+        if is_fallback:
+            rate = apt_rate
+        annual = rate * nfa * 12
+        mgmt_fee_annual += annual
+        basis = (f"Rate source: {len(used)} real comparable(s) — " + ', '.join(c['name'] for c in used)
+                 if used else
+                 f"FALLBACK — no comparable in the master table has a real {product} rate, so this "
+                 f"project's derived Apartment rate is substituted. This is NOT a {product}-specific "
+                 f"rate.")
+        _write_even_monthly_row(ws, row, annual, (
+            f"= {product} rate ({rate:,.0f} VND/m²/month) x {product} NFA ({nfa:,.0f} m²) x 12 "
+            f"= {annual:,.0f} VND/year. {basis}"))
+    if not mgmt_fee_annual:
+        raise ValueError('No product has any chargeable area — nothing to price.')
     # EMH1 (Savills' own fee) is NOT the collected management fee — that's the fund's REVENUE, most
     # of which is meant to pay for the real staff/OPEX/Capex costs already itemized elsewhere on
     # this sheet. Before 2026-08-28 this wrongly set EMH1 = mgmt_fee_annual (the entire collected
     # fee), which double-counted against every other cost line and produced a large fake "deficit"
     # (confirmed on Blue Skyline: 6.3bn of a ~7.5bn gap against the real Green Skyline back-test was
     # this one bug). The correct value is a real, negotiated, per-project contract term this
-    # pipeline cannot derive — see Project Info!B30/B31 (build_project_input_form.py's comment).
+    # pipeline cannot derive — see Project Info!B34/B35 (build_project_input_form.py's comment).
     # Left BLANK, not defaulted to 0 or to the old wrong assumption, until the PM enters one.
     if project.get('savills_fee_fixed_monthly'):
         savills_fee_annual = project['savills_fee_fixed_monthly'] * 12
         write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
-            f"= Real fixed fee (Project Info!B30) {project['savills_fee_fixed_monthly']:,.0f} VND/month x 12 "
+            f"= Real fixed fee (Project Info!B34) {project['savills_fee_fixed_monthly']:,.0f} VND/month x 12 "
             f"= {savills_fee_annual:,.0f} VND/year."))
     elif project.get('savills_fee_pct'):
         savills_fee_annual = mgmt_fee_annual * project['savills_fee_pct']
         write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
-            f"= Real fee rate (Project Info!B31) {project['savills_fee_pct']:.1%} x Management Fee Revenue "
-            f"(RM.AP, above) {mgmt_fee_annual:,.0f} = {savills_fee_annual:,.0f} VND/year."))
-    # else: left blank — no real contract term entered yet (Project Info!B30/B31 both empty).
+            f"= Real fee rate (Project Info!B35) {project['savills_fee_pct']:.1%} x TOTAL Management Fee "
+            f"Revenue across every product priced above (RM.AP/RM.OT/RM.SH/... rows 14-22) "
+            f"{mgmt_fee_annual:,.0f} = {savills_fee_annual:,.0f} VND/year."))
+    # else: left blank — no real contract term entered yet (Project Info!B34/B35 both empty).
 
     # ---- Parking Fee revenue (real rate x real slot counts, at 100% occupancy — see
     # build_additional_revenue_sheet's docstring for why that's a ceiling, not a realistic average) ----
@@ -426,11 +608,16 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # ---- OPEX (Electricity/Water/Diesel — common-area usage; Repairs & Maintenance and Admin
     # Expense are single aggregates in this pipeline but split into 30+/19 specific sub-system rows
     # in the template, so are deliberately left blank rather than forced into one arbitrary row) ----
-    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False))
+    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
+                         pool_volume_m3=project.get('pool_volume_m3'))
 
     def _opex_remark(category):
         entry = opex.get(category, {})
         annual = entry.get('monthly_vnd', 0) * 12
+        if entry.get('method'):
+            # Pool Salt — a stated formula, not an A&K ratio. estimate_opex() owns both the
+            # calculation and its caveats so this workbook and the analysis one cannot disagree.
+            return f"{entry['method']} {entry.get('source', '')}".strip()
         if entry.get('ratio_per_m2') is not None:
             return (f"= A&K Tower's real per-m² NFA ratio for {category} ({entry['ratio_per_m2']:,.2f} VND/m²/month, "
                     f"n=1 — the only residential property with independently-verified OPEX data) x this project's "
@@ -442,10 +629,11 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
                         remark=_opex_remark('Diesel (Generator Fuel)'))
     if project.get('has_pool'):
+        # ESM4 — pool chemicals. estimate_opex() computes this from the project's pool volume by
+        # the method the spec states, and carries its own caveats in the remark; see POOL_SALT_*
+        # in estimate_opex.py. Both generators read that one figure.
         write_even_monthly('pool_salt', opex.get('Pool Salt', {}).get('monthly_vnd', 0) * 12,
-                            remark=(_opex_remark('Pool Salt') +
-                                    " Not scaled by pool size/volume — no real data ties pool-salt cost to pool "
-                                    "area across more than one property."))
+                            remark=_opex_remark('Pool Salt'))
 
     # ---- Real flat-reference costs from input/logic/EXENSIVE LOGIC.xlsx's Sheet2 (see
     # ENV_REPORT_ANNUAL etc.'s definitions above for the exact citation each one carries) ----

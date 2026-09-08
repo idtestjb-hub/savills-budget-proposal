@@ -39,6 +39,10 @@ class ProductionTouched(RuntimeError):
     """Raised when a verification run changed something under production paths."""
 
 
+class PartialRun(RuntimeError):
+    """Raised when one generator completed and the other did not."""
+
+
 def _fingerprint(path):
     """(sha256, mtime) for a file, or None if it does not exist."""
     if not os.path.exists(path):
@@ -90,11 +94,25 @@ def run_workflow(sample=DEFAULT_SAMPLE, workdir=None, quiet=True):
     try:
         with redirected_paths(sample, workdir) as resolved:
             for label, module in (('budget generator', gpb), ('analysis generator', gpo)):
-                if quiet:
-                    with contextlib.redirect_stdout(generator_log):
+                try:
+                    if quiet:
+                        with contextlib.redirect_stdout(generator_log):
+                            module.main()
+                    else:
                         module.main()
-                else:
-                    module.main()
+                except Exception as exc:
+                    # Re-raised as a partial run rather than passed through raw. The bare traceback
+                    # says what broke but not what it means: the outputs now describe different
+                    # projects, and the one that did complete looks perfectly fine on disk.
+                    raise PartialRun(
+                        f'The {label} ({module.__name__}.py) did not complete: '
+                        f'{type(exc).__name__}: {exc}\n'
+                        f'  completed before the failure: {completed or "none"}\n'
+                        f'  did NOT complete: {label}\n'
+                        'Both generators must run. Whatever outputs exist now describe different '
+                        'projects, and the workbook that was written carries no sign that its '
+                        'counterpart is missing or stale.'
+                    ) from exc
                 completed.append(label)
     finally:
         after = snapshot()
@@ -108,7 +126,7 @@ def run_workflow(sample=DEFAULT_SAMPLE, workdir=None, quiet=True):
             )
 
     if len(completed) != 2:
-        raise RuntimeError(
+        raise PartialRun(
             f'Partial run: only completed {completed}. Both generators must run — otherwise the '
             f'analysis workbook and the client deliverable describe different projects.'
         )
