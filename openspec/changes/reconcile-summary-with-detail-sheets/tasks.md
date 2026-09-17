@@ -175,10 +175,52 @@
   (a) `EMH` on `1. Summary` = `A1. Staff cost` row 96 + Reception; (b) `RO2a` `G` and `AK` both 0;
   (c) `1. Summary` total revenue = sum of its child rows and = `2. Budget-Management Fund`'s `AK12`;
   (d) analysis `Staff` total within 1% of `A1!AC96`. Record the four checks and the projects used.
-  **NOT DONE — needs the Head of PM** (project rule: a human spot-check, not an automated one,
-  before a change that alters aggregation logic on client-facing figures). Note (d)'s own target
-  ("within 1%") is now known to be ~4% per task 3.1 — the spot-check should confirm that residual is
-  understood/acceptable, not that it hits the original 1% figure.
+  **STILL NOT DONE — needs the Head of PM** (project rule: a human spot-check, not an automated
+  one, before a change that alters aggregation logic on client-facing figures). What follows is the
+  legwork — the actual figures, run 2026-09-17 via full Excel recalculation on Wayne Tower (real
+  project, via its real input workbook) and the standard synthetic sample, production untouched — for
+  the Head of PM to review and judge, not a substitute for that judgment. Left unchecked deliberately.
+
+  **(a) EMH vs A1!AC96 + Reception top-up + other EMH leaves — MATCH, both projects, exact.**
+  Wayne Tower: `1. Summary!H22` = 5,656,322,268.92; expected (A1 "Total cost/year...Savills" label
+  5,327,401,368 + top-up `SUM(A1!AC98:AC99)*12` = 318,353,184 + EMH4/PCCC 10,567,716.92) =
+  5,656,322,268.92. Difference = 0.00. Standard sample: `H22` = 4,940,513,880.92, expected
+  4,940,513,880.92, difference 0.00.
+
+  **(b) RO2a G and AK both 0 — MATCH, both projects.** `2. Fund!G37` = `AK37` = 0.0 on both
+  (code confirmed `Y37` = `RO2a`).
+
+  **(c) 1. Summary total revenue (H13) = sum of its own children (RM/RPa/RA/RR/RO/RI, rows 14-19)
+  = Fund!AK12 — MATCH, both projects, exact on both legs.** Wayne Tower: `H13` = 19,042,407,921.91 =
+  sum of children (RM 15,879,120,000 + RPa 3,110,250,000 + RA/RR blank + RO 0 + RI 53,037,921.91) =
+  `Fund!AK12` (Y12=`R`) = 19,042,407,921.91. Standard sample: `H13` = 14,347,433,861.51 = children
+  sum = `AK12` = 14,347,433,861.51.
+
+  **(d) analysis in-house Staff total vs A1!AC96 + top-up — residual confirmed real and
+  root-caused for its two known components, but LARGER than D3's ~4% on Wayne Tower specifically,
+  by an amount not yet traced to a single cause.** Standard sample: in-house Z total (all roster
+  rows excl. outsourced Security/Cleaning/Landscape) 5,121,733,147.30 vs A1 side 4,929,946,164.00 =
+  **+3.89%**, inside D3's documented band. Wayne Tower: in-house Z total 6,079,753,851.98 vs A1 side
+  5,645,754,552.00 = **+7.69%**, clearly above it.
+  Two of D3's own named components reproduce to the VND on Wayne Tower: night-shift excess
+  (Technician-Night 89,642,052.50 + Shift-Leader-Night 122,464,834.80 = 212,106,887.30, vs D3's
+  recorded 89,642,052 + 122,464,835 = 212,106,887) and the Reception gap (analysis sheet's Reception
+  row 312,597,926.67 vs A1's Reception top-up 318,353,184 = −5,755,257.33, vs D3's recorded
+  5,755,257). Checked whether the night-shift excess itself scales with headcount between the two
+  projects (it would, if that were the whole story) — it does NOT: both projects land on the exact
+  same 212,106,887.30 excess, because the roster's own coverage formula (`B = IF(Q>=7,
+  ROUNDUP(P*7/6,0), P)`) normalizes both to the same effective headcount (2) for these roles despite
+  different raw `P` inputs (sample P=1, Wayne Tower P=2) — ruled OUT as the source of the gap
+  between the two projects' overall percentages.
+  Netting out both known components: "other effects" = −20,319,904 on the standard sample (close to
+  D3's own recorded −14,564,647, i.e. consistent with "other smaller effects net roughly flat") but
+  **+221,892,412.67 on Wayne Tower** — not flat there. This positive swing is not yet traced to a
+  specific role or cause; D3 itself scopes "fixing what feeds a role's gross salary" as a non-goal,
+  and this sits in that same excluded territory (A1's `fill_staff_cost_sheet` gross-salary step),
+  not in anything `reconcile-summary-with-detail-sheets` changed. Presenting the honest number rather
+  than rounding it into "~4%, as documented" — the Head of PM should see that Wayne Tower's own
+  residual is materially larger than the change's own design doc states, even though the named
+  mechanism is intact and reproduces exactly.
 - [ ] 6.3 Present the measured movement to the Head of PM; capture the sign-off in the change notes
   and `docs/05-decisions.md` before archiving.
 
