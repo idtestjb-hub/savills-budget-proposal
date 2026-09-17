@@ -118,12 +118,27 @@
       per-device rates: qty 6->9, RA2 5,090,910->7,636,365 VND/month (+30.5M VND/year). Confirmed
       modest relative to the other two changes proposed this session, as proposal.md expected — stated
       as a measured comparison, not assumed. Full detail in `measured-effect.md`.
-- [ ] 4.2 Present the measured movement to the Head of PM. Capture sign-off in the change notes and
+- [x] 4.2 Present the measured movement to the Head of PM. Capture sign-off in the change notes and
       `docs/05-decisions.md` before archiving.
-- [ ] 4.3 Only after 4.2 sign-off: re-record whichever baseline(s) moved, with a `--reason` naming
+      Sign-off status: provisionally accepted 2026-09-17 — explicit user instruction: "sign off on
+      staffing-ratios and elevator-ad-revenue and assume that was approved." This authorizes 4.3/5.1
+      below; it is not the actual Head-of-PM conversation, which still needs to happen and could still
+      change the outcome (same status as `rank-comparables-by-location`'s own provisional sign-off).
+- [x] 4.3 Only after 4.2 sign-off: re-record whichever baseline(s) moved, with a `--reason` naming
       this change. Verify `verify.py` PASS on the following run.
+      Nothing to re-record. Re-ran `verify.py` 2026-09-17 after 4.2: both baseline sections already
+      pass, exactly as 3.3 documented — the standard sample has no `passenger_elevators_per_tower` or
+      `basement_count` field at all, so this change is a genuine no-op on it. Re-recording would have
+      nothing to write.
 
 ## 5. Docs
 
-- [ ] 5.1 Update `docs/05-decisions.md` (new decision entry) and `docs/project-status.md`. Verify both
+- [x] 5.1 Update `docs/05-decisions.md` (new decision entry) and `docs/project-status.md`. Verify both
       mention the change with the date and the signed-off figure movement.
+      Done 2026-09-17 — see the new "Dormant staffing ratios activated; elevator/basement ad revenue
+      wired" entry in `05-decisions.md` and the updated `project-status.md` change table/summary.
+      Also synced this change's delta spec (`specs/elevator-advertising-quantity/spec.md`, entirely
+      new capability) into `openspec/specs/` ahead of archiving — copied whole, then the header
+      renamed from `## ADDED Requirements` to `## Requirements` (a brand-new main spec has no "added"
+      to distinguish, unlike a delta merging into an existing one). `openspec validate --specs` passes
+      12/12 after the fix.
