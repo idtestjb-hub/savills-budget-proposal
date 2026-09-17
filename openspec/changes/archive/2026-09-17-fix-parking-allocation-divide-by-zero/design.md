@@ -146,3 +146,66 @@ qualifies a row.
   extended to this pattern — the pipeline fails rather than ship a workbook where any row matching
   either signal still has both cells blank. Verified this guard actually fires (tasks 3.1-3.3's
   equivalent for this second pattern) before relying on it.
+
+## Amendment (2026-09-17, part 2): ERM's `AK` column reads a different row than its `G` column
+
+Reopened after this change's own task 5.3 measurement (`G485` = 28,135,740) was later shown to have
+proved only half the row. `reconcile-summary-with-detail-sheets`'s `check_summary_reconciles` — a
+check this change never ran, since it predates that change's own verification section — caught the
+other half: `1. Summary` reads column `AK`, not `G` (design.md of that change, Context), and `AK485`
+is 0 on every run this change has ever produced.
+
+### D6 — Under investigation; first hypothesis (mirror the write into row 486) tried and disproven
+
+`AK485` is not a normal leaf formula. Every other one of the 27 rows `MGMT_FUND_ROWS` targets has
+`AK<row> = SUM(AQ<row>:BB<row>)`, deriving from its own row. Row 485 alone has
+`AK485 = SUBTOTAL(9,AK486)` — it reads row 486 (`Y486 = 'ERM1'`), a separate leaf with its own normal
+`AK486 = SUM(AQ486:BB486)` formula, which the pipeline has never written to. Confirmed this is isolated
+to ERM: scanned the `AK` formula of all 27 `MGMT_FUND_ROWS` targets directly against the generated
+deliverable; row 485 is the only one whose `AK` doesn't derive from itself.
+
+**First hypothesis, tried and empirically disproven**: that this is deliberate template structure —
+`G263` (`=SUBTOTAL(9,G264:G485)`) stops at row 485, `AK263` (`=SUBTOTAL(9,AK264:AK486)`) reaches one
+row further to 486, read as "485 holds the annual total for `G`, 486 holds the same cost's monthly
+detail for `AK`." Implemented as a mirrored write (same monthly amount into row 486's `C`/`F`/`H:S`,
+row 485 unchanged) and verified via full Excel recalculation on the triggered state: `G263`/`AK263` did
+reconcile (28,135,740 both sides), **but `G79`/`AK79`** — the broader "(E)" rollup, range 80:494,
+which already spans both 485 and 486 — **went from a 28,135,740 deficit on `AK` to an exact
+28,135,740 excess on `G`**. `F486`/`C486` mechanically drive both `G486` and `AK486` identically
+(same underlying formulas as every other row), so populating row 486 makes it a second genuine
+non-SUBTOTAL leaf that `G79` counts alongside `G485` — `AK79` only looked fine because `AK485`,
+itself a `SUBTOTAL`, is auto-skipped by `AK79`'s own nested-SUBTOTAL-ignore, an asymmetry `G79` has
+no equivalent of. There is no variant of "populate row 486" that satisfies both `G263`'s narrower
+range and `G79`'s wider one. Reverted.
+
+**Second reading, implemented**: `G79` covering both rows with nothing compensating for 486, combined
+with `F486` shipping blank in Savills' own template, is more consistent with `AK485 =
+SUBTOTAL(9,AK486)` being a template defect (an Excel row-insert artifact carrying a stale reference)
+than a deliberate two-column design — no different in kind from the D2/D5 defects this same change
+already fixed elsewhere on this sheet. Confirmed directly: row 486's own `AK`/`AQ:BB` formulas are
+fully intact, and — once `486`→`485` is substituted — byte-for-byte identical to row 484's own
+formulas with `484`→`485` substituted. Row 486 was never a data row; it is an unused leaf that still
+carries the template's normal formula shape, which is what makes the row-insert-artifact reading solid
+rather than speculative.
+
+Fix implemented as a formula repair, not a data write: `generate_project_budget.py` scans every fund
+leaf row for an `AK` formula matching exactly `=SUBTOTAL(9,<ref>)` (a leaf row's `G` is never itself a
+`SUBTOTAL`, so this can't misfire on a genuine section header), and where found, copies the referenced
+row's own intact `AK`/`AQ:BB` formula text with the row number substituted — restoring row 485 to the
+same self-referencing shape all 26 sibling rows already have. Dynamic detection, not hardcoded to row
+485, matching every other guard added by this change. Verified via full Excel recalculation on a fresh
+run: `G485=AK485=28,135,740`, `G263=AK263=28,135,740`, `G79=AK79=9,533,984,013.92` (previously off by
+exactly 28,135,740 in one direction or the other under each attempt), `G486=AK486=0` (row 486 stays
+correctly untouched). `check_summary_reconciles` run directly against a fresh output: `ok=True`, 506
+rows checked, 0 differences. `verify.py` section 5 now reports exactly one expected movement —
+`estimated_surplus_year1` drops by 28,135,740 VND, i.e. the surplus correctly falls once the R&M cost
+is counted on the `AK`/cash-flow basis `1. Summary` actually reads — gated on sign-off before
+re-recording (tasks.md 9.6), same as every other figure movement this session.
+
+### Risk
+
+- **[Risk] Another mapped row could develop this same defect if the template changes** →
+  *Mitigation*: no guard added — the scan in this amendment is a point-in-time check, not a running
+  assertion, and `assert_row_code` only checks the code in column Y, which is insufficient (row 485's
+  own code is genuinely `ERM`; the defect is in its `AK` formula, which `assert_row_code` does not
+  read). Left as a documented gap rather than over-built for a shape observed exactly once.

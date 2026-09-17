@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-17T17:18:05+07:00",
-  "reason": "rank-comparables-by-location tasks 8.1/8.5/8.6/8.7 (see baseline.json's own reason for the full account): the derived Apartment rate fell 18,350->16,500 VND/m2/mo (-10.1%), which is the direct cause of rm_collected_year1 (residents pay, RM.AP..RM.KG) and rm_developer_year1 (developer pays on unsold, RM.0A) both falling -- rm_collected_year1 3,298,270,625->2,980,209,375, rm_developer_year1 8,879,959,375->8,023,640,626. estimated_surplus_year1 (PART 3 summary) also moves, 6,678,640,605->4,841,585,588, from the combination of this revenue drop AND the separate, still-pending reconcile-summary-with-detail-sheets change's staff_cost_annual increase (+379,523,020 VND/yr, unrelated to this change, already live in the code, its own Head-of-PM sign-off separately outstanding -- see docs/project-status.md). Head-of-PM sign-off on rank-comparables-by-location provisionally assumed per explicit user instruction 2026-09-17 ('confirm that later, assume it okay'), pending the actual offline conversation.",
+  "recorded_at": "2026-09-17T19:55:03+07:00",
+  "reason": "fix-parking-allocation-divide-by-zero amendment: ERM (row 485) AK/AQ:BB formulas repaired to derive from its own row instead of a blank sibling (row 486) -- estimated_surplus_year1 correctly drops by 28,135,740 VND now that R&M is counted on the AK/cash-flow basis '1. Summary' reads. Signed off 2026-09-17.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -42,7 +42,7 @@
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 4841585587.589485,
+      "value": 4813449847.589485,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     }

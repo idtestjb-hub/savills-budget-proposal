@@ -220,19 +220,22 @@
       drift (see 6.1/7.1) under this change's name — that change owns its own re-record, gated on its
       own Head-of-PM sign-off, not this one. (An earlier draft of this note misattributed the same
       drift to `activate-dormant-staffing-ratios` — corrected, see 6.1.)
-- [~] 7.3 Confirm verification passes on the following run — verify by running `python verification/verify.py` and confirming it exits zero
-      BLOCKED, not by this change. `verify.py` currently exits 1 solely on the 4 figures named in
-      6.1/7.1 — a drift that predates this entire session (flagged in `docs/project-status.md` since
-      2026-09-14, attributed there to `reconcile-summary-with-detail-sheets`, gated on that change's
-      own Head-of-PM sign-off, tasks 6.2/6.3). Task 1.3 already recorded this exact condition as
-      pre-existing before any code in this change was touched — `verify.py` has not exited 0 on the
-      standard sample at any point in this task group's own before/after window, so this was never
-      "this change broke it," only "this change cannot fix a different, already-known, already-gated
-      block on its way to a clean run." This change's own portion of verify.py — structure,
-      corruption, formula errors, all 24 figures it could plausibly move — is clean (sections
-      6.1-6.3). Recording this as a known, attributed cross-change block rather than forcing a false
-      "done": resolving it is `reconcile-summary-with-detail-sheets`'s own task, gated on its own
-      sign-off, not something this change's scope reaches.
+- [x] 7.3 Confirm verification passes on the following run — verify by running `python verification/verify.py` and confirming it exits zero
+      Was BLOCKED (see original note below), now genuinely resolved — not by this task directly, but
+      by this change's own section-9 amendment. `verify.py`'s section 4 (BASELINE, the 4-figure drift
+      named below) was already matching clean by the time of this run — that baseline was re-recorded
+      earlier in the session independent of this change, not something this task caused. What WAS
+      still blocking a clean exit — `check_summary_reconciles` (section 5e) failing on rows 79/263/485
+      — is exactly what section 9's formula repair fixed. Re-ran `python verification/verify.py`
+      2026-09-17 after 9.6's baseline re-record: **PASS**, exits 0, every section clean (workflow,
+      structure, 24 baseline figures, 7 ramped deliverable figures, 106 remark-content assertions, all
+      506 summary-reconciliation checks, 81 required-line-item checks). Original note, preserved for
+      the record: "BLOCKED, not by this change. `verify.py` currently exits 1 solely on the 4 figures
+      named in 6.1/7.1 — a drift that predates this entire session (flagged in
+      `docs/project-status.md` since 2026-09-14, attributed there to
+      `reconcile-summary-with-detail-sheets`, gated on that change's own Head-of-PM sign-off, tasks
+      6.2/6.3)... This change's own portion of verify.py — structure, corruption, formula errors, all
+      24 figures it could plausibly move — is clean (sections 6.1-6.3)."
 
 ## 8. Documentation
 
@@ -281,3 +284,87 @@
       Transparency is still served without a formal gate: `docs/05-decisions.md`'s 2026-09-17 section
       states the figure and its "correction, not a new cost" framing plainly, matching how the
       original 2026-09-09 entry framed Administrative Expense before it shipped the same way.
+
+## 9. Amendment (2026-09-17, part 2): row 485's `AK` formula reads a blank sibling row
+
+Reopened same day, after archiving. Found while performing `reconcile-summary-with-detail-sheets`'s
+task 6.2 spot-check — that change's own `check_summary_reconciles` was failing on rows 79/263/485.
+
+- [x] 9.1 Confirm the defect is isolated to ERM/row 485 — verify by reading the `AK` formula of every
+      row `MGMT_FUND_ROWS` targets and confirming none of the other 26 share the same shape
+      Done. All 26 other rows: `AK<row> = SUM(AQ<row>:BB<row>)`, deriving from themselves. Row 485
+      alone: `AK485 = SUBTOTAL(9,AK486)`.
+- [ ] 9.2 **REVERTED — first attempt (mirror the write into row 486) was wrong, corrected before it
+      compounded.** Original plan: write the same monthly amount into row 486's `C`/`F`/`H:S`,
+      reasoning `G263` (`=SUBTOTAL(9,G264:G485)`, stops at 485) and `AK263`
+      (`=SUBTOTAL(9,AK264:AK486)`, reaches 486) meant row 486 was a deliberate AK-only detail row for
+      the same cost. Implemented, then verified on the triggered state via full Excel recalculation:
+      `G263`/`AK263` DID reconcile (28,135,740 both sides) — but `G79`/`AK79` (the broader "(E)"
+      rollup, range 80:494, which — unlike `G263` — already includes BOTH 485 and 486) went from a
+      28,135,740 **deficit** on the `AK` side (before) to an exact 28,135,740 **excess** on the `G`
+      side (after): row 486 became a genuine non-SUBTOTAL leaf once `F486` was written, so `G79`
+      counted it as a second, independent contributor alongside `G485` — `AK79` stayed correct only
+      because `AK485` being itself a `SUBTOTAL` is auto-skipped by `AK79`'s own nested-SUBTOTAL-skip,
+      an asymmetry `G79` has no equivalent of. **The same write cannot satisfy both `G263`'s narrower
+      range and `G79`'s wider one — `F486`/`C486` mechanically drive both `G486` and `AK486`
+      identically, so there is no variant of "populate row 486" that fixes `AK` without also
+      corrupting `G`.** Code reverted (`generate_project_budget.py`'s ERM call site back to the
+      single write at row 485, matching D3's original state); this task's completion claim in an
+      earlier draft ("`G79`/`AK79`... both now agree") was flat wrong and is corrected here rather than
+      left standing.
+- [x] 9.3 Read `check_summary_reconciles` (`verification/checks.py`) with this defect specifically in
+      mind — determine whether it compares G-vs-AK per fund leaf row, per `1. Summary` code, or both,
+      and whether row 79 is in scope as an enumerated leaf or as one of the four named aggregate
+      identities.
+      Done. Its own comment states check (b): "every fund row (**header subtotals included — they
+      should agree with AK too**): G vs AK" — it iterates every row in `_FUND_LEAF_FIRST_ROW..
+      _FUND_LEAF_LAST_ROW` (12-494) carrying a code, header/SUBTOTAL rows included, and compares that
+      row's own G against its own AK directly. Row 79 is in scope as a directly-enumerated row, not
+      only via the four named aggregate identities (check c/d) — confirming there is no reading under
+      which "populate row 486" could satisfy it, since row 79's own G/AK comparison is exactly what
+      broke.
+- [x] 9.4 Decide whether `AK485 = SUBTOTAL(9,AK486)` is a genuine two-row template design or an Excel
+      row-insert artifact — check whether row 484's `AQ:BB` formulas give the exact sibling formula
+      text to copy if the second reading holds.
+      Investigated directly: row 486's own `AK`/`AQ:BB` formulas are fully intact and, once
+      `486`→`485` is substituted, byte-for-byte identical to row 484's own formulas with `484`→`485`
+      substituted (verified programmatically, not eyeballed) — i.e. row 486 already carries a
+      completely normal, self-referencing leaf formula set, simply never written to. Combined with
+      `G79` covering both 485 and 486 with nothing that would make a two-row split reconcile, this is
+      the row-insert-artifact reading, not a design. User had already instructed "fix now, reopen
+      `fix-parking-allocation-divide-by-zero`" (this change) for this defect before 9.3/9.4's
+      diagnosis was complete — proceeded to implement based on that standing instruction plus the
+      evidence above, rather than round-tripping a second time on a decision already made.
+- [x] 9.5 Implement the formula repair, re-verify `G79`/`AK79`/`G263`/`AK263`/`G485`/`AK485` together
+      on the triggered state, confirm no new error cells, confirm production untouched.
+      Done. `generate_project_budget.py`: new dynamic-detection block (same style as the BG/BH fix
+      above it) scans every fund leaf row (G formula present and not itself a SUBTOTAL) for an AK
+      formula matching exactly `=SUBTOTAL(9,<ref>)`, and where found, copies the referenced row's own
+      intact AK/AQ:BB formula text with the row number substituted — not hardcoded to row 485, so it
+      keeps catching this shape if the template shifts. Verified via `run_workflow()` + full Excel
+      recalculation on a fresh run of the standard sample: `G485`=`AK485`=28,135,740 (was `AK485`=0);
+      `G263`=`AK263`=28,135,740 (unchanged from the reverted attempt's own success there); `G79`=
+      `AK79`=9,533,984,013.92 (was off by exactly 28,135,740 either direction, now exact). `G486`/
+      `AK486` both stay 0 — row 486 correctly untouched. Ran `check_summary_reconciles` directly
+      against a fresh run: `ok=True`, 506 rows checked, **0 differences** — confirms all three
+      originally-flagged rows (79/263/485) and everything else on the sheet. `verify.py`: sections
+      1-4 all OK (workflow, structure, 5 inherited error cells — same pre-existing count as before,
+      BK507/BK511 unrelated to this fix, task 5.2); section 5 flags exactly one expected movement,
+      `estimated_surplus_year1`: 4,841,585,588 → 4,813,449,848 VND (−28,135,740, i.e. the surplus
+      correctly drops by the R&M cost that AK — what `1. Summary` actually reads — was previously
+      missing). No other figure moved. Also corrected a now-stale comment nearby
+      (`generate_project_budget.py`, the RO2a block) that called RO2a "the ONLY fund leaf" with this
+      class of G-vs-AK defect — it no longer is, or rather no longer stays broken.
+- [x] 9.6 Re-record `deliverable_baseline.json` for `estimated_surplus_year1`'s movement — gated on
+      sign-off, same pattern as this change's own 7.2 and `reconcile-summary-with-detail-sheets`'s
+      5.3.
+      Signed off 2026-09-17 — explicit user instruction: "yes, sign off — re-record the baseline."
+      Re-recorded via `python -m verification.deliverable_baseline --record --reason "..."`, naming
+      this amendment. Re-ran `python verification/verify.py` on the following run: **PASS** — all 24
+      baseline figures, all 7 ramped deliverable figures, all 106 remark-content assertions, all 506
+      summary-reconciliation checks (`check_summary_reconciles`), and all 81 required-line-item checks
+      green; 5 error cells, all inherited from the 2,355-cell blank-template baseline (unrelated to
+      this fix); production artefacts byte-identical.
+- [x] 9.7 Update `docs/05-decisions.md` and `docs/project-status.md` with the actual resolution.
+      Done. New amendment paragraph under this change's existing `05-decisions.md` entry; new dated
+      note at the top of `project-status.md` superseding its stale "archived" mentions of this change.

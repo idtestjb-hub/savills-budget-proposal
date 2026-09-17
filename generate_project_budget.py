@@ -2075,6 +2075,66 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             f"openspec/changes/fix-parking-allocation-divide-by-zero for the full account."
         )
 
+    # ---- Repair a fund leaf row whose AK/AQ:BB formulas were corrupted to read a different row's
+    # cells instead of its own. Found on ERM (row 485, code 'ERM'): every one of the 27 rows this
+    # pipeline writes to has AK<row> = SUM(AQ<row>:BB<row>), deriving from itself — row 485 alone had
+    # AK485 = SUBTOTAL(9,AK486), reading row 486 (code 'ERM1'), a separate leaf the pipeline never
+    # otherwise writes. '1. Summary' reads AK, not G, so this understated ERM there even though G485
+    # (this sheet's own total) was correct — caught by change reconcile-summary-with-detail-sheets's
+    # own check_summary_reconciles, which compares every leaf's G against its AK, headers included.
+    #
+    # First attempt populated row 486 instead (reasoning: G263's own SUBTOTAL range stops at 485
+    # while AK263's reaches 486, so maybe the template meant 486 to hold ERM's AK-side detail).
+    # Empirically wrong: G79 (the wider "(E)" rollup, range 80:494) already spans BOTH 485 and 486,
+    # so populating 486 made it a second genuine leaf there too — turning AK79's prior deficit into
+    # an equal-and-opposite G79 excess, never net-zero. Reverted (see
+    # openspec/changes/fix-parking-allocation-divide-by-zero design.md, "Amendment (2026-09-17,
+    # part 2)").
+    #
+    # Row 486 itself still carries a fully intact, byte-for-byte-normal AK/AQ:BB formula set
+    # (confirmed by direct comparison against row 484, a genuine sibling leaf) — it has simply never
+    # been written to, which is what makes it read as an unused row the template author never
+    # intended to carry independent data. That, plus row 485's AK/AQ:BB uniquely pointing away from
+    # itself, reads as a template row-insert artifact rather than a two-row design. The repair
+    # restores row 485's own formulas using row 486's intact text — the same "populate with the
+    # template's own established formula, not an invented substitute" principle as the BG/BH fix
+    # just above, applied to a formula cell instead of a blank one. Detected dynamically (any leaf
+    # row — G formula not itself a SUBTOTAL — whose AK is a SUBTOTAL of a different row) rather than
+    # hardcoded to row 485, for the same reason as every other guard in this function: this must not
+    # silently stop catching the defect if the template shifts.
+    _ak_ref_re = re.compile(r'=SUBTOTAL\(9,[A-Z]{1,3}(\d+)\)', re.IGNORECASE)
+    _ak_fixed_rows = []
+    for _r in range(11, ws.max_row + 1):
+        _g_formula = ws.cell(row=_r, column=7).value  # G
+        if not (isinstance(_g_formula, str) and _g_formula.startswith('=')
+                and 'SUBTOTAL' not in _g_formula.upper()):
+            continue  # only genuine leaves — section headers legitimately use SUBTOTAL on G too
+        _ak_formula = ws.cell(row=_r, column=37).value  # AK
+        if not isinstance(_ak_formula, str):
+            continue
+        _m = _ak_ref_re.fullmatch(_ak_formula.replace(' ', ''))
+        if not _m:
+            continue  # only the exact "=SUBTOTAL(9,<ref>)" shape — not a header row with extra terms
+        _donor_row = int(_m.group(1))
+        if _donor_row == _r:
+            continue
+        for _col in (37, *range(43, 55)):  # AK, AQ..BB
+            _donor_formula = ws.cell(row=_donor_row, column=_col).value
+            if isinstance(_donor_formula, str):
+                ws.cell(row=_r, column=_col).value = re.sub(
+                    rf'(?<=[A-Z]){_donor_row}\b', str(_r), _donor_formula)
+        _ak_fixed_rows.append((_r, _donor_row))
+    if _ak_fixed_rows:
+        _ak_cell_first = ws.cell(row=_ak_fixed_rows[0][0], column=37)
+        _ak_cell_first.comment = Comment(
+            f"AK/AQ:BB formulas restored to derive from this row's own cells — this row's template "
+            f"formulas pointed at row {_ak_fixed_rows[0][1]} instead (and "
+            f"{len(_ak_fixed_rows) - 1} other row(s): {_ak_fixed_rows[1:]}), which left "
+            f"'1. Summary' (reads AK, not G) understating this line even though this sheet's own G "
+            f"total was correct. Repaired using the referenced row's own intact formula text. See "
+            f"openspec/changes/fix-parking-allocation-divide-by-zero for the full account.",
+            'Budget Planning Agent')
+
     # Show the resident and parking curves on the deliverable's two fill-up sheets.
     _populate_fillup_sheets(
         wb, apt_units=project.get('apartment_units'),
@@ -2083,11 +2143,13 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         resident_fills=fills, car_fills=car_fills, moto_fills=moto_fills,
         car_rate=PARKING_FEE_CAR_MONTHLY, moto_rate=PARKING_FEE_MOTO_MONTHLY)
 
-    # ---- RO2a "Bank Interest on Savills account" — the ONLY fund leaf where the template's own
-    # default makes G (F x occurrences) disagree with AK (the month-by-month total '1. Summary'
-    # actually reads): C37='Half a Year' (occurrences=2) with F37=5,000,000 but only one payment
-    # month (K37) filled, so G37=10,000,000 while AK37=5,000,000 (docs/09-template-map.md §9 finding
-    # 1; change reconcile-summary-with-detail-sheets, design D1, PM confirmed). No real bank-interest
+    # ---- RO2a "Bank Interest on Savills account" — a fund leaf where the template's own default
+    # makes G (F x occurrences) disagree with AK (the month-by-month total '1. Summary' actually
+    # reads): C37='Half a Year' (occurrences=2) with F37=5,000,000 but only one payment month (K37)
+    # filled, so G37=10,000,000 while AK37=5,000,000 (docs/09-template-map.md §9 finding 1; change
+    # reconcile-summary-with-detail-sheets, design D1, PM confirmed). Not the only such leaf — ERM
+    # (row 485) had a structurally different cause (corrupted AK/AQ:BB formulas, not an
+    # occurrences-vs-payment-months mismatch), fixed just above. No real bank-interest
     # figure exists for a prospect, so rather than fabricate a second payment month this zeroes the
     # line — G37=AK37=0, and it becomes a line a PM fills with a real negotiated figure.
     found = ws.cell(row=37, column=_CODE_COL).value
