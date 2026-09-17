@@ -61,12 +61,22 @@ and recorded with its cause.
 
 Where the standard template adds sheets the pipeline does not yet populate, those sheets SHALL be
 present with their own structure and formulas. They MAY retain the template's own example values and
-MAY show divide-by-empty (`#DIV/0!`) cells while their inputs are unfilled — the superseded template
-already does. They SHALL NOT feed any figure in the deliverable's budget totals, and switching to
-the new template SHALL NOT introduce any broken-reference error (`#REF!`, `#NAME?`, `#VALUE!`) that
-the superseded template did not already have. A sheet that cannot be carried without adding such
-errors — for example one linked to an external workbook — SHALL NOT be included until it can be
-carried cleanly.
+MAY show divide-by-empty (`#DIV/0!`) cells **while their inputs are unfilled and no change has yet
+been made to fill them** — the superseded template already does. They SHALL NOT feed any figure in
+the deliverable's budget totals, and switching to the new template SHALL NOT introduce any
+broken-reference error (`#REF!`, `#NAME?`, `#VALUE!`) that the superseded template did not already
+have.
+
+Two further constraints apply to **any** sheet in the deliverable, not only newly added scaffolding:
+
+- The pipeline SHALL NOT write a value into a sheet whose cells no formula anywhere in the
+  deliverable reads. A figure that sheet was meant to carry SHALL instead be computed and placed
+  where the deliverable actually consumes it.
+- A sheet the pipeline **does** write a value into SHALL NOT ship with a spreadsheet error cell that
+  filling that sheet's own input cells would have resolved.
+
+A sheet that cannot be carried without adding a broken-reference error — for example one linked to
+an external workbook — SHALL NOT be included until it can be carried cleanly.
 
 #### Scenario: An unpopulated standard sheet is present and inert
 
@@ -84,8 +94,19 @@ carried cleanly.
 #### Scenario: The generated deliverable is free of formula errors
 
 - **WHEN** a filled deliverable is generated on the new template and recalculated
-- **THEN** it SHALL contain no cell resolving to a spreadsheet error value
-  (this is the existing `budget-workflow-verification` check, now run against the new template)
+- **THEN** its count of cells resolving to a spreadsheet error value SHALL not exceed the recorded
+  ceiling maintained by `deliverable-total-integrity`, and that ceiling SHALL only ever be lowered
+
+#### Scenario: The pipeline does not write to a sheet nothing reads
+
+- **WHEN** no formula in the deliverable reads any cell of a sheet
+- **THEN** the pipeline SHALL NOT write rates, counts or other values into that sheet
+
+#### Scenario: A written helper sheet carries no resolvable error
+
+- **WHEN** the pipeline writes a value into a helper sheet whose formulas some other sheet does read
+- **THEN** that helper sheet SHALL recalculate with no error cell that its own inputs would have
+  resolved
 
 #### Scenario: A sheet that would carry errors is excluded and recorded
 
