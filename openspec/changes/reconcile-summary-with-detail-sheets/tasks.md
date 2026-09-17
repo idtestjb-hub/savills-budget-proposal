@@ -153,10 +153,25 @@
   **Done 2026-09-14** — added as section 5e (verify.py already had an existing, unrelated 5d —
   `check_remark_content`, from `apply-guideline-remark-model` — kept its numbering, placed this
   check after it rather than renumbering something already shipped).
-- [ ] 5.3 Re-record `verification/baselines/deliverable_baseline.json` (`estimated_surplus_year1`
+- [x] 5.3 Re-record `verification/baselines/deliverable_baseline.json` (`estimated_surplus_year1`
   + a new staff figure) and `verification/baselines/baseline.json` (analysis staff figures) with a
   `--reason` naming this change — **only after task 6.2 sign-off**. Verify `verify.py` PASS on the
   following run.
+  **Done 2026-09-18** — gated on task 6.2's provisional sign-off above. `baseline.json`'s 24
+  figures (incl. `staff_cost_annual`/`total_profit_value`/`margin`/`markup`) were already at their
+  post-change values — that drift had been captured incidentally during `rank-comparables-by-
+  location`'s own 2026-09-17 re-record, whose `reason` field explicitly disclaimed it as a separate,
+  still-pending change's drift. Re-ran `python verification/baseline.py --record --reason "..."` to
+  correct the attribution to this change now that it has its own sign-off (values unchanged).
+  For the "new staff figure" required on `deliverable_baseline.json` (design.md D5: "adds the new
+  staff figure"), added `emh_staff_year1` to `DELIVERABLE_FIGURES` in `verification/
+  deliverable_baseline.py` — reads `1. Summary!H<row>` where column B = `EMH`, per spec
+  `deliverable-total-integrity`'s "The staff figure reflects the deliverable's own payroll
+  calculator" requirement. Ran `python -m verification.deliverable_baseline --record --reason
+  "..."`; recorded `emh_staff_year1 = 4,940,513,880.92 VND` at `1. Summary!H22`, alongside the
+  existing 7 figures. Re-ran `python verification/verify.py`: section 5 now reports "all 8 ramped
+  deliverable figures match the baseline"; final RESULT is still `PASS — reproduces its own
+  recorded baseline`.
 
 ## 6. Measure, spot-check, sign-off
 
@@ -171,15 +186,22 @@
   (was −638,024,990 before Reception got real `A1` rows; ≈−325,000,000 was this task's own original
   text — see design.md D2's corrected figure and `measured-effect.md`). Table written to
   `measured-effect.md`, source hash-verified unchanged before/after.
-- [ ] 6.2 **Manual spot-check** (project rule — aggregation logic changed): by hand confirm
+- [x] 6.2 **Manual spot-check** (project rule — aggregation logic changed): by hand confirm
   (a) `EMH` on `1. Summary` = `A1. Staff cost` row 96 + Reception; (b) `RO2a` `G` and `AK` both 0;
   (c) `1. Summary` total revenue = sum of its child rows and = `2. Budget-Management Fund`'s `AK12`;
   (d) analysis `Staff` total within 1% of `A1!AC96`. Record the four checks and the projects used.
-  **STILL NOT DONE — needs the Head of PM** (project rule: a human spot-check, not an automated
-  one, before a change that alters aggregation logic on client-facing figures). What follows is the
-  legwork — the actual figures, run 2026-09-17 via full Excel recalculation on Wayne Tower (real
-  project, via its real input workbook) and the standard synthetic sample, production untouched — for
-  the Head of PM to review and judge, not a substitute for that judgment. Left unchecked deliberately.
+  **Provisionally signed off 2026-09-18 — explicit user instruction: "assume the sign off is
+  approve then do next step."** This authorizes 6.3/5.3/7.2 below; it is not the actual Head-of-PM
+  conversation this task's own project rule calls for (a human spot-check, not an automated one),
+  which still needs to happen and could still change the outcome — same status as this session's
+  other three provisional sign-offs (`rank-comparables-by-location`, `activate-dormant-staffing-
+  ratios`, `wire-real-elevator-count-into-ad-revenue`). What follows is the legwork — the actual
+  figures, run 2026-09-17 via full Excel recalculation on Wayne Tower (real project, via its real
+  input workbook) and the standard synthetic sample, production untouched — for that real
+  conversation to review and judge. In particular, (d)'s own +221,892,412.67 VND unresolved residual
+  on Wayne Tower is being accepted AS A KNOWN, DISCLOSED GAP by this provisional sign-off, not as
+  something this investigation resolved — flagged again in task 6.3 below so it reaches the actual
+  Head-of-PM conversation explicitly, not buried in a "spot-check passed" summary.
 
   **(a) EMH vs A1!AC96 + Reception top-up + other EMH leaves — MATCH, both projects, exact.**
   Wayne Tower: `1. Summary!H22` = 5,656,322,268.92; expected (A1 "Total cost/year...Savills" label
@@ -221,8 +243,13 @@
   than rounding it into "~4%, as documented" — the Head of PM should see that Wayne Tower's own
   residual is materially larger than the change's own design doc states, even though the named
   mechanism is intact and reproduces exactly.
-- [ ] 6.3 Present the measured movement to the Head of PM; capture the sign-off in the change notes
+- [x] 6.3 Present the measured movement to the Head of PM; capture the sign-off in the change notes
   and `docs/05-decisions.md` before archiving.
+  Provisionally satisfied by the same 2026-09-18 instruction as 6.2. Measured movement: net surplus
+  **−643,780,247 VND** year 1 (task 6.1), driven almost entirely by EMH2's rework onto A1's live
+  payroll formula. Sign-off captured in `docs/05-decisions.md` (task 7.2, below) — including the
+  (d) residual as an explicitly disclosed open question, not a resolved one. The real Head-of-PM
+  conversation is still the outstanding item, same caveat as 6.2.
 
 ## 7. Docs
 
@@ -234,6 +261,21 @@
   recomputing it. COM-verified on Wayne Tower (correctly names its rowless product, "Nursery / Nhà
   trẻ") and confirmed `check_summary_reconciles` still passes 506/506 (no figure moved).
   they render as plain text on `1. Summary` and move no figure.
-- [ ] 7.2 Update `docs/05-decisions.md` (new decision entry), `docs/09-template-map.md` §9 (mark
+- [x] 7.2 Update `docs/05-decisions.md` (new decision entry), `docs/09-template-map.md` §9 (mark
   findings 1, 2, 4 resolved; leave the RO2a template-owner note), and `docs/project-status.md`.
   Verify all three mention the change with the date and the signed-off figure movement.
+  **Done 2026-09-18** — `docs/05-decisions.md`: new "Summary/detail sheet reconciliation signed off;
+  RO2a and EMH/A1 tie fixed (2026-09-18)" entry, inserted after the two other 2026-09-17 provisional
+  sign-off entries, covering what changed, the −643,780,247 VND net effect, the disclosed-but-open
+  `A1`-vs-analysis residual, and the baseline re-record. `docs/09-template-map.md` §9: findings #1
+  (`RO2a`), #2 (`EMH`/`A1`), and #4 (orphaned helper sheets) marked `RESOLVED 2026-09-18` inline in
+  the table with what fixed each; #1's entry keeps a **template-owner note** that the raw template
+  file's own defect (the unfilled second payment-month date) is unchanged by this pipeline-side fix
+  and is still worth flagging to whoever owns the template; #2's entry keeps the Wayne Tower
+  `A1`-vs-analysis residual (~222M, 7.69%) explicitly open, not folded into "resolved"; the
+  "Actionable figure-movers" summary line below the table updated to match. `docs/project-status.md`:
+  new dated amendment block at the top of the file, plus the stale/inconsistent Active-changes table
+  row (§1), the "Exact next action" §4 item 2, and the §5 open-questions row all updated so they no
+  longer contradict the sign-off (the table row had read a stale "0/19" since 2026-09-14; corrected
+  to 19/19 rather than left as a second source of truth). All three files verified (grep) to mention
+  "2026-09-18" and "−643,780,247" or "643,780,247".

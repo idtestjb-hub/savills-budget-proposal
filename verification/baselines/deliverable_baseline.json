@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-17T19:55:03+07:00",
-  "reason": "fix-parking-allocation-divide-by-zero amendment: ERM (row 485) AK/AQ:BB formulas repaired to derive from its own row instead of a blank sibling (row 486) -- estimated_surplus_year1 correctly drops by 28,135,740 VND now that R&M is counted on the AK/cash-flow basis '1. Summary' reads. Signed off 2026-09-17.",
+  "recorded_at": "2026-09-18T02:09:55+07:00",
+  "reason": "reconcile-summary-with-detail-sheets signed off 2026-09-18 (provisional, user instruction: 'assume the sign off is approve then do next step'). Adds emh_staff_year1 (design.md D5: 'deliverable_baseline.py re-records estimated_surplus_year1 and adds the new staff figure') tracking 1. Summary!EMH -- ties the deliverable's in-house staff line to A1's real payroll total + the Reception top-up, per spec deliverable-total-integrity 'The staff figure reflects the deliverable's own payroll calculator'. Net surplus movement: -643,780,247 VND year 1 (task 6.1). Task 6.2's own spot-check found one unresolved residual (Wayne Tower Staff total +7.69% vs A1, ~222M VND not yet root-caused) accepted as a disclosed, open gap by this sign-off, not resolved by it -- see tasks.md 6.2/6.3.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -45,6 +45,11 @@
       "value": 4813449847.589485,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
+    },
+    "emh_staff_year1": {
+      "value": 4940513880.923077,
+      "unit": "VND",
+      "where": "1. Summary!H22 (code 'EMH')"
     }
   }
 }

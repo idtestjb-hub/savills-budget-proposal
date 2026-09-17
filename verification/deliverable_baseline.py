@@ -35,6 +35,7 @@ DELIVERABLE_FIGURES = [
     ('water_year1',          _FUND,    'cell',      230,       VND),  # EEW.C
     ('electricity_year1',    _FUND,    'cell',      240,       VND),  # EEE.C
     ('estimated_surplus_year1', _SUMMARY, 'summary_code', 'PART 3:', VND),
+    ('emh_staff_year1',       _SUMMARY, 'summary_code', 'EMH',      VND),  # in-house staff cost line
 ]
 
 UNITS = {name: unit for name, _, _, _, unit in DELIVERABLE_FIGURES}
