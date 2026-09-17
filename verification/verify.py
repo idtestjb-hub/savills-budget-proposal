@@ -23,7 +23,7 @@ from verification.checks import (CorruptionArtifact, FormulaError,           # n
                                  check_deliverable_figures, check_benchmark_reconciles,
                                  check_remark_content, check_summary_reconciles,
                                  check_revenue_agreement, check_required_line_items,
-                                 locate_outputs)
+                                 check_method_coverage, locate_outputs)
 from verification.run_workflow import (PartialRun, ProductionTouched,        # noqa: E402
                                        DEFAULT_SAMPLE, diff_snapshots,
                                        run_workflow)
@@ -261,13 +261,49 @@ def main(argv=None):
         print(f'OK    all {sum(1 for _l, s in rlrows if s.startswith("ok"))} Required-line-item '
               f'check(s) passed on \'2. Budget-Management Fund\'')
 
+        # ---- 6. coverage & method fidelity (never a pass/fail on the score itself) -----------
+        _headline('6. COVERAGE & METHOD FIDELITY')
+        try:
+            mcok, mcrows, mcdiffs, mcnotes = check_method_coverage(paths)
+        except bl.BaselineUnavailable as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        if not mcok:
+            print('FAIL  the method-coverage verdict registry is out of sync with the pipeline:')
+            for n in mcnotes:
+                print(f'        - {n}')
+            print("\nEvery cost code the pipeline writes needs a recorded method verdict in "
+                  "verification/method_coverage.py's METHOD_VERDICTS, and every recorded verdict "
+                  "needs a live write site — change report-method-coverage-in-verification, "
+                  "design D2. This is the one thing this section fails a run for; a low coverage "
+                  "or fidelity score never does.")
+            return 1
+        fidelity_note = next((n for n in mcnotes if n.startswith('method fidelity')), None)
+        coverage_notes = [n for n in mcnotes if n.startswith('coverage against')]
+        if fidelity_note:
+            print(f'NOTE  {fidelity_note}')
+        for n in coverage_notes:
+            print(f'NOTE  {n}')
+        print('OK    every written cost code carries a recorded method verdict, none orphaned')
+        fidelity_matches_share = next(v for label, v, _r in mcrows if label == 'fidelity: matches')
+        coverage_shares = {label.split(': ', 1)[1]: v for label, v, _r in mcrows
+                            if label.startswith('coverage: ')}
+
         # ---- verdict -------------------------------------------------------------------------
         _headline('RESULT')
-        print(f'PASS — structural checks and numeric baseline both clean.')
+        print(f'PASS — reproduces its own recorded baseline; coverage and method fidelity are '
+              f'measured and reported below, NOT asserted as correct.')
         print(f'       checking method: {method}'
               + ('  (REDUCED — see above)' if fe['degraded'] else '  (full Excel recalculation)'))
         print(f'       {len(figures)} figures matched, {len(hand)} independently hand-checked, '
               f'production untouched.')
+        print(f'       method fidelity: {fidelity_matches_share*100:.1f}% of written cost is by a '
+              f'spec-stated method (measured, not implied by the PASS above).')
+        for name, share in coverage_shares.items():
+            print(f'       coverage vs {name}: {share*100:.1f}% of its real spend is on lines this '
+                  f'pipeline fills.')
+        print('       A green run says the pipeline reproduced its own numbers. It does NOT say '
+              'those numbers are right — see verification/README.md.')
         return 0
 
 

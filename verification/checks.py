@@ -1496,6 +1496,131 @@ def check_formula_errors(paths, force_degraded=False, baseline=None, template_pa
     }
 
 
+def check_method_coverage(paths):
+    """Coverage and method fidelity (change report-method-coverage-in-verification).
+
+    Answers what check_summary_reconciles and the baseline comparison never ask: do we fill the
+    line at all, and do we use the method the costing spec states for it. Coverage is measured
+    against real reference budgets (verification/method_coverage.py's REFERENCE_BUDGETS), never
+    against this run's own output (design.md D4). Fidelity is a value-weighted share, read from
+    this run's own generated deliverable.
+
+    Fails only when a write site has no recorded verdict, or a verdict is recorded for a code no
+    longer written (design.md D2) — never on a low coverage or fidelity score (D3). No figure,
+    method or cost code is touched here; this function only measures.
+
+    Returns (ok, rows, differences, notes). Raises BaselineUnavailable if Excel cannot be driven,
+    or if a reference budget file is missing.
+    """
+    import shutil
+    import tempfile
+
+    from verification import method_coverage as mc
+    from verification.baseline import BaselineUnavailable
+
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(
+            "The method-coverage check requires Excel — the fund sheet's G totals are live "
+            f"formulas ({exc}).") from exc
+
+    rows, differences, notes = [], [], []
+
+    # ---- 3.3/3.4/3.5: cross-check verdicts against the pipeline's own write sites first — a
+    # missing or orphaned verdict is the one thing this check fails a run for. ----
+    verdicts_ok, missing_verdicts, orphaned_verdicts = mc.check_method_verdicts()
+    rows.append(('method verdict cross-check', verdicts_ok, True))
+    if not verdicts_ok:
+        differences.append((
+            'method verdict cross-check', verdicts_ok, True,
+        ))
+        detail = []
+        if missing_verdicts:
+            detail.append(f"written with no recorded verdict: {missing_verdicts}")
+        if orphaned_verdicts:
+            detail.append(f"verdict recorded for a code no longer written: {orphaned_verdicts}")
+        notes.append("FAIL  method-coverage verdict cross-check: " + '; '.join(detail))
+        # No point computing fidelity/coverage against a registry known to be out of sync —
+        # report the structural failure and stop, same as check_summary_reconciles does when it
+        # cannot read its own anchor input.
+        return False, rows, differences, notes
+
+    # ---- read every write-site code's own G value off this run's freshly generated deliverable ----
+    tmp = tempfile.mkdtemp(prefix='method_coverage_')
+    dwork = os.path.join(tmp, 'deliverable_' + os.path.basename(paths['deliverable']))
+    shutil.copy(paths['deliverable'], dwork)
+
+    pythoncom.CoInitialize()
+    xl = dwb = None
+    code_to_value = {}
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        dwb = xl.Workbooks.Open(dwork, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        fund_ws = next((ws for ws in dwb.Worksheets if _nfc(ws.Name) == _nfc('2. Budget-Management Fund')), None)
+        if fund_ws is None:
+            raise BaselineUnavailable("'2. Budget-Management Fund' not found on the deliverable.")
+
+        written_codes = mc.write_site_codes()
+        for r in range(1, 495):
+            code = fund_ws.Cells(r, 25).Value2  # Y — cost code
+            if not (isinstance(code, str) and code.strip()):
+                continue
+            code = code.strip()
+            if code not in written_codes:
+                continue
+            g = fund_ws.Cells(r, 7).Value2  # G — Total Price
+            if isinstance(g, (int, float)) and g:
+                code_to_value[code] = float(g)
+        dwb.Close(SaveChanges=False)
+        dwb = None
+    finally:
+        try:
+            if dwb is not None:
+                dwb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        try:
+            if xl is not None:
+                xl.Quit()
+        except Exception:
+            pass
+
+    # ---- 4.3/4.4: method fidelity, value-weighted, by verdict bucket ----
+    fidelity = mc.compute_fidelity(code_to_value)
+    for bucket in ('matches', 'partial', 'mismatch'):
+        b = fidelity[bucket]
+        rows.append((f'fidelity: {bucket}', b['share'], None))
+    notes.append(
+        f"method fidelity (by written VND, {len(code_to_value)} written codes, "
+        f"{fidelity['total_value']:,.0f} total): "
+        f"matches {fidelity['matches']['share']*100:.1f}% "
+        f"({', '.join(fidelity['matches']['codes'])}); "
+        f"partial {fidelity['partial']['share']*100:.1f}%"
+        + (f" ({', '.join(fidelity['partial']['codes'])})" if fidelity['partial']['codes'] else '')
+        + f"; mismatch {fidelity['mismatch']['share']*100:.1f}%"
+        + (f" ({', '.join(fidelity['mismatch']['codes'])})" if fidelity['mismatch']['codes'] else '')
+    )
+
+    # ---- 4.1/4.2: coverage against each reference budget, reported separately, never averaged ----
+    written_codes = mc.write_site_codes()
+    for name in mc.REFERENCE_BUDGETS:
+        cov = mc.compute_coverage(name, written_codes)
+        rows.append((f'coverage: {name}', cov['filled_share'], None))
+        notes.append(
+            f"coverage against {name} (real reference budget): "
+            f"{cov['filled_share']*100:.1f}% of its value is on codes this pipeline fills; "
+            f"{cov['unfilled_share']*100:.1f}% ({len(cov['unfilled_codes'])} codes) is on lines "
+            f"left blank: {', '.join(cov['unfilled_codes'])}"
+        )
+
+    return True, rows, differences, notes
+
+
 def _main():
     import sys
     import tempfile

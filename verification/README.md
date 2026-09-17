@@ -3,9 +3,23 @@
 Runs the real budget pipeline against a synthetic project, checks the workbooks it produces, and
 compares the headline figures against a recorded baseline.
 
-It proves **stability, not correctness**. A green run means the pipeline still produces the numbers
-it produced last time — not that those numbers are right. Several are known to be wrong; see
-`docs/03-risks-and-gaps.md` and `docs/05-decisions.md`.
+## What a green run does and does not assert
+
+Four different questions could be asked of this pipeline. A green run answers exactly two of them,
+and says so in its own summary line (change `report-method-coverage-in-verification`, 2026-09-17):
+
+| Question | Measured? | By what |
+|---|---|---|
+| **Reproducibility** — did the numbers change since last time? | Yes, every run | `baseline.py` / `verify.py` sections 3-5, full Excel recalculation |
+| **Coverage** — do we fill the line at all? | Yes, every run | `method_coverage.py` / `verify.py` section 6, against real reference budgets |
+| **Method fidelity** — do we use the method the costing spec states? | Yes, every run | Same section, against a recorded human verdict per code |
+| **Accuracy** — is the number actually right? | **No, never** | Not decidable from the spec or the template; several tracked figures are already known to be wrong — see `docs/03-risks-and-gaps.md` and `docs/05-decisions.md` |
+
+A green run means: the pipeline reproduced its own last numbers, fills a measured share of what a
+real project actually spends, and uses the spec-stated method for a measured share of what it
+writes. It does **not** mean the figures are correct — before 2026-09-17 the summary line did not
+distinguish these, and a green run was read as "the pipeline is fine" more often than the evidence
+supported.
 
 ## What each module does
 
@@ -13,7 +27,8 @@ it produced last time — not that those numbers are right. Several are known to
 |---|---|
 | `isolation.py` | Redirects the pipeline's hardcoded paths so a run cannot read or write production data |
 | `run_workflow.py` | Runs **both** generators against the sample, and fails if any production file is touched |
-| `checks.py` | Structural checks: expected sheets, corruption artifacts, Excel formula errors |
+| `checks.py` | Structural checks, numeric reconciliation checks, and coverage/fidelity (`check_method_coverage`) |
+| `method_coverage.py` | Reference-budget extraction, the per-code method-verdict registry, and the coverage/fidelity computations |
 | `baseline.py` | Extracts the headline figures, hand-checks them, records and compares the baseline |
 | `verify.py` | The single entry point — runs the workflow once and applies every check |
 | `fixtures/Sample_Project_Input.xlsx` | The synthetic project. Obviously fictional, realistic in scale |
@@ -111,3 +126,64 @@ from a code regression. The run still fails, so a changed fixture can never pass
 | VND | exact, ±1 | Whole currency amounts should reproduce exactly. The smallest figure tracked is ~28 million VND, so ±1 cannot mask anything meaningful — it only absorbs float representation noise from Excel |
 | VND/m²/month | exact, ±1 | Same |
 | ratio | relative, 1e-9 | Margin and markup are computed by division and carry genuine float error |
+
+---
+
+## Coverage and method fidelity
+
+Two more figures verify.py reports on every run, neither of them a pass/fail on a score:
+
+- **Coverage**: of the cost codes a real reference budget uses (11D Thi Sách, Green Skyline — real
+  client workbooks under `input/budget_planning/`, never the pipeline's own output), what share of
+  that project's value is on codes this pipeline actually fills.
+- **Method fidelity**: of what the pipeline writes, what share is computed by the method the costing
+  spec states for that code (`data/master_list_verified/Costing_Method_Catalogue.csv`), reported as
+  three VND-weighted shares — matches, partial, mismatch — with the codes behind each named.
+
+### Adding a verdict when you add a cost line
+
+`verification/method_coverage.py`'s `METHOD_VERDICTS` needs one entry per code the pipeline writes
+to (`generate_project_budget.MGMT_FUND_EXPECTED_CODE` / `.PRODUCT_REVENUE_EXPECTED_CODE`). If you
+add a new write site without adding a verdict, `verify.py` section 6 **fails the run** and names the
+code — this is deliberate (design D2): a missing verdict is the one thing this section fails for,
+because a verdict that can silently go stale defeats the whole point of recording it.
+
+Each entry needs:
+
+```python
+'YOUR_CODE': dict(
+    spec_method='...',      # from Costing_Method_Catalogue.csv's own `method` column, or an
+                             # explicit note if the catalogue has no entry for this code
+    actual_method='...',    # what the pipeline genuinely does — read the source, don't assume
+    verdict='matches',      # 'matches' | 'partial' | 'mismatch'
+    reasoning='...',        # why — this is what keeps a generous verdict visible to a reviewer
+),
+```
+
+Removing a write site without removing its verdict fails the same way, naming the orphaned code.
+
+### Why there is no coverage or fidelity threshold
+
+No threshold is set on either score, and the run never fails for a low one. Any threshold today
+would be arbitrary: set above the current score it blocks all work; set below, it becomes noise that
+gets ignored, and an ignored check is worse than none because it still reads as assurance. The
+numbers are reported so a reviewer can see the direction they move in, and only a *missing* verdict
+is load-bearing enough to fail a run over.
+
+**Revisit this when** `Costing_Method_Catalogue.csv` gains method entries for the codes that
+currently have none (`ERM` as of 2026-09-17), and coverage/fidelity have moved enough times to trust
+a floor. A ratchet — never go below the last recorded score — is the natural next step once there is
+a stable score to ratchet from.
+
+### Measured starting point (2026-09-17)
+
+Method fidelity: **99.9% matches, 0.0% partial, 0.1% mismatch** (by written VND; the only mismatch is
+`ERM`, which has no method recorded in the catalogue at all). Coverage: **81.4%** of 11D Thi Sách's
+real spend, **93.6%** of Green Skyline's, is on codes this pipeline fills.
+
+This supersedes the 2026-09-09 hand count this change's own proposal was built on (68.7% / 31.0%
+fidelity, ~74% / ~72% coverage) — not a discrepancy in this instrumentation, but real, already-
+shipped progress: `cost-energy-from-consumption-and-tariff` (archived 2026-09-10) fixed the entire
+31.0% mismatch, and several new write sites (`ERM`, `EMH4`, `EMA7`, `ESC12`, `ESM25`) landed since.
+See `openspec/changes/report-method-coverage-in-verification/tasks.md` task 4.5 for the full
+investigation.
