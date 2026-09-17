@@ -3,7 +3,7 @@ Unified generator — reads the ONE merged input file (Project_Budget_Input.xlsx
 build_project_input_form.py) and produces:
 
   1. A filled budget workbook (from template 2026.xlsx) with a Comparison sheet showing the
-     2 nearest real comparable projects by ApartmentNFA, and the derived management-fee rate.
+     2 nearest real comparable projects by Total building NFA, and the derived management-fee rate.
   2. A full calendar-month roster (same formula-driven engine as generate_roster.py), reading
      staffing ratios and demand from the same input file.
 
@@ -12,14 +12,18 @@ generate_from_real_project.py for the budget) with a single input -> two outputs
 replaces that script's HARDCODED per-run comparable list with a dynamic lookup against
 master_comparables.py (built from real, directly-verified project data — see that module).
 
-Comparable matching is real, not fictional: nearest 2 by |ApartmentNFA delta|, excluding the
+Comparable matching is real, not fictional: nearest 2 by |Total building NFA delta| — the same
+basis generate_project_output.py uses, so the two workbooks pick the same comparables (change
+`unify-revenue-basis-across-outputs`) — excluding the
 input project itself by name if it happens to match one already in the master table (so
 re-running this against a real project's own numbers, e.g. Green Skyline, doesn't compare it
 to itself). The "reality check" row on the Comparison sheet only appears when the input
 project's OWN real rate is independently known from the master table — for a genuinely new,
 unlisted prospect, it correctly reports "not applicable — new prospect."
 """
+import csv
 import os
+import re
 import math
 import shutil
 import tempfile
@@ -29,28 +33,41 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import FormulaRule
+from openpyxl.comments import Comment
 
 from common_utils_v2 import repair_workbook
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
-    RATE_CARD_SOURCE, nearest_comparables, derive_mgmt_rate,
+    RATE_CARD_SOURCE, nearest_comparables, derive_mgmt_rate, derive_product_rate,
+    derive_product_rate_capped,
 )
 from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
 from input_labels import SheetLabels
+from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
+                        MONTH_ANCHORS as FILL_ANCHORS)
 
 SOURCE_DIR = os.path.dirname(__file__)
 BUDGET_AGENT = os.path.abspath(os.path.join(SOURCE_DIR, '..'))
 BASE = os.path.abspath(os.path.join(SOURCE_DIR, '..', '..'))
 
 INPUT_PATH = os.path.join(BUDGET_AGENT, 'reports', 'Project_Budget_Input.xlsx')
-# Swapped 2026-08-21 to the new Resi-specific template — verified all 19 sheet names and every
-# cell this script writes to line up identically with the old "template 2026.xlsx" (same labels,
-# same layout), so no other change was needed here. The old file is left in place, untouched.
-# Commercial has its own new template ("202608 - 2027 Commercial Budget Form.xlsx") but this
-# script's cost logic is still Residential-only (see the Property Segment guard in read_input()
-# above) — swapping in the Commercial template would load fine but fill it with wrong numbers.
-TEMPLATE_PATH = os.path.join(BASE, 'input', 'template', '202608 - 2027 Resi Budget Form.xlsx')
+# Swapped 2026-09-10 to Savills' current standard form (decision D6, change
+# `rebase-output-onto-25-sheet-form`). It is the 25-sheet AI Guideline Resi form with its
+# instruction columns removed and `Master Info` dropped — see input/template/README.md and
+# `build_standard_template.py` in that change. `2. Budget-Management Fund` and `2.2 Common area
+# Fund` are row-identical to the superseded `202608` form (every code this script writes sits at
+# the same row — the guards in fill_management_fund_sheet / fill_common_area_fund_sheet check that
+# on every run); it adds the resident/parking fill-up sheets and the QĐ 67/2025 waste sheet as
+# blank scaffolding for later changes, and carries the standard `1. Summary` / sinking-fund sheets.
+# The superseded `202608 - 2027 Resi Budget Form.xlsx` stays in input/template/ for rollback.
+# Commercial has its own template ("202608 - 2027 Commercial Budget Form.xlsx") but this script's
+# cost logic is Residential-only (see the Property Segment guard in read_input()).
+TEMPLATE_PATH = os.path.join(BASE, 'input', 'template', '2027 Resi Budget Form (IT team).xlsx')
+# The AI Guideline's remark rules — line components, summary-narrative recipes, the VAT-treatment
+# sentence — live here, one authority for both this generator and verify.py's remark-content check
+# (change apply-guideline-remark-model). Read for wording only; it changes no budgeted figure.
+CATALOGUE_PATH = os.path.join(BUDGET_AGENT, 'data', 'master_list_verified', 'Costing_Method_Catalogue.csv')
 BUDGET_OUT_DIR = os.path.join(BUDGET_AGENT, 'sample_output')
 ROSTER_OUT_DIR = os.path.join(BUDGET_AGENT, 'reports')
 ROSTER_FINAL_OUT = os.path.join(ROSTER_OUT_DIR, 'Roster_Demand_Model.xlsx')
@@ -86,6 +103,57 @@ PRODUCT_REVENUE_ROWS = {
     'Villas':             21,   # RM.VI
     'Nursery / Nhà trẻ':  22,   # RM.KG  (Kindergarten)
 }
+PRODUCT_REVENUE_EXPECTED_CODE = {
+    'Apartment': 'RM.AP', 'Officetel': 'RM.OT', 'Office': 'RM.OF', 'Shopping Mall': 'RM.SM',
+    'Retail': 'RM.RE', 'Shop Apartment': 'RM.SA', 'Shophouse': 'RM.SH', 'Villas': 'RM.VI',
+    'Nursery / Nhà trẻ': 'RM.KG',
+}
+
+# --- Comparison-sheet PROPOSAL BENCHMARK section (change benchmark-proposal-against-comparables) ---
+# '1. Summary' anchor rows in the standard form (input/template/2027 Resi Budget Form (IT team).xlsx).
+# Template-fixed; column H is the annual total. Verified against the template 2026-09-10.
+#   row 14 = RM       management-fee revenue        (VLOOKUP into '2. Budget-Management Fund')
+#   row 13 = R        total operating income        (=SUBTOTAL(9,H14:H19))
+#   row 20 = E        total operating cost          (=SUBTOTAL(9,H21:H45) — Savills' own fee EMH1 blank)
+#   row 46 = C.       operating difference          (=H13-H20; before tax and before Savills' fee)
+#   row 54 = PART 3:  after-tax estimate            (=H46-H48)
+# The benchmark references these by formula so it carries the deliverable's own figures forward
+# rather than restating them — see the change's design.md D1.
+_SUMMARY_ROW_MGMT_FEE = 14
+_SUMMARY_ROW_OPERATING_INCOME = 13
+_SUMMARY_ROW_OPERATING_COST = 20
+_SUMMARY_ROW_OPERATING_SURPLUS = 46
+
+# Coverage band: year-1 operating surplus ('1. Summary'!H46) as a share of total operating income
+# ('1. Summary'!H13). A first proposal for the PM to confirm (design.md Open Questions).
+COVERAGE_BAND_THIN_MAX = 0.05
+COVERAGE_BAND_NORMAL_MAX = 0.15
+COVERAGE_BAND_LABEL = 'shortfall < 0%  ·  thin 0–5%  ·  normal 5–15%  ·  generous > 15%'
+
+
+def _benchmark_fee_clause(derived_rate, comp_apt_rates):
+    """The fee-vs-comparable-range half of the PROPOSAL BENCHMARK verdict line, in plain language.
+    `comp_apt_rates` is the real Apartment rate (VND/m²/month) of each comparable the rate was
+    derived from. Kept module-level so each branch is unit-testable (see the change's tasks 2.6)."""
+    rates = [r for r in (comp_apt_rates or []) if r]
+    if not rates:
+        return (f"No comparable with a verified Apartment rate - the {derived_rate:,.0f} "
+                f"VND/m2/month fee cannot be benchmarked against peers.")
+    lo, hi = min(rates), max(rates)
+    head = f"Proposed Apartment fee {derived_rate:,.0f} VND/m2/month"
+    if len(rates) < 2:
+        d = (derived_rate - lo) / lo * 100
+        where = ("matches" if abs(d) < 0.5
+                 else f"is {abs(d):.0f}% {'above' if d > 0 else 'below'}")
+        return f"{head} {where} the one available comparable ({lo:,.0f}) - narrow base, treat as indicative."
+    if lo <= derived_rate <= hi:
+        return (f"{head} sits within the {lo:,.0f}-{hi:,.0f} range of the two comparables - "
+                f"in line with what Savills charges for comparable buildings.")
+    if derived_rate < lo:
+        return (f"{head} is {(lo - derived_rate) / lo * 100:.0f}% below the lower comparable "
+                f"({lo:,.0f}) - review before the proposal goes out.")
+    return (f"{head} is {(derived_rate - hi) / hi * 100:.0f}% above the higher comparable "
+            f"({hi:,.0f}) - review before the proposal goes out.")
 
 # Ratio-driven Staffing Demand rows — matches the ROUNDUP(...) formulas build_project_input_form.py
 # bakes into the Staffing Demand sheet's "Staff On Duty / Day" cells for these exact position
@@ -94,22 +162,385 @@ PRODUCT_REVENUE_ROWS = {
 # gets a fresh, correct number — openpyxl reads cached formula results, which go stale silently
 # otherwise. Any OTHER position in the sheet (CCTV/Reception — fixed, not ratio-driven — or any
 # custom row a PM adds) is left exactly as typed; only these 5 known ratio-driven rows are touched.
+# ---- Pool lifeguards (nhân viên cứu hộ) --------------------------------------------------------
+# Thông tư 03/2018/TT-BVHTTDL Điều 5 khoản 3: "Số lượng nhân viên cứu hộ phải bảo đảm ít nhất 200m2
+# mặt nước bể bơi/01 nhân viên" — at least 200 m2 of pool WATER SURFACE per lifeguard, on continuous
+# duty ("thường trực") whenever the pool is open. Full sourcing, currency check and the scope caveat:
+# docs/15-pool-staffing-regulation.md.
+#
+# Three things this deliberately does NOT do, each for a reason recorded in that document:
+#   * It does not scale by POOL COUNT. There is no per-pool ratio anywhere in Vietnamese law — three
+#     small pools totalling 180 m2 clear the test with one lifeguard; one 400 m2 pool needs two.
+#   * It does not apply a "one lifeguard per physically separate pool" floor. That is a supervision
+#     judgment, not statute, so it is raised in the basis text for a PM to decide rather than silently
+#     added to the figure.
+#   * It does not use the tiered "250-500 m2 -> 2, 501-1,000 -> 3" figures that circulate online.
+#     Those appear in no statute, current or repealed.
+#
+# Scope caveat, which is why the basis says "standard" and never "legally required": the circular's
+# đối tượng áp dụng reaches any organiser of swimming activity, but its only enforcement hook (the
+# fine in Nghị định 46/2019 Điều 20) sits in the sport-BUSINESS regime. For a residents-only chung cư
+# pool the ratio is a defensible benchmark; it is not established as a binding obligation.
+POOL_LIFEGUARD_M2_PER_STAFF = 200
+# Used when the project has a pool but no water-surface area was supplied — A&K Tower's own real
+# staffing pattern (one attendant per shift). Same fallback shape ESM4 uses when Pool Volume is
+# unknown: keep a real reference figure and say on the row that the stated method could not run.
+POOL_ATTENDANT_FALLBACK_PER_SHIFT = 1
+
+
+def _pool_lifeguards_per_shift(p, r):
+    """Lifeguards on duty per shift, and the basis to report for the figure."""
+    if not p.get('has_pool'):
+        return 0, ("No swimming pool on this project ('Has Swimming Pool?' = No), so no lifeguard "
+                   "is budgeted")
+    area = p.get('pool_area')
+    try:
+        area = float(area) if area is not None else 0.0
+    except (TypeError, ValueError):
+        area = 0.0
+    if area <= 0:
+        return POOL_ATTENDANT_FALLBACK_PER_SHIFT, (
+            "Pool Area (m2) not supplied, so the statutory water-surface calculation could not be "
+            "run. Falls back to A&K Tower's own real pattern of one attendant per shift. Enter the "
+            "pool water-surface area on Project Info to cost this line to the stated standard "
+            "instead")
+    return area / POOL_LIFEGUARD_M2_PER_STAFF, (
+        f"Pool water surface ({area:,.0f} m2) / {POOL_LIFEGUARD_M2_PER_STAFF} m2 per lifeguard, the "
+        f"standard for pool operation in Thong tu 03/2018/TT-BVHTTDL Dieu 5.3 (\"it nhat 200m2 mat "
+        f"nuoc be boi/01 nhan vien\"), applied per shift because the circular requires lifeguards on "
+        f"continuous duty. NOTE this is the standard for pool operation, NOT an established legal "
+        f"obligation for a residents-only pool - its enforcement provision sits in the sport-business "
+        f"regime (see docs/15-pool-staffing-regulation.md). It also assumes one attendant can "
+        f"supervise every pool: if the pools are physically separated, supervision practice may need "
+        f"one per location - a PM judgment, not part of this figure. Shift count comes from the rows "
+        f"on the Staffing Demand sheet, under working-hours limits in Bo luat Lao dong 2019, not from "
+        f"the pool circular")
+
+
+# ---- In-house roles, estimated from the portfolio ----------------------------------------------
+# Until 2026-09-14 every in-house role on the Staffing Demand sheet (Property Manager, Chief
+# Engineer, Technician, Customer Service …) carried a fixed seeded default of 1, because nothing
+# tied their headcount to property scale — a 20,000 m² building and a 120,000 m² one were both
+# offered one technician, and a PM who zeroed the row got zero back with no estimate behind it.
+#
+# There IS now a population that answers this: reports/Project_Detail_Lists.xlsx ("Staff Positions by
+# Project") carries a real headcount per position for 88 operating properties, and 26 of those match
+# by name to a property in Dim_Property_Residential.csv carrying a real NFA. derive_position_staffing
+# _ratios.py measures that population and writes Fact_StaffingRatio_ByPosition.csv.
+#
+# What these ratios are and are not: a portfolio MEDIAN of what comparable buildings actually employ,
+# per 1,000 m² of NFA. They are not a standard, a Savills policy, or a statutory minimum — they
+# describe what peers do. The spread is wide (P25–P75 is on every row of the CSV), so the figure is a
+# starting point a PM is expected to overrule, which the override rule in _staff_on_duty() supports.
+_POSITION_RATIO_MIN_N = 10          # a role measured on fewer properties keeps its seeded default
+_POSITION_RATIOS = None             # lazily loaded; {Role: {...}} from the derived CSV
+
+# Which Staffing Demand rows make up each role, in order. A role's derived headcount is a whole-
+# building total, so it is split across its rows rather than applied to each — otherwise a 7-technician
+# building would be rounded up to 3 per shift and budgeted as 9.
+_PORTFOLIO_ROLE_ROWS = {
+    'Property Manager': ['Property Manager'],
+    'Assistant Property Manager': ['Assistant Property Manager'],
+    'Chief Engineer': ['Chief Engineer'],
+    'Building Executive': ['Building Executive'],
+    'Customer Service': ['Customer Service'],
+    'Reception': ['Reception'],
+    'Accountant': ['Accountant'],
+    'Cashier': ['Cashier'],
+    'Technician': ['Technician (Morning)', 'Technician (Afternoon)', 'Technician (Night)'],
+    'Shift Leader': ['Shift Leader (Morning)', 'Shift Leader (Afternoon)', 'Shift Leader (Night)'],
+    'Amenities Attendant': ['Amenities Attendant (Morning)', 'Amenities Attendant (Afternoon)'],
+}
+
+
+def _position_ratios():
+    global _POSITION_RATIOS
+    if _POSITION_RATIOS is None:
+        path = os.path.join(BUDGET_AGENT, 'data', 'master_list_verified',
+                            'Fact_StaffingRatio_ByPosition.csv')
+        loaded = {}
+        try:
+            with open(path, encoding='utf-8-sig') as fh:
+                for row in csv.DictReader(line for line in fh if not line.startswith('#')):
+                    loaded[row['Role']] = {
+                        'n': int(row['N_Properties']),
+                        'median': float(row['MedianPer1000m2NFA']),
+                        'p25': float(row['P25Per1000m2NFA']),
+                        'p75': float(row['P75Per1000m2NFA']),
+                    }
+        except (OSError, KeyError, ValueError):
+            # Missing or unreadable derived file is not fatal: every affected row falls back to the
+            # seeded default, which is what this pipeline did before the ratios existed.
+            loaded = {}
+        _POSITION_RATIOS = loaded
+    return _POSITION_RATIOS
+
+
+def _portfolio_headcount(role, row_name, project):
+    """This row's share of `role`'s portfolio-derived headcount, and the basis to report.
+
+    Returns (None, reason) when the role has no usable ratio, which tells the caller to keep whatever
+    the form holds rather than estimate.
+    """
+    stats = _position_ratios().get(role)
+    if not stats:
+        return None, f'No derived ratio for {role}'
+    if stats['n'] < _POSITION_RATIO_MIN_N:
+        return None, (f'{role} is measured on only {stats["n"]} comparable propert'
+                      f'{"y" if stats["n"] == 1 else "ies"} — too few to estimate from')
+    nfa = project.get('total_nfa') or 0
+    if nfa <= 0:
+        return None, 'No NFA on this project'
+
+    rows = _PORTFOLIO_ROLE_ROWS[role]
+    total = max(1, round(stats['median'] * nfa / 1000.0))
+    share, extra = divmod(total, len(rows))
+    index = rows.index(row_name)
+    value = share + (1 if index < extra else 0)
+    spread = f'{stats["p25"]:.3f}-{stats["p75"]:.3f}'
+    across = (f', split across {len(rows)} shift rows' if len(rows) > 1 else '')
+    return value, (
+        f'{role}: portfolio median {stats["median"]:.4f} per 1,000 m2 NFA x this project\'s NFA '
+        f'({nfa:,.0f} m2) = {total} for the building{across}. Measured on {stats["n"]} comparable '
+        f'residential propert{"y" if stats["n"] == 1 else "ies"} (P25-P75 {spread}), from '
+        f'Fact_StaffingRatio_ByPosition.csv. This is what peer buildings actually employ, not a '
+        f'Savills standard or a statutory minimum - overrule it by typing your own figure')
+
+
+def _portfolio_ratio_fn(role, row_name):
+    """A RATIO_DRIVEN_STAFFING entry for one row of `role`."""
+    def estimate(project, _ratios):
+        value, basis = _portfolio_headcount(role, row_name, project)
+        if value is None:
+            raise _NoPortfolioRatio(basis)
+        return value, basis
+    return estimate
+
+
+class _NoPortfolioRatio(Exception):
+    """Raised when a portfolio role cannot be estimated, so the form's own value stands."""
+
+
 RATIO_DRIVEN_STAFFING = {
     'Security - Main Gate (Morning)': lambda p, r: (
-        p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g})"),
+        p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
     'Security - Main Gate (Afternoon)': lambda p, r: (
-        p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g})"),
+        p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
     'Security - Main Gate (Night)': lambda p, r: (
-        p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g})"),
+        p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
     'Security - Patrol / Open Space': lambda p, r: (
-        p['open_space'] / r['sqm_per_patrol'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Patrol Staff ({r['sqm_per_patrol']:g})"),
+        p['open_space'] / r['sqm_per_patrol'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Patrol Staff ({r['sqm_per_patrol']:g}{_ratio_note('sqm_per_patrol')})"),
     'Cleaning - Common Area': lambda p, r: (
-        p['open_space'] / r['sqm_per_cleaner'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Cleaner ({r['sqm_per_cleaner']:g})"),
+        p['open_space'] / r['sqm_per_cleaner'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Cleaner ({r['sqm_per_cleaner']:g}{_ratio_note('sqm_per_cleaner')})"),
     'Cleaning - Supervisor': lambda p, r: (
-        p['towers'] / r['towers_per_supervisor'], f"Tower Count ({p['towers']:g}) ÷ Towers per Supervisor ({r['towers_per_supervisor']:g})"),
+        p['towers'] / r['towers_per_supervisor'], f"Tower Count ({p['towers']:g}) ÷ Towers per Supervisor ({r['towers_per_supervisor']:g}{_ratio_note('towers_per_supervisor')})"),
     'Gardener / Landscape': lambda p, r: (
-        p['garden_area'] / r['sqm_per_gardener'], f"Garden Area ({p['garden_area']:,.0f} m²) ÷ m² per Gardener ({r['sqm_per_gardener']:g})"),
+        p['garden_area'] / r['sqm_per_gardener'], f"Garden Area ({p['garden_area']:,.0f} m²) ÷ m² per Gardener ({r['sqm_per_gardener']:g}{_ratio_note('sqm_per_gardener')})"),
+    # One entry per shift row — the ratio is a per-instant requirement, so it applies to each shift.
+    'Pool Attendant (Morning)': _pool_lifeguards_per_shift,
+    'Pool Attendant (Afternoon)': _pool_lifeguards_per_shift,
 }
+
+# In-house roles, estimated from the portfolio population (see _portfolio_headcount). Registered here
+# rather than written out one by one so a role added to _PORTFOLIO_ROLE_ROWS is wired up by that edit
+# alone, and so the row names on the form stay the single place they are spelled.
+for _role, _rows in _PORTFOLIO_ROLE_ROWS.items():
+    for _row_name in _rows:
+        RATIO_DRIVEN_STAFFING[_row_name] = _portfolio_ratio_fn(_role, _row_name)
+
+
+def _resolve_operating_years(raw):
+    """How many operating years the budget covers: 1, or a refusal naming the value.
+
+    A value above 1 is rejected rather than ignored. The per-year budget sheets, the year-on-year
+    escalation and the multi-year summary it implies are specified (change
+    add-multiyear-preopening-budget-phases) but not built, so accepting 2 and returning a one-year
+    workbook would make the field lie about what it produced — the failure mode this form's
+    read-by-label design exists to prevent.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return 1
+    try:
+        years = int(raw)
+        if years != float(raw):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Project Info 'Operating Years to Budget' is {raw!r}, which is not a whole number of "
+            f"years. Enter 1, or clear the cell to take the default of 1."
+        )
+    if years < 1:
+        raise ValueError(
+            f"Project Info 'Operating Years to Budget' is {years}. A budget covers at least one "
+            f"operating year. Enter 1, or clear the cell to take the default of 1."
+        )
+    if years > 1:
+        raise ValueError(
+            f"Project Info 'Operating Years to Budget' is {years}, but only 1 is supported today. "
+            f"Budgeting more than one operating year needs per-year budget sheets, year-on-year "
+            f"cost escalation and a multi-year summary — specified in the change "
+            f"'add-multiyear-preopening-budget-phases' but not yet implemented. Set this cell to 1."
+        )
+    return years
+
+
+def _resolve_coords(raw_lat, raw_lon):
+    """(lat, lon) as floats, or (None, None). A lone value on just one of the two fields is treated
+    as no coordinates at all — nearest_comparables() only uses them as a pair (a real distance needs
+    both), so a half-filled pair silently degrading to "no coordinates" (today's behavior) is safer
+    than guessing the other half or raising on an honest partial entry."""
+    try:
+        lat = float(raw_lat) if raw_lat not in (None, '') else None
+    except (TypeError, ValueError):
+        lat = None
+    try:
+        lon = float(raw_lon) if raw_lon not in (None, '') else None
+    except (TypeError, ValueError):
+        lon = None
+    if lat is None or lon is None:
+        return None, None
+    return lat, lon
+
+
+# Roster Setup's five staffing ratios, and what to use when the cell is left blank or zeroed.
+#
+# These are NOT derived from data, unlike the per-position ratios above, and cannot currently be:
+# the numerator (how many security / cleaning / landscape staff a comparable property employs) is
+# not split out in any clean dataset — Project_Detail_Lists.xlsx's Security/Cleaning/Landscape
+# sheets carry position names with no headcount and are self-labelled an approximate row-scan, and
+# Fact_ServiceCost's real post counts cover ~6 distinct projects against a corrupted Dim_Project.
+# For two of the five the denominator is missing too: no comparable property records its open-space
+# or garden area. So these stay editable operational assumptions, as the form's own note says.
+#
+# What this fallback fixes is narrower and real: a zeroed ratio used to CRASH the run
+# (ZeroDivisionError), and a zeroed "Staff per Gate" silently produced a building with no security
+# at all. Blank or zero now means "use the standard assumption", and the row says that it did.
+_RATIO_DEFAULTS = {
+    'staff_per_gate': (1, 'Security: Staff per Gate'),
+    'sqm_per_patrol': (5000, 'Security: m² Open Space per Patrol Staff'),
+    'sqm_per_cleaner': (3000, 'Cleaning: m² Open Space per Cleaner'),
+    'towers_per_supervisor': (2, 'Cleaning: Towers per Supervisor'),
+    'sqm_per_gardener': (2000, 'Landscape: m² Garden per Gardener'),
+}
+_RATIO_DEFAULTED = set()      # which ratios fell back on this run, for the basis text
+
+
+def _ratio_or_default(raw, key):
+    default, label = _RATIO_DEFAULTS[key]
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value > 0:
+        _RATIO_DEFAULTED.discard(key)
+        return value
+    _RATIO_DEFAULTED.add(key)
+    return default
+
+
+def _ratio_note(key):
+    """' (standard assumption — cell left blank)' when this ratio fell back, else ''."""
+    return ' — standard assumption, the Roster Setup cell was blank or zero' if key in _RATIO_DEFAULTED else ''
+
+
+def _staff_on_duty(pos, cached, formula_cell, ratio_fn, project, ratios, row):
+    """Headcount for one Staffing Demand row, and the basis to report for it.
+
+    Three cases, in the order they are tested:
+
+    1. The cell still holds the seeded `=ROUNDUP(...)` suggestion — the PM has not overridden it.
+       Recompute it in Python rather than trusting the cached result. openpyxl reads the value Excel
+       last cached, which goes stale the moment someone edits Project Info or Roster Setup without
+       reopening the file in Excel, and stale-but-plausible is the worst kind of wrong.
+    2. The cell holds a number the PM typed over that formula — a deliberate override. Use it. The
+       whole point of a suggestion is that it can be overruled, and silently discarding the PM's
+       number (which is what this did before) makes the field a lie.
+    3. The cell is blank or zero on a row this script knows a ratio for — fall back to the ratio.
+       To budget a position at genuinely zero headcount, delete the row; that is already the form's
+       convention for a position that does not apply (see the Pool Attendant note).
+
+    A row with no ratio behind it keeps its previous behaviour exactly: a typed value is used as
+    typed (zero included), and a blank is an error, because there is nothing to fall back to.
+    """
+    raw_formula = formula_cell.value if formula_cell is not None else None
+    is_formula = isinstance(raw_formula, str) and raw_formula.lstrip().startswith('=')
+    has_value = cached is not None and not (isinstance(cached, str) and not cached.strip())
+    try:
+        numeric = float(cached) if has_value else None
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Staffing Demand row {row} ('{pos}'): Staff On Duty / Day is {cached!r}, which is not a "
+            f"number. Enter a whole number of staff, or delete the row if the position does not apply."
+        )
+
+    if ratio_fn:
+        if numeric and not is_formula:   # a real typed override — 0 falls through to the ratio
+            return int(round(numeric)), (
+                f'PM override — {numeric:g} typed over this row\'s ratio suggestion on the Staffing '
+                f'Demand sheet, and used as typed')
+        try:
+            value, basis = ratio_fn(project, ratios)
+        except _NoPortfolioRatio as exc:
+            # The role has no ratio good enough to estimate from (too few comparable properties, or
+            # no NFA). Keep whatever the form holds — its seeded default — and say why on the row.
+            kept = int(round(numeric)) if numeric else 0
+            return kept, (f'Staffing Demand value kept as-is: {exc}, so no portfolio estimate was '
+                          f'applied to this row')
+        suffix = '' if is_formula else (' (Staffing Demand cell was blank or zero, so the ratio '
+                                        'was used)')
+        return math.ceil(value), f'{basis} = {value:.2f}, rounded up{suffix}'
+
+    # No ratio for this position — unchanged from before.
+    if not has_value:
+        raise ValueError(
+            f"Staffing Demand row {row} ('{pos}'): Staff On Duty / Day is blank and this position isn't one of "
+            "the ratio-driven rows this script knows how to compute — enter a value directly."
+        )
+    return int(round(numeric)), 'PM-entered value (Staffing Demand sheet, not ratio-driven)'
+
+
+def _resolve_pool_count(raw, has_pool):
+    """How many distinct pools to cost per-pool items for.
+
+    Only the per-POOL items scale with this — ESM5's microbiological sampling, which is taken from
+    each body of water separately. ESM4's chemicals must NOT: they are priced from `Pool Volume`,
+    which the intake form defines as the total across every pool, and whose source worked example is
+    itself already two pools (a 320 m3 adult pool plus a 120 m3 children's pool = 440 m3). Scaling
+    that by the count would charge the same water twice.
+
+    A pool with no stated count is one pool, not zero — which is also exactly the figure this
+    pipeline produced before the count was wired in.
+    """
+    stated = not (raw is None or (isinstance(raw, str) and not raw.strip()))
+    count = 0
+    if stated:
+        try:
+            count = int(raw)
+            if count != float(raw):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Project Info 'Number of Pools' is {raw!r}, which is not a whole number of pools. "
+                f"Enter a whole number, or clear the cell."
+            )
+        if count < 0:
+            raise ValueError(
+                f"Project Info 'Number of Pools' is {count}. A count cannot be negative. Enter a "
+                f"whole number, or clear the cell."
+            )
+    if not has_pool:
+        if count > 0:
+            raise ValueError(
+                f"Project Info says 'Has Swimming Pool?' is No but 'Number of Pools' is {count}. "
+                f"These contradict each other, and guessing which one is right would silently drop "
+                f"or invent this project's pool costs. Set the pool count to 0, or set 'Has "
+                f"Swimming Pool?' to Yes."
+            )
+        return 0, False
+    # Has a pool: a blank or zero count means one pool, assumed — it is the smallest number
+    # consistent with 'Has Swimming Pool? = Yes', and keeps the figure identical to what this
+    # pipeline produced before the count existed.
+    return (count, True) if count >= 1 else (1, False)
 
 
 def read_input(path):
@@ -118,6 +549,11 @@ def read_input(path):
             f"{path} not found. Run build_project_input_form.py first, fill it in, then re-run this script."
         )
     wb = openpyxl.load_workbook(path, data_only=True)
+    # A second view of the same file, formulas unevaluated. The cached-value view above cannot tell
+    # "=ROUNDUP(...)" (the seeded ratio suggestion) apart from a number a PM typed over it — both
+    # read back as a bare number. Staffing Demand needs that distinction to honour a real override
+    # without trusting a stale cached formula result. See _staff_on_duty().
+    wb_formulas = openpyxl.load_workbook(path, data_only=False)
 
     pi = wb['Project Info']
     segment = str(SheetLabels(pi).value('Property Segment') or 'Residential').strip()
@@ -151,7 +587,56 @@ def read_input(path):
         # A blank cell here is an EMPTY FIELD, not a missing one — the resolver returns None.
         savills_fee_fixed_monthly=L.value('Fixed Monthly Fee'),
         savills_fee_pct=L.value('% of Collected Management Fee'),
+        # Optional: absent on workbooks created before this field was added (change
+        # apply-guideline-remark-model, docs/13-remark-case-model.md Group B). Remark-only — see
+        # build_project_input_form.py's comment on this field; RM.0A's own figure never reads it.
+        handover_prepaid_months=(L.value('Months of Management Fee Prepaid on Handover')
+                                 if L.has('Months of Management Fee Prepaid on Handover') else None),
+        # Optional: absent on workbooks created before this field was added (change
+        # complete-ai-guideline-remark-coverage). Remark-only, per the AI Guideline's '0. Info'
+        # note — no figure reads either field. Blank on both when the PM hasn't supplied a basis.
+        area_basis=(L.value('Area basis / drawing reference')
+                   if L.has('Area basis / drawing reference') else None),
+        area_basis_year=(L.value('Area basis confirmed as of year')
+                         if L.has('Area basis confirmed as of year') else None),
+        # Optional: absent on workbooks created before this field was added (change
+        # complete-ai-guideline-remark-coverage). Separate from `pool_volume_m3`, which already
+        # totals every pool and is what drives ESM4's chemical-cost estimate — this count is not
+        # wired into any figure yet, informational only.
+        pool_count=(L.value('Number of Pools') if L.has('Number of Pools') else None),
+        # Optional: absent on workbooks created before this field was added. Absent or blank means
+        # one operating year — today's behaviour. Validated just below.
+        operating_years=(L.value('Operating Years to Budget')
+                         if L.has('Operating Years to Budget') else None),
+        # Optional: absent on workbooks created before this field was added (change
+        # rank-comparables-by-location, 2026-09-15). Feeds nearest_comparables()'s location tiering
+        # only — no figure changes when absent, comparable matching stays size-only exactly as today.
+        district=(L.value('District') if L.has('District') else None),
+        city=(L.value('City / Province') if L.has('City / Province') else None),
+        # Optional: absent on workbooks created before this field was added (change
+        # rank-comparables-by-location, task 2.4, 2026-09-16). Refines ORDER within whatever tier
+        # District/City above already placed a candidate in — never changes tiers. A lone value on
+        # just one of Latitude/Longitude is treated as no coordinates (see _resolve_coords below).
+        lat=(L.value('Latitude') if L.has('Latitude') else None),
+        lon=(L.value('Longitude') if L.has('Longitude') else None),
+        # Optional: absent on workbooks created before this field was added (2026-09-16). Display/
+        # citation only — see build_project_input_form.py's comment on this field. Does not feed
+        # District/City/Latitude/Longitude above or comparable matching in any way.
+        address=(L.value('Street Address') if L.has('Street Address') else None),
+        # Optional: absent on workbooks created before this field was added (change
+        # wire-real-elevator-count-into-ad-revenue, 2026-09-16). PASSENGER elevators only — see
+        # build_project_input_form.py's comment. Feeds generate_project_output.py's
+        # _real_ad_frame_qty() only; no other figure reads it.
+        passenger_elevators_per_tower=(L.value('Passenger Elevators per Tower')
+                                       if L.has('Passenger Elevators per Tower') else None),
+        # Optional: absent on workbooks created before this field was added (2026-09-16). Feeds
+        # generate_project_output.py's _real_basement_lcd_qty() only; no other figure reads it.
+        basement_count=(L.value('Number of Basements') if L.has('Number of Basements') else None),
     )
+    project['lat'], project['lon'] = _resolve_coords(project['lat'], project['lon'])
+    project['operating_years'] = _resolve_operating_years(project['operating_years'])
+    project['pool_count'], project['pool_count_stated'] = _resolve_pool_count(
+        project['pool_count'], project['has_pool'])
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
         raise ValueError(
             "Project Info!B34 (Fixed Monthly Fee) and B35 (% of Collected Fee) are BOTH filled in — "
@@ -191,11 +676,16 @@ def read_input(path):
     rs = wb['Roster Setup']
     R = SheetLabels(rs)
     ratios = dict(
-        staff_per_gate=R.value('Security: Staff per Gate'),
-        sqm_per_patrol=R.value('Security: m² Open Space per Patrol Staff'),
-        sqm_per_cleaner=R.value('Cleaning: m² Open Space per Cleaner'),
-        towers_per_supervisor=R.value('Cleaning: Towers per Supervisor'),
-        sqm_per_gardener=R.value('Landscape: m² Garden per Gardener'),
+        staff_per_gate=_ratio_or_default(
+            R.value('Security: Staff per Gate'), 'staff_per_gate'),
+        sqm_per_patrol=_ratio_or_default(
+            R.value('Security: m² Open Space per Patrol Staff'), 'sqm_per_patrol'),
+        sqm_per_cleaner=_ratio_or_default(
+            R.value('Cleaning: m² Open Space per Cleaner'), 'sqm_per_cleaner'),
+        towers_per_supervisor=_ratio_or_default(
+            R.value('Cleaning: Towers per Supervisor'), 'towers_per_supervisor'),
+        sqm_per_gardener=_ratio_or_default(
+            R.value('Landscape: m² Garden per Gardener'), 'sqm_per_gardener'),
     )
     month, year = R.value('Month'), R.value('Year')
     if not month or not year:
@@ -210,6 +700,12 @@ def read_input(path):
         first = R.section_row(holiday_header)
         for r in range(first + 1, first + 20):
             d = rs.cell(row=r, column=1).value
+            # Stop at the computed reference block that now sits below this one. Its column A holds
+            # full dates ('2026-02-17'), which int() rejects anyway — but relying on that would mean
+            # the parser only works by accident, and a future block with bare numbers in column A
+            # would be silently swallowed as holidays.
+            if isinstance(d, str) and 'REFERENCE ONLY' in d.upper():
+                break
             if d is None or str(d).strip() == '':
                 continue
             try:
@@ -217,7 +713,20 @@ def read_input(path):
             except (TypeError, ValueError):
                 continue          # the block's own 'Date (DD)' column header, or a note row
 
+    # Nothing typed in? Compute them. Four of Vietnam's statutory holidays are fixed solar dates,
+    # but Tet and Gio To Hung Vuong are LUNAR and move every year, so a hand-typed list goes stale
+    # the moment the rostered month changes and nobody remembers. vn_holidays converts them (Ho Ngoc
+    # Duc's algorithm, UTC+7) and self-validates against six Tet dates that already happened.
+    # A typed list still wins: it is how a PM applies the annual "hoan doi" swap-day announcement,
+    # which is a policy decision this cannot compute.
+    holidays_were_computed = False
+    if not holiday_days:
+        from vn_holidays import holidays_in_month
+        holiday_days = set(holidays_in_month(year, month))
+        holidays_were_computed = True
+
     ws_demand = wb['Staffing Demand']
+    ws_demand_f = wb_formulas['Staffing Demand']
     demand = []
     for r in range(5, ws_demand.max_row + 1):
         pos = ws_demand.cell(row=r, column=1).value
@@ -227,21 +736,12 @@ def read_input(path):
         rate = ws_demand.cell(row=r, column=5).value
         if not pos or not code:
             continue
-        ratio_fn = RATIO_DRIVEN_STAFFING.get(str(pos))
-        if ratio_fn:
-            raw, basis = ratio_fn(project, ratios)
-            staff = math.ceil(raw)
-            basis = f'{basis} = {raw:.2f}, rounded up'
-        elif staff is None:
-            raise ValueError(
-                f"Staffing Demand row {r} ('{pos}'): Staff On Duty / Day is blank and this position isn't one of "
-                "the ratio-driven rows this script knows how to compute — enter a value directly."
-            )
-        else:
-            basis = 'PM-entered value (Staffing Demand sheet, not ratio-driven)'
+        staff, basis = _staff_on_duty(
+            pos, staff, ws_demand_f.cell(row=r, column=3),
+            RATIO_DRIVEN_STAFFING.get(str(pos)), project, ratios, r)
         demand.append(dict(
             Position=str(pos), ShiftCode=str(code),
-            StaffPerDay=int(round(staff)), CoverageDays=int(days), AvgDailyRate=float(rate),
+            StaffPerDay=staff, CoverageDays=int(days), AvgDailyRate=float(rate),
             SourceRow=r, Basis=basis,
         ))
     if not demand:
@@ -265,17 +765,578 @@ def read_input(path):
 _NUM_FMT = '#,##0'
 
 
+_CODE_COL = 25     # Y — every row of "2. Budget-Management Fund" carries its own Savills cost code
+                   # here (ESS1, ESM4, EMA15, ...). Used to verify a hardcoded row position still
+                   # points at the cost line it is supposed to, rather than trusting the number.
 _REMARKS_COL = 20  # T — real header in every real-data sheet: "Remarks (please give the full,
                    # detailed reason for each cost item's increase/decrease)". Every cell this
                    # generator fills gets a real remark explaining the actual formula/source/numbers
                    # used, not just a value with no explanation of where it came from.
 
 
+# The AI Guideline's universal rule: a remark for an inclusive-of-VAT figure must carry a
+# VAT-treatment sentence naming the VAT status and the budget year. The switch is
+# `2. Budget-Management Fund`!F7 ("Mô hình tài chính:" — KHOÁN = excl-VAT throughout, so no
+# sentence; KHÔNG KHOÁN / THU HỘ CHI HỘ = incl-VAT throughout). build_budget() sets this once from
+# _vat_sentence(); _write_remark(), _opex_remark() and _compose_summary_narratives() append it.
+# Empty string = exclusive-of-VAT run (or the switch could not be read) -> nothing is appended.
+_ACTIVE_VAT_SENTENCE = ''
+_VAT_SWITCH_DEFAULT = ('2. Budget-Management Fund', 'F7')
+
+
+def _catalogue_vat_rule():
+    """The VAT-treatment sentence rule, read from the catalogue's `#` header block (one authority,
+    shared with verify.py's check_remark_content). Returns (switch_sheet, switch_cell, sentence_vi)
+    with `<year>` still a placeholder. Falls back to the guideline's own wording if an older
+    catalogue has no header block.
+
+    Vietnamese only (2026-09-11, user direction — see docs/12-sample-remark-rescan.md): the
+    guideline's own text is Vietnamese throughout, and the worked sample never renders it in
+    English either. The catalogue still records `vat_sentence_en` for reference; it is not read."""
+    sheet, cell = _VAT_SWITCH_DEFAULT
+    vi = 'Chi phí hạng mục này đã bao gồm VAT và dự ước tại năm <year>.'
+    try:
+        with open(CATALOGUE_PATH, encoding='utf-8-sig') as f:
+            for line in f:
+                if not line.startswith('#'):
+                    break
+                s = line.lstrip('#').strip()
+                if s.startswith('vat_switch_sheet') and '=' in s:
+                    sheet = s.split('=', 1)[1].strip()
+                elif s.startswith('vat_switch_cell') and '=' in s:
+                    cell = s.split('=', 1)[1].strip()
+                elif s.startswith('vat_sentence_vi') and '=' in s:
+                    vi = s.split('=', 1)[1].strip()
+    except OSError:
+        pass
+    return sheet, cell, vi
+
+
+def _budget_year(wb, fallback=None):
+    """The budget year — `2. Budget-Management Fund`!AL5, the template's own "Budget Year" field.
+    The guideline's VAT sentence and the composed narratives are "for year <budget year>", which is
+    NOT the roster's calendar year (`build_budget`'s `year` arg — 2026 on the current fixture while
+    the budget year is 2027). Falls back to that calendar year if AL5 cannot be read."""
+    try:
+        v = wb['2. Budget-Management Fund']['AL5'].value
+        if v not in (None, ''):
+            return str(v).strip().split('.')[0]
+    except (KeyError, TypeError, AttributeError):
+        pass
+    return str(fallback) if fallback is not None else ''
+
+
+def _vat_sentence(wb, year):
+    """The Vietnamese VAT-treatment sentence for this run, or '' when figures exclude VAT.
+
+    Reads the "Mô hình tài chính" switch (default `2. Budget-Management Fund`!F7). `KHOÁN` = the
+    figures exclude VAT -> ''. `KHÔNG KHOÁN` / `THU HỘ CHI HỘ` -> the sentence. An unrecognised or
+    blank switch is treated as inclusive (the form ships `THU HỘ CHI HỘ`; its `Y4` and
+    `1. Summary`!F7 both say "Including VAT")."""
+    sheet, cell, vi = _catalogue_vat_rule()
+    raw = ''
+    try:
+        raw = wb[sheet][cell].value or ''
+    except (KeyError, TypeError):
+        raw = ''
+    norm = ' '.join(str(raw).split()).upper()
+    if norm == 'KHOÁN':                       # explicit exclusive-of-VAT model
+        return ''
+    y = _budget_year(wb, year)
+    return vi.replace('<year>', y)
+
+
+def _append_vat(remark):
+    """Append the active VAT-treatment sentence unless it (or nothing) is already there. A
+    multi-line remark (a bulleted rollup, a numbered recipe) gets it on its own line; a single-line
+    remark gets it appended after a space, matching the worked sample's usage."""
+    if not _ACTIVE_VAT_SENTENCE or not remark:
+        return remark
+    if _ACTIVE_VAT_SENTENCE in remark:
+        return remark
+    if remark.endswith('\n'):
+        sep = ''
+    elif '\n' in remark:
+        sep = '\n'
+    elif remark.endswith(' '):
+        sep = ''
+    else:
+        sep = ' '
+    return f"{remark}{sep}{_ACTIVE_VAT_SENTENCE}"
+
+
 def _write_remark(ws, row, remark):
     if not remark:
         return
+    remark = _append_vat(remark)
     cell = ws.cell(row=row, column=_REMARKS_COL, value=remark)
     cell.alignment = Alignment(wrap_text=True, vertical='top')
+    # Clearing the inherited accounting format and sizing the row/column is done in one sweep by
+    # _normalise_all_remark_columns() after every sheet is filled — see build_budget().
+
+
+def _normalise_all_remark_columns(wb):
+    """Make every "Remarks / Ghi chú" column across the deliverable display its text as wrapped
+    text, not `########`.
+
+    Every such column in the standard form ships with an ACCOUNTING number format
+    (`_(* #,##0_);_(* \\(#,##0\\);_(* "-"??_);_(@_)`). Excel renders a long *text* value through it
+    as a formatted value — shown as `########` when it will not fit — instead of as plain
+    overflowing text. This bites twice: the cells the pipeline writes directly
+    (`2. Budget-Management Fund`/`2.2 Common area Fund` column T), and the cells on `1. Summary` and
+    the "Report-" sheets that pull those remarks across with a formula (e.g.
+    `='2. Budget-Management Fund'!T148`).
+
+    For every column whose header says "Remark" or "Ghi chú", this gives each text/formula cell
+    below that header a text-friendly number format (`#,##0;-#,##0;;@` — plain text via the `@`
+    section, and a blank instead of a stray "0"/"-" where a template pull-formula lands on an empty
+    row), turns on wrap, grows the row, and widens a narrow column. Percent-formatted cells are
+    skipped as a precaution; whitespace-only template placeholders are left untouched.
+    """
+    text_fmt = '#,##0;-#,##0;;@'
+    CHARS_PER_LINE = 46            # ~ column width 48, minus a margin
+    for ws in wb.worksheets:
+        header_row = {}            # remarks column -> the row its header sits on
+        for row in ws.iter_rows(min_row=1, max_row=16):
+            for cell in row:
+                v = cell.value
+                if isinstance(v, str) and ('remark' in v.lower() or 'ghi chú' in v.lower()):
+                    header_row.setdefault(cell.column, cell.row)
+        for col, hrow in sorted(header_row.items()):
+            letter = get_column_letter(col)
+            touched = False
+            for row in range(hrow + 1, ws.max_row + 1):
+                cell = ws.cell(row=row, column=col)
+                v = cell.value
+                if not isinstance(v, str) or not v.strip():
+                    continue
+                if '%' in (cell.number_format or ''):
+                    continue
+                cell.number_format = text_fmt
+                cell.alignment = Alignment(wrap_text=True, vertical='top')
+                touched = True
+                if v.startswith('='):
+                    lines = 5                          # a pulled remark — can't measure it here
+                else:
+                    text_len = len(v) + v.count('\n') * CHARS_PER_LINE
+                    # 30-line cap: a composed '1. Summary' K narrative (change
+                    # apply-guideline-remark-model) is bilingual and runs longer than a line note.
+                    lines = min(30, max(1, math.ceil(text_len / CHARS_PER_LINE)))
+                needed = lines * 15 + 4
+                if (ws.row_dimensions[row].height or 0) < needed:
+                    ws.row_dimensions[row].height = needed
+            if touched and (ws.column_dimensions[letter].width or 0) < 48:
+                ws.column_dimensions[letter].width = 48
+
+
+# =================================================================================================
+# '1. Summary' column-K composed narratives (change apply-guideline-remark-model)
+#
+# The AI Guideline instructs, per '1. Summary' PART-1 row, what its client-facing Remarks cell must
+# say (docs/11-guideline-remark-model.md; recipes recorded in Costing_Method_Catalogue.csv
+# `summary_recipe`). The standard template ships column K blank or pulling one detail line's remark
+# (`='2. Budget-Management Fund'!T148`). This composes it instead — Vietnamese, from the project's
+# own data — for every PART-1 total the pipeline gave a non-zero figure. Plain text, no formula.
+# Display only: no budgeted figure changes.
+#
+# Wording (2026-09-11, user direction): Vietnamese only, no English — and every blank in the AI
+# Guideline's own note text (its "<...>" placeholders) filled with this project's real data, in the
+# guideline's own phrasing, matched against the worked sample's actual usage rather than paraphrased.
+# See docs/12-sample-remark-rescan.md for the guideline-vs-sample side-by-side that grounds this.
+# =================================================================================================
+ENABLE_SUMMARY_REMARK_COMPOSER = True
+
+# summary_row -> (kind, catalogue code that owns the recipe, fund-code matchers that roll into it).
+# A matcher '=X' means the exact code X; 'X' means any code starting X (so 'RM.' catches RM.AP..KG,
+# 'EMA' catches EMA1..EMA19). Use '=' for ESS1/ESS4/ESS16 — they share the 'ESS1' prefix.
+# kind: 'recipe' = fill-in-the-blanks bilingual template; 'rollup' = "Dự ước bao gồm: <child names>".
+_SUMMARY_PART1 = [
+    (14, 'recipe', 'RM',    ('RM.',)),
+    (15, 'recipe', 'RPa',   ('RP1', 'RP2', 'RP3')),
+    (18, 'rollup', 'RO',    ('RO',)),
+    (19, 'recipe', 'RI',    ('RI',)),
+    (22, 'recipe', 'EMH',   ('EMH',)),
+    (23, 'rollup', 'EMA',   ('EMA',)),
+    (24, 'rollup', 'EMB',   ('EMB',)),
+    (27, 'rollup', 'ESC',   ('ESC',)),
+    (29, 'recipe', 'ESS1',  ('=ESS1',)),
+    (30, 'recipe', 'ESS4',  ('=ESS4',)),
+    (31, 'rollup', 'ESS16', ('=ESS16',)),
+    (32, 'rollup', 'ESI1',  ('ESI',)),
+    (33, 'rollup', 'ESM',   ('ESM',)),
+    (34, 'rollup', 'ESA6',  ('ESA', 'ESL')),
+    (36, 'recipe', 'EN',    ('EN',)),
+    (38, 'recipe', 'EEW',   ('EEW',)),
+    (39, 'recipe', 'EEE',   ('EEE',)),
+    (40, 'recipe', 'EED',   ('EED',)),
+    (43, 'rollup', 'ER',    ('ER',)),
+]
+_SUMMARY_K_COL = 11  # K — "Remarks / Ghi chú" on '1. Summary'
+# Fixed legal sentence the Accreditation narrative (row 34) must carry — recorded verbatim on the
+# ESA6 catalogue row (`fixed_sentence`); mirrored here so the composer needs no catalogue read.
+_ACCREDITATION_SENTENCE = ("Theo Điều 150 Luật Nhà ở 2023 và Điều 32 Quy chế quản lý, sử dụng nhà "
+                           "chung cư, một số chi phí kiểm định khi vận hành có thể sử dụng Quỹ bảo trì.")
+
+# Short Vietnamese product labels for the RM narrative — the fund sheet's own item names are the
+# full "Phí quản lý thu từ <X>" line, which reads redundantly once it is itself inside a sentence
+# that already says "Mức phí quản lý ...". PRODUCT_REVENUE_ROWS keys are the only products this
+# pipeline prices, so this covers every one that can appear.
+_PRODUCT_VI_LABEL = {
+    'Apartment': 'căn hộ', 'Officetel': 'officetel', 'Office': 'văn phòng',
+    'Shopping Mall': 'trung tâm thương mại', 'Retail': 'khối đế thương mại',
+    'Shop Apartment': 'shop apartment', 'Shophouse': 'shophouse', 'Villas': 'biệt thự',
+    'Nursery / Nhà trẻ': 'nhà trẻ',
+}
+
+# Vietnamese labels for the roster's canonical Security/Cleaning positions (build_project_input_form.py
+# / build_roster_input_form.py — the full, enumerable list this pipeline ever generates demand for,
+# after the shift-time suffix is collapsed off). Falls back to the raw English role name for a
+# position outside this fixed set, rather than guessing a translation.
+_SECURITY_CLEANING_ROLE_VI = {
+    'Security - Main Gate': 'Vị trí cổng chính',
+    'Security - CCTV Room': 'Trực phòng CCTV',
+    'Security - Patrol / Open Space': 'Tuần tra khu vực công cộng',
+    'Cleaning - Common Area': 'Vệ sinh khu vực công cộng',
+    'Cleaning - Supervisor': 'Giám sát',
+}
+
+
+def _collect_written(wb):
+    """What the pipeline actually wrote to the two fund sheets, read back from the cells it set:
+    {code: {'row', 'value', 'sheet', 'name_vi', 'name_en'}}.
+
+    The fill functions set column C (Frequency) and H:S / F only on the rows they fill; an untouched
+    row has C blank and is skipped. Most cells written are literals, so openpyxl sees the value
+    directly — EXCEPT EMH2 (change reconcile-summary-with-detail-sheets, design D2), which is a
+    formula reference into 'A1. Staff cost 08.2026 (VN)''s own total and has no cached value until
+    Excel recalculates it. Such a row is still returned — a caller needs to know the code WAS
+    funded — with `value=None`, so it is treated as "written, amount unknown here" rather than
+    silently dropped (which would make the code look unfunded and its '1. Summary' row look zero).
+    Used by _compose_summary_narratives — the "written" set of design.md D1, gathered after the
+    fills rather than threaded through every writer.
+    """
+    written = {}
+    scan = [
+        ('2. Budget-Management Fund',
+         set(MGMT_FUND_ROWS.values()) | set(PRODUCT_REVENUE_ROWS.values())),
+        ('2.2 Common area Fund', set(COMMON_AREA_FUND_ROWS.values())),
+    ]
+    def _as_number(cell_value):
+        """None for a formula string (openpyxl has no cached value for it without Excel) or
+        anything else that isn't already a plain number."""
+        if isinstance(cell_value, (int, float)):
+            return float(cell_value)
+        if cell_value in (None, ''):
+            return 0.0
+        return None
+
+    for sheet_name, rows in scan:
+        ws = wb[sheet_name]
+        for r in sorted(rows):
+            freq = ws.cell(row=r, column=3).value
+            if not isinstance(freq, str) or not freq.strip():
+                continue
+            if freq.strip().lower() == 'monthly':
+                f_val = _as_number(ws.cell(row=r, column=6).value)
+                value = None if f_val is None else f_val * 12   # None = formula, value unknown here
+            else:                                        # Schedule / Year-1 lump
+                cell_vals = [_as_number(ws.cell(row=r, column=c).value) for c in range(8, 20)]
+                value = None if any(v is None for v in cell_vals) else sum(cell_vals)
+            if value is not None and abs(value) < 1:
+                continue                                    # genuinely zero/blank — not funded
+            code = (ws.cell(row=r, column=_CODE_COL).value or '')
+            code = code.strip() if isinstance(code, str) else str(code)
+            raw_name = ws.cell(row=r, column=_CODE_COL + 1).value or code
+            parts = [p.strip(' \t()') for p in str(raw_name).replace('\r', '').split('\n') if p.strip(' \t()')]
+            written[code] = {
+                'row': r, 'value': value, 'sheet': sheet_name,
+                'name_en': parts[0] if parts else code,
+                'name_vi': parts[-1] if len(parts) > 1 else (parts[0] if parts else code),
+            }
+    return written
+
+
+def _vi_list(items):
+    """The AI Guideline's own bullet format for an itemised list — one '- item' per line, matching
+    the worked sample's actual usage (docs/12-sample-remark-rescan.md), not a comma-joined sentence."""
+    return '\n'.join(f"- {it}" for it in items)
+
+
+def _children_for(matchers, written):
+    """`written` entries a '1. Summary' row rolls up: a matcher '=X' means exactly code X; 'X' means
+    any code starting with X. Ordered by fund-sheet row."""
+    def hit(code):
+        for m in matchers:
+            if m.startswith('='):
+                if code == m[1:]:
+                    return True
+            elif code.startswith(m):
+                return True
+        return False
+    return sorted(((c, w) for c, w in written.items() if hit(c)), key=lambda cw: cw[1]['row'])
+
+
+def _rollup_narrative(children, fixed_sentence=''):
+    """"Dự ước bao gồm:" + one "- <child name>" per line, the AI Guideline's own list format
+    (docs/12-sample-remark-rescan.md) — not a comma-joined sentence. Plus an optional fixed
+    sentence (e.g. the Điều 150 accreditation clause)."""
+    if not children:
+        return None
+    vi = "Dự ước bao gồm:\n" + _vi_list(w['name_vi'] for _c, w in children)
+    if fixed_sentence:
+        vi += '\n' + fixed_sentence
+    return vi
+
+
+def _energy_narrative_vi(category, project, yr):
+    """Vietnamese narrative for one of the three consumption-x-tariff OPEX categories (Water,
+    Electricity, Diesel (Generator Fuel)) — shared by the '1. Summary' composed narrative
+    (_recipe_narrative, EEW/EEE/EED) and the line-level remark on '2. Budget-Management Fund'
+    (_opex_remark), so the two levels describe the same figure in the same words instead of one
+    Vietnamese and one English (change localize-line-level-remarks, 2026-09-15). `yr` is the
+    already-resolved budget year (see _budget_year) — both call sites pass their own, since a
+    module-level function cannot read the workbook object either closure captured it from.
+    """
+    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
+                         pool_volume_m3=project.get('pool_volume_m3'))
+    e = opex.get(category, {})
+    qty = e.get('project_quantity_month', 0)
+    unit = e.get('usage_unit', '')
+    tariff = e.get('tariff', 0)
+    tunit = e.get('tariff_unit', '')
+    as_of = e.get('tariff_as_of', '')
+    if category == 'Water':
+        return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT 5%, "
+                f"PBVMT 30%, VAT bvmt 8% ({tariff:,.0f} {tunit}). Đơn giá nước lấy theo các dự án "
+                f"chung cư cùng quy mô. Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
+                f"lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư dân'.")
+    if category == 'Electricity':
+        return (f"Tổng lượng điện tiêu thụ 1 tháng {qty:,.0f} {unit}. Đơn giá điện đang áp dụng "
+                f"theo mức đơn giá điện dưới 6KV — đơn vị hành chính sự nghiệp ({tariff:,.0f} "
+                f"{tunit}), theo Quyết định 1279/QĐ-BCT ngày 09/05/2025. Dự ước tại năm {yr} dựa "
+                f"trên tỷ lệ lấp đầy cư dân, căn cứ theo trang 'Tỷ lệ lấp đầy cư dân' — mức tối "
+                f"thiểu khi tỷ lệ lấp đầy bằng 0 là khoảng 40% full chi phí, đạt full chi phí khi "
+                f"tỷ lệ lấp đầy từ 40% trở lên.")
+    return (f"Dự ước tiêu thụ {qty:,.0f} {unit}. Mỗi năm chạy test không tải khoảng 12 giờ; "
+            f"chạy backup điện có tải do sự cố điện lưới và bảo trì máy biến thế + tủ điện hạ "
+            f"thế chính khoảng 8 giờ/năm. Giá dầu DO 0.005S Vùng 1 niêm yết {as_of} là "
+            f"{tariff:,.0f} {tunit}.")
+
+
+def _recipe_narrative(key, wb, project, demand, year, written):
+    """The fill-in-the-blanks Vietnamese templates for the recipe-driven '1. Summary' rows —
+    the AI Guideline's own note text (docs/11-guideline-remark-model.md,
+    scratchpad/guideline_summary.txt) with its blanks filled from this project's data, wording
+    matched to the worked sample's actual usage (docs/12-sample-remark-rescan.md; 2026-09-11, user
+    direction — Vietnamese only). A clause with no real data behind it is a stated caveat, never a
+    fabricated number (project rule). The parts each must contain are recorded in the catalogue
+    `summary_recipe` column and enforced by verify.py.
+    """
+    yr = _budget_year(wb, year)
+
+    if key == 'RM':
+        rev = {c: w for c, w in written.items() if c.startswith('RM.') and c != 'RM.0A'}
+        code_to_prod = {v: k for k, v in PRODUCT_REVENUE_EXPECTED_CODE.items()}
+        area_bits, rate_bits = [], []
+        for c, w in sorted(rev.items(), key=lambda cw: cw[1]['row']):
+            prod = code_to_prod.get(c, c)
+            label = _PRODUCT_VI_LABEL.get(prod, w['name_vi'])
+            nfa = ((project.get('products') or {}).get(prod) or {}).get('nfa') or 0
+            rate = w['value'] / (12 * nfa) if nfa else 0
+            area_bits.append(f"{nfa:,.0f} m2 ({label})")
+            rate_bits.append(f"{label} là {rate:,.0f} VND/m2/tháng (đã gồm VAT)")
+        dev = written.get('RM.0A', {}).get('value', 0)
+        # Group B (docs/13-remark-case-model.md): real if the PM entered it on the intake form,
+        # else describe the mechanism without a month count — never a guessed number.
+        prepaid = project.get('handover_prepaid_months')
+        if prepaid:
+            point3 = (f"3/ Ước tính theo thông tin CĐT cung cấp thu trước {prepaid:g} tháng PQL cư "
+                     f"dân khi bàn giao nhà, và CĐT sẽ đóng PQL những căn chưa bàn giao — dự ước "
+                     f"{dev:,.0f} VND trong năm, giảm dần theo tỷ lệ lấp đầy cư dân")
+        else:
+            point3 = (f"3/ CĐT sẽ đóng PQL cho những căn chưa bàn giao — dự ước {dev:,.0f} VND "
+                     f"trong năm, giảm dần theo tỷ lệ lấp đầy cư dân")
+        vi = (
+            f"Dự ước doanh thu phí quản lý năm {yr} dựa trên cơ sở:\n"
+            f"1/ Diện tích thu phí theo thông tin CĐT cung cấp là: {', '.join(area_bits)}\n"
+            f"2/ Mức phí quản lý " + '; '.join(rate_bits) + "\n"
+            f"{point3}\n"
+            f"4/ Dự ước tỷ lệ bàn giao và tỷ lệ nợ xấu theo kinh nghiệm QLVH của Savills tại các dự "
+            f"án tương đương\n"
+            f"=> Chi tiết xem tại trang 'Tỷ lệ lấp đầy cư dân'."
+        )
+        return vi
+
+    if key == 'RPa':
+        moto = written.get('RP1', {}).get('value', 0)
+        car = written.get('RP2', {}).get('value', 0)
+        moto_slots = project.get('moto_slots') or 0
+        car_slots = project.get('car_slots') or 0
+        moto_rate = round(moto / 12 / moto_slots) if moto_slots else 0
+        car_rate = round(car / 12 / car_slots) if car_slots else 0
+        lines = []
+        if moto_slots:
+            lines.append(f"Dự ước theo tỷ lệ lấp đầy cư dân tại trang 'Tiến độ lấp đầy bãi xe'. "
+                        f"Giả định trung bình mỗi căn hộ có 02 xe máy ({moto_slots:,.0f} chỗ), với "
+                        f"đơn giá gửi tháng khoảng {moto_rate:,.0f} VND/xe/tháng — dự ước "
+                        f"{moto:,.0f} VND năm {yr}")
+        if car_slots:
+            lines.append(f"Bãi xe ô tô ({car_slots:,.0f} chỗ), đơn giá gửi tháng khoảng "
+                        f"{car_rate:,.0f} VND/xe/tháng — dự ước {car:,.0f} VND năm {yr}")
+        vi = ("Dự toán hạng mục doanh thu này bao gồm:\n" + _vi_list(lines) +
+              "\n=> Chi tiết doanh thu bãi xe tại trang 'Tiến độ lấp đầy bãi xe'.")
+        return vi
+
+    if key == 'RI':
+        return ("Dự ước bao gồm:\n"
+                "- Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung\n"
+                "Chi tiết xem tại trang '2.2 Common area Fund'.")
+
+    if key == 'EMH':
+        from generate_project_output import SERVICE_CATEGORY_KEYWORDS
+        svc_kws = [k for cat in ('Security', 'Cleaning', 'Landscape')
+                   for k in SERVICE_CATEGORY_KEYWORDS[cat]]
+        head = 0
+        for d in (demand or []):
+            pos = d.get('Position', '').lower()
+            if not any(k in pos for k in svc_kws):
+                head += d.get('StaffPerDay', 0) or 0
+        emh1 = written.get('EMH1', {}).get('value') or 0
+        # EMH2 is a formula reference into 'A1. Staff cost 08.2026 (VN)' (change
+        # reconcile-summary-with-detail-sheets) — openpyxl has no cached number for it here, so the
+        # clause states the real basis without a figure rather than showing a stale or wrong one.
+        emh2_value = written.get('EMH2', {}).get('value')
+        payroll_clause = (f"lương gộp dự ước {emh2_value:,.0f} VND"
+                          if emh2_value is not None else
+                          "lương gộp theo bảng lương thực tế")
+        fee_clause = (f"Phí quản lý cố định của Savills dự ước {emh1:,.0f} VND/năm"
+                     if emh1 else
+                     "Phí quản lý cố định của Savills chưa dự ước — chờ điều khoản hợp đồng")
+        vi = (
+            "Chi phí hạng mục này dự ước bao gồm:\n"
+            "- Chi phí quản lý của Công Ty Quản lý bao gồm chi phí thương hiệu, phần mềm, các hỗ "
+            "trợ từ văn phòng chính. Chi phí hạng mục này được đề xuất dựa trên khối lượng công "
+            f"việc và thực tế bàn giao sản phẩm của dự án. {fee_clause}\n"
+            f"- Số lượng nhân sự Ban quản lý ({head:g} vị trí, chưa gồm bảo vệ/vệ sinh/cây xanh — "
+            f"thuê ngoài) dựa trên quy mô, đặc thù dự án cũng như các yêu cầu về chất lượng nhân sự "
+            f"phù hợp với phân khúc dự án — {payroll_clause}, đã gồm BHXH/BHYT/BHTN phần người sử "
+            "dụng lao động. Thời gian làm việc ca đêm các ngày, ca ngày dịp lễ tết theo đặc thù "
+            "công việc tại dự án và quy định của nhà nước\n"
+            "=> Chi tiết chi phí nhân sự xem tại trang 'A1. Staff cost 08.2026 (VN)'\n"
+            "=> Chi tiết chi phí huấn luyện bắt buộc hàng năm (ATLĐ, PCCC) theo nghị định 105 tại "
+            "trang 'A5. Trợ cấp PCCC'."
+        )
+        return vi
+
+    if key in ('ESS1', 'ESS4'):
+        cat = 'Security' if key == 'ESS1' else 'Cleaning'
+        from generate_project_output import SERVICE_CATEGORY_KEYWORDS, SERVICE_EXCLUDE_KEYWORDS
+        kws = SERVICE_CATEGORY_KEYWORDS[cat]
+        priced, other = {}, {}          # priced = the posts contract_cost() counts; other = supervisor etc.
+        for d in (demand or []):
+            pos = d.get('Position', '')
+            if not any(k in pos.lower() for k in kws):
+                continue
+            spd = d.get('StaffPerDay', 0) or 0
+            eff = math.ceil(spd * 7 / 6) if (d.get('CoverageDays', 0) or 0) >= 7 else spd
+            # collapse "(Morning)/(Afternoon)/(Night)/(Day)" shift-time suffixes into one role
+            role = re.sub(r'\s*\((?:Morning|Afternoon|Evening|Night|Day)\)\s*$', '', pos).strip()
+            bucket = other if any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS) else priced
+            bucket[role] = bucket.get(role, 0) + eff
+        priced = {r: n for r, n in priced.items() if n}
+        other = {r: n for r, n in other.items() if n}
+        sheet_ref = "'A2. Bảo vệ - Security'" if cat == 'Security' else "'A3. Vệ sinh - Cleaning'"
+        def _role_vi(r):
+            return _SECURITY_CLEANING_ROLE_VI.get(r, r)
+        roles = [f"{n:g} {_role_vi(r)}" for r, n in sorted(priced.items())] or [f"theo {sheet_ref}"]
+        roles += [f"{n:g} {_role_vi(r)}" for r, n in sorted(other.items())]
+        total_posts = sum(priced.values())
+        val = written.get(key, {}).get('value', 0)
+        from master_comparables import SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE
+        rate = SECURITY_RATE_CITYWIDE if cat == 'Security' else CLEANING_RATE_CITYWIDE
+        if cat == 'Security':
+            vi = (f"Dự ước {total_posts:g} vị trí bảo vệ (quy đổi 24h) bao gồm: {', '.join(roles)} "
+                  f"— dựa trên trang {sheet_ref}.\n"
+                  f"Đơn giá vị trí 24h khoảng {rate:,.0f} VND/vị trí/tháng.\n"
+                  f"Dự ước {val:,.0f} VND năm {yr}.")
+        else:
+            vi = (f"Dự ước {total_posts:g} nhân viên vệ sinh bao gồm: {', '.join(roles)} — dựa "
+                  f"trên trang {sheet_ref}.\n"
+                  f"Đơn giá nhân viên vệ sinh khoảng {rate:,.0f} VND/vị trí/tháng (bắt buộc); đơn "
+                  f"giá tea lady/giám sát nếu có.\n"
+                  f"Dự ước {val:,.0f} VND năm {yr}.")
+        return vi
+
+    if key == 'EN':
+        code_to_group_vi = {
+            'EN1': 'Trang thiết bị văn phòng ban quản lý',
+            'EN2': 'Trang thiết bị công cụ dụng cụ kỹ thuật & PCCC',
+            'EN3': 'Trang thiết bị công cộng, khu tiện ích',
+            'EN4': 'Trang thiết bị khu tiện ích / khách thuê',
+        }
+        got = [(c, w) for c, w in sorted(written.items(), key=lambda cw: cw[1]['row'])
+               if c.startswith('EN')]
+        grp = [f"{code_to_group_vi.get(c, w['name_vi'])}: {w['value']:,.0f} VND" for c, w in got]
+        vi = ("Chi phí đầu tư trang thiết bị đầu tư ban đầu (CAPEX) bao gồm:\n" + _vi_list(grp) +
+              "\nChi phí này dự kiến được khấu hao hết trong 24 tháng đầu vận hành của dự án.")
+        return vi
+
+    if key in ('EEW', 'EEE', 'EED'):
+        cat = {'EEW': 'Water', 'EEE': 'Electricity', 'EED': 'Diesel (Generator Fuel)'}[key]
+        return _energy_narrative_vi(cat, project, yr)
+
+    return None
+
+
+def _compose_summary_narratives(wb, project, demand, year, written):
+    """Write a composed, Vietnamese, client-facing narrative into '1. Summary' column K for every
+    PART-1 total the pipeline gave a non-zero figure — per the AI Guideline's recipe for that row
+    (docs/11-guideline-remark-model.md; wording matched to docs/12-sample-remark-rescan.md). Runs
+    after the fills and BEFORE _normalise_all_remark_columns() so the (now much taller) K rows are
+    sized. Plain text; no budgeted figure moves.
+
+    No-op while ENABLE_SUMMARY_REMARK_COMPOSER is False — the template's own K cells (blank /
+    single-line pull) are left untouched.
+    """
+    if not ENABLE_SUMMARY_REMARK_COMPOSER:
+        return []
+    ws = wb['1. Summary']
+    common_area_codes = set(COMMON_AREA_FUND_EXPECTED_CODE.values())
+    common_area_active = any(c in written for c in common_area_codes)
+    claimed = set()
+    filled = []
+    for srow, kind, code, prefixes in _SUMMARY_PART1:
+        children = [(c, w) for c, w in _children_for(prefixes, written) if c not in claimed]
+        if kind == 'recipe':
+            # RI has no fund leaf in `written` — its row 78 (RI1) is a template formula pulling from
+            # '2.2 Common area Fund'. Compose it whenever the common-area fund produced revenue.
+            if code == 'RI' and not common_area_active:
+                continue
+            narrative = _recipe_narrative(code, wb, project, demand, year, written)
+            if narrative is None:
+                continue
+            if code != 'RI' and not children:
+                continue
+        else:  # rollup
+            fixed = _ACCREDITATION_SENTENCE if srow == 34 else ''
+            # EMA (row 23): the pipeline writes one blended per-m² section ratio to the EMA15
+            # catch-all leaf — there is no per-line breakdown to list. Say so rather than imply the
+            # section is just "Others".
+            if code == 'EMA' and children and all(c == 'EMA15' for c, _w in children):
+                fixed = ("Đây là ước tính chung cho toàn bộ mục chi phí quản lý văn phòng theo một "
+                         "suất trên m², chưa tách theo từng khoản mục.")
+            narrative = _rollup_narrative(children, fixed_sentence=fixed)
+            if narrative is None:
+                continue
+        for c, _w in children:
+            claimed.add(c)
+        narrative = _append_vat(narrative)
+        cell = ws.cell(row=srow, column=_SUMMARY_K_COL, value=narrative)
+        cell.alignment = Alignment(wrap_text=True, vertical='top')
+        filled.append(f"K{srow}({code})")
+    if filled:
+        print('  1. Summary narratives:', ', '.join(filled))
+    return filled
 
 
 def _write_even_monthly_row(ws, row, annual_amount, remark=None):
@@ -299,6 +1360,61 @@ def _write_year1_lump_row(ws, row, annual_amount, remark=None):
     _write_remark(ws, row, remark)
 
 
+def _populate_fillup_sheets(wb, apt_units, shop_units, car_bays, moto_bays,
+                            resident_fills, car_fills, moto_fills, car_rate, moto_rate):
+    """Show, on the deliverable's two fill-up sheets, the exact monthly curves the occupancy-scaled
+    budget lines were distributed by (spec: a reader can trace a ramped figure to its curve).
+
+    The sheets ship an elaborate handover-rate → cumulative-units → occupancy model built for a
+    human filling 24 months by hand. Rather than reverse-engineer that, this writes the pipeline's
+    one curve (fill_curve.year1_fills) straight into the sheets' occupancy / parking-fill rows as
+    values, feeds the few input cells the remaining formulas divide by, and clears the two rows on
+    the resident sheet that compute unused cumulative-unit ratios (they divide by cells the pipeline
+    does not populate). Nothing on these sheets feeds any budget total — proven in change A.
+    Columns: resident sheet months 1-12 = G:R; parking sheet months 1-12 = F:Q.
+    """
+    from common_utils_v2 import find_sheet_loose
+    res = wb[find_sheet_loose(wb, 'lấp đầy cư dân')]
+    pk = wb[find_sheet_loose(wb, 'lấp đầy bãi xe')]
+
+    res['F6'] = apt_units or 0
+    res['F7'] = shop_units or 0
+    for i, f in enumerate(resident_fills):            # G(7)..R(18)
+        res.cell(row=6, column=7 + i, value=f)        # handover rate (= occupancy in the one-curve model)
+        res.cell(row=7, column=7 + i, value=f)
+        res.cell(row=20, column=7 + i, value=f)       # "Tỷ lệ lấp đầy" — the curve the budget uses
+    for row in (23, 26):                              # unused cumulative-unit ratio rows -> #DIV/0!
+        for c in range(1, res.max_column + 1):
+            cell = res.cell(row=row, column=c)
+            if isinstance(cell.value, str) and cell.value.startswith('='):
+                cell.value = None
+
+    pk['D6'] = apt_units or 0
+    pk['D9'] = car_bays or 0
+    pk['D10'] = 0
+    pk['D11'] = moto_bays or 0
+    pk['D22'] = car_rate
+    pk['D24'] = moto_rate
+    for i, (cf, mf) in enumerate(zip(car_fills, moto_fills)):   # F(6)..Q(17)
+        pk.cell(row=9, column=6 + i, value=cf)        # car fill %
+        pk.cell(row=11, column=6 + i, value=mf)       # motorbike fill %
+        pk.cell(row=12, column=6 + i, value=0)        # bicycle — pipeline does not budget RP3
+
+
+def _write_ramped_row(ws, row, monthly_values, remark=None):
+    """Twelve explicit month values into H:S (Schedule frequency, so G=SUM(H:S)) — for a line that
+    varies month by month with the occupancy fill-up curve (fill_curve.py), not a flat run-rate.
+    F (Unit Price) is cleared: it drives G=F*12 only under the Monthly frequency this does not use."""
+    if len(monthly_values) != 12:
+        raise ValueError(f'_write_ramped_row needs exactly 12 monthly values, got {len(monthly_values)}')
+    ws.cell(row=row, column=3, value='Schedule')  # C: Frequency -> G = SUM(H:S)
+    ws.cell(row=row, column=6, value=None)        # F: Unit Price — not used under Schedule
+    for i, value in enumerate(monthly_values):
+        cell = ws.cell(row=row, column=8 + i, value=round(value))  # H..S
+        cell.number_format = _NUM_FMT
+    _write_remark(ws, row, remark)
+
+
 # Real, cited flat reference costs added 2026-08-27 from input/logic/EXENSIVE LOGIC.xlsx's new
 # Sheet2 (a "COST NATURE DESCRIPTION" column added alongside a second real capex catalog file —
 # both re-scanned per the PM's request). Each cites a real regulation, vendor quote, or lab price
@@ -310,10 +1426,21 @@ ENV_REPORT_ANNUAL = 25_000_000            # ESM2 — Decree 40/2019/NĐ-CP Artic
 WATER_TEST_SAMPLE_PRICE = 1_352_000       # ESM3 — Pasteur Institute HCMC quote, per QCVN 01-2024/BYT
 WATER_TEST_SAMPLES_PER_ROUND = 3          # rooftop tank + basement + 1 random tap, 2 rounds/year
 POOL_TEST_SAMPLE_PRICE = 1_366_000        # ESM5 — real estimate, 4 microbiological parameters/sample
-POOL_TEST_SAMPLES_PER_YEAR = 8            # 4 rounds/year x 2 samples/round
+POOL_TEST_SAMPLES_PER_YEAR = 8            # 4 rounds/year x 2 samples/round, PER POOL
 FIRE_DEPT_CONNECTION_MONTHLY = 500_000    # ESM8 — GSAFE package G500, HCMC Fire Fighting Dept transmission
 # ESM4 pool chemicals is computed by estimate_opex(), because BOTH generators call that and a
 # second copy here is how the two workbooks drift apart. See POOL_SALT_* in estimate_opex.py.
+
+# Added 2026-09-14, change fill-guideline-required-line-items — figures the AI Guideline states
+# directly (not a comparable-benchmark estimate), same "real cited figure" class as the four above.
+ENV_INCIDENT_PLAN_ANNUAL = 14_000_000       # ESC12 — mandatory annual environmental incident-response
+                                             # plan, once/year; guideline's own provisional figure, excl VAT
+WASTEWATER_CROSSCHECK_SAMPLE_PRICE = 3_500_000  # ESM25 — cross-check of the STP contractor's own
+                                                 # treated-water quality reporting (per SCE), excl VAT
+WASTEWATER_CROSSCHECK_PER_YEAR = 4          # quarterly
+DRINKING_WATER_L_PER_PERSON_DAY = 1         # EMA7 — guideline: BQL headcount x 1 L/person/day
+DRINKING_WATER_BOTTLE_LITERS = 19
+DRINKING_WATER_BOTTLE_PRICE = 60_000        # incl. VAT — guideline's own cited 19L bottle vendor price
 
 # Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
 # Resi template) that generate_project_output.py's pipeline actually computes real numbers for, PLUS
@@ -326,6 +1453,8 @@ FIRE_DEPT_CONNECTION_MONTHLY = 500_000    # ESM8 — GSAFE package G500, HCMC Fi
 # template, these will need re-verifying against the new row numbers.
 MGMT_FUND_ROWS = {
     'mgmt_fee_revenue': 14,     # RM.AP  Management fee of Apartment (revenue) — see PRODUCT_REVENUE_ROWS
+    'mgmt_fee_developer': 23,   # RM.0A  Management fee the developer pays on units not yet handed over
+                               #        — the mirror of the fill-up curve (see fill_management_fund_sheet)
     'mgmt_fee_expense': 82,     # EMH1   Management fee for Savills (fund pays it out to Savills)
     'staff_remainder': 83,      # EMH2   Staff cost for Savills (all roster positions except Security/Cleaning/Landscape, which get their own outsourced-contract rows below)
     'parking_moto': 26,         # RP1    Motorbike monthly parking (revenue)
@@ -337,6 +1466,20 @@ MGMT_FUND_ROWS = {
     'water': 230,               # EEW.C  Water for Common Area and Facilities
     'electricity': 240,         # EEE.C  Electricity for Common Area
     'diesel': 251,              # EED.C  Diesel for back up generators of Common Area and Facilities
+    # The other two categories estimate_opex() computes. Both go to the CATCH-ALL leaf of their
+    # section, never to the section row itself: EMA (94) is =SUBTOTAL(9,G95:G113) and ER (263) is
+    # =SUBTOTAL(9,G264:G485), so writing a value there would replace the template's own arithmetic
+    # with a constant and the section would stop summing its own line items. Each figure is one
+    # blended per-m² ratio with no per-line breakdown behind it, which is exactly what a catch-all
+    # row is for — spreading it across EMA1..EMA19 or the ER systems would invent an allocation.
+    'opex_admin': 109,          # EMA15  Others (inside EMA's =SUBTOTAL(9,G95:G113))
+    # 'opex_repairs' -> ERM (row 485). Restored 2026-09-17 by change `fix-parking-allocation-divide-
+    # by-zero`, which populates BM11:BN11 (the parking-revenue allocation split) and the per-row
+    # BG/BH reference every leaf of the ER section needs — both were empty in Savills' template,
+    # which is what made writing anything here produce #DIV/0! before that change. Previously
+    # deferred by `write-computed-opex-categories-to-deliverable`'s task 2.4 for exactly this reason
+    # — this write site is that deferred task, now unblocked.
+    'opex_repairs': 485,        # ERM    Repairs & Maintenance (materials only)
     'capex_mo': 223,            # EN1    New capital expenditure for MO
     'capex_me': 224,            # EN2    New capital expenditure for ME team
     'capex_public': 225,        # EN3    New capital expenditure for Common area
@@ -345,7 +1488,112 @@ MGMT_FUND_ROWS = {
     'water_testing': 195,       # ESM3   Domestic water testing
     'pool_testing': 197,        # ESM5   Pool water testing (only written if project has a pool)
     'fire_dept_connect': 200,   # ESM8   Connect to HCMC Fire Fighting Dept
+    # Added 2026-09-14, change fill-guideline-required-line-items (Required codes previously left at
+    # the template's blank default with no data-gap reason — see that change's docs/14).
+    'pccc_allowance': 85,       # EMH4   Staff related cost (mandatory ATLĐ/PCCC training, officer allowance)
+    'drinking_water': 101,      # EMA7   Drinking water
+    'env_incident_plan': 143,   # ESC12  Mandatory environmental incident-response plan
+    'wastewater_crosscheck': 210,  # ESM25  Cross-check of wastewater-treatment water quality
+    'asset_insurance': 189,     # ESI1   Risk asset insurance — no figure written, remark-only (see below)
 }
+
+# Cost code each MGMT_FUND_ROWS key must land on — the guard below checks every row on every run
+# (column Y of "2. Budget-Management Fund" carries each row's own code). Verified against the
+# 2027 Resi Budget Form (IT team) template, 2026-09-10, change `rebase-output-onto-25-sheet-form`.
+MGMT_FUND_EXPECTED_CODE = {
+    'mgmt_fee_revenue': 'RM.AP', 'mgmt_fee_developer': 'RM.0A',
+    'mgmt_fee_expense': 'EMH1', 'staff_remainder': 'EMH2',
+    'parking_moto': 'RP1', 'parking_car': 'RP2', 'security': 'ESS1', 'cleaning': 'ESS4',
+    'landscape': 'ESS16', 'pool_salt': 'ESM4', 'water': 'EEW.C', 'electricity': 'EEE.C',
+    'diesel': 'EED.C', 'opex_admin': 'EMA15', 'opex_repairs': 'ERM', 'capex_mo': 'EN1', 'capex_me': 'EN2',
+    'capex_public': 'EN3', 'capex_amenity': 'EN4', 'env_report': 'ESM2', 'water_testing': 'ESM3',
+    'pool_testing': 'ESM5', 'fire_dept_connect': 'ESM8',
+    'pccc_allowance': 'EMH4', 'drinking_water': 'EMA7', 'env_incident_plan': 'ESC12',
+    'wastewater_crosscheck': 'ESM25', 'asset_insurance': 'ESI1',
+}
+
+
+def _assert_leaf_rows(ws, sheet_label, rowmap, expected, code_col=_CODE_COL):
+    """Stop rather than write a figure to whatever row now sits at a hardcoded position.
+
+    Called once at the top of each fill function. If Savills reshapes a sheet, the positions move
+    and the pipeline would silently fill the wrong cost lines — the same failure class that made
+    read_input() go label-based. Every leaf row carries its own cost code in column Y, so each
+    hardcoded position is checked against it before anything is written.
+    """
+    for key, row in rowmap.items():
+        want = expected.get(key)
+        if want is None:
+            continue
+        found = ws.cell(row=row, column=code_col).value
+        found = found.strip() if isinstance(found, str) else found
+        if found != want:
+            raise ValueError(
+                f"'{sheet_label}' row {row} was expected to be cost code {want!r} ('{key}') but "
+                f"carries {found!r}. The template's row layout has changed — re-verify the row map "
+                f"against the current template rather than adjusting this check."
+            )
+
+
+def _eff_headcount(d):
+    """Headcount actually needed to cover a demand row's schedule: 7-day coverage needs 7/6 the
+    staff-per-day (a fixed 1-day-off-in-7 rotation), anything less needs exactly StaffPerDay.
+    Shared by fill_staff_cost_sheet() and _unplaced_positions() — same math, one place."""
+    p, q = d['StaffPerDay'], d['CoverageDays']
+    return math.ceil(p * 7 / 6) if q >= 7 else p
+
+
+# Vietnamese label / short code for a position with no predefined row-group on 'A1. Staff cost' —
+# used only when fill_staff_cost_sheet() gives it a real row (see _A1_UNPLACED_FIRST_ROW). Falls
+# back to the raw English name / its first 2 letters for a position not in this small, known set.
+_UNPLACED_POSITION_VI = {'Reception': 'Lễ tân'}
+_UNPLACED_POSITION_CODE = {'Reception': 'LT'}
+
+# First free row on 'A1. Staff cost 08.2026 (VN)' below its own grand total (row 96) — one blank
+# spacer row (97), then one row per unplaced position. fill_staff_cost_sheet() writes these rows
+# with A1's own exact formula chain (not a Python replica); fill_management_fund_sheet()'s EMH2
+# only needs to know how many rows to SUM, so this row number is the contract between the two
+# (they run in that order inside build_budget(), but a formula reference doesn't require the
+# referenced cell to already hold a value at write time). Change reconcile-summary-with-detail-sheets.
+_A1_UNPLACED_FIRST_ROW = 98
+
+
+def _unplaced_positions(demand):
+    """Demand rows naming a position that is neither an outsourced Security/Cleaning/Landscape
+    contract (SERVICE_CATEGORY_KEYWORDS) nor one of 'A1. Staff cost'\'s own predefined row-groups
+    (STAFF_COST_KEYWORDS / STAFF_COST_AA_KEYWORDS) — today: Reception, which otherwise only
+    appears on 'B1. Lịch Lễ tân' (a duty roster, no payroll math). Grouped by Position name (the
+    same aggregation group_stats() applies to a keyword match) so a multi-shift unplaced role
+    gets one combined row instead of one per shift.
+
+    Returns [(position_name, effective_headcount, monthly_gross)] in first-seen order — this order
+    IS the row order fill_staff_cost_sheet() writes starting at _A1_UNPLACED_FIRST_ROW, and the
+    only thing fill_management_fund_sheet() needs from this list is len(...), to size EMH2's SUM
+    range over those rows.
+    """
+    from generate_project_output import SERVICE_CATEGORY_KEYWORDS
+    outsourced_kws = [kw for kws in SERVICE_CATEGORY_KEYWORDS.values() for kw in kws]
+    staff_cost_kws = ([kw for kws in STAFF_COST_KEYWORDS.values() for kw in kws]
+                      + [kw for kws in STAFF_COST_AA_KEYWORDS.values() for kw in kws])
+    unplaced_rows = [d for d in demand
+                     if not any(kw in d['Position'].lower() for kw in outsourced_kws)
+                     and not any(kw in d['Position'].lower() for kw in staff_cost_kws)]
+    order, grouped = [], {}
+    for d in unplaced_rows:
+        grouped.setdefault(d['Position'], []).append(d)
+        if d['Position'] not in order:
+            order.append(d['Position'])
+    result = []
+    for name in order:
+        rows_for_name = grouped[name]
+        total_headcount = sum(_eff_headcount(d) for d in rows_for_name)
+        if total_headcount == 0:
+            continue
+        weighted_daily = (sum(_eff_headcount(d) * d['AvgDailyRate'] for d in rows_for_name)
+                          / total_headcount)
+        monthly_gross = round(weighted_daily * WORKDAYS_PER_MONTH)
+        result.append((name, total_headcount, monthly_gross))
+    return result
 
 
 def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
@@ -369,6 +1617,32 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     the Year-1 (full lump) value. Both choices confirmed with the PM (2026-08-21)."""
     ws = wb['2. Budget-Management Fund']
 
+    # Check every hardcoded leaf position against its own cost code before writing anything.
+    _assert_leaf_rows(ws, '2. Budget-Management Fund', MGMT_FUND_ROWS, MGMT_FUND_EXPECTED_CODE)
+    _assert_leaf_rows(ws, '2. Budget-Management Fund', PRODUCT_REVENUE_ROWS, PRODUCT_REVENUE_EXPECTED_CODE)
+
+    def assert_row_code(key, expected_code):
+        """Stop rather than write to whatever row happens to sit at a hardcoded position.
+
+        Every row in MGMT_FUND_ROWS is a fixed template position. If Savills reshapes the sheet,
+        those positions move and the pipeline would silently fill the wrong cost lines — the same
+        failure class that made read_input() go label-based. The sheet carries each row's own cost
+        code in column Y, so the position can be checked against it before anything is written.
+
+        Applied to the two rows this change adds. The other twenty are unverified: each needs its
+        code read off the real template and confirmed one at a time, which is its own task.
+        """
+        row = MGMT_FUND_ROWS[key]
+        found = ws.cell(row=row, column=_CODE_COL).value
+        found = found.strip() if isinstance(found, str) else found
+        if found != expected_code:
+            raise ValueError(
+                f"'2. Budget-Management Fund' row {row} was expected to be cost code "
+                f"{expected_code!r} ('{key}') but carries {found!r}. The template's row layout has "
+                f"changed, so writing here would put this figure on the wrong cost line. Re-verify "
+                f"MGMT_FUND_ROWS against the current template rather than adjusting this check."
+            )
+
     def write_even_monthly(key, annual_amount, remark=None):
         if annual_amount:
             _write_even_monthly_row(ws, MGMT_FUND_ROWS[key], annual_amount, remark)
@@ -382,8 +1656,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # function's docstring for the source maths this mirrors. ----
     from generate_project_output import (
         NIGHT_SHIFT_CODES, NIGHT_DIFFERENTIAL, SERVICE_CATEGORY_KEYWORDS, SERVICE_EXCLUDE_KEYWORDS,
-        PARKING_FEE_CAR_MONTHLY, PARKING_FEE_MOTO_MONTHLY, EMPLOYER_INSURANCE_RATE,
-        SERVICE_SHIFT_ROLES_PER_POST,
+        PARKING_FEE_CAR_MONTHLY, PARKING_FEE_MOTO_MONTHLY, SERVICE_SHIFT_ROLES_PER_POST,
     )
     from master_comparables import (
         SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
@@ -408,19 +1681,6 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         # employer contribution. Callers choose the basis they need; see position_annual_cost().
         return total
 
-    def position_annual_cost(d):
-        """In-house cost: bare cost plus the employer contribution.
-
-        Employer Social/Health/Unemployment Insurance — real rate, see EMPLOYER_INSURANCE_RATE's
-        definition in generate_project_output.py. Required by input/logic/EXENSIVE LOGIC.xlsx's
-        EMH2 formula; matches build_staff_sheet's 'Annual Total (incl. Employer Insurance)' column
-        so this fill never drifts from it.
-
-        This is the right basis for Savills' own payroll (EMH2). It is NOT the right basis for the
-        outsourced service contracts — see position_annual_cost_outsourced().
-        """
-        return position_bare_annual_cost(d) * (1 + EMPLOYER_INSURANCE_RATE)
-
     def position_annual_cost_outsourced(d):
         """Outsourced cost: the bare cost, with no employer contribution added.
 
@@ -437,23 +1697,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         """
         return position_bare_annual_cost(d)
 
-    per_position = {d['Position']: position_annual_cost(d) for d in demand}
     per_position_outsourced = {d['Position']: position_annual_cost_outsourced(d) for d in demand}
-    staff_grand_total = sum(per_position.values())
-
-    def category_cost(cat, excluded=False, costs=None):
-        keywords = SERVICE_CATEGORY_KEYWORDS[cat]
-        costs = per_position if costs is None else costs
-        return sum(v for pos, v in costs.items()
-                   if any(kw in pos.lower() for kw in keywords)
-                   and (any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS) if excluded
-                        else not any(ex in pos.lower() for ex in SERVICE_EXCLUDE_KEYWORDS)))
-
-    def category_total(cat, costs):
-        total = category_cost(cat, costs=costs)
-        if cat == 'Cleaning':                      # Cleaning splits into line and supervisory rows
-            total += category_cost(cat, excluded=True, costs=costs)
-        return total
 
     # ---- ESS1 / ESS4 / ESS16 priced the way EXENSIVE LOGIC.xlsx says to price them ----
     # The spec's methods are:
@@ -494,42 +1738,74 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     cleaning_cost, n_cln_posts, cln_blend = contract_cost('Cleaning')
     landscape_cost, n_lsc_posts, lsc_blend = contract_cost('Landscape')
 
-    security_loaded = category_total('Security', per_position)
-    cleaning_loaded = category_total('Cleaning', per_position)
-    landscape_loaded = category_total('Landscape', per_position)
-    staff_remainder = staff_grand_total - security_loaded - cleaning_loaded - landscape_loaded
-
-    n_security = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Security']))
-    n_cleaning = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Cleaning']))
-    n_landscape = sum(1 for d in demand if any(kw in d['Position'].lower() for kw in SERVICE_CATEGORY_KEYWORDS['Landscape']))
-
     _CONTRACT_BASIS = (
-        "Method: EXENSIVE LOGIC.xlsx's stated basis for this code — monthly contract x 12, where the "
-        "contract is priced as posts x citywide post rate (Fact_MasterRateCard.csv, SERVICE domain, "
-        "n=1 A&K Tower). NO employer insurance is added: a vendor post price already covers the "
-        "vendor's own staff costs.")
+        "Phương pháp: hợp đồng hàng tháng x 12, trong đó hợp đồng được tính theo số vị trí x đơn giá "
+        "vị trí theo mặt bằng chung thành phố (n=1, A&K Tower). KHÔNG cộng thêm bảo hiểm người sử "
+        "dụng lao động: đơn giá vị trí của nhà thầu đã bao gồm chi phí nhân sự của chính nhà thầu.")
     write_even_monthly('security', security_cost, remark=(
-        f"= {SERVICE_CITYWIDE_RATES['Security']:,.0f} VND/post/month / {SERVICE_SHIFT_ROLES_PER_POST['Security']} "
-        f"shift roles x {sec_blend:.4f} night-shift blend x {n_sec_posts} posts x 12 = "
-        f"{security_cost:,.0f} VND/year. {_CONTRACT_BASIS}"))
+        f"= {SERVICE_CITYWIDE_RATES['Security']:,.0f} VND/vị trí/tháng / {SERVICE_SHIFT_ROLES_PER_POST['Security']} "
+        f"vai trò ca x hệ số ca đêm {sec_blend:.4f} x {n_sec_posts} vị trí x 12 = "
+        f"{security_cost:,.0f} VND/năm. {_CONTRACT_BASIS}"))
     write_even_monthly('cleaning', cleaning_cost, remark=(
-        f"= {SERVICE_CITYWIDE_RATES['Cleaning']:,.0f} VND/post/month / {SERVICE_SHIFT_ROLES_PER_POST['Cleaning']} "
-        f"shift role(s) x {cln_blend:.4f} blend x {n_cln_posts} posts x 12 = {cleaning_cost:,.0f} VND/year. "
-        f"{_CONTRACT_BASIS} The spec's alternative 'm2 x unit price' branch is not used because no "
-        f"per-m2 cleaning rate exists in the source data.")) 
+        f"= {SERVICE_CITYWIDE_RATES['Cleaning']:,.0f} VND/vị trí/tháng / {SERVICE_SHIFT_ROLES_PER_POST['Cleaning']} "
+        f"vai trò ca x hệ số {cln_blend:.4f} x {n_cln_posts} vị trí x 12 = {cleaning_cost:,.0f} VND/năm. "
+        f"{_CONTRACT_BASIS} Phương án thay thế của tiêu chuẩn ('m² x đơn giá') không được sử dụng vì "
+        f"không có đơn giá vệ sinh theo m² trong dữ liệu nguồn."))
     write_even_monthly('landscape', landscape_cost, remark=(
-        f"= {SERVICE_CITYWIDE_RATES['Landscape']:,.0f} VND/post/month / {SERVICE_SHIFT_ROLES_PER_POST['Landscape']} "
-        f"shift role(s) x {lsc_blend:.4f} blend x {n_lsc_posts} posts x 12 = {landscape_cost:,.0f} VND/year. "
-        f"{_CONTRACT_BASIS} (Conditional — 0 and left blank if the project has no garden area.)"))
-    write_even_monthly('staff_remainder', staff_remainder, remark=(
-        f"= Full roster annual cost incl. {EMPLOYER_INSURANCE_RATE:.1%} employer insurance ({staff_grand_total:,.0f}) "
-        f"MINUS Security ({security_loaded:,.0f}) MINUS Cleaning ({cleaning_loaded:,.0f}) MINUS Landscape "
-        f"({landscape_loaded:,.0f}) — those 3 are priced separately above (ESS1/ESS4/ESS16) so they aren't "
-        f"double-counted here. = {staff_remainder:,.0f} VND/year. This is Savills' own payroll, so it DOES "
-        f"include the {EMPLOYER_INSURANCE_RATE:.1%} employer insurance contribution. The figures subtracted here "
-        f"are the loaded equivalents of those 3 positions — the ESS rows above show them on their outsourced "
-        f"basis, which is lower; the difference is the employer contribution Savills does not pay on a vendor "
-        f"contract. Source: Staff (Roster) sheet."))
+        f"= {SERVICE_CITYWIDE_RATES['Landscape']:,.0f} VND/vị trí/tháng / {SERVICE_SHIFT_ROLES_PER_POST['Landscape']} "
+        f"vai trò ca x hệ số {lsc_blend:.4f} x {n_lsc_posts} vị trí x 12 = {landscape_cost:,.0f} VND/năm. "
+        f"{_CONTRACT_BASIS} (Có điều kiện — bằng 0 và để trống nếu dự án không có diện tích sân vườn.)"))
+    # ---- EMH2 "Staff cost for Savills" — driven ENTIRELY from the deliverable's own real payroll
+    # calculator, 'A1. Staff cost 08.2026 (VN)', instead of the old Python headcount x rate x
+    # EMPLOYER_INSURANCE_RATE shortcut (docs/09-template-map.md §9 finding 2; change
+    # reconcile-summary-with-detail-sheets, design D2). fill_staff_cost_sheet() has already placed
+    # every in-house position it recognises onto A1's own predefined row-groups, AND given any
+    # position with no row-group there (today: Reception — it otherwise only appears on
+    # 'B1. Lịch Lễ tân', a duty roster with no payroll math) a REAL row of its own starting at
+    # _A1_UNPLACED_FIRST_ROW, using A1's own exact formula chain (not a Python replica) — so its
+    # cost is a live, auditable, editable Excel calculation, not a number hidden inside this
+    # formula string. This cell only needs to know how many such rows exist, to size the SUM range.
+    unplaced = _unplaced_positions(demand)
+    top_up_names = [name for name, _hc, _mg in unplaced]
+    # fill_staff_cost_sheet() writes ONE ROW PER HEADCOUNT UNIT (2 headcount => 2 rows), the same
+    # per-person write fill_group() does for every other position — so the SUM range here must span
+    # total headcount, not the number of distinct position names, or it silently drops headcount.
+    total_unplaced_rows = sum(hc for _n, hc, _mg in unplaced)
+
+    assert_row_code('staff_remainder', 'EMH2')
+    emh2_row = MGMT_FUND_ROWS['staff_remainder']
+    ws.cell(row=emh2_row, column=3, value='Monthly')                    # C — Frequency
+    a1_ref = "'A1. Staff cost 08.2026 (VN)'"
+    if total_unplaced_rows:
+        last_unplaced_row = _A1_UNPLACED_FIRST_ROW + total_unplaced_rows - 1
+        unplaced_range = (f"{a1_ref}!AC{_A1_UNPLACED_FIRST_ROW}"
+                          if total_unplaced_rows == 1 else
+                          f"SUM({a1_ref}!AC{_A1_UNPLACED_FIRST_ROW}:AC{last_unplaced_row})")
+        emh2_formula = f"=({a1_ref}!AC96+{unplaced_range}*12)/12"
+    else:
+        emh2_formula = f"={a1_ref}!AC96/12"
+    f_cell = ws.cell(row=emh2_row, column=6, value=emh2_formula)        # F — Unit Price (formula)
+    f_cell.number_format = _NUM_FMT
+    for col in range(8, 20):                                            # H:S — same formula, shown
+        c = ws.cell(row=emh2_row, column=col, value=emh2_formula)       # every month for transparency
+        c.number_format = _NUM_FMT
+    _write_remark(ws, emh2_row, (
+        f"= 'A1. Staff cost 08.2026 (VN)'!AC96 — tổng quỹ lương thực tế cả năm của chính trang này, "
+        f"cho mọi vị trí theo đúng nhóm dòng đã định sẵn (lương tháng 13, BHXH/BHYT người sử dụng "
+        f"lao động 20,5% và Bảo hiểm thất nghiệp 1% đã tính trần, Kinh phí công đoàn 2%, các khoản "
+        f"phụ cấp riêng nhỏ hơn của từng vị trí, toàn bộ chi phí người sử dụng lao động cộng thêm "
+        f"10% phí quản lý của Savills)"
+        + (f" + dòng {_A1_UNPLACED_FIRST_ROW}"
+           + (f"-{last_unplaced_row}" if total_unplaced_rows > 1 else '')
+           + f" của CÙNG trang này ({', '.join(top_up_names)}, {total_unplaced_rows} người) — các vị "
+             f"trí mà bố cục chuẩn của A1 không có sẵn nhóm dòng, được định giá tại đó bằng công thức "
+             f"sống GIỐNG HỆT mọi dòng khác ở trên (không phải một số ước tính Python riêng)."
+           if total_unplaced_rows else
+           ". Mọi vị trí nội bộ đều đã có nhóm dòng trên A1 — không còn vị trí nào cần thêm.") +
+        f" Bảo vệ/Vệ sinh/Cây xanh vẫn không tính vào đây — đó là các hợp đồng thuê ngoài được định "
+        f"giá riêng ở trên (ESS1/ESS4/ESS16). Cách tính này thay thế công thức tắt trước đây (số "
+        f"người x đơn giá x 21,5%), vốn tính thấp hơn chi phí nhân sự thực tế trên chính trang lương "
+        f"của bản giao nộp 638.780.247 VND, theo ví dụ Wayne Tower."))
 
     # ---- Management fee revenue, priced PER PRODUCT ----
     # Every product the project reports area for gets its own real rate and its own template row,
@@ -537,38 +1813,85 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # (derive_product_rate, falling back to the Apartment rate) so the two workbooks agree by
     # construction. Before 2026-09-08 only Apartment was priced here, which understated the
     # deliverable's revenue against the analysis by 1,930,800,000 VND (14.8%) — finding X-01.
-    from master_comparables import derive_product_rate, nearest_comparables, MASTER_COMPARABLES
-    all_ranked = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'],
-                                     n=len(MASTER_COMPARABLES))
-    # The fallback is the Apartment rate as derive_product_rate computes it — NOT the derive_mgmt_rate
-    # figure passed in as `derived_rate`. The two are different functions and give different answers
-    # (on a test project: 14,750 vs 15,675). generate_project_output.py falls back to the
-    # derive_product_rate value, so using anything else here makes the two workbooks disagree on
-    # every fallback-priced product.
-    apt_rate, _apt_used, _apt_note = derive_product_rate(all_ranked, 'Apartment', n=2)
+    from master_comparables import derive_product_rate, derive_product_rate_capped, MASTER_COMPARABLES
+    # Rank comparables by TOTAL building NFA — the measure master_comparables.py stores for every
+    # candidate and the measure generate_project_output.py already uses. Ranking this project's
+    # whole-building size against comparables' whole-building size is like-for-like; the old
+    # project['apartment_nfa'] here compared an apartment-only area against whole buildings, so the
+    # deliverable and the analysis could pick different comparables for the same project — the open
+    # half of finding X-01 / backlog B3 (change `unify-revenue-basis-across-outputs`).
+    # The fallback is the Apartment rate as derive_product_rate_capped computes it — NOT the
+    # derive_mgmt_rate figure passed in as `derived_rate`. The two are different functions and give
+    # different answers (on a test project: 14,750 vs 15,675). generate_project_output.py falls back
+    # to the same derive_product_rate_capped value, so using anything else here makes the two
+    # workbooks disagree on every fallback-priced product. `_capped` (task 2.5, 2026-09-16) also
+    # applies your within-1km ±20% rate-swing cap — see master_comparables.py's own docstring.
+    apt_rate, _apt_used, _apt_note, all_ranked = derive_product_rate_capped(
+        project['total_nfa'], project['name'], 'Apartment',
+        input_district=project.get('district'), input_city=project.get('city'),
+        input_lat=project.get('lat'), input_lon=project.get('lon'))
     if apt_rate is None:
         apt_rate = derived_rate
-    mgmt_fee_annual = 0.0
+    # Occupancy ramp (change `ramp-occupancy-scaled-lines`, catalogue: these codes are
+    # occupancy_scaled). A new building opens the year part-empty, so collected management fee rises
+    # month by month with the resident fill-up curve (fill_curve.year1_fills — 0% -> 50% over year 1,
+    # the same curve the internal analysis uses). RM.0A below is the mirror: the developer pays the
+    # fee on units not yet handed over, so collected + developer = the full fee every month.
+    fills = year1_fills()
+    # Vietnamese, matching '1. Summary'!K's own composed-narrative wording conventions (change
+    # localize-line-level-remarks, 2026-09-15 — was English; see design.md D1 for the pattern this
+    # follows). {pct} is pre-formatted (e.g. "50%") so the same note serves both the product-revenue
+    # loop (FILL_ANCHORS[1][1]) and, unchanged, any future caller that passes a different anchor.
+    def _anchor_note_vi(pct):
+        return (f"Phân bổ theo 12 tháng theo đường cong lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư "
+                f"dân' — một giả định đã công bố (0% khi bàn giao, tăng tuyến tính đến {pct:.0%} vào "
+                f"cuối năm vận hành thứ nhất), không phải số liệu thực tế riêng của dự án này. Giả "
+                f"định ngân sách này tính cho các tháng vận hành 1-12.")
+    _anchor_note = _anchor_note_vi(FILL_ANCHORS[1][1])
+    mgmt_fee_annual = 0.0        # full-occupancy annual — drives EMH1's %; unchanged by the ramp
+    total_full_monthly = 0.0     # sum of (rate x NFA) over products — the base for RM.0A
     for product, row in PRODUCT_REVENUE_ROWS.items():
         nfa = (project['products'].get(product) or {}).get('nfa')
         if not nfa:
             continue                      # no area for this product — leave the row blank, not 0
-        rate, used, _note = derive_product_rate(all_ranked, product, n=2)
-        is_fallback = rate is None
-        if is_fallback:
-            rate = apt_rate
-        annual = rate * nfa * 12
+        if product == 'Apartment':
+            # Reuse apt_rate/_apt_used as-is (already derive_product_rate_capped()'s output, task
+            # 2.5) rather than recomputing via the uncapped derive_product_rate() below —
+            # recomputing here would silently overwrite the swing cap on this one row with the
+            # uncapped figure (caught 2026-09-16: RM.AP disagreed with '0. Info'!I8 and the internal
+            # analysis before this fix).
+            rate, used, is_fallback = apt_rate, _apt_used, False
+        else:
+            rate, used, _note = derive_product_rate(all_ranked, product, n=2)
+            is_fallback = rate is None
+            if is_fallback:
+                rate = apt_rate
+        full_monthly = rate * nfa
+        annual = full_monthly * 12
         mgmt_fee_annual += annual
-        basis = (f"Rate source: {len(used)} real comparable(s) — " + ', '.join(c['name'] for c in used)
+        total_full_monthly += full_monthly
+        product_vi = _PRODUCT_VI_LABEL.get(product, product)
+        basis = (f"Nguồn đơn giá: {len(used)} dự án tham chiếu thực tế — " + ', '.join(c['name'] for c in used)
                  if used else
-                 f"FALLBACK — no comparable in the master table has a real {product} rate, so this "
-                 f"project's derived Apartment rate is substituted. This is NOT a {product}-specific "
-                 f"rate.")
-        _write_even_monthly_row(ws, row, annual, (
-            f"= {product} rate ({rate:,.0f} VND/m²/month) x {product} NFA ({nfa:,.0f} m²) x 12 "
-            f"= {annual:,.0f} VND/year. {basis}"))
+                 f"DỰ PHÒNG — không có dự án tham chiếu nào trong danh sách chính có đơn giá thực tế "
+                 f"cho {product_vi}, nên đơn giá Apartment của dự án này được dùng thay thế. Đây "
+                 f"KHÔNG phải đơn giá riêng cho {product_vi}.")
+        _write_ramped_row(ws, row, [full_monthly * f for f in fills], (
+            f"= Đơn giá {product_vi} ({rate:,.0f} VND/m²/tháng) x Diện tích tính phí {product_vi} "
+            f"({nfa:,.0f} m²) = {full_monthly:,.0f} VND/tháng khi lấp đầy 100% ({annual:,.0f} "
+            f"VND/năm). {_anchor_note} {basis}"))
     if not mgmt_fee_annual:
         raise ValueError('No product has any chargeable area — nothing to price.')
+
+    # RM.0A — the developer's management fee on units not yet handed over. Mirror of the curve:
+    # (full monthly fee for ALL units) x (1 - fill) each month, so RM + RM.0A = the full fee monthly.
+    developer_monthly = [total_full_monthly * (1 - f) for f in fills]
+    assert_row_code('mgmt_fee_developer', 'RM.0A')
+    _write_ramped_row(ws, MGMT_FUND_ROWS['mgmt_fee_developer'], developer_monthly, (
+        f"= Tổng phí quản lý đầy đủ cho toàn bộ căn ({total_full_monthly:,.0f} VND/tháng) x (100% - "
+        f"tỷ lệ lấp đầy%) mỗi tháng — chủ đầu tư chi trả phần phí cho các căn chưa bàn giao. Giảm về "
+        f"0 khi tòa nhà lấp đầy dần. {_anchor_note} "
+        f"Tổng năm 1: {sum(developer_monthly):,.0f} VND; RM + RM.0A mỗi tháng = tổng phí đầy đủ."))
     # EMH1 (Savills' own fee) is NOT the collected management fee — that's the fund's REVENUE, most
     # of which is meant to pay for the real staff/OPEX/Capex costs already itemized elsewhere on
     # this sheet. Before 2026-08-28 this wrongly set EMH1 = mgmt_fee_annual (the entire collected
@@ -580,54 +1903,314 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     if project.get('savills_fee_fixed_monthly'):
         savills_fee_annual = project['savills_fee_fixed_monthly'] * 12
         write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
-            f"= Real fixed fee (Project Info!B34) {project['savills_fee_fixed_monthly']:,.0f} VND/month x 12 "
-            f"= {savills_fee_annual:,.0f} VND/year."))
+            # Cell reference corrected to B36 (was B34) — the field moved when Gate Count / Number
+            # of Pools were regrouped into their own sections (2026-09-15); this remark had not been
+            # updated to match. Also localized to Vietnamese in the same pass (localize-line-level-
+            # remarks) — this specific remark was not in that change's original 50-code inventory
+            # (it never fires for a project with no Savills contract entered, which every project
+            # scanned for that inventory was), but is the same class of client-facing English text
+            # the change exists to remove, so it is included here rather than left as a gap.
+            f"= Phí cố định thực tế (Project Info!B36) {project['savills_fee_fixed_monthly']:,.0f} "
+            f"VND/tháng x 12 = {savills_fee_annual:,.0f} VND/năm."))
     elif project.get('savills_fee_pct'):
         savills_fee_annual = mgmt_fee_annual * project['savills_fee_pct']
         write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
-            f"= Real fee rate (Project Info!B35) {project['savills_fee_pct']:.1%} x TOTAL Management Fee "
-            f"Revenue across every product priced above (RM.AP/RM.OT/RM.SH/... rows 14-22) "
-            f"{mgmt_fee_annual:,.0f} = {savills_fee_annual:,.0f} VND/year."))
+            f"= Tỷ lệ phí thực tế (Project Info!B37) {project['savills_fee_pct']:.1%} x TỔNG Doanh "
+            f"thu phí quản lý của mọi sản phẩm đã định giá ở trên (RM.AP/RM.OT/RM.SH/... hàng 14-22) "
+            f"{mgmt_fee_annual:,.0f} = {savills_fee_annual:,.0f} VND/năm."))
     # else: left blank — no real contract term entered yet (Project Info!B34/B35 both empty).
 
-    # ---- Parking Fee revenue (real rate x real slot counts, at 100% occupancy — see
-    # build_additional_revenue_sheet's docstring for why that's a ceiling, not a realistic average) ----
+    # ---- Monthly parking revenue (RP1 motorbike, RP2 car — the template subtotals these into RPa).
+    # Occupancy-scaled (catalogue): bays x monthly rate x parking fill %(month). Parking fill tracks
+    # the resident curve, ~2x faster where bays < units. There is no developer top-up for parking, so
+    # unlike RM this genuinely drops in year 1. ----
+    units_for_parking = project.get('apartment_units') or 0
     moto_slots = project.get('moto_slots') or 0
     car_slots = project.get('car_slots') or 0
-    parking_moto_annual = PARKING_FEE_MOTO_MONTHLY * moto_slots * 12
-    parking_car_annual = PARKING_FEE_CAR_MONTHLY * car_slots * 12
-    write_even_monthly('parking_moto', parking_moto_annual, remark=(
-        f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/month (real rate, A&K Tower's own proposed parking price) x "
-        f"{moto_slots:,.0f} motorbike slots (Project Info) x 12 = {parking_moto_annual:,.0f} VND/year. "
-        f"At 100% occupancy — a ceiling, not a realistic average (no real occupancy data exists)."))
-    write_even_monthly('parking_car', parking_car_annual, remark=(
-        f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/month (real rate, A&K Tower's own proposed parking price) x "
-        f"{car_slots:,.0f} car slots (Project Info) x 12 = {parking_car_annual:,.0f} VND/year. "
-        f"At 100% occupancy — a ceiling, not a realistic average (no real occupancy data exists)."))
+    moto_full_monthly = PARKING_FEE_MOTO_MONTHLY * moto_slots
+    car_full_monthly = PARKING_FEE_CAR_MONTHLY * car_slots
+    moto_fills = parking_fills(moto_slots, units_for_parking)
+    car_fills = parking_fills(car_slots, units_for_parking)
+
+    def _parking_note(slots, units, ramp_faster):
+        base = ("phân bổ theo đường cong lấp đầy bãi xe tại trang 'Tiến độ lấp đầy bãi xe' (bám "
+                "theo đường cong cư dân, 0% -> khoảng 50% trong năm vận hành thứ nhất)")
+        return base + (" — nhanh gấp khoảng 2 lần tốc độ lấp đầy cư dân do số chỗ đậu ít hơn số căn hộ"
+                       if ramp_faster else "") + "."
+
+    _write_ramped_row(ws, MGMT_FUND_ROWS['parking_moto'], [moto_full_monthly * f for f in moto_fills], (
+        f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
+        f"Tower) x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
+        f"VND/tháng khi lấp đầy 100%. {_parking_note(moto_slots, units_for_parking, bool(moto_slots and units_for_parking and moto_slots < units_for_parking))} "
+        f"Tổng năm 1: {sum(moto_full_monthly * f for f in moto_fills):,.0f} VND."))
+    _write_ramped_row(ws, MGMT_FUND_ROWS['parking_car'], [car_full_monthly * f for f in car_fills], (
+        f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
+        f"Tower) x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng "
+        f"khi lấp đầy 100%. {_parking_note(car_slots, units_for_parking, bool(car_slots and units_for_parking and car_slots < units_for_parking))} "
+        f"Tổng năm 1: {sum(car_full_monthly * f for f in car_fills):,.0f} VND."))
+
+    # ---- Parking allocation weights (BM11/BN11) — change fix-parking-allocation-divide-by-zero.
+    # 351 rows on this sheet carry '=IF(BK>0, BK*BM11/SUM(BM11:BN11), 0)'-shaped formulas (monthly
+    # vs. casual/visitor parking split). Savills' template ships these two weight cells EMPTY, so
+    # the denominator is 0 the moment any of those rows' own BK goes positive — dormant today only
+    # because BK routes through '0. Info'!D12 (parking area), which this pipeline never fills; the
+    # one exception is ERM (row 485), whose BK bypasses that guard, which is why it already failed
+    # before this change (see design.md D1-D2 and this change's proposal.md for the full account).
+    #
+    # Monthly half: RP1+RP2, exactly what was just written above — no new derivation. Casual half:
+    # checked the reference data first (task 2.1) — Costing_Method_Catalogue.csv's own RP5/RP6
+    # entries require a "visitor volume assumption" nothing in this pipeline's real data supplies,
+    # so there is no basis to write anything but 0. A 100/0 split is arithmetically defined and
+    # honestly labelled; a guessed ratio would not be.
+    #
+    # Only written when both cells are genuinely empty — a project that already carries its own real
+    # weights (however they got there) is never overwritten.
+    _bm11, _bn11 = ws['BM11'], ws['BN11']
+    if _bm11.value in (None, '') and _bn11.value in (None, ''):
+        _bm11.value = moto_full_monthly + car_full_monthly
+        _bn11.value = 0
+        _bm11.comment = Comment(
+            "Monthly-parking allocation weight — RP1 (motorbike) + RP2 (car) monthly parking revenue, "
+            "the same figures written above. Casual/visitor weight (BN11) is 0: no real basis exists "
+            "for that split (Costing_Method_Catalogue.csv's RP5/RP6 require a 'visitor volume "
+            "assumption' this pipeline has no data for) — 100% of the allocation therefore goes to "
+            "monthly parking, not a guessed ratio. Written only because these cells were empty; a "
+            "project's own real weights, if entered, are never overwritten.",
+            'Budget Planning Agent')
+    # Fail loudly rather than ship a workbook whose 351 allocation rows silently depend on whichever
+    # ones happened to be written this run (design.md D2) — this is the same class of guard as
+    # assert_row_code() elsewhere in this file, just for a template defect instead of a row-position
+    # drift.
+    if (_bm11.value or 0) + (_bn11.value or 0) == 0:
+        raise ValueError(
+            "'2. Budget-Management Fund'!BM11:BN11 (parking allocation weights) sum to zero. 351 rows "
+            "on this sheet divide by this sum whenever their own BK is positive — an undefined "
+            "denominator would reach the client the moment any of those rows fires. Refusing to "
+            "produce a deliverable rather than risk a #DIV/0! that depends on which cost rows this "
+            "particular run happened to write. See openspec/changes/fix-parking-allocation-divide-by-"
+            "zero for the full account."
+        )
+
+    # ---- Per-row area-basis reference (BG<row>/BH<row>) — scope expanded into this same change
+    # (2026-09-17) after proving the BM11/BN11 fix on the actual triggering state (a non-zero parking
+    # area) and finding 6 rows STILL producing #DIV/0!, through a different mechanism than BM11/BN11.
+    #
+    # Every one of the 356 rows carrying the BM/BN allocation formula also has its own BG<row>/BH<row>
+    # cells, and every one of them — 350 out of 356 — is a formula reading the SAME shared reference
+    # cells: '=$BG$10' / '=$BH$10' (confirmed by direct inspection, not assumed: RM.AP/RM.OT/.../RM.KG
+    # and 340+ others all carry exactly this). BK<row> (and BJ<row>) divide by
+    # SUM($BG<row>:$BH<row>), so a row missing this reference divides by zero the moment its own AL
+    # (cost basis) is positive — independent of whether BM11/BN11 above are populated.
+    #
+    # 6 rows are missing it: EMH1/EMH2/EMH3 (Savills management-fee-family codes), VAT, CIT1a/CIT1b
+    # (tax codes), and ERM (row 485) — the row that originally motivated this whole change. ERM's own
+    # BK reads a different cell directly and does not depend on BG/BH (proposal.md's own finding), so
+    # it was not erroring from THIS cause — but it is still missing the same reference every sibling
+    # row carries, which is corrected here for the same reason the others are: consistency with the
+    # template's own established pattern, not just chasing today's visible symptom.
+    #
+    # Detected dynamically (scan for either of the two real signals a row belongs to this family,
+    # not a hardcoded row list) so this does not silently stop working if a future template revision
+    # shifts rows — same reasoning as the BM11/BN11 guard just above.
+    #
+    # Two signals, needed together — found only by testing the actual triggering state end-to-end
+    # and following each still-erroring cell to its real cause, not by reasoning about the template
+    # in the abstract:
+    #   (a) BM or BN references the shared $BM$11/$BN$11 weight (the normal, direct-formula shape
+    #       350 of 356 rows already have) — catches ERM (row 485) too: its own BJ/BK read a
+    #       different cell and never divide by BG/BH at all (proposal.md's own finding, and why it
+    #       was the one row that already failed before this change), but its BM/BN still follow this
+    #       shape, and leaving its BG/BH blank when every one of its 355 siblings has the real
+    #       reference is the same inconsistency this fix corrects everywhere else.
+    #   (b) BJ or BK itself divides by SUM($BG<row>:$BH<row>) — catches VAT (row 498), whose BM/BN
+    #       are SUBTOTAL() rollups of child rows rather than the direct formula, so signal (a) alone
+    #       misses it even though its own BJ/BK have the exact same defect as the other 5.
+    def _row_needs_bg_bh_reference(_r):
+        _bm = ws.cell(row=_r, column=65).value  # BM
+        _bn = ws.cell(row=_r, column=66).value  # BN
+        _bj = ws.cell(row=_r, column=62).value  # BJ
+        _bk = ws.cell(row=_r, column=63).value  # BK
+        _refs_shared_weight = any(
+            isinstance(_f, str) and ('$BM$11' in _f.replace(' ', '') or '$BN$11' in _f.replace(' ', ''))
+            for _f in (_bm, _bn)
+        )
+        _divides_by_bg_bh = any(
+            isinstance(_f, str) and 'SUM($BG' in _f.replace(' ', '') for _f in (_bj, _bk)
+        )
+        return _refs_shared_weight or _divides_by_bg_bh
+
+    _bg_bh_fixed_rows = []
+    for _r in range(11, ws.max_row + 1):
+        if not _row_needs_bg_bh_reference(_r):
+            continue
+        _bg_cell, _bh_cell = ws.cell(row=_r, column=59), ws.cell(row=_r, column=60)  # BG, BH
+        if _bg_cell.value in (None, '') and _bh_cell.value in (None, ''):
+            _bg_cell.value = '=$BG$10'
+            _bh_cell.value = '=$BH$10'
+            _bg_bh_fixed_rows.append(_r)
+    if _bg_bh_fixed_rows:
+        _bg_cell_first = ws.cell(row=_bg_bh_fixed_rows[0], column=59)
+        _bg_cell_first.comment = Comment(
+            f"Area-basis reference — restored to match the same formula every sibling row on this "
+            f"sheet already carries ('=$BG$10'/'=$BH$10'), missing on this row (and "
+            f"{len(_bg_bh_fixed_rows) - 1} other row(s): {_bg_bh_fixed_rows[1:]}) in Savills' own "
+            f"template. Without it, this row's BJ/BK divide by an empty SUM the moment its own cost "
+            f"basis (AL{_bg_bh_fixed_rows[0]}) is positive. See "
+            f"openspec/changes/fix-parking-allocation-divide-by-zero for the full account.",
+            'Budget Planning Agent')
+    # Same "impossible to ship a landmine" guard as BM11/BN11 above, for this second pattern: fail
+    # rather than emit a workbook where any of the 356 rows still has both cells blank — whether from
+    # a template row this scan did not anticipate, or the write above somehow not landing.
+    _still_missing = [
+        _r for _r in range(11, ws.max_row + 1)
+        if _row_needs_bg_bh_reference(_r)
+        and ws.cell(row=_r, column=59).value in (None, '')
+        and ws.cell(row=_r, column=60).value in (None, '')
+    ]
+    if _still_missing:
+        raise ValueError(
+            f"'2. Budget-Management Fund' rows {_still_missing} still have both BG and BH blank after "
+            f"the area-basis-reference fix — their own BJ/BK would divide by zero the moment their "
+            f"cost basis is positive. Refusing to produce a deliverable. See "
+            f"openspec/changes/fix-parking-allocation-divide-by-zero for the full account."
+        )
+
+    # Show the resident and parking curves on the deliverable's two fill-up sheets.
+    _populate_fillup_sheets(
+        wb, apt_units=project.get('apartment_units'),
+        shop_units=(project['products'].get('Shophouse') or {}).get('units'),
+        car_bays=car_slots, moto_bays=moto_slots,
+        resident_fills=fills, car_fills=car_fills, moto_fills=moto_fills,
+        car_rate=PARKING_FEE_CAR_MONTHLY, moto_rate=PARKING_FEE_MOTO_MONTHLY)
+
+    # ---- RO2a "Bank Interest on Savills account" — the ONLY fund leaf where the template's own
+    # default makes G (F x occurrences) disagree with AK (the month-by-month total '1. Summary'
+    # actually reads): C37='Half a Year' (occurrences=2) with F37=5,000,000 but only one payment
+    # month (K37) filled, so G37=10,000,000 while AK37=5,000,000 (docs/09-template-map.md §9 finding
+    # 1; change reconcile-summary-with-detail-sheets, design D1, PM confirmed). No real bank-interest
+    # figure exists for a prospect, so rather than fabricate a second payment month this zeroes the
+    # line — G37=AK37=0, and it becomes a line a PM fills with a real negotiated figure.
+    found = ws.cell(row=37, column=_CODE_COL).value
+    found = found.strip() if isinstance(found, str) else found
+    if found != 'RO2a':
+        raise ValueError(f"'2. Budget-Management Fund' row 37 was expected to be cost code 'RO2a' "
+                         f"but carries {found!r}. Re-verify the row against the current template "
+                         f"rather than adjusting this check.")
+    ws.cell(row=37, column=6, value=0)      # F37 — Unit Price -> G37 = 0 x 2 = 0
+    ws.cell(row=37, column=11, value=None)  # K37 — the one filled payment-month date, cleared
+    _write_remark(ws, 37, (
+        "= 0. Chưa có căn cứ thực tế nào cho khoản thu lãi tiền gửi ngân hàng của Savills đối với một "
+        "dự án chưa có tài khoản. Mẫu chuẩn để dòng này ở chế độ Nửa năm (2 lần/năm) với đơn giá "
+        "5.000.000, nhưng chỉ điền 1 trong 2 tháng thanh toán, nên Tổng giá (G) và Tổng ngân sách năm "
+        "(AK) không khớp nhau (10.000.000 so với 5.000.000) — trường hợp duy nhất bị lệch như vậy "
+        "trên trang này. Đưa về 0 thay vì tự đoán tháng thanh toán thứ hai; PM sẽ điền số liệu thực "
+        "tế khi dự án đã có tài khoản ngân hàng và mức lãi suất thực tế."))
 
     # ---- OPEX (Electricity/Water/Diesel — common-area usage; Repairs & Maintenance and Admin
-    # Expense are single aggregates in this pipeline but split into 30+/19 specific sub-system rows
-    # in the template, so are deliberately left blank rather than forced into one arbitrary row) ----
+    # Expense are single blended aggregates in this pipeline, so each lands on its section's
+    # catch-all leaf (EMA15 / ERM) rather than being spread across the 30+/19 specific sub-system
+    # rows the template itemizes — see MGMT_FUND_ROWS and _CATCH_ALL_NOTE below) ----
     opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
                          pool_volume_m3=project.get('pool_volume_m3'))
+    _opex_yr = _budget_year(wb, year)
+
+    _OPEX_CATEGORY_VI = {
+        'Water': 'Nước', 'Electricity': 'Điện', 'Diesel (Generator Fuel)': 'Dầu diesel (máy phát điện)',
+        'Administrative Expense (office overhead)': 'Chi phí hành chính (chi phí văn phòng)',
+        'Repairs & Maintenance (materials only)': 'Sửa chữa & bảo trì (vật tư)',
+        'Pool Salt': 'Muối hồ bơi',
+    }
 
     def _opex_remark(category):
+        # The VAT-treatment sentence is NOT appended here: every string this returns is passed as a
+        # `remark=` to _write_even_monthly_row / _write_ramped_row, which call _write_remark(), which
+        # calls _append_vat() on the final (already concatenated) text — so the sentence lands once,
+        # at the end, on an incl-VAT run. See _vat_sentence() / _ACTIVE_VAT_SENTENCE.
         entry = opex.get(category, {})
         annual = entry.get('monthly_vnd', 0) * 12
         if entry.get('method'):
             # Pool Salt — a stated formula, not an A&K ratio. estimate_opex() owns both the
             # calculation and its caveats so this workbook and the analysis one cannot disagree.
             return f"{entry['method']} {entry.get('source', '')}".strip()
+        if entry.get('tariff'):
+            # Electricity / Water / Diesel — consumption x tariff (change
+            # cost-energy-from-consumption-and-tariff), narrated in Vietnamese by the same helper
+            # the '1. Summary' composed narrative uses (change localize-line-level-remarks,
+            # 2026-09-15) — this line-level remark and that summary line now read identically
+            # instead of one Vietnamese and one English. The n=1/provenance caveats the old English
+            # text stated explicitly are preserved as a second Vietnamese sentence, since a client
+            # reading only this cell should still see them.
+            date_note = (
+                f" Đơn giá đã lập ngày {entry['tariff_as_of']}, trước năm ngân sách {_opex_yr} — "
+                f"cần xác nhận đây vẫn là đơn giá công bố hiện hành trước khi sử dụng số liệu này."
+                if entry.get('tariff_stale') else
+                f" Đơn giá lập ngày {entry['tariff_as_of']}.")
+            return (
+                _energy_narrative_vi(category, project, _opex_yr) + date_note +
+                f" Mức tiêu thụ lấy theo số liệu thực tế của A&K Tower (n=1 — một dự án tham chiếu "
+                f"duy nhất; thay đổi này tách riêng đơn giá, không mở rộng mẫu tham chiếu), nên việc "
+                f"áp dụng đúng phương pháp của bộ tiêu chuẩn không đồng nghĩa với số liệu đã chính xác.")
+        cat_vi = _OPEX_CATEGORY_VI.get(category, category)
         if entry.get('ratio_per_m2') is not None:
-            return (f"= A&K Tower's real per-m² NFA ratio for {category} ({entry['ratio_per_m2']:,.2f} VND/m²/month, "
-                    f"n=1 — the only residential property with independently-verified OPEX data) x this project's "
-                    f"Total NFA ({project['total_nfa']:,.0f} m²) x 12 = {annual:,.0f} VND/year.")
-        return f"= A&K Tower's real flat monthly reference for {category} x 12 = {annual:,.0f} VND/year (not NFA-scaled)."
+            return (f"= Tỷ lệ VND/m² NFA thực tế của A&K Tower cho {cat_vi} ({entry['ratio_per_m2']:,.2f} "
+                    f"VND/m²/tháng, n=1 — dự án chung cư duy nhất có số liệu OPEX được kiểm chứng độc lập) "
+                    f"x Tổng NFA của dự án này ({project['total_nfa']:,.0f} m²) x 12 = {annual:,.0f} VND/năm.")
+        return (f"= Số liệu tham chiếu cố định hàng tháng thực tế của A&K Tower cho {cat_vi} x 12 = "
+                f"{annual:,.0f} VND/năm (không tính theo NFA).")
 
-    write_even_monthly('water', opex.get('Water', {}).get('monthly_vnd', 0) * 12, remark=_opex_remark('Water'))
-    write_even_monthly('electricity', opex.get('Electricity', {}).get('monthly_vnd', 0) * 12, remark=_opex_remark('Electricity'))
+    # Water and electricity are occupancy-scaled (catalogue): a half-empty building uses less.
+    # Water tracks the resident curve directly; electricity has a floor — lifts, pumps, common-area
+    # lighting and fire systems run regardless — so it never falls below 40% of full load and reaches
+    # full load once the building is ~40% occupied, not only at 100%. Diesel is NOT occupancy-scaled
+    # (it is driven by generator test/backup hours), so it stays flat.
+    water_full_monthly = opex.get('Water', {}).get('monthly_vnd', 0)
+    elec_full_monthly = opex.get('Electricity', {}).get('monthly_vnd', 0)
+    _write_ramped_row(ws, MGMT_FUND_ROWS['water'], [water_full_monthly * f for f in fills], (
+        _opex_remark('Water') + " " + _anchor_note
+        + f" Year-1 total {sum(water_full_monthly * f for f in fills):,.0f} VND (full-occupancy annual "
+        f"{water_full_monthly * 12:,.0f})."))
+    _elec_fills = year1_electricity_fills()
+    _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], [elec_full_monthly * f for f in _elec_fills], (
+        _opex_remark('Electricity')
+        + " Distributed across the 12 months by the resident fill-up curve on sheet "
+        "'Tỷ lệ lấp đầy cư dân', floored at 40% of full monthly load at 0% occupancy and reaching "
+        "full load by ~40% occupancy (a stated assumption). "
+        f"Year-1 total {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND (full-occupancy annual "
+        f"{elec_full_monthly * 12:,.0f})."))
     write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
                         remark=_opex_remark('Diesel (Generator Fuel)'))
+
+    # The other two categories estimate_opex() computes. Until 2026-09-09 both were calculated on
+    # every run, written into the analysis workbook, counted in its Cost Priority ranking — and
+    # never written here, so the two workbooks disagreed by 85,302,456 VND/year on the sample while
+    # nothing warned. Each lands on its section's catch-all leaf; see MGMT_FUND_ROWS.
+    _CATCH_ALL_NOTE = (
+        " Đây là dòng tổng hợp của cả nhóm, không phải chi tiết từng khoản: số liệu là một tỷ lệ gộp "
+        "cho toàn bộ nhóm, không có dữ liệu nào cho biết cách phân bổ cho từng khoản mục riêng, nên "
+        "việc tự chia nhỏ số liệu này sẽ là tạo ra một cơ cấu chi tiết không có thật.")
+
+    assert_row_code('opex_admin', 'EMA15')
+    write_even_monthly('opex_admin',
+                        opex.get('Administrative Expense (office overhead)', {}).get('monthly_vnd', 0) * 12,
+                        remark=(_opex_remark('Administrative Expense (office overhead)') +
+                                _CATCH_ALL_NOTE +
+                                " Bao gồm toàn bộ nhóm Chi phí hành chính (EMA) — điện thoại/internet văn "
+                                "phòng, văn phòng phẩm, mực in, thuê máy photocopy, bưu phí, nước uống, bảo "
+                                "trì thiết bị văn phòng và nhu yếu phẩm ca đêm, được liệt kê chi tiết trong "
+                                "ghi chú dòng nguồn của chính A&K Tower."))
+
+    assert_row_code('opex_repairs', 'ERM')
+    write_even_monthly('opex_repairs',
+                        opex.get('Repairs & Maintenance (materials only)', {}).get('monthly_vnd', 0) * 12,
+                        remark=(_opex_remark('Repairs & Maintenance (materials only)') +
+                                _CATCH_ALL_NOTE +
+                                " Đây là vật tư sửa chữa (phụ tùng, vật liệu), KHÔNG bao gồm hợp đồng bảo "
+                                "trì hệ thống — chi phí hợp đồng bảo trì được chi từ quỹ bảo trì riêng theo "
+                                "Điều 150 Luật Nhà ở 2023, không nằm trong quỹ vận hành này. Lưu ý: chi phí "
+                                "thực tế phát sinh nhiều nhất trong nhóm ER tại các dự án tham chiếu là dịch "
+                                "vụ thông hút bể phốt/bể tự hoại (ERCS) — một dịch vụ, không phải vật tư — "
+                                "nên KHÔNG được tính trong số liệu này; số liệu này chỉ là vật tư sửa chữa."))
+
     if project.get('has_pool'):
         # ESM4 — pool chemicals. estimate_opex() computes this from the project's pool volume by
         # the method the spec states, and carries its own caveats in the remark; see POOL_SALT_*
@@ -638,28 +2221,259 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # ---- Real flat-reference costs from input/logic/EXENSIVE LOGIC.xlsx's Sheet2 (see
     # ENV_REPORT_ANNUAL etc.'s definitions above for the exact citation each one carries) ----
     write_even_monthly('env_report', ENV_REPORT_ANNUAL, remark=(
-        f"{ENV_REPORT_ANNUAL:,.0f} VND/year — real periodic environmental report service quote. "
-        f"Legally required every 6 months per Decree 40/2019/ND-CP Article 47 (air quality & "
-        f"emissions monitoring). Source: input/logic/EXENSIVE LOGIC.xlsx."))
+        f"{ENV_REPORT_ANNUAL:,.0f} VND/năm — báo giá thực tế dịch vụ báo cáo quan trắc môi trường "
+        f"định kỳ. Bắt buộc theo quy định 6 tháng/lần theo Nghị định 40/2019/NĐ-CP Điều 47 (quan "
+        f"trắc chất lượng không khí và khí thải)."))
     water_test_annual = WATER_TEST_SAMPLE_PRICE * WATER_TEST_SAMPLES_PER_ROUND * 2
     write_even_monthly('water_testing', water_test_annual, remark=(
-        f"= {WATER_TEST_SAMPLE_PRICE:,.0f} VND/sample x {WATER_TEST_SAMPLES_PER_ROUND} samples "
-        f"(rooftop tank + basement + 1 random tap) x 2 rounds/year = {water_test_annual:,.0f} VND/year. "
-        f"Real Pasteur Institute HCMC quote; 12 parameters tested per QCVN 01-2024/BYT (eff. Jul 2025). "
-        f"Source: input/logic/EXENSIVE LOGIC.xlsx."))
+        f"= {WATER_TEST_SAMPLE_PRICE:,.0f} VND/mẫu x {WATER_TEST_SAMPLES_PER_ROUND} mẫu "
+        f"(bồn nước mái + tầng hầm + 1 vòi ngẫu nhiên) x 2 đợt/năm = {water_test_annual:,.0f} "
+        f"VND/năm. Báo giá thực tế của Viện Pasteur TP.HCM; kiểm nghiệm 12 chỉ tiêu theo QCVN "
+        f"01-2024/BYT (hiệu lực từ tháng 7/2025)."))
     if project.get('has_pool'):
-        pool_test_annual = POOL_TEST_SAMPLE_PRICE * POOL_TEST_SAMPLES_PER_YEAR
+        # Sampling is per body of water — an adult pool and a children's pool are tested separately
+        # — so this scales with the pool COUNT. Pool chemicals (ESM4) deliberately do not: they are
+        # priced from total pool volume, which already sums every pool. See _resolve_pool_count().
+        pools = project.get('pool_count') or 1
+        pool_test_annual = POOL_TEST_SAMPLE_PRICE * POOL_TEST_SAMPLES_PER_YEAR * pools
+        count_note = (f"{pools} hồ bơi theo phiếu đầu vào" if project.get('pool_count_stated')
+                      else "giả định 1 hồ bơi — phiếu đầu vào xác nhận có hồ bơi nhưng chưa ghi số lượng")
         write_even_monthly('pool_testing', pool_test_annual, remark=(
-            f"= {POOL_TEST_SAMPLE_PRICE:,.0f} VND/sample x {POOL_TEST_SAMPLES_PER_YEAR} samples "
-            f"(4 rounds/year x 2 samples/round, 4 microbiological parameters each incl. E.coli) "
-            f"= {pool_test_annual:,.0f} VND/year. Source: input/logic/EXENSIVE LOGIC.xlsx."))
+            f"= {POOL_TEST_SAMPLE_PRICE:,.0f} VND/mẫu x {POOL_TEST_SAMPLES_PER_YEAR} mẫu "
+            f"(4 đợt/năm x 2 mẫu/đợt, mỗi mẫu 4 chỉ tiêu vi sinh gồm cả E.coli) "
+            f"x {pools} hồ bơi = {pool_test_annual:,.0f} VND/năm. Mỗi hồ bơi được lấy mẫu riêng, "
+            f"nên số liệu này tăng theo số lượng hồ bơi ({count_note}); hóa chất hồ bơi (ESM4) thì "
+            f"không, vì được định giá theo tổng thể tích nước của toàn bộ hồ bơi."))
     fire_dept_annual = FIRE_DEPT_CONNECTION_MONTHLY * 12
     write_even_monthly('fire_dept_connect', fire_dept_annual, remark=(
-        f"= {FIRE_DEPT_CONNECTION_MONTHLY:,.0f} VND/month (GSAFE package G500, fire-alarm transmission "
-        f"to HCMC Fire Fighting Dept) x 12 = {fire_dept_annual:,.0f} VND/year. Real vendor package price, "
-        f"referenced across similar Savills-managed HCMC projects. Applies to HCMC projects specifically — "
-        f"a project outside HCMC would connect to a different local authority at a different real price, "
-        f"not this one. Source: input/logic/EXENSIVE LOGIC.xlsx."))
+        f"= {FIRE_DEPT_CONNECTION_MONTHLY:,.0f} VND/tháng (gói GSAFE G500, truyền tín hiệu báo cháy "
+        f"về Phòng Cảnh sát PCCC TP.HCM) x 12 = {fire_dept_annual:,.0f} VND/năm. Đơn giá gói dịch vụ "
+        f"thực tế, tham chiếu từ các dự án tương tự do Savills quản lý tại TP.HCM. Chỉ áp dụng cho "
+        f"dự án tại TP.HCM — dự án ở tỉnh/thành khác sẽ kết nối với cơ quan PCCC địa phương khác, "
+        f"với đơn giá thực tế khác, không phải đơn giá này."))
+
+    # ---- Added 2026-09-14, change fill-guideline-required-line-items: Required codes that were
+    # left at the template's blank default with no basis stated, but that DO have a real, findable
+    # pricing method (Costing_Method_Catalogue.csv) — see that change's docs/14. ----
+    write_even_monthly('env_incident_plan', ENV_INCIDENT_PLAN_ANNUAL, remark=(
+        f"{ENV_INCIDENT_PLAN_ANNUAL:,.0f} VND/năm (chưa gồm VAT) — kế hoạch ứng phó sự cố môi "
+        f"trường bắt buộc (phòng ngừa & ứng phó tràn đổ/sự cố khẩn cấp), một lần/năm. AI Guideline "
+        f"nêu trực tiếp số liệu tạm tính này; không phải số liệu ước tính theo dự án tham chiếu."))
+    wastewater_crosscheck_annual = WASTEWATER_CROSSCHECK_SAMPLE_PRICE * WASTEWATER_CROSSCHECK_PER_YEAR
+    write_even_monthly('wastewater_crosscheck', wastewater_crosscheck_annual, remark=(
+        f"= {WASTEWATER_CROSSCHECK_SAMPLE_PRICE:,.0f} VND/lần (chưa gồm VAT, theo SCE) x "
+        f"{WASTEWATER_CROSSCHECK_PER_YEAR} lần/năm (hàng quý) = {wastewater_crosscheck_annual:,.0f} "
+        f"VND/năm — đối chiếu chéo với báo cáo chất lượng nước sau xử lý của nhà thầu vận hành "
+        f"trạm xử lý nước thải (STP)."))
+
+    # EMA7 Drinking water — guideline: BQL headcount x 1 L/person/day, 19 L bottle, real vendor
+    # price. BQL headcount = every in-house roster position except Security/Cleaning/Landscape
+    # (those are outsourced contracts, priced separately at ESS1/ESS4/ESS16 — same exclusion
+    # fill_staff_cost_sheet() and EMH2 already use). Covers BQL office and resident-reception water.
+    _bql_exclude_kws = [kw for kws in SERVICE_CATEGORY_KEYWORDS.values() for kw in kws]
+    bql_headcount = sum(_eff_headcount(d) for d in demand
+                         if not any(kw in d['Position'].lower() for kw in _bql_exclude_kws))
+    if bql_headcount:
+        dw_bottles_per_year = bql_headcount * DRINKING_WATER_L_PER_PERSON_DAY * 365 / DRINKING_WATER_BOTTLE_LITERS
+        dw_annual = dw_bottles_per_year * DRINKING_WATER_BOTTLE_PRICE
+        write_even_monthly('drinking_water', dw_annual, remark=(
+            f"= {bql_headcount} nhân sự BQL x {DRINKING_WATER_L_PER_PERSON_DAY} lít/người/ngày x 365 "
+            f"ngày / {DRINKING_WATER_BOTTLE_LITERS} lít/bình x {DRINKING_WATER_BOTTLE_PRICE:,.0f} "
+            f"VND/bình (đã gồm VAT) = {dw_annual:,.0f} VND/năm. Nhân sự BQL = toàn bộ nhân sự nội bộ "
+            f"trừ Bảo vệ/Vệ sinh/Cây xanh (thuê ngoài, định giá riêng). Bao gồm nước dùng tại văn "
+            f"phòng BQL và khu tiếp đón cư dân."))
+
+    # EMH4 PCCC training/allowance — 'A5. Trợ cấp PCCC' is a template sheet with its own real,
+    # already-computed total (1 team leader + 2 deputies + 17 members trained 4x/year, 2 days/
+    # training, at the regional minimum wage x 30% night/holiday-training loading, per NĐ 105/2025/
+    # NĐ-CP) — read live via a formula reference rather than re-computed in Python, same "wire an
+    # existing calculation to its own leaf" pattern as EMH2/A1. The team-size assumption (20 people)
+    # is the template's own fixed default, not scaled by this project's real headcount — disclosed,
+    # not silently accepted as necessarily right for every project size.
+    if 'A5. Trợ cấp PCCC' in wb.sheetnames:
+        pccc_row = MGMT_FUND_ROWS['pccc_allowance']
+        ws.cell(row=pccc_row, column=3, value='Monthly')
+        f_cell = ws.cell(row=pccc_row, column=6, value="='A5. Trợ cấp PCCC'!$H$8/12")
+        f_cell.number_format = _NUM_FMT
+        _write_remark(ws, pccc_row, remark=(
+            # Localized (change localize-line-level-remarks, 2026-09-15) — was English; not in that
+            # change's original task list (found and closed while building its verification check,
+            # task 6.1, so the new comprehensive no-internal-filename scan would not need a special-
+            # case exemption for one known, easily-fixed gap).
+            "= 'A5. Trợ cấp PCCC'!H8 (Tổng cộng/năm) / 12 — khoản huấn luyện ATLĐ/PCCC hàng năm bắt "
+            "buộc và phụ cấp cán bộ PCCC theo NĐ 105/2025/NĐ-CP, tính cho đội hình mặc định của mẫu "
+            "chuẩn (1 đội trưởng + 2 đội phó + 17 thành viên, huấn luyện 4 lần/năm, 2 ngày/đợt) theo "
+            "mức lương tối thiểu vùng cộng 30% phụ cấp huấn luyện ca đêm/ngày lễ. Quy mô đội hình là "
+            "mặc định cố định của mẫu chuẩn, không quy đổi theo số nhân sự thực tế của dự án này."))
+
+    # EMH1 and ESI1 are Required but genuinely have no basis to price from yet — no Savills
+    # management-fee contract terms exist for a prospect, and no insured asset value is captured
+    # anywhere in this pipeline's inputs. Inventing either would be exactly the fabrication this
+    # pipeline avoids elsewhere (Costing_Method_Catalogue.csv states both as deliberately blank
+    # pending real data). Left at zero — remark-only, so the reason is stated rather than silent,
+    # per spec guideline-required-line-items' "genuinely does not apply" scenario.
+    #
+    # BUG FIX (change localize-line-level-remarks, 2026-09-15): this EMH1 write used to be
+    # unconditional, so it silently overwrote the real remark the fixed-fee/% branch above wrote
+    # whenever a PM entered actual Savills contract terms — the FIGURE was always right (a separate
+    # write, earlier), only the explanatory text was wrong, and only when real data existed, which
+    # is exactly the case nobody had tested. Found by testing this change's own EMH1 translation
+    # against a project with Fixed Monthly Fee filled in. Now guarded the same way the fixed-fee/%
+    # branch's own condition already is.
+    if not (project.get('savills_fee_fixed_monthly') or project.get('savills_fee_pct')):
+        _write_remark(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], remark=(
+            "Để ở mức 0: dự án này chưa có điều khoản hợp đồng phí quản lý của Savills (phí cố "
+            "định, điều chỉnh theo CPI, hay theo tỷ lệ NFA). Khi có hợp đồng, sẽ định giá theo căn "
+            "cứ đã xác nhận. Cho đến lúc đó, thặng dư/thâm hụt mà bản giao nộp này thể hiện CHƯA "
+            "bao gồm phí quản lý của chính Savills — không phải con số lợi nhuận thực tế."))
+    _write_remark(ws, MGMT_FUND_ROWS['asset_insurance'], remark=(
+        "Để ở mức 0: chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
+        "hệ thống. Căn cứ ví dụ theo AI Guideline: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
+        "hiểm cháy nổ bắt buộc), theo Nghị định 105/2025/NĐ-CP. Sẽ định giá khi có giá trị tài sản "
+        "thực tế hoặc giá trị hợp đồng do chủ đầu tư cung cấp."))
+
+    # ---- Required codes with genuinely no findable pricing method or real input (checked this
+    # session — Costing_Method_Catalogue.csv either has no entry, or the one entry it has needs
+    # data this pipeline cannot source). Flagged rather than guessed (spec guideline-required-
+    # line-items; docs/14-required-line-item-gaps.md has the full investigation each reason
+    # summarizes). Remark-only — no figure written. Each write verifies its own row still carries
+    # the expected code first, the same protection MGMT_FUND_ROWS gets via _assert_leaf_rows,
+    # inlined here since these are one-off disclosure targets, not WRITE-VALUE rows that belong in
+    # that table. ----
+    # Reasons kept in English here as the engineering record (this dict is not what the client
+    # reads); the VIETNAMESE text the deliverable actually shows is composed below, at write time,
+    # from the same reasons — change localize-line-level-remarks, 2026-09-15. Internal filenames
+    # (Costing_Method_Catalogue.csv, docs/14-required-line-item-gaps.md) and the internal change
+    # name (complete-ai-guideline-remark-coverage) are named here for engineers but never reach the
+    # cell text.
+    _FLAGGED_NO_METHOD = {
+        28:  ('RP3',   "No pricing method recorded for bicycle parking revenue "
+                        "(Costing_Method_Catalogue.csv has RP1/RP2/RP5/RP6 only), and '0. Info' "
+                        "carries no bicycle bay count or rate."),
+        84:  ('EMH3',  "'A1.1 Allowance (From 08.2026)' has the right formula shape for night-"
+                        "shift/holiday allowance, but this pipeline has no established source for "
+                        "which roster positions work night shifts — every count on that sheet is "
+                        "zero. Needs its own investigation, not guessed here."),
+        115: ('EMB1',  "Benchmark-by-comparable, but the only comparable OPEX source in this repo "
+                        "(Fact_OPEX.csv, A&K Tower) has no bank-fee line at all."),
+        118: ('EMB4',  "Benchmark-by-comparable, but the only comparable OPEX source in this repo "
+                        "(Fact_OPEX.csv, A&K Tower) has no audit-fee line at all."),
+        122: ('EMO2',  "Conditional on EMO1 (owners-board salary subsidy), which is itself usually "
+                        "zero in year 1 per the guideline — legitimately zero for a year-1 budget, "
+                        "not a pricing gap."),
+        126: ('EMO6',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        131: ('EM#',   "Management-expense-section contingency row — no formula or percentage "
+                        "basis stated anywhere this pipeline can read."),
+        134: ('ESC1',  "Needs a real count of planned events and their scale — no such input "
+                        "exists anywhere in this pipeline (Staffing Demand, 0. Info, or otherwise)."),
+        135: ('ESC2',  "Catalogue describes the shape (drills/year x cost/drill + a year-1 plan-"
+                        "preparation fee) but gives no real cited VND figure, unlike ESC12/ESM25."),
+        137: ('ESC4',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        138: ('ESC5',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        153: ('ESS9',  "Real method exists (QĐ 67/2025 household-waste tariff table), but pricing "
+                        "it is owned by the separate change complete-ai-guideline-remark-coverage "
+                        "(its B2.6 / waste-collection-costing track) — cross-referenced here, not "
+                        "duplicated."),
+        154: ('ESS10', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
+                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        156: ('ESS12', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
+                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        161: ('ESS17', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
+                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        162: ('ESS18', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
+                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        163: ('ESS19', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
+                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        167: ('ESS23', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
+                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        190: ('ESI2',  "Guideline column blank; the only stated method is 'annual quotation', and "
+                        "no real quotation or coverage limit exists anywhere in this pipeline's "
+                        "inputs."),
+        198: ('ESM6',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        199: ('ESM7',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        201: ('ESM9',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        202: ('ESM10', "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        204: ('ESM12', "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        205: ('ESM13', "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        220: ('ESR',   "Section rollup row — no formula or basis stated anywhere this pipeline can "
+                        "read."),
+        221: ('ES#',   "Section-contingency row — no formula or percentage basis stated anywhere "
+                        "this pipeline can read."),
+        262: ('EE#',   "Energy-section contingency — the catalogue says to link the remark from "
+                        "the corresponding code, but names no actual figure or percentage basis."),
+        480: ('ERCS1', "Frequency x unit-cost, but the 'benchmark unit cost' has no real cited "
+                        "source anywhere in this pipeline."),
+    }
+    # Vietnamese reason for each code above, keyed by code (not row, so the pairing survives a
+    # template row-shift and _assert_row_code below still catches a real mismatch). Kept separate
+    # from the English dict rather than merged into it, so the engineering reason (which may cite a
+    # filename) and the client-facing reason (which must not) can never accidentally swap.
+    _FLAGGED_NO_METHOD_VI = {
+        'RP3':   "Chưa có phương pháp định giá cho doanh thu giữ xe đạp, và '0. Info' không có số "
+                 "chỗ hay đơn giá giữ xe đạp.",
+        'EMH3':  "Trang 'A1.1 Allowance (From 08.2026)' đã có đúng dạng công thức tính phụ cấp ca "
+                 "đêm/ngày lễ, nhưng hệ thống chưa có nguồn xác định vị trí nào làm ca đêm — mọi số "
+                 "liệu trên trang đó hiện đang bằng 0. Cần khảo sát riêng, không tự đoán tại đây.",
+        'EMB1':  "Định giá theo dự án tham chiếu, nhưng nguồn OPEX tham chiếu duy nhất hiện có "
+                 "(A&K Tower) không có dòng phí ngân hàng nào.",
+        'EMB4':  "Định giá theo dự án tham chiếu, nhưng nguồn OPEX tham chiếu duy nhất hiện có "
+                 "(A&K Tower) không có dòng phí kiểm toán nào.",
+        'EMO2':  "Phụ thuộc vào EMO1 (hỗ trợ lương Ban quản trị), khoản này thường bằng 0 trong năm "
+                 "đầu theo AI Guideline — hợp lý khi bằng 0 cho ngân sách năm 1, không phải thiếu "
+                 "phương pháp định giá.",
+        'EMO6':  "Chưa có phương pháp định giá được ghi nhận.",
+        'EM#':   "Dòng dự phòng của nhóm Chi phí quản lý — không có công thức hay tỷ lệ phần trăm "
+                 "nào được nêu rõ mà hệ thống có thể đọc được.",
+        'ESC1':  "Cần số liệu thực tế về số sự kiện dự kiến và quy mô — hiện chưa có đầu vào này ở "
+                 "bất kỳ đâu trong hệ thống.",
+        'ESC2':  "Đã có mô tả cách tính (số đợt diễn tập/năm x chi phí/đợt + phí lập kế hoạch năm "
+                 "1) nhưng chưa có số liệu VND thực tế được trích dẫn, khác với ESC12/ESM25.",
+        'ESC4':  "Chưa có phương pháp định giá được ghi nhận.",
+        'ESC5':  "Chưa có phương pháp định giá được ghi nhận.",
+        'ESS9':  "Đã có phương pháp thực tế (bảng giá rác sinh hoạt theo QĐ 67/2025), nhưng việc "
+                 "định giá thuộc một hạng mục công việc đang triển khai riêng — chỉ ghi chú tham "
+                 "chiếu tại đây, không làm trùng lặp.",
+        'ESS10': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
+                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESS12': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
+                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESS17': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
+                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESS18': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
+                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESS19': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
+                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESS23': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
+                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESI2':  "Cột hướng dẫn để trống; phương pháp duy nhất được nêu là 'báo giá hàng năm', "
+                 "nhưng chưa có báo giá thực tế hay hạn mức bảo hiểm nào trong dữ liệu đầu vào.",
+        'ESM6':  "Chưa có phương pháp định giá được ghi nhận.",
+        'ESM7':  "Chưa có phương pháp định giá được ghi nhận.",
+        'ESM9':  "Chưa có phương pháp định giá được ghi nhận.",
+        'ESM10': "Chưa có phương pháp định giá được ghi nhận.",
+        'ESM12': "Chưa có phương pháp định giá được ghi nhận.",
+        'ESM13': "Chưa có phương pháp định giá được ghi nhận.",
+        'ESR':   "Dòng tổng hợp của nhóm — không có công thức hay căn cứ nào được nêu rõ mà hệ "
+                 "thống có thể đọc được.",
+        'ES#':   "Dòng dự phòng của nhóm — không có công thức hay tỷ lệ phần trăm nào được nêu rõ "
+                 "mà hệ thống có thể đọc được.",
+        'EE#':   "Dự phòng của nhóm năng lượng — hướng dẫn yêu cầu liên kết ghi chú từ mã tương "
+                 "ứng, nhưng không nêu số liệu hay tỷ lệ phần trăm cụ thể nào.",
+        'ERCS1': "Tính theo Tần suất x đơn giá, nhưng 'đơn giá tham chiếu' chưa có nguồn trích dẫn "
+                 "thực tế nào trong hệ thống.",
+    }
+    for _row, (_code, _reason) in _FLAGGED_NO_METHOD.items():
+        _found = ws.cell(row=_row, column=_CODE_COL).value
+        _found = _found.strip() if isinstance(_found, str) else _found
+        if _found != _code:
+            raise ValueError(
+                f"'2. Budget-Management Fund' row {_row} was expected to be cost code {_code!r} "
+                f"but carries {_found!r} — re-verify _FLAGGED_NO_METHOD against the current "
+                f"template rather than adjusting this check."
+            )
+        _write_remark(ws, _row, remark=(
+            f"Để ở mức 0: {_FLAGGED_NO_METHOD_VI[_code]} Không tự đặt ra số liệu — đã được rà soát "
+            f"và ghi nhận đầy đủ."))
 
     # ---- Capex — Year-1 lump sum (see docstring above) ----
     capex_items, capex_source = estimate_capex_items(project['total_nfa'], exclude_name=project['name'])
@@ -671,13 +2485,20 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     source_project = capex_source.get('source_project', 'the nearest real comparable') if capex_source else 'the nearest real comparable'
     scale_factor = capex_source.get('scale_factor') if capex_source else None
 
+    _CAPEX_CATEGORY_VI = {
+        'MO Equipment': 'Thiết bị Ban Quản lý (MO)', 'M&E Equipment': 'Thiết bị Cơ điện (M&E)',
+        'Public Area': 'Khu vực công cộng', 'Amenity Area': 'Khu vực tiện ích',
+    }
+
     def _capex_remark(category):
         n = capex_counts.get(category, 0)
         amount = capex_annual.get(category, 0)
-        scale_note = f" (NFA scale factor {scale_factor}x)" if scale_factor else ""
-        return (f"= Sum(Qty x real Unit Price) across {n} {category} item(s), scaled from {source_project}'s own "
-                f"real Capex line items (Fact_Capex_Rescanned.csv) by Total NFA ratio{scale_note} = {amount:,.0f} "
-                f"VND — booked as a full Year-1 lump sum (sinking-fund treatment: 100% Year 1, reserve thereafter).")
+        cat_vi = _CAPEX_CATEGORY_VI.get(category, category)
+        scale_note = f" (hệ số quy đổi theo NFA {scale_factor}x)" if scale_factor else ""
+        return (f"= Tổng(Số lượng x Đơn giá thực tế) của {n} khoản mục {cat_vi}, quy đổi từ danh mục "
+                f"Capex thực tế của dự án tham chiếu gần nhất ({source_project}) theo tỷ lệ Tổng "
+                f"NFA{scale_note} = {amount:,.0f} VND — ghi nhận trọn gói vào Năm 1 (theo nguyên tắc "
+                f"quỹ dự phòng bảo trì: 100% vào Năm 1, các năm sau là dự phòng).")
 
     write_year1_lump('capex_mo', capex_annual.get('MO Equipment', 0), remark=_capex_remark('MO Equipment'))
     write_year1_lump('capex_me', capex_annual.get('M&E Equipment', 0), remark=_capex_remark('M&E Equipment'))
@@ -688,14 +2509,71 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
 # "2.2 Common area Fund" is a SEPARATE real fund from "2. Budget-Management Fund" — same ~500-code
 # catalog structure, but scoped to common-area commercial exploitation (advertising/rentals/visitor
 # parking) rather than the whole-building management fee. Its EMH/ESS/EN/EE/etc. rows are the exact
-# same codes already filled on "2. Budget-Management Fund"; writing the same Staff/OPEX/Capex
-# numbers here too would double-count them, since this pipeline has no real cost-allocation split
-# telling us how much of each belongs to which fund — so only genuinely NEW, fund-specific revenue
-# goes here. Row numbers verified once against the real file, same caveat as MGMT_FUND_ROWS above.
+# same codes already filled on "2. Budget-Management Fund". This comment used to say writing
+# anything there would double-count them, "since this pipeline has no real cost-allocation split
+# telling us how much of each belongs to which fund" — so only genuinely NEW, fund-specific revenue
+# was written here (still true for COMMON_AREA_FUND_ROWS below).
+#
+# UPDATE 2026-09-14 (change fill-guideline-required-line-items): that premise turned out to be
+# wrong, or at least stale — the template itself already ships a real allocation split for exactly
+# this. Every EMH/EMA/EMB/EMO/ESC/ESS/ESI/ESM/ESR/EN/EE*/ER* leaf row's F column is a template-
+# native formula, `XLOOKUP(code, '2. Fund'!Y, '2. Fund'!AL) * $F$8` — a revenue-proportional SHARE
+# of the matching 2.Fund line (F8 = common-area revenue / (total 2.Fund revenue + common-area
+# revenue), ~0.45% on Wayne Tower), not a duplicate of the full figure. It resolves to zero today
+# only because the template ships column C blank on ~213 of these rows (E's own IF-chain needs C =
+# "Monthly"/"Schedule"/etc. to return 12 instead of blank/0) — see
+# _activate_common_area_passthrough_rows, which activates it by writing 'Monthly' into C wherever
+# it's currently blank, changing nothing else. Verified this does not touch COMMON_AREA_FUND_ROWS'
+# own two rows or any of the ~9 rows the template itself already set C on.
+#
+# This is now activated in code (fill_common_area_fund_sheet calls it), but is NOT signed off.
+# UPDATE 2026-09-14, measured: RI1 on '2. Fund' (row 78, booked as revenue) reads live from
+# '2.2 Common area Fund'!AH40 — a cross-sheet reference, NOT '2. Fund'!AH40 as
+# Costing_Method_Catalogue.csv's RI1 row states (that catalogue entry is stale/wrong) — and AH40
+# moves in exact lockstep with this activation's own newly-populated expense rows. Isolated
+# measurement (activate-common-area-fund-cost-share/measured-effect.md): turning this on moves the
+# deliverable's reported year-1 surplus UP by 40,096,270 VND on Wayne Tower, with '2.2'’s own
+# worsened position never appearing in '1. Summary'!H54 anywhere — either a legitimate previously-
+# hidden recovery now correctly shown, or a one-sided recognition that inflates the surplus. Real
+# accounting question this pipeline cannot answer on its own. Tracked separately — see OpenSpec
+# change activate-common-area-fund-cost-share — gated on PM/finance sign-off before archiving, same
+# as every other figure-moving change here. Do not fold its effect into another change's measured
+# figure until that sign-off lands. Row numbers verified once against the real file, same caveat as
+# MGMT_FUND_ROWS above.
 COMMON_AREA_FUND_ROWS = {
     'lcd_ad': 20,     # RA1.A  LCD Advertising for Apartment
     'lift_ad': 26,    # RA2    Decal Advertising for Lift
 }
+COMMON_AREA_FUND_EXPECTED_CODE = {'lcd_ad': 'RA1.A', 'lift_ad': 'RA2'}
+
+
+def _activate_common_area_passthrough_rows(ws):
+    """'2.2 Common area Fund' ships 200+ expense leaf rows whose F column is a template-native
+    XLOOKUP pulling a revenue-proportional share of the matching '2. Budget-Management Fund' leaf
+    (F{row} = XLOOKUP(code, '2.Fund'!Y, '2.Fund'!AL) * $F$8) — the template's own already-correct
+    formula, not something this pipeline computes. But G{row} = IF(C='Schedule', SUM(H:S), F*E),
+    and E{row} only evaluates to 12 when C{row} reads 'Monthly'/'Schedule'/etc (see E's own IF
+    chain); the template ships C BLANK on every one of these rows except a handful it pre-set
+    (ESS1/ESS4/EMB3/ESC12/ESI1/ESI2/ESM25/ESS38/EEE.P), so E silently resolves to 0 and the
+    correct F-value never reaches G. This writes 'Monthly' into C only where it is currently blank
+    AND F is this exact XLOOKUP-into-2.Fund pattern — activating the template's own formula, never
+    overwriting a value the template (or a prior run) already set, and never touching a row whose F
+    is something else (a literal revenue rate, or genuinely blank). Change
+    fill-guideline-required-line-items, task group 4 (the mechanical half of the fix — the other
+    half is pricing the still-zero source figure on '2. Budget-Management Fund' itself)."""
+    activated = []
+    for row in range(1, ws.max_row + 1):
+        code = ws.cell(row=row, column=25).value  # Y
+        if not code:
+            continue
+        c_cell = ws.cell(row=row, column=3)
+        if c_cell.value not in (None, ''):
+            continue  # template (or a prior run) already set a frequency here — leave it alone
+        f_val = ws.cell(row=row, column=6).value
+        if isinstance(f_val, str) and 'XLOOKUP' in f_val and '2. Budget-Management Fund' in f_val:
+            c_cell.value = 'Monthly'
+            activated.append(str(code).strip())
+    return activated
 
 
 def fill_common_area_fund_sheet(wb, project):
@@ -705,17 +2583,57 @@ def fill_common_area_fund_sheet(wb, project):
     to RA2 (elevator-specific); the two LCD screen items (tower + basement lobby) combine into RA1.A
     (a generic lobby LCD line, no separate "basement" row in this template). Qty is a stated
     assumption (towers × qty-per-tower, or a flat count), not real per-project elevator-count data —
-    same disclosure as the source sheet. Confirmed with the PM (2026-08-21) rather than assumed."""
-    from generate_project_output import ELEVATOR_AD_ITEMS
-    ws = wb['2.2 Common area Fund']
+    same disclosure as the source sheet. Confirmed with the PM (2026-08-21) rather than assumed.
 
+    Also activates the sheet's own template-native expense pass-through rows (EMH/EMA/EMB/EMO/ESC/
+    ESS/ESI/ESM/ESR/EN/EE*/ER* — a proportional share of each matching '2. Budget-Management Fund'
+    line) — see _activate_common_area_passthrough_rows."""
+    from generate_project_output import ELEVATOR_AD_ITEMS, _real_ad_frame_qty, _real_basement_lcd_qty
+    ws = wb['2.2 Common area Fund']
+    _assert_leaf_rows(ws, '2.2 Common area Fund', COMMON_AREA_FUND_ROWS, COMMON_AREA_FUND_EXPECTED_CODE)
+    _activate_common_area_passthrough_rows(ws)
+
+    # Vietnamese display name and assumption text per item, kept SEPARATE from ELEVATOR_AD_ITEMS'
+    # own `item`/`assumption` fields (change localize-line-level-remarks, 2026-09-15) rather than
+    # translating those in place — `'inside elevator' in item.lower()` below classifies each item by
+    # matching English text in `item`, so renaming that field to Vietnamese would silently break the
+    # lift-ad/LCD-ad split. Same pattern as `_PRODUCT_VI_LABEL` / `_OPEX_CATEGORY_VI`: the underlying
+    # identifier stays what the code matches on, the display text is a lookup beside it.
+    _AD_ITEM_VI = {
+        'Ad frame (tower lobby, inside elevator)': (
+            'Khung quảng cáo (sảnh tòa nhà, trong thang máy)',
+            'Giả định, không phải số liệu thực tế: khoảng 2 khung quảng cáo/tòa (tương ứng mỗi cụm '
+            'thang máy một khung) — mẫu hình phổ biến ở chung cư cao tầng Việt Nam, không phải số '
+            'thang máy thực tế của dự án này (chưa được thu thập ở bất kỳ đâu trong dữ liệu nguồn).'),
+        'LCD screen (tower lobby)': (
+            'Màn hình LCD (sảnh tòa nhà)',
+            'Giả định, không phải số liệu thực tế: 1 màn hình LCD mỗi sảnh tòa.'),
+        'LCD screen (basement lobby)': (
+            'Màn hình LCD (sảnh tầng hầm)',
+            'Giả định, không phải số liệu thực tế: 1 màn hình sảnh tầng hầm cho cả dự án (cố định, '
+            'không quy đổi theo số tòa).'),
+    }
     towers = project.get('towers') or 1
     lift_annual, lcd_annual = 0.0, 0.0
     lift_parts, lcd_parts = [], []
-    for item, rate, qty_per_tower, flat_qty, assumption in ELEVATOR_AD_ITEMS:
-        qty = (qty_per_tower * towers) if qty_per_tower is not None else flat_qty
+    for idx, (item, rate, qty_per_tower, flat_qty, assumption) in enumerate(ELEVATOR_AD_ITEMS):
+        real_qty = _real_ad_frame_qty(project, towers) if idx == 0 else None
+        real_basements = _real_basement_lcd_qty(project) if idx == 2 else None
+        item_vi, assumption_vi = _AD_ITEM_VI.get(item, (item, assumption))
+        if real_qty is not None:
+            qty = real_qty
+            assumption_vi = (f"Số liệu thực tế: dự án này có {project['passenger_elevators_per_tower']:g} "
+                             f"thang máy chở khách/tòa (theo thông tin dự án) x {towers} tòa = {qty} "
+                             f"khung quảng cáo — không phải giả định.")
+        elif real_basements is not None:
+            qty = real_basements
+            assumption_vi = (f"Số liệu thực tế: dự án này có {project['basement_count']:g} tầng hầm "
+                             f"(theo thông tin dự án) = {qty} màn hình — không phải giả định.")
+        else:
+            qty = (qty_per_tower * towers) if qty_per_tower is not None else flat_qty
         annual = rate * qty * 12
-        part = f"{item}: {rate:,.0f} VND/device/month x {qty:g} device(s) x 12 = {annual:,.0f} ({assumption})"
+        part = (f"{item_vi}: {rate:,.0f} VND/thiết bị/tháng x {qty:g} thiết bị x 12 = {annual:,.0f} "
+                f"({assumption_vi})")
         if 'inside elevator' in item.lower():
             lift_annual += annual
             lift_parts.append(part)
@@ -724,19 +2642,20 @@ def fill_common_area_fund_sheet(wb, project):
             lcd_parts.append(part)
 
     _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lift_ad'], lift_annual, remark=(
-        "= " + " + ".join(lift_parts) + f" = {lift_annual:,.0f} VND/year total. "
-        "Rate: Fact_MasterRateCard.csv, Service domain, 'Elevator advertising' (real)."))
+        "= " + " + ".join(lift_parts) + f" = {lift_annual:,.0f} VND/năm. "
+        "Đơn giá thực tế (nhóm Dịch vụ, 'Quảng cáo thang máy')."))
     _write_even_monthly_row(ws, COMMON_AREA_FUND_ROWS['lcd_ad'], lcd_annual, remark=(
-        "= " + " + ".join(lcd_parts) + f" = {lcd_annual:,.0f} VND/year total. "
-        "Rate: Fact_MasterRateCard.csv, Service domain, 'Elevator advertising' (real)."))
+        "= " + " + ".join(lcd_parts) + f" = {lcd_annual:,.0f} VND/năm. "
+        "Đơn giá thực tế (nhóm Dịch vụ, 'Quảng cáo thang máy')."))
 
 
-# "1. Staff cost From 08.2026 (VN)" was pasted into the template by the PM on 2026-08-28 — a REAL
-# Savills payroll-calculator sheet (13th month, PIT brackets, SI/HI, Trade Union 2%, 10% admin
-# markup — see that sheet's own formulas), not something this pipeline built. Only column G
-# (Current Gross Salary, the one real INPUT cell) is written here; every other column is the
-# template's own live formula chain computing net pay/insurance/tax/admin fee FROM that input —
-# left completely untouched, so the sheet's own math does the work, not a re-implementation of it.
+# "A1. Staff cost 08.2026 (VN)" is the standard form's own REAL Savills payroll-calculator sheet
+# (13th month, PIT brackets, SI/HI, Trade Union 2%, 10% admin markup — see that sheet's own
+# formulas), not something this pipeline built. It is the same calculator a PM had pasted into the
+# superseded 202608 form as "1. Staff cost From 08.2026 (VN)" — byte-identical except cell G15
+# (change `rebase-output-onto-25-sheet-form`, 2026-09-10). Only column G (Current Gross Salary, the
+# one real INPUT cell) is written here; every other column is the template's own live formula
+# chain computing net pay/insurance/tax/admin fee FROM that input — left completely untouched.
 #
 # Only positions that exist in THIS project's own Staffing Demand AND have a matching row-group in
 # the template get filled — Security/Cleaning/Landscape are deliberately excluded (those are
@@ -746,10 +2665,10 @@ def fill_common_area_fund_sheet(wb, project):
 # APM/OM/CSS/ACC/CSR/ACE/ADCE genuinely aren't in Blue Skyline's current Staffing Demand — left
 # blank rather than invented; add those positions to Staffing Demand first if they should be
 # costed. Real 25-workdays/month conversion sourced from this same template's own
-# "1.1 Allowance" sheet (E7=25), not assumed. Night-shift/holiday premiums are NOT folded in here —
-# they're what that Allowance sheet's own formulas already exist to compute separately.
-STAFF_COST_SHEET = '1. Staff cost From 08.2026 (VN)'
-WORKDAYS_PER_MONTH = 25  # real — '1.1 Allowance (From 08.2026)'!E7 in this same template
+# "A1.1 Allowance (From 08.2026)" sheet (E7=25), not assumed. Night-shift/holiday premiums are NOT
+# folded in here — they're what that Allowance sheet's own formulas already exist to compute.
+STAFF_COST_SHEET = 'A1. Staff cost 08.2026 (VN)'
+WORKDAYS_PER_MONTH = 25  # real — 'A1.1 Allowance (From 08.2026)'!E7 in this same template
 
 # keyword -> template abbreviation code (column D groups), matched the same way
 # SERVICE_CATEGORY_KEYWORDS/STAFF_MARKET_KEYWORDS already match Staffing Demand positions elsewhere
@@ -760,6 +2679,26 @@ STAFF_COST_KEYWORDS = {
     'CE': ['chief engineer'],
     'TDS': ['shift leader'],
     'TN': ['technician'],
+    # Added 2026-09-09 with the seven positions the intake form previously had no row for. The
+    # template has always carried staff-cost rows for these codes; nothing could reach them.
+    'APM': ['assistant property manager'],
+    'OM': ['operations manager'],
+    'CSS': ['customer service supervisor'],
+    'ACC': ['accountant'],
+    'CSR': ['cashier'],
+    'ACE': ['assistant chief engineer'],
+    'ADCE': ['technical secretary'],
+}
+# Matching is plain substring, so three of the new titles are contained inside an existing code's
+# keyword: "Assistant Property Manager" contains "property manager", "Assistant Chief Engineer"
+# contains "chief engineer", and "Customer Service Supervisor" contains "customer service". Without
+# these exclusions each new role would be silently costed as its senior counterpart — an assistant
+# priced as a Property Manager, which is both wrong and invisible. Same idea as
+# SERVICE_EXCLUDE_KEYWORDS, which exists for exactly this class of collision.
+STAFF_COST_EXCLUDE = {
+    'PM': ['assistant property manager'],
+    'CE': ['assistant chief engineer'],
+    'CS': ['customer service supervisor'],
 }
 # Split across two template row-groups both abbreviated 'AA' (pool staff vs. gym staff) — resolved
 # by keyword instead of the shared abbreviation, using the row's own item label (Z/B column text
@@ -772,18 +2711,16 @@ def fill_staff_cost_sheet(wb, project, demand, year):
         return  # older template version without this sheet — nothing to fill
     ws = wb[STAFF_COST_SHEET]
 
-    def eff_headcount(d):
-        p, q = d['StaffPerDay'], d['CoverageDays']
-        return math.ceil(p * 7 / 6) if q >= 7 else p
-
-    def group_stats(keywords):
-        matched = [d for d in demand if any(kw in d['Position'].lower() for kw in keywords)]
+    def group_stats(keywords, exclude=()):
+        matched = [d for d in demand
+                   if any(kw in d['Position'].lower() for kw in keywords)
+                   and not any(x in d['Position'].lower() for x in exclude)]
         if not matched:
             return 0, 0
-        total_headcount = sum(eff_headcount(d) for d in matched)
+        total_headcount = sum(_eff_headcount(d) for d in matched)
         if total_headcount == 0:
             return 0, 0
-        weighted_daily = sum(eff_headcount(d) * d['AvgDailyRate'] for d in matched) / total_headcount
+        weighted_daily = sum(_eff_headcount(d) * d['AvgDailyRate'] for d in matched) / total_headcount
         monthly_gross = round(weighted_daily * WORKDAYS_PER_MONTH)
         return total_headcount, monthly_gross
 
@@ -813,7 +2750,7 @@ def fill_staff_cost_sheet(wb, project, demand, year):
             c.number_format = '#,##0'
 
     for code, keywords in STAFF_COST_KEYWORDS.items():
-        headcount, monthly_gross = group_stats(keywords)
+        headcount, monthly_gross = group_stats(keywords, STAFF_COST_EXCLUDE.get(code, ()))
         if code == 'PM':
             if monthly_gross:
                 c = ws.cell(row=pm_row, column=7, value=monthly_gross)
@@ -825,38 +2762,121 @@ def fill_staff_cost_sheet(wb, project, demand, year):
         headcount, monthly_gross = group_stats(keywords)
         fill_group(rows_by_code.get(f'AA_{suffix.upper()}', []), headcount, monthly_gross)
 
+    # ---- Position(s) with no predefined row-group above (today: Reception) get a REAL row here,
+    # starting at _A1_UNPLACED_FIRST_ROW, using the IDENTICAL formula chain as every position row
+    # above (copied from row 15's own formulas, column for column) — not a Python-computed number
+    # folded into 'EMH2' on another sheet. This is what makes that cost auditable/editable in Excel
+    # like any other position, and it shares A1's own statutory-cap cells ($L$7/$T$7/etc.), so it
+    # can never drift from what every other row on this sheet uses. Change
+    # reconcile-summary-with-detail-sheets — built after PM feedback that a top-up folded into
+    # another sheet's formula string wasn't an acceptable substitute for a real, visible line item.
+    money_fmt = '#,##0'
+    unplaced_here = _unplaced_positions(demand)
+    # One row PER HEADCOUNT UNIT, not per position name — the same per-person write fill_group()
+    # does for every other position above (2 headcount => 2 rows, each the per-person monthly
+    # gross; summing both, not doubling one, is what makes the total right).
+    unplaced_flat = [(name, monthly_gross) for name, headcount, monthly_gross in unplaced_here
+                     for _ in range(headcount)]
+    for i, (name, monthly_gross) in enumerate(unplaced_flat):
+        r = _A1_UNPLACED_FIRST_ROW + i
+        ws.cell(row=r, column=2, value=_UNPLACED_POSITION_VI.get(name, name))          # B Position
+        ws.cell(row=r, column=4, value=_UNPLACED_POSITION_CODE.get(name, name[:2].upper()))  # D code
+        g = ws.cell(row=r, column=7, value=monthly_gross)                              # G Current Gross
+        g.number_format = money_fmt
+        ws.cell(row=r, column=8, value=0)                                              # H Increase rate
+        formulas = {
+            9:  f'=ROUND((G{r}*H{r})+G{r},0)',                                    # I Proposed Gross
+            10: f'=I{r}',                                                         # J Proposed Total Gross
+            11: f'=I{r}',                                                         # K Salary for insurance
+            12: f'=IF(I{r}>$L$7,$L$7*$L$8,K{r}*$L$8)',                            # L Employee SI&HI 9.5%
+            13: f'=IF(I{r}>$M$7,$M$7*$M$8,K{r}*$M$8)',                            # M Employee UI 1%
+            14: f'=I{r}/$N$8',                                                    # N 13th month
+            15: f'=IF(I{r}-L{r}-M{r}-$O$7>0,I{r}-L{r}-M{r}-$O$7,0)',              # O Taxable income
+            16: (f'=IF(O{r}<=10000000,O{r}*5%,IF(O{r}<=30000000,O{r}*10%-500000,'
+                f'IF(O{r}<=60000000,O{r}*20%-3500000,IF(O{r}<=100000000,O{r}*30%-9500000,'
+                f'O{r}*35%-14500000))))'),                                        # P PIT
+            17: f'=I{r}-L{r}-M{r}+N{r}-P{r}',                                     # Q Net pay
+            18: f'=IF(AND(D{r}="PM",I{r}>0),1000000,IF(I{r}>0,300000,))',         # R Team building
+            19: f'=I{r}*$S$8',                                                    # S Training 1.3%
+            20: f'=IF(I{r}>$T$7,$T$7*$T$8,I{r}*$T$8)',                            # T Employer SI&HI 20.5%
+            21: f'=IF(I{r}>$U$7,$U$7*$U$8,I{r}*$U$8)',                            # U Employer UI 1%
+            22: f'=IF(I{r}>$V$7,$V$7*$V$8,I{r}*$V$8)',                            # V Trade Union 2%
+            23: f'=IF(I{r}>0,$W$7/$W$8,)',                                        # W Annual checkup
+            24: (f'=IF(D{r}="PM",(J{r}*30*0.099%+J{r}*3*0.44%+446985+2456000)*58%/12,'
+                f'IF(J{r}=0,0,IF((J{r}*30*0.099%+J{r}*3*0.44%+446985)*40%/12<30000,30000,'
+                f'(J{r}*30*0.099%+J{r}*3*0.44%+446985)*40%/12)))'),                # X Accident insurance
+            26: f'=IF(I{r}>0,300000,)',                                           # Z Uniform (25=Y blank)
+            27: f'=ROUND(I{r}+N{r}+R{r}+S{r}+T{r}+U{r}+V{r}+W{r}+X{r}+Y{r}+Z{r},0)',  # AA Total excl admin
+            28: f'=ROUND(AA{r}*$AB$1,0)',                                         # AB Admin markup
+            29: f'=AA{r}+AB{r}',                                                  # AC Total incl admin
+        }
+        for col, formula in formulas.items():
+            c = ws.cell(row=r, column=col, value=formula)
+            c.number_format = money_fmt
+    if unplaced_here:
+        note = ws.cell(row=_A1_UNPLACED_FIRST_ROW - 1, column=2, value=(
+            "Vị trí không có nhóm dòng cố định trong mẫu chuẩn của Savills ở trên — định giá dưới "
+            "đây bằng đúng công thức của bảng trên (không phải số ước tính riêng)."))
+        note.font = Font(italic=True, size=9, color='7F7F7F')
+
 
 def build_budget(project, demand, year):
-    top2 = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'], n=2)
-    all_ranked = nearest_comparables(project['apartment_nfa'], exclude_name=project['name'], n=len(MASTER_COMPARABLES))
-    derived_rate, rate_note = derive_mgmt_rate(top2, all_ranked=all_ranked)
+    # Comparable matching runs on TOTAL building NFA, and the headline rate is
+    # derive_product_rate(..., 'Apartment') — the SAME basis and the SAME function
+    # generate_project_output.py and fill_management_fund_sheet() below use. So the deliverable's
+    # '0. Info' fee-rate cell, its Comparison sheet, and the internal analysis all show one rate,
+    # and it is the rate the RM lines are actually priced at (change
+    # `unify-revenue-basis-across-outputs`, backlog B3). derive_mgmt_rate (whole-property blended
+    # rate over any nearest comparable) is kept only as a last-resort fallback for the rare project
+    # where no comparable in the master table carries an Apartment rate at all.
+    derived_rate, top2, rate_note, all_ranked = derive_product_rate_capped(
+        project['total_nfa'], project['name'], 'Apartment',
+        input_district=project.get('district'), input_city=project.get('city'),
+        input_lat=project.get('lat'), input_lon=project.get('lon'))
+    if derived_rate is None:
+        top2 = nearest_comparables(project['total_nfa'], exclude_name=project['name'], n=2,
+                                   input_district=project.get('district'), input_city=project.get('city'),
+                                   input_lat=project.get('lat'), input_lon=project.get('lon'))
+        derived_rate, rate_note = derive_mgmt_rate(top2, all_ranked=all_ranked)
+        rate_note = ((rate_note + '  ') if rate_note else '') + (
+            'No comparable has a real Apartment rate — fell back to the whole-property blended rate.')
     if derived_rate is None:
         raise ValueError("Could not derive a management-fee rate — no comparable in the master table has one.")
 
     own_real = next((c for c in MASTER_COMPARABLES
-                      if c['name'].strip().lower() in project['name'].strip().lower() and c['mgmt_rate']), None)
+                      if c['name'].strip().lower() in project['name'].strip().lower()
+                      and c['rates'].get('Apartment')), None)
 
-    print(f"Comparables for {project['name']} (ApartmentNFA={project['apartment_nfa']:,.0f} m²):")
+    print(f"Comparables for {project['name']} (TotalNFA={project['total_nfa']:,.0f} m² — matching basis):")
     for c in top2:
-        rate_str = f"{c['mgmt_rate']:,} ({c['mgmt_rate_vat']})" if c['mgmt_rate'] else 'no real rate'
-        print(f"  - {c['name']}: NFA={c['nfa']:,.0f}, delta={abs(c['nfa']-project['apartment_nfa']):,.0f}, rate={rate_str}")
-    print(f"Derived mgmt fee rate: {derived_rate:,} VND/m²/month" + (f"  [{rate_note}]" if rate_note else ''))
+        real = c['rates'].get('Apartment') or c['mgmt_rate']
+        rate_str = f"{real:,} ({c['mgmt_rate_vat']})" if real else 'no real rate'
+        print(f"  - {c['name']}: NFA={c['nfa']:,.0f}, delta={abs(c['nfa']-project['total_nfa']):,.0f}, rate={rate_str}")
+    print(f"Derived Apartment mgmt fee rate: {derived_rate:,} VND/m²/month" + (f"  [{rate_note}]" if rate_note else ''))
     if own_real:
-        gap = derived_rate - own_real['mgmt_rate']
-        print(f"Reality check: {project['name']}'s own real rate is {own_real['mgmt_rate']:,} "
-              f"({own_real['mgmt_rate_vat']}) — gap {gap:+,} ({gap/own_real['mgmt_rate']*100:+.0f}%)")
+        real_apt = own_real['rates']['Apartment']
+        gap = derived_rate - real_apt
+        print(f"Reality check: {project['name']}'s own real Apartment rate is {real_apt:,} "
+              f"({own_real['mgmt_rate_vat']}) — gap {gap:+,} ({gap/real_apt*100:+.0f}%)")
 
     local_template = os.path.join(tempfile.gettempdir(), 'template_2026_local.xlsx')
     shutil.copyfile(TEMPLATE_PATH, local_template)
     repaired = repair_workbook(local_template)
     wb = openpyxl.load_workbook(repaired, data_only=False)
 
+    # The AI Guideline's universal VAT-treatment sentence for this run — appended to every line-level
+    # remark (via _write_remark -> _append_vat) and to every composed `1. Summary` narrative, or ''
+    # when the fund sheet's "Mô hình tài chính" switch says figures exclude VAT (change
+    # apply-guideline-remark-model). A module global so the many small remark writers need no new arg.
+    global _ACTIVE_VAT_SENTENCE
+    _ACTIVE_VAT_SENTENCE = _vat_sentence(wb, year)
+
     wb['2. Budget-Management Fund']['AH5'] = project['name']
+    # A2/A3/A4/B2/B3(x2)/B4/B5 dropped from this loop — no formula anywhere reads their name cell
+    # (confirmed by scanning every cross-sheet reference in the template). A5 and B1 are kept: those
+    # are read elsewhere. Change reconcile-summary-with-detail-sheets, D4.
     for sheet, coord in [
-        ('A2. Bảo vệ - Security', 'C1'), ('A3. Vệ sinh - Cleaning', 'C1'), ('A4. Cây xanh - Landscape', 'C1'),
-        ('A5. Trợ cấp PCCC', 'B1'), ('B1. Lịch Lễ tân', 'B1'), ('B2. Mùi hương - Scent', 'B2'),
-        ('B3. Vật tư vệ sinh - Consumable', 'B1'), ('B3. Thu gom rác - Garbage coll ', 'B1'),
-        ('B4. DT Quảng cáo - Elevator adv', 'B1'), ('B5. Đơn giá gửi xe - Parking pr', 'B1'),
+        ('A5. Trợ cấp PCCC', 'B1'), ('B1. Lịch Lễ tân', 'B1'),
     ]:
         wb[sheet][coord] = project['name']
 
@@ -870,49 +2890,124 @@ def build_budget(project, demand, year):
     for sheet in ('2.1 Report-Management Fund', '2.2.1 Report-Common area Fund'):
         wb[sheet]['H4'] = "='2. Budget-Management Fund'!AH5"
 
-    # ---- 0. Info: user-input scale + derived rate. Template's fee table only has rows for
-    # Apartment(8)/Officetel(9)/Office(10)/Shopping Mall(11) — Shophouse and Nursery entered on
-    # the input form have no equivalent row in this template version, so they're not written here.
+    # ---- 0. Info: user-input scale + derived rate. This is a DISPLAY sheet — its K column
+    # (= I rate x D NFA) recomputes from what's written here, but nothing in the pipeline reads it;
+    # each product's RM.* revenue is written straight to "2. Budget-Management Fund". The standard
+    # form's fee table has one row per product: Apartment(8)/Officetel(9)/Office(10)/Shophouse(11)
+    # (the superseded 202608 form had Shopping Mall at row 11 — change `rebase-output-onto-25-sheet-form`).
+    # Each product with an area gets BOTH its scale AND its rate, priced by the SAME per-product
+    # logic as the RM.* rows on the budget sheet (derive_product_rate, Apartment-rate fallback), so
+    # this sheet's K column agrees with the budget sheet. Shopping Mall / Retail / Shop Apartment /
+    # Villas / Nursery have no row in this table — their revenue is on the budget sheet only, so the
+    # K19 total here is the four-product subset, not the whole management fee.
     info = wb['0. Info']
-    info['C8'], info['D8'], info['E8'] = project['apartment_gfa'], project['apartment_nfa'], project['apartment_units']
-    info['I8'] = derived_rate
-    if project['products']['Officetel']['nfa']:
-        p = project['products']['Officetel']
-        info['C9'], info['D9'], info['E9'] = p['gfa'], p['nfa'], p['units']
-    if project['products']['Shopping Mall']['nfa']:
-        p = project['products']['Shopping Mall']
-        info['C11'], info['D11'], info['E11'] = p['gfa'], p['nfa'], p['units']
+    _INFO_FEE_ROWS = {'Apartment': 8, 'Officetel': 9, 'Office': 10, 'Shophouse': 11}
+    for _prod, _row in _INFO_FEE_ROWS.items():
+        _p = project['products'].get(_prod) or {}
+        if not _p.get('nfa'):
+            continue
+        info[f'C{_row}'], info[f'D{_row}'], info[f'E{_row}'] = _p['gfa'], _p['nfa'], _p['units']
+        if _prod == 'Apartment':
+            # Reuse derived_rate as-is (already derive_product_rate_capped()'s output, task 2.5)
+            # rather than recomputing via the uncapped derive_product_rate() below — recomputing
+            # here silently overwrote the swing cap on this exact cell (caught 2026-09-16: '0.
+            # Info'!I8 showed the uncapped 19,400 while the internal analysis correctly showed the
+            # clamped 16,800 for the same project).
+            _rate = derived_rate
+        else:
+            _rate, _used, _ = derive_product_rate(all_ranked, _prod, n=2)
+        info[f'I{_row}'] = _rate if _rate is not None else derived_rate
+        # G = 'Ghi chú' — the AI Guideline's own '0. Info' remark: per-product area basis + as-of
+        # year (change complete-ai-guideline-remark-coverage). The PM's own citation when entered;
+        # otherwise state the area is PM-supplied rather than invent a drawing/legal reference.
+        _prod_vi = _PRODUCT_VI_LABEL.get(_prod, _prod)
+        if project.get('area_basis'):
+            _year_clause = f" năm {project['area_basis_year']}" if project.get('area_basis_year') else ''
+            info[f'G{_row}'] = (f"Diện tích {_prod_vi} theo {project['area_basis']}. Cập nhật theo "
+                                f"thông số Chủ Đầu Tư cung cấp{_year_clause}.")
+        else:
+            info[f'G{_row}'] = f"Diện tích {_prod_vi} do PM cung cấp — chưa có căn cứ bản vẽ/pháp lý cụ thể."
+    # Products this project has that the standard form's 0.Info table cannot show (no row for them):
+    # flag them so a reader knows the K19 total here is a subset, and where the full figure lives.
+    _rowless = [p for p in PRODUCT_ROWS
+                if p not in _INFO_FEE_ROWS and (project['products'].get(p) or {}).get('nfa')]
+    if _rowless:
+        info['G7'] = ("Also priced but not shown in this 4-product table (no row on the standard form): "
+                      + ', '.join(_rowless) + ". Full management-fee revenue is on '2. Budget-Management "
+                      "Fund' (rows RM.AP–RM.KG) and '1. Summary'.")
+        # The disclosure above says the missing products' revenue is "elsewhere", but leaves TỔNG
+        # CỘNG (row 19) reading as if it were the whole project — its own SUBTOTAL() formula sums
+        # only rows 7:17 of a template that has no row for Villas/Nursery/etc. at all (change
+        # move-gate-and-pool-count-fields sibling work, 2026-09-15; see docs/ audit of project GENZ).
+        # The template genuinely cannot be extended — its row-7 SUBTOTAL range (C8:C12) and the
+        # parking block starting at row 12 are baked into the file itself, not something this
+        # generator controls, and this project's convention is never to edit the template to make
+        # room. Rows 20+ are blank on every version of this sheet checked, so a second, COMPLETE
+        # total is added there instead — same figures as row 19 would show if it could see every
+        # product, computed the identical way (derive_product_rate, apt-rate fallback) the real
+        # RM.* revenue rows use, so this total and '2. Budget-Management Fund' cannot disagree.
+        _rowless_total_gfa = _rowless_total_nfa = _rowless_total_units = _rowless_total_fee = 0.0
+        _rowless_parts = []
+        for _rp in _rowless:
+            _rinfo = project['products'].get(_rp) or {}
+            _rnfa = _rinfo.get('nfa') or 0
+            _rrate, _rused, _ = derive_product_rate(all_ranked, _rp, n=2)
+            _rrate = _rrate if _rrate is not None else derived_rate
+            _rfee = _rrate * _rnfa
+            _rowless_total_gfa += _rinfo.get('gfa') or 0
+            _rowless_total_nfa += _rnfa
+            _rowless_total_units += _rinfo.get('units') or 0
+            _rowless_total_fee += _rfee
+            _rowless_parts.append(f"{_PRODUCT_VI_LABEL.get(_rp, _rp)}: {_rfee:,.0f} đ/tháng "
+                                  f"({_rrate:,.0f} đ/m² x {_rnfa:,.0f} m²)")
+        info['B21'] = 'TỔNG CỘNG THỰC TẾ (toàn bộ sản phẩm)'
+        info['C21'] = f'=C19+{_rowless_total_gfa:g}'
+        info['D21'] = f'=D19+{_rowless_total_nfa:g}'
+        info['E21'] = f'=E19+{_rowless_total_units:g}'
+        info['K21'] = f'=K19+{_rowless_total_fee:g}'
+        for _col in ('C21', 'D21', 'E21', 'K21'):
+            info[_col].number_format = '#,##0'
+        info['G21'] = ("Dòng TỔNG CỘNG ở trên (hàng 19) không có chỗ cho " + ', '.join(_rowless) +
+                       " trên mẫu chuẩn Savills, nên dòng này cộng thêm: " + '; '.join(_rowless_parts) +
+                       ". Đơn giá tính theo cùng phương pháp derive_product_rate với các sản phẩm khác "
+                       "(2 dự án tương đồng gần nhất, dự phòng theo đơn giá Apartment nếu không có "
+                       "dự án tương đồng cho sản phẩm này) — khớp với doanh thu thực tại '2. "
+                       "Budget-Management Fund'.")
     info['F12'] = project['car_slots']
     # I12 (parking mgmt fee/m²) left blank -- no consistent real per-project reference was found
     # across comparables (each real file's own parking fee differs and isn't NFA-comparable the
     # way the apartment fee is); PM to confirm before this line item is trusted.
 
-    # ---- A2/A3/A4: flat citywide real rates (Fact_MasterRateCard.csv — same for every project) ----
-    wb['A2. Bảo vệ - Security']['G3'] = SECURITY_RATE_CITYWIDE
-    wb['A3. Vệ sinh - Cleaning']['K3'] = CLEANING_RATE_CITYWIDE
-    wb['A4. Cây xanh - Landscape']['K3'] = LANDSCAPE_RATE_CITYWIDE
+    # ---- A2/A3/A4: no formula anywhere in the deliverable reads these sheets (ESS1/4/16 are priced
+    # in Python, straight onto '2. Budget-Management Fund'), so the pipeline no longer writes their
+    # G3/K3 unit-rate cells (docs/09-template-map.md §9 finding 4; change
+    # reconcile-summary-with-detail-sheets, D4). What DOES need filling is each sheet's own
+    # allocation-split basis (A2!M7:P7, A3!P7:S7, A4!P7:S7 — Apartment/Shophouse/Retail/Parking):
+    # every position row's cost-split formula divides by SUM of these 4 cells, and the template ships
+    # them all at 0, so every row currently errors #DIV/0! (204 cells total — 114+70+20). Filling
+    # them with this project's real product NFA + car-slot count is the smaller of the two fixes
+    # design.md D4 allows (vs. blanking ~200 formulas), and leaves the sheets as a genuine, if
+    # unread, reference view of the outsourced contract's cost allocation.
+    def _alloc_basis():
+        prods = project.get('products') or {}
+        apt = (prods.get('Apartment') or {}).get('nfa') or 0
+        shop = (prods.get('Shophouse') or {}).get('nfa') or 0
+        retail = (prods.get('Retail') or {}).get('nfa') or 0
+        parking_n = project.get('car_slots') or 0
+        return apt, shop, retail, parking_n
 
-    # ---- Everything below has no equivalent on the input form -- a real prospect wouldn't have
-    # these numbers yet either. Marked clearly as placeholders, not derived or real. ----
-    # A5!C2 (PCCC subsidy rate) used to be force-set to 0.06 here, but the 2026-08-21 Resi template
-    # ships its own updated default (0.078) in that cell — left alone now so the template's own,
-    # more current reference value survives instead of being overwritten by this older guess.
-    scent = wb['B2. Mùi hương - Scent']
-    scent['G6'], scent['G7'], scent['G8'] = 2, 4, 3
-    consumable = wb['B3. Vật tư vệ sinh - Consumable']
-    consumable['C6'], consumable['C7'] = project['apartment_units'], 0
-    consumable['D8'], consumable['D9'] = 19, 13
-    consumable['D10'], consumable['D11'] = 50, 100
-    garbage = wb['B3. Thu gom rác - Garbage coll ']
-    for coord in ['K5', 'K7', 'K8', 'K9', 'K10']:
-        garbage[coord] = 180000
-    garbage['C9'], garbage['C10'] = 0, 0
-    elev = wb['B4. DT Quảng cáo - Elevator adv']
-    elev['E5'], elev['F5'], elev['I5'] = 9, 9, 6
-    elev['E6'], elev['I6'] = 3, 3
-    parking = wb['B5. Đơn giá gửi xe - Parking pr']
-    parking['B7'] = 'Placeholder — no per-project parking-fee reference in master data yet'
-    parking['C7'], parking['E7'] = 4812500, 217000  # Fact_MasterRateCard.csv market reference (Marq), for context only
+    apt_nfa, shop_nfa, retail_nfa, car_n = _alloc_basis()
+    a2 = wb['A2. Bảo vệ - Security']
+    a2['M7'], a2['N7'], a2['O7'], a2['P7'] = apt_nfa, shop_nfa, retail_nfa, car_n
+    for sheet_name in ('A3. Vệ sinh - Cleaning', 'A4. Cây xanh - Landscape'):
+        ws_alloc = wb[sheet_name]
+        ws_alloc['P7'], ws_alloc['Q7'], ws_alloc['R7'], ws_alloc['S7'] = apt_nfa, shop_nfa, retail_nfa, car_n
+
+    # ---- B2/B3(x2)/B4/B5: also no formula anywhere reads them (dead-end helper sheets — their real
+    # advertising/consumable figures are computed in Python and written straight to '2.2 Common area
+    # Fund' / the budget sheet). The pipeline stops writing rates/counts into them; any #REF! they
+    # carry (e.g. B3 Consumable!Q13) is a pre-existing template defect, not introduced here. Change
+    # reconcile-summary-with-detail-sheets, D4.
 
     # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
@@ -937,6 +3032,37 @@ def build_budget(project, demand, year):
     # the other cross-module imports in this file.
     from generate_project_output import _fix_fake_formula_strings, _strip_onedrive_zip_artifacts
     _fix_fake_formula_strings(wb)
+
+    # ---- 1. Summary column K: the AI Guideline's composed, Vietnamese, client-facing narrative for
+    # every non-zero PART-1 total — replaces the template's blank / single-line-pull K cells (change
+    # apply-guideline-remark-model). Reads back what the fills wrote; composes plain text. Runs
+    # BEFORE _normalise_all_remark_columns() so the (much taller) K rows are sized, and AFTER
+    # _fix_fake_formula_strings() for the same leaked-"=" reason as the sweep. Display only. ----
+    _compose_summary_narratives(wb, project, demand, year, _collect_written(wb))
+
+    # ---- Two caveat notes near the header block, no figure change (change
+    # reconcile-summary-with-detail-sheets, D6): the chargeable-area figure at H10 is the 4-product
+    # '0. Info' subset (mirrors the same caveat already written to '0. Info'!G7 when a rowless
+    # product exists — see PRODUCT_ROWS / _INFO_FEE_ROWS above); and common-area advertising revenue
+    # lives on a different fund entirely, so a reader looking for it on this sheet is told where.
+    summary_ws = wb['1. Summary']
+    area_note = ("Diện tích thu phí trên đây (H10) chỉ gồm 4 sản phẩm có dòng trên '0. Info' "
+                 "(Căn hộ/Officetel/Office/Shophouse).")
+    if _rowless:
+        area_note += (" Dự án này còn có " + ', '.join(_rowless)
+                       + " — được định giá tại '2. Budget-Management Fund' nhưng không cộng vào "
+                         "diện tích/doanh thu hiển thị ở đây.")
+    k10 = summary_ws.cell(row=10, column=_SUMMARY_K_COL, value=area_note)
+    k10.alignment = Alignment(wrap_text=True, vertical='top')
+    k11 = summary_ws.cell(row=11, column=_SUMMARY_K_COL, value=(
+        "Doanh thu quảng cáo khu vực chung (LCD/Frame) được hạch toán tại '2.2 Common area Fund' — "
+        "một quỹ riêng — không nằm trong quỹ quản lý vận hành này."))
+    k11.alignment = Alignment(wrap_text=True, vertical='top')
+
+    # ---- Remarks columns: render every note (written here, and pulled across to '1. Summary' /
+    # the Report sheets) as wrapped text, not '########'. Runs AFTER _fix_fake_formula_strings so a
+    # remark that leaked a leading "= " is already plain text and its length measures correctly. ----
+    _normalise_all_remark_columns(wb)
 
     out_filename = f"{project['name']} - Sample Consulting Budget.xlsx"
     local_out = os.path.join(tempfile.gettempdir(), out_filename)
@@ -980,14 +3106,23 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
         del wb['Comparison']
     ws = wb.create_sheet('Comparison')
 
-    ws['A1'] = f"CROSS-PROJECT COMPARISON — {project['name']} vs. the 2 nearest real comparables by scale"
+    from master_comparables import comparable_match_basis
+    match_basis = comparable_match_basis(comparables, project.get('district'), project.get('city'),
+                                          input_lat=project.get('lat'), input_lon=project.get('lon'))
+
+    ws['A1'] = (f"CROSS-PROJECT COMPARISON — {project['name']} vs. the {len(comparables)} nearest real "
+                f"comparables with a verified Apartment rate")
     ws['A1'].font = Font(bold=True, size=13)
     ws.merge_cells('A1:D1')
-    ws['A2'] = ('Comparables are the 2 real projects in master_comparables.py with the closest Apartment NFA. '
-                'The management-fee rate below is DERIVED from whichever of those 2 have a verified real rate.')
+    ws['A2'] = (f'Comparables are the real projects in master_comparables.py ranked by {match_basis} '
+                'that have a verified Apartment management-fee rate — the same basis and the same selection the '
+                'internal analysis uses, so both reports show one rate and it is the rate the RM lines are priced at. '
+                'The MODEL-DERIVED rate below is the average of their real Apartment rates. The PROPOSAL BENCHMARK '
+                'section then sets this finished proposal — fee per apartment, year-1 revenue, whether the operating '
+                'budget balances — beside those comparables, for a competitive bid.')
     ws['A2'].font = Font(italic=True, color='595959')
     ws.merge_cells('A2:D2')
-    ws.row_dimensions[2].height = 28
+    ws.row_dimensions[2].height = 42
 
     headers = ['Metric', project['name']] + [c['name'] for c in comparables]
     r = 4
@@ -1016,26 +3151,183 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
                 cell.fill = fill
         return row + 1
 
-    r = section(r, 'SCALE')
-    r = data_row(r, 'Apartment NFA (m²)', [project['apartment_nfa']] + [c['nfa'] for c in comparables])
-    r = data_row(r, 'NFA delta from this project', ['—'] + [round(abs(c['nfa'] - project['apartment_nfa'])) for c in comparables])
-    r = data_row(r, 'Apartment units', [project['apartment_units']] + [c['units'] for c in comparables])
+    def _pct_delta(cv, pv):
+        if not pv:
+            return '—'
+        return f"{(cv - pv) / pv * 100:+.0f}%"
+
+    _proj_total_units = sum((p.get('units') or 0) for p in project['products'].values())
+    _proj_products = [name for name in PRODUCT_ROWS if (project['products'].get(name) or {}).get('nfa')]
+
+    def _density(units, nfa):
+        return round(units / nfa * 1000, 1) if (units and nfa) else '—'
+
+    def _comp_source(c):
+        s = (c.get('source') or '')
+        if 'Master List' in s:
+            return '2026 Master List (auto-parsed, not individually verified)'
+        if 'not yet parsed' in s or 'not independently checked' in s:
+            return 'partly verified — see master_comparables.py'
+        return 'hand-verified from its real budget file'
+
+    def _other_rates(c):
+        other = {k: v for k, v in (c.get('rates') or {}).items() if k != 'Apartment' and v}
+        return ', '.join(f'{k} {v:,.0f}' for k, v in other.items()) if other else '—'
+
+    def _comp_products(c):
+        types = list(dict.fromkeys(['Apartment'] + list((c.get('rates') or {}).keys())))
+        return ', '.join(types)
+
+    r = section(r, 'OVERVIEW — how comparable are these projects?')
+    if project.get('address'):
+        # Citation only — not a matching input (comparables don't carry a comparable field at all;
+        # see build_project_input_form.py's comment on this field for why it isn't geocoded).
+        r = data_row(r, 'Address', [project['address']] + ['—' for _ in comparables])
+    r = data_row(r, 'Total building NFA (m²) — the matching basis',
+                 [project['total_nfa']] + [c['nfa'] for c in comparables])
+    r = data_row(r, 'Size vs this project',
+                 ['—'] + [_pct_delta(c['nfa'], project['total_nfa']) for c in comparables])
+    r = data_row(r, 'Apartment NFA (m²)', [project['apartment_nfa']] + ['—' for _ in comparables])
+    r = data_row(r, 'Apartment units', [project['apartment_units']] + [c.get('units') or '—' for c in comparables])
+    r = data_row(r, 'Total units (all products)', [_proj_total_units] + [c.get('total_units') or '—' for c in comparables])
+    r = data_row(r, 'Density (apartment units per 1,000 m² NFA)',
+                 [_density(project['apartment_units'], project['total_nfa'])]
+                 + [_density(c.get('units'), c['nfa']) for c in comparables])
+    r = data_row(r, 'Product types (this project) / verified-rate types (comparables)',
+                 [', '.join(_proj_products) or '—'] + [_comp_products(c) for c in comparables])
+    r = data_row(r, 'Blended whole-property mgmt-fee rate (VND/m²/month)',
+                 ['—'] + [f"{c['mgmt_rate']:,.0f} ({c.get('mgmt_rate_vat','')})" if c.get('mgmt_rate') else '—'
+                          for c in comparables])
+    r = data_row(r, 'Other verified product rates on file (VND/m²/month)',
+                 ['—'] + [_other_rates(c) for c in comparables])
+    r = data_row(r, 'Data source', ['this project (from the input form)'] + [_comp_source(c) for c in comparables])
 
     r += 1
-    r = section(r, 'MANAGEMENT FEE RATE')
-    r = data_row(r, 'Real rate per comparable (VND/m²/month)',
-                 ['—'] + [f"{c['mgmt_rate']:,} ({c['mgmt_rate_vat']})" if c['mgmt_rate'] else 'BLANK (no real rate)' for c in comparables])
-    r = data_row(r, 'MODEL-DERIVED rate (this project)', [f'{derived_rate:,}', '', ''], fill=reality_fill)
+    r = section(r, 'APARTMENT MANAGEMENT FEE RATE')
+    r = data_row(r, 'Real Apartment rate per comparable (VND/m²/month)',
+                 ['—'] + [f"{(c['rates'].get('Apartment') or c['mgmt_rate']):,} ({c['mgmt_rate_vat']})"
+                          if (c['rates'].get('Apartment') or c['mgmt_rate']) else 'BLANK (no real rate)'
+                          for c in comparables])
+    r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=reality_fill)
     if rate_note:
         r = data_row(r, 'Derivation note', [rate_note, '', ''])
     if own_real:
-        gap = derived_rate - own_real['mgmt_rate']
-        gap_pct = gap / own_real['mgmt_rate'] * 100
-        r = data_row(r, f"{project['name']}'s ACTUAL real rate (reality check)",
-                     [f"{own_real['mgmt_rate']:,} ({own_real['mgmt_rate_vat']})", '', ''], fill=reality_fill)
+        real_apt = own_real['rates']['Apartment']
+        gap = derived_rate - real_apt
+        gap_pct = gap / real_apt * 100
+        r = data_row(r, f"{project['name']}'s ACTUAL real Apartment rate (reality check)",
+                     [f"{real_apt:,} ({own_real['mgmt_rate_vat']})", '', ''], fill=reality_fill)
         r = data_row(r, 'Gap (derived − real)', [f'{gap:+,} VND  ({gap_pct:+.0f}%)', '', ''], fill=reality_fill)
     else:
         r = data_row(r, 'Reality check', ['Not applicable — new prospect, no independently known real rate', '', ''])
+
+    # ---- PROPOSAL BENCHMARK — turns the derived rate into the figures a bid conversation uses:
+    # fee per apartment, year-1 revenue, revenue if charged at each comparable's rate, and whether
+    # the operating budget balances. The own-project money cells are FORMULAS into '1. Summary', so
+    # the benchmark carries the deliverable's own figures forward instead of restating them (change
+    # benchmark-proposal-against-comparables — design D1). Coverage is the operating fund only; the
+    # sinking fund / capex reserve is a separate ring-fenced fund and is left out of both sides. ----
+    _S = "'1. Summary'"
+    _ratio = f"{_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}/{_S}!H{_SUMMARY_ROW_OPERATING_INCOME}"
+
+    def note_row(row, text, height=30):
+        cell = ws.cell(row=row, column=1, value=text)
+        cell.font = Font(italic=True, color='595959')
+        cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        ws.cell(row=row, column=1).border = border
+        ws.row_dimensions[row].height = height
+        return row + 1
+
+    def money_row(row, label, values, fill=None):
+        nr = data_row(row, label, values, fill=fill)
+        for col in range(2, 5):
+            ws.cell(row=row, column=col).number_format = '#,##0'
+        return nr
+
+    r += 1
+    r = section(r, 'PROPOSAL BENCHMARK — is the proposed fee defensible in a bid?')
+    r = note_row(r,
+        "The FEE rows compare this proposal against the real Apartment rates of the comparable "
+        "projects above. The COVERAGE rows are an internal check on this project's own budget — "
+        "operating fund only; the sinking fund / capex reserve is a separate ring-fenced fund and "
+        "is not included. This project's costs are built from one reference property's ratios, so "
+        "coverage confirms the budget balances — it is not a second opinion from the market.",
+        height=58)
+
+    apt_nfa = project.get('apartment_nfa') or 0
+    apt_units = project.get('apartment_units') or 0
+    comp_apt_rates = [c['rates']['Apartment'] for c in comparables if c['rates'].get('Apartment')]
+
+    # -- Management fee per apartment (VND/month): exact for this project, upper bound for comparables --
+    if apt_nfa and apt_units:
+        this_fpa = round(derived_rate * apt_nfa / apt_units)
+        comp_fpa = []
+        for c in comparables:
+            cr, cu = c['rates'].get('Apartment'), (c.get('units') or 0)
+            comp_fpa.append(f"{round(cr * c['nfa'] / cu):,}  (approx — gross area/unit)"
+                            if (cr and cu) else '— (no unit count on file)')
+        r = data_row(r, 'Management fee per apartment (VND/month)', [f'{this_fpa:,}'] + comp_fpa)
+        r = note_row(r,
+            f"This project: {derived_rate:,.0f} VND/m²/month × {apt_nfa / apt_units:,.0f} m² average "
+            f"apartment NFA. Comparables: real Apartment rate × (total building NFA ÷ apartment "
+            f"units) — an upper bound, total NFA includes shared and non-apartment area.")
+    else:
+        r = data_row(r, 'Management fee per apartment (VND/month)',
+                     ['— (this project has no apartments)', '', ''])
+
+    # -- Year-1 management-fee revenue: this project = the deliverable's own figure; each comparable
+    # column = that same revenue with only the Apartment lines re-priced at the comparable's rate. --
+    comp_rev = []
+    for c in comparables:
+        cr = c['rates'].get('Apartment')
+        if cr and apt_nfa:
+            d = round(apt_nfa * (cr - derived_rate) * 12)
+            comp_rev.append(f"={_S}!H{_SUMMARY_ROW_MGMT_FEE}"
+                            + (f"+{d}" if d > 0 else (f"-{abs(d)}" if d < 0 else "")))
+        else:
+            comp_rev.append('—')
+    r = money_row(r, 'Year-1 management-fee revenue (VND)',
+                  [f"={_S}!H{_SUMMARY_ROW_MGMT_FEE}"] + comp_rev)
+    r = note_row(r,
+        "Comparable columns are a projection — this project's year-1 revenue with only the Apartment "
+        "lines re-priced at that comparable's Apartment rate, not that comparable's own revenue.")
+
+    # -- Coverage (operating fund only, this-project column — formulas into '1. Summary') --
+    r = money_row(r, 'Year-1 total operating income (VND) — fee + parking + other',
+                  [f"={_S}!H{_SUMMARY_ROW_OPERATING_INCOME}", '', ''])
+    r = money_row(r, 'Year-1 total operating cost (VND) — before Savills’ fee',
+                  [f"={_S}!H{_SUMMARY_ROW_OPERATING_COST}", '', ''])
+    r = money_row(r, 'Year-1 operating surplus (VND) — before Savills’ fee & tax',
+                  [f"={_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}", '', ''], fill=reality_fill)
+    _pct_r = r
+    r = data_row(r, 'Operating surplus as % of operating income',
+                 [f"={_ratio}", '', ''], fill=reality_fill)
+    ws.cell(row=_pct_r, column=2).number_format = '0.0%'
+    r = data_row(r, f'Coverage band  ({COVERAGE_BAND_LABEL})',
+                 [f'=IF({_ratio}<0,"shortfall",IF({_ratio}<{COVERAGE_BAND_THIN_MAX},"thin",'
+                  f'IF({_ratio}<{COVERAGE_BAND_NORMAL_MAX},"normal","generous")))', '', ''],
+                 fill=reality_fill)
+
+    # -- Verdict: one line. Fee-vs-range is known now; the balance clause is a live IF on H46. --
+    fee_clause = _benchmark_fee_clause(derived_rate, comp_apt_rates)
+    verdict = (f'="{fee_clause}"'
+               f'&IF({_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}<0,'
+               f'" The operating budget does NOT balance before Savills’ fee.",'
+               f'IF({_ratio}<{COVERAGE_BAND_THIN_MAX},'
+               f'" The operating budget balances before Savills’ fee, but the surplus is thin.",'
+               f'" The operating budget balances before Savills’ fee with a workable surplus."))')
+    ws.cell(row=r, column=1, value='VERDICT').font = Font(bold=True)
+    vcell = ws.cell(row=r, column=2, value=verdict)
+    vcell.font = Font(bold=True)
+    vcell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+    ws.cell(row=r, column=1).fill = PatternFill('solid', start_color='FFF2CC', end_color='FFF2CC')
+    ws.cell(row=r, column=1).border = border
+    ws.cell(row=r, column=2).fill = PatternFill('solid', start_color='FFF2CC', end_color='FFF2CC')
+    ws.cell(row=r, column=2).border = border
+    ws.row_dimensions[r].height = 46
+    r += 1
 
     r += 1
     r = section(r, f'SERVICE RATES ({RATE_CARD_SOURCE})')
@@ -1043,7 +3335,7 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
     r = data_row(r, 'Cleaning (VND/post/month)', [f'{CLEANING_RATE_CITYWIDE:,}'] * 3)
     r = data_row(r, 'Landscape (VND/post/month)', [f'{LANDSCAPE_RATE_CITYWIDE:,}'] * 3)
 
-    widths = {'A': 46, 'B': 26, 'C': 24, 'D': 24}
+    widths = {'A': 54, 'B': 26, 'C': 26, 'D': 26}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 

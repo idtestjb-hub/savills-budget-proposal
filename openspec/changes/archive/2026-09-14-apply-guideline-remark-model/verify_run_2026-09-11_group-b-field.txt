@@ -1,0 +1,52 @@
+VERIFY — Savills budget pipeline
+sample: Sample_Project_Input.xlsx
+
+1. WORKFLOW
+-----------
+OK    both generators completed
+         1,290,149 bytes  deliverable
+            81,710 bytes  analysis
+            25,148 bytes  roster
+OK    all production artefacts byte-identical
+
+2. STRUCTURE
+------------
+OK    deliverable  25 sheets, none missing
+OK    analysis     14 sheets, none missing
+OK    roster       5 sheets, none missing
+OK    no corruption artifacts in any workbook
+OK    no Excel errors introduced (257 inherited from the blank template, which carries 2355)
+      checking method used: excel-recalculation
+
+3. FIGURES
+----------
+OK    24 headline figures extracted, all present and non-null
+OK    mgmt_fee_revenue_annual: 12,178,230,000.00
+OK    service_security_annual: 1,294,958,000.00
+OK    capex_amenity_area: 12,939,000.00
+OK    capex_selected: 309,940,810.00
+OK    additional_revenue_annual (parking portion): 7,210,545,456.00
+
+4. BASELINE
+-----------
+      recorded 2026-09-08T19:10:20+07:00 on Python 3.14.6, Excel 16.0
+OK    all 24 figures match the baseline within tolerance
+
+5. DELIVERABLE FIGURES
+----------------------
+OK    all 7 ramped deliverable figures match the baseline
+      RM collected + RM.0A developer top-up = 12,178,230,000 VND (total management fee, unchanged by the ramp)
+NOTE  Deliverable RM rows are occupancy-ramped; un-ramped here (x 12 / 3.2500) to a full-occupancy year. RM.0A developer top-up (not compared, info only): 8,879,959,375 VND.
+NOTE  Both columns are VND/year at full occupancy — equal by construction once both generators rank comparables on Total building NFA. Equal per-product revenue on equal input NFA also means the two derived the same rate.
+OK    deliverable and analysis agree on all 3 priced product(s) and the total (12,178,230,000 VND/year at full occupancy)
+NOTE  PROPOSAL BENCHMARK own-project cells are formulas into '1. Summary' — this confirms none has broken (#REF!, wrong cell) and the projections evaluate.
+OK    all 6 PROPOSAL BENCHMARK figure(s) reconcile with the deliverable '1. Summary'
+NOTE  VAT model (2. Budget-Management Fund!F7): THU HỘ CHI HỘ — inclusive of VAT; budget year 2027.
+NOTE  21 assertions passed across 13 composed '1. Summary' narrative(s) and the sampled T remarks.
+OK    all 21 remark-content assertion(s) passed (composed narratives, funded-child lists, VAT sentence)
+
+RESULT
+------
+PASS — structural checks and numeric baseline both clean.
+       checking method: excel-recalculation  (full Excel recalculation)
+       24 figures matched, 5 independently hand-checked, production untouched.

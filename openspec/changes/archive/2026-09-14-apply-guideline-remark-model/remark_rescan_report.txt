@@ -1,0 +1,571 @@
+REMARK RE-SCAN — AI Guideline instruction vs the worked sample's actual Remark text
+Guide:  AI Guideline - 2027 Resi Budget Form (IT team) __repaired.xlsx
+Sample: Ngân sách mẫu  dự án mới sẽ Operation năm 1 + năm 2 có giai đoạn tiền khai trương__repaired.xlsx
+==============================================================================================================
+
+##############################################################################################################
+GUIDE SHEET: [0. Info]  (13 rows with item/guideline text)
+SAMPLE SHEET: [Info]  (13 rows with item/remark text)
+##############################################################################################################
+
+[-] Apartment  (guide row 8)
+  AI GUIDELINE : Có 3 cột quan trọng phải điền đủ là: | - Cột D (diện tích dùng để nhân với mức phí quản lý) | - Cột E, điền đúng số lượng căn nhà, ô hoặc số lượng khu vực sản phẩm | - Cột I, điền mức phí quản lý (lưu ý nếu mức phí điền nếu đã là bao gồm VAT thì toàn bộ chi phí ở mục ngân sách phải là mức đã bao gồm VAT) - LƯU Ý, MỨC PHÍ NÀY LÀ MỨC PHÍ CHƯA BAO GỒM PHÍ CHO KHU VỰC NGOẠI VI (NẾU CÓ)
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Officetel  (guide row 9)
+  AI GUIDELINE : Tương tự ý như dòng 8 trên
+  SAMPLE REMARK (row 13, item 'Officetel'): (blank)
+
+[-] Office  (guide row 10)
+  AI GUIDELINE : Tương tự ý như dòng 8 trên
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Shophouse  (guide row 11)
+  AI GUIDELINE : Tương tự ý như dòng 8 trên
+  SAMPLE REMARK (row 14, item 'Shophouse'): Diện tích NSA (thông thủy) căn shophouse theo thuyết minh TKTC. Cập nhật theo thông số Chủ Đầu Tư cung cấp năm 2026
+
+[-] Bãi xe ô tô thuộc Sở hữu riêng của CĐT  (guide row 12)
+  AI GUIDELINE : Tương tự ý như dòng 8 trên
+  SAMPLE REMARK (row 19, item 'Bãi xe ô tô thuộc Sở hữu riêng của CĐT'): (blank)
+
+[-] Bãi xe ô tô thuộc Sở hữu riêng của CĐT  (guide row 15)
+  AI GUIDELINE : Có 3 cột quan trọng phải điền đủ là: | - Cột D (diện tích dùng để nhân với mức phí quản lý) - nếu có | - Cột F, điền đúng số lượng ô đậu xe | - Cột I, điền mức phí đậu xe ô tô tháng (lưu ý nếu mức phí điền nếu là bao gồm VAT thì toàn bộ chi phí ở mục ngân sách phải là mức đã bao gồm VAT) | A. Trường hợp 1: CĐT giao bãi xe cho cư dân khai thác -> doanh thu bãi xe ô tô điền vào phần doanh thu của ngân sách vận hành | => Khi tính tổng doanh thu bãi xe tháng ô tô sẽ bằng cách lấy cột F nhân với hệ số % tỷ lệ lấp đầy, sau đó nhân tiếp với cột I | + Hệ số % tỷ lệ lấp đầy bãi xe dựa trên tỷ lệ lấp đầy cư dân tại sheet tỷ lệ lấp đầy:  |  - Thông thường dự án mới vận hành, tỷ lệ lấp đầu sẽ tăng từ 0% ở tháng đầu - > đến cuối năm 1 tỷ lệ lấp đầy là khoảng 40 - 55%, năm thứ 2  tỷ lệ lấp đầy tiếp tục tăng gần như đều đến cuối năm 2, tỷ lệ lấp đầy bãi xe khoảng 70 - 80% số chỗ đậu => dùng hàm Schedule ở cột F trong sheet 2. Budget-Management Fund, và link số từng tháng vào từ cột H đến cột S tại dòng tương ứng mã RP2 | - Trường hợp dự án có ít chỗ đậu xe hơn số căn (thông thường nếu số chỗ đậu xe ô tô chỉ bằng 50% số căn hộ hoặc ít hơn) thì tỷ lệ lấp đầy sẽ tăng nhanh gấp đôi so với trường hợp trên | B. Trường hợp 2: CĐT chia sẻ doanh thu bãi xe ô tô với cư dân => Cách tính doanh thu tương tự trường hợp 1, tuy nhiên sau khi tính ra doanh thu từng tháng sẽ phải NHÂN THÊM TỶ LỆ CHIA SẺ với CĐT (lấy phần thuộc về cư dân để nhập vào form ngân sách)  => cũng nhập số liệu tương tự trường hợp 1. Hoặc nhập full doanh thu như trường hợp 1 (chưa cần nhân tỷ lệ chia sẻ + sau đó xuống phần mã ESS38 (ở phần chi phí) nhập phần doanh thu mà CĐT nhận được phần chia sẻ về CĐT tương ứng từng tháng. | C. Trường 3: CĐT giữ lại tự khai thác bãi xe ô tô => không điền doanh thu đậu xe ô tô tháng vào ngân sách quỹ vận hành. Thay vào đó sẽ điền doanh thu phí quản lý ở ô K12 vào mã RM.PA trong sheet 2. Budget-Management Fund |  | Lưu ý: nếu trường hợp 1 hoặc 2 xảy ra: thì ngoài doanh thu bãi xe ô tô tháng, phải dự ước thêm doanh thu xe vãng lai ô tô: dựa trên
+  SAMPLE REMARK (row 19, item 'Bãi xe ô tô thuộc Sở hữu riêng của CĐT'): (blank)
+
+[-] Bãi xe gắn máy thuộc Sở hữu chung của các Chủ sở hữu  (guide row 18)
+  AI GUIDELINE : Có 2 cột quan trọng phải điền đủ là: | - Cột F, điền đúng số lượng ô đậu xe | - Cột I, điền mức phí đậu xe máy tháng (lưu ý nếu mức phí điền nếu là bao gồm VAT thì toàn bộ chi phí ở mục ngân sách phải là mức đã bao gồm VAT) | Về lập số liệu vào form ngân sách 2. Budget-Management Fund | A. Trường hợp 1: nếu dự án mới đưa vào khai thác vận hành. + Hệ số % tỷ lệ lấp đầy bãi xe 02 bánh tháng dựa trên tỷ lệ lấp đầy cư dân tại sheet tỷ lệ lấp đầy:  |  - Thông thường dự án mới vận hành, tỷ lệ lấp đầu sẽ tăng từ 0% ở tháng đầu - > đến cuối năm 1 tỷ lệ lấp đầy là khoảng 50 - 55%, năm thứ 2  tỷ lệ lấp đầy tiếp tục tăng gần như đều đến cuối năm 2, tỷ lệ lấp đầy bãi xe khoảng 80% số chỗ đậu (tỷ lệ lấp đầy bãi xe máy tháng, thường sẽ tương đương tỷ lệ lấp đầy cư dân ở tại sự án => dùng hàm Schedule ở cột F trong sheet 2. Budget-Management Fund, và link số từng tháng vào từ cột H đến cột S tại dòng tương ứng mã RP1 | - Trường hợp dự án có tổng số chỗ đậu xe 02 bánh thấp hơn số căn hộ, thì tỷ lệ lấp đầy sẽ tăng nhanh gấp đôi so với trường hợp trên
+  SAMPLE REMARK (row 22, item 'Bãi xe gắn máy thuộc Sở hữu chung của các Chủ sở hữu'): Tổng diện tích đậu xe ô tô theo thuyết minh TKTC CĐT cung cấp là 6044.41 m2 - áp dụng theo QCVN 04:2021 mỗi căn 6 m2 chỗ đậu xe 2 bánh | Số chỗ đậu xe tạm ước tính theo thông tin CĐT cung cấp
+
+  -- sample rows with a Remark but NOT matched to any guide row (3) --
+     row 12 [-] Apartment (căn hộ): Diện tích NSA (thông thủy) căn hộ ở theo thuyết minh TKTC. Cập nhật theo thông số Chủ Đầu Tư cung cấp năm 2026
+     row 16 [-] Nhà trẻ: Diện tích NSA (thông thủy) căn shophouse theo thuyết minh TKTC. Cập nhật theo thông số Chủ Đầu Tư cung cấp năm 2026
+     row 18 [-] Bãi xe ô tô: Theo thông tin tại buổi họp gần nhất với CĐT, dự án bố trí số lượng xe ô tô vừa đủ cho cư dân (mỗi căn 1 chỗ), nên tạm tính là 624 chỗ đậu, mỗi chỗ đậu có diện tích là 12,5 m2
+
+##############################################################################################################
+GUIDE SHEET: [1. Summary]  (49 rows with item/guideline text)
+SAMPLE SHEET: [1. Summary năm 1 + năm 2]  (45 rows with item/remark text)
+##############################################################################################################
+
+[-] Diện tích thu phí (m2)  (guide row 10)
+  AI GUIDELINE : Input tổng diện tích thu phí => => lấy thông tin từ sheet "0. Info" đưa vào ghi chú
+  SAMPLE REMARK (row 10, item 'Diện tích thu phí (m2)'): (blank)
+
+[-] Số lượng sản phẩm  (guide row 11)
+  AI GUIDELINE : Input tổng số sản phẩm (căn nhà) => lấy thông tin từ sheet "0. Info" đưa vào ghi chú
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[RM] =VLOOKUP(B14,'2. Budget-Management Fund'!$Y$12:$Z$495,2,0)  (guide row 14)
+  AI GUIDELINE : Hạng mục này phải ghi chú cụ thể cơ sở tính toán ra số liệu của mã RM, đảm bảo note đủ 3 nội dung: | "Dự ước doanh thu phí quản lý năm 1/ năm 2/.... dựa trên cơ sở:   | 1/ Diện tích thu phí theo thông tin CĐT cung cấp là: ...... m2 (căn hộ), ..... m2 (căn shophouse), nhà trẻ ..... m2 => lấy thông tin từ sheet "0. Info" đưa vào ghi chú | 2/ Mức phí quản lý căn hộ, căn shop là: ..... VND/m2/tháng (VAT), nhà trẻ ...... VND/m2/tháng (VAT), bãi xe ô tô .... VND/m2/tháng (VAT) => lấy thông tin từ sheet "0. Info" đưa vào ghi chú | 3/ Ước tính theo thông tin CĐT cung cấp thu trước .... tháng PQL cư dân khi bàn giao nhà, và CĐT sẽ đóng PQL những căn chưa bàn giao=> lấy thông tin từ sheet tiến độ lấp đầy cư dân | =>Chi tiết xem tại trang Tiến độ lấp đầy cư dân
+  SAMPLE REMARK (row 14, item "=VLOOKUP(B14,'2a.Budget-MF 12 months (year 1)'!$Z$12:$AA$492,2,0)"): Dự ước doanh thu phí quản lý năm 1 dựa trên cơ sở:   | 1/ Diện tích thu phí theo thông tin CĐT cung cấp là: 75.530 m2 (căn hộ), 11.069 m2 (căn shophouse), nhà trẻ 1.405 m2 | 2/ Mức phí quản lý căn hộ, căn shop là: 31.800 VND/m2/tháng (VAT), nhà trẻ 23.000 VND/m2/tháng (VAT), bãi xe ô tô 32.000 VND/m2/tháng (VAT) | 3/ Ước tính theo thông tin CĐT cung cấp thu trước 06 tháng PQL cư dân khi bàn giao nhà, và CĐT sẽ đóng PQL những căn chưa bàn giao | 4/ Dự ước tỷ lệ bàn giao và tỷ lệ nợ xấu theo kinh nghiệm QLVH của Savills tại các dự án tương đương | =>Chi tiết xem tại trang Tiến độ bàn giao
+
+[RPa] =VLOOKUP(B15,'2. Budget-Management Fund'!$Y$12:$Z$495,2,0)  (guide row 15)
+  AI GUIDELINE : Hạng mục này phải ghi chú cụ thể cơ sở tính toán ra số liệu của mã RPa, đảm bảo note đủ các nội dung: | Dự toán hạng mục doanh thu này bao gồm: | - Dự ước theo tỷ lệ lấp đầy cư dân tại trang "Tiến độ lấp đầy bãi xe".  Giả định trung bình mỗi căn hộ có 02 xe máy, với đơn giá gửi tháng khoảng .... VND/xe/ tháng => lấy thông tin từ sheet "0. Info" đưa vào ghi chú | - Dự ước khoảng trung bình 100 căn sẽ có 7 căn có xe đạp gửi tháng. Đơn giá xe đạp gửi tháng là .... VND/ xe/ tháng => lấy thông tin từ sheet "0. Info" đưa vào ghi chú | => Chi tiết doanh thu bãi xe tại trang " Tiến độ lấp đầy bãi xe bãi xe"
+  SAMPLE REMARK (row 15, item "=VLOOKUP(B15,'2a.Budget-MF 12 months (year 1)'!$Z$12:$AA$492,2,0)"): Dự toán hạng mục doanh thu này bao gồm: | - Dự ước theo tỷ lệ lấp đầy cư dân tại trang "Tiến độ doanh thu bãi xe".  Giả định trung bình mỗi căn hộ có 02 xe máy, với đơn giá gửi tháng khoảng 162.000 VND/xe/ tháng  | - Dự ước khoảng trung bình 100 căn sẽ có 7 căn có xe đạp gửi tháng. Đơn giá xe đạp gửi tháng là 40.000 VND/ xe/ tháng (theo đơn giá đề xuất của Savills cho mức phí gửi xe đạp tháng) | => Chi tiết doanh thu bãi xe tại trang " Tiến độ doanh thu bãi xe"
+
+[RA] Advertising/ Quảng cáo  (guide row 16)
+  AI GUIDELINE : Ghi chú auto tương tự cột ghi chú kế bên. Lưu ý dự án Resi mới ghi chú như vậy, trường hợp dự án văn phòng, trung tâm thương mại, tùy thực tế sẽ input ghi chú thủ công phù hợp vào
+  SAMPLE REMARK (row 16, item 'Advertising/ Quảng cáo'): Áp dụng theo luật nhà ở 2023 có hiệu lực từ tháng 08/2024. Doanh thu đền từ khai thác các khu vực chung không ghi nhận trong quỹ vận hành | Chi tiết xem tại trang "2.2 Common area Fund"
+
+[RR] Rentals/ Cho thuê  (guide row 17)
+  AI GUIDELINE : Ghi chú auto tương tự cột ghi chú kế bên. Lưu ý dự án Resi mới ghi chú như vậy, trường hợp dự án văn phòng, trung tâm thương mại, tùy thực tế sẽ input ghi chú thủ công phù hợp vào
+  SAMPLE REMARK (row 17, item 'Rentals/ Cho thuê'): Áp dụng theo luật nhà ở 2023 có hiệu lực từ tháng 08/2024. Doanh thu đền từ khai thác các khu vực chung không ghi nhận trong quỹ vận hành | Chi tiết xem tại trang "2.2 Common area Fund"
+
+[RO] =VLOOKUP(B18,'2. Budget-Management Fund'!$Y$12:$Z$495,2,0)  (guide row 18)
+  AI GUIDELINE : Hạng mục này phần ghi chú sẽ liệt kê tất cả các Items có số liệu ở mục RO có phát sinh số liệu ở sheet "2. Budget-Management Fund"
+  SAMPLE REMARK (row 18, item "=VLOOKUP(B18,'2a.Budget-MF 12 months (year 1)'!$Z$12:$AA$492,2,0)"): (blank)
+
+[RI] =VLOOKUP(B19,'2. Budget-Management Fund'!$Y$12:$Z$495,2,0)  (guide row 19)
+  AI GUIDELINE : Hạng mục này trong hầu hết các trường hợp, mặc định ghi chú là: | "Dự ước bao gồm: | - Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung | Chi tiết xem tại trang "2.2 Common area Fund"
+  SAMPLE REMARK (row 19, item "=VLOOKUP(B19,'2a.Budget-MF 12 months (year 1)'!$Z$12:$AA$492,2,0)"): Dự ước bao gồm: | - Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung | Chi tiết xem tại trang "2.2 Common area Fund"
+
+[EMH] Human Resource/   Chi phí quản lý và nhân sự của Công ty Quản Lý  (guide row 22)
+  AI GUIDELINE : Hạng mục này ghi chú ở cột K, nội dung ghi chú cần đảm bảo ít nhất 02 ý đầu bên dưới: | "Chi phí hạng mục này dự ước bao gồm: | - Chi phí quản lý của Công Ty Quản lý bao gồm chi phí thương hiệu, phần mềm, các hỗ trợ từ văn phòng chính. Chi phí hạng mục này được đề xuất dựa trên khối lượng công việc và thực tế bàn giao sản phẩm của dự án | - Số lượng nhân sự Ban quản lý dựa trên quy mô, đặc thù dự án cũng như các yêu cầu về chất lượng nhân sự phù hợp với phân khúc dự án.Thời gian làm việc ca đêm các ngày, ca ngày dịp lễ tết theo đặc thù công việc tại dự án và quy định của nhà nước. Có thể dùng hàm đếm số lượng nhân sự BQL tại sheet A1. Staff cost 08.2026 (VN)  |  | => Chi tết xem tại Chi phí nhân sự xem tại trang "A1. Staff cost 08.2026 (VN)" | => Chi tiết chi phí huấn luyện bắt buộc hàng năm (ATLD, PCCC) theo nghị định 105 tại trang "A5. Trợ cấp PCCC" |  | Lưu ý: Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 22, item 'Human Resource/   Chi phí quản lý và nhân sự của Công ty Quản Lý'): Chi phí hạng mục này dự ước bao gồm: | - Chi phí quản lý của Công Ty Quản lý bao gồm chi phí thương hiệu, phần mềm, các hỗ trợ từ văn phòng chính. Chi phí hạng mục này được đề xuất dựa trên khối lượng công việc và thực tế bàn giao sản phẩm của dự án | - Số lượng nhân sự Ban quản lý dựa trên quy mô, đặc thù dự án cũng như các yêu cầu về chất lượng nhân sự phù hợp với phân khúc dự án.Thời gian làm việc ca đêm các ngày, ca ngày dịp lễ tết theo đặc thù công việc tại dự án và quy định của nhà nước | => Chi tết xem tại Chi phí nhân sự xem tại trang "3.1 SC Palm River" | => Chi tiết chi phí huấn luyện bắt buộc hàng năm (ATLD, PCCC) theo nghị định 105
+
+[EMA] Administrative Expense / Chi phí quản lý văn phòng của VPBQL  (guide row 23)
+  AI GUIDELINE : Hạng mục này ghi chú phải liệt kê toàn bộ những items chi phí có số liệu tại mã tổng EMA trong sheet 2. Budget-Management Fund.  |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 23, item 'Administrative Expense / Chi phí quản lý văn phòng của VPBQL'): Dự ước bao gồm: | - Điện thoại, internet | - Văn phòng phẩm | - Mực in | - Thuê máy photocopy | - Gửi thư | - Nước uống | - Đóng quỹ an ninh phường | - Nhu yếu phẩm cho văn phòng BQL hoặc nhân viên trực đêm (mì gói, trà, cà phê,…)
+
+[EMB] Bank and Audit/ Ngân hàng và kiểm toán  (guide row 24)
+  AI GUIDELINE : Hạng mục này ghi chú phải liệt kê toàn bộ những items chi phí có số liệu tại mã tổng EMB trong sheet 2. Budget-Management Fund.  |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 24, item 'Bank and Audit/ Ngân hàng và kiểm toán'): Dự ước bao gồm: | - Phí giao dịch ngân hàng | - Phí kiểm toán hàng năm  | Chi phí hạng mục này đã gồm VAT
+
+[-] Other và Contigency/ chi phí khác và dự phòng cho phát sinh  (guide row 25)
+  AI GUIDELINE : Hạng mục này ghi chú phải liệt kê toàn bộ những items chi phí có số liệu. Thông thường sẽ ghi | "Dự ước bao gồm: | - In ấn thẻ từ | - Chi phí khác | - Dự phòng phát sinh (dự phòng 0.5% tổng chi phí của mục Chi phí quản lý và hành chính)" |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 25, item 'Other và Contigency/ chi phí khác và dự phòng cho phát sinh'): Dự ước bao gồm: | - In ấn thẻ từ | - Chi phí khác | - Dự phòng phát sinh (dự phòng 0.5% tổng chi phí của mục Chi phí quản lý và hành chính) | Chi phí hạng mục này đã gồm VAT
+
+[ESC] Communication and Event/ Hoạt động cộng đồng và sự kiện  (guide row 27)
+  AI GUIDELINE : Hạng mục này ghi chú phải đảm bảo đủ 03 nội dung: | "- Tổ chức sự kiện: Dự ước <số lượng> sự kiện (note liệt kê tên những sự kiện chính trong 1 năm vận hành: ví dụ quốc tế thiếu nhi, trung thu,...) | - Diễn tập PCCC: Đối với dự án mới vận hành năm 1 sẽ có 2 nhóm phí: phí lập phương án PCCC và phí diện tập PCCC hằng năm | - Trang trí dịp Giáng sinh: Dự ước trang trí khu vực sảnh lễ tân (chi phí 1 sảnh nhân với tổng số sảnh) | - Trang trí dịp Tết Âm lịch: Dự ước trang trí khu vực sảnh lễ tân: Dự ước trang trí khu vực sảnh lễ tân (chi phí 1 sảnh nhân với tổng số sảnh có bố trí quầy lễ tân) |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 27, item 'Communication and Event/ Hoạt động cộng đồng và sự kiện'): Dự ước bao gồm: | - Tổ chức sự kiện: Dự ước 2 sự kiện (Quốc tế thiếu nhi, Tết Trung Thu) | - Diễn tập PCCC: Dự ước 1 lần/ năm | - Trang trí dịp Giáng sinh: Dự ước trang trí khu vực sảnh lễ tân | - Trang trí dịp Tết Âm lịch: Dự ước trang trí khu vực sảnh lễ tân | Chi phí hạng mục này đã gồm VAT
+
+[-] Security/ bảo vệ  (guide row 29)
+  AI GUIDELINE : Hạng mục này ghi chú phải đảm bảo 2 nội dung: |  -  Nêu tổng số lượng vị trí hoặc tổng số lượng vị trí quy đổi ra 24h: ví dụ 1 Đội trưởng kiêm tuần tra, 1 ca trưởng, 1 Kiểm soát phòng CCTV và FCC, 2 trực tiện ích, 4 doorman, 2 tuần tra căn hộ, 2 Kiểm soát chốt ra vào hầm, 1 Đăng ký thi công kiêm tuần tra khu vực bãi xe và 02 Sắp xếp xe kiêm tuần tra,....=> Dựa trên sheet A2. Bảo vệ - Security để ghi ra số lượng mỗi vị trí và tổng số lượng | - Nêu được mức đơn giá vị trí 24h giờ của nhân viên |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 29, item 'Security/ bảo vệ'): Dự ước 16 vị trí bảo vệ bao gồm: 1 Đội trưởng kiêm tuần tra, 1 ca trưởng, 1 Kiểm soát phòng CCTV và FCC, 2 trực tiện ích, 4 doorman, 2 tuần tra căn hộ, 2 Kiểm soát chốt ra vào hầm, 1 Đăng ký thi công kiêm tuần tra khu vực bãi xe và 02 Sắp xếp xe kiêm tuần tra | Chi phí hạng mục này đã bao gồm VAT dự ước tại năm 1, năm 2
+
+[-] Cleaning/ vệ sinh  (guide row 30)
+  AI GUIDELINE : Hạng mục này ghi chú phải đảm bảo 2 nội dung: |  -  Nêu tổng số lượng nhân viên + giờ làm việc của nhân viên: Giám sát, trưởng nhóm, nhân viên vệ sinh định kỳ, thu gom rác, nhân sự phụ trách vệ sinh khu vực sảnh lễ tân - khu vực tiện ích;  nhân sự  Vệ sinh công cộng hành lang tầng (ca sáng + ca chiều), nhân sự phụ trách vệ sinh bãi xe tầng hầm,....=> Dựa trên sheet A3. Vệ sinh - Cleaning để ghi ra số lượng mỗi vị trí và tổng số lượng | - Nêu được mức đơn giá nhân viên vệ sinh (bắt buộc) và tea lady/ giám sát vệ sinh (nếu có) |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 30, item 'Cleaning/ vệ sinh'): Dự ước 26 nhân viên vệ sinh bao gồm: Giám sát, trưởng nhóm, nhân viên vệ sinh định kỳ, thu gom rác, nhân sự phụ trách vệ sinh khu vực sảnh lễ tân - khu vực tiện ích;  nhân sự  Vệ sinh công cộng hành lang tầng (ca sáng + ca chiều), nhân sự phụ trách vệ sinh bãi xe tầng hầm | Chi phí hạng mục này đã bao gồm VAT và dự ước tại năm 1. năm 2 theo tỷ lệ lấp đầy cư dân
+
+[-] Other Service/ chi phí các dịch vụ khác  (guide row 31)
+  AI GUIDELINE : Hạng mục này phải nêu rõ tất những tên items chi phí còn lại của mục "Chi phí dịch vụ - mã ES", trừ bảo vệ, vệ sinh đã nói ở trên |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 31, item 'Other Service/ chi phí các dịch vụ khác'): Dự ước bao gồm: | - Thu gom rác sinh hoạt:  | - Thu gom rác thải nguy hại  | - Dịch vụ phun xịt côn trùng | - Chăm sóc cảnh quan | - Túi rác | - Vật tư vệ sinh công cộng: Không bao gồm vật tư của các nhà vệ sinh bên trong khu vực sở hữu riêng, bên trong khu vực các shophouse. | - Hoa tươi sảnh lễ tân | - Chi phí mùi hương sảnh lễ tân | Chi phí hạng mục này đã gồm VAT
+
+[ESI] Insurance/ Bảo hiểm cho tòa nhà  (guide row 32)
+  AI GUIDELINE : Hạng mục này phải nêu rõ được ghi chú số liệu của 2 items lớn là: | - Bảo hiểm rủi ro tài sản bao gồm cháy nổ bắt buộc (chi phí/ năm) | - Bảo hiểm trách nhiệm công cộng (chi phí/ năm) |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 32, item 'Insurance/ Bảo hiểm cho tòa nhà'): Dự ước bao gồm: | - Bảo hiểm rủi ro tài sản bao gồm cháy nổ bắt buộc: Savills đề xuất theo dự án tương đương, trường hợp CĐT cung cấp giá trị hợp đồng bảo hiểm hoặc giá trị đầu tư cụ thể, chi phí này sẽ thay đổi | - Bảo hiểm trách nhiệm công cộng | Chi phí hạng mục này đã gồm VAT
+
+[ESM] M&E Operation/ Vận hành M&E  (guide row 33)
+  AI GUIDELINE : Hạng mục này phải ghi chú được tất cả các tên chi phí có số liệu trong mục mã ESM, ví dụ: | - Kiểm định nước sinh hoạt | - Kiểm định nước hồ bơi | - Hóa chất hồ bơi | - Dụng cụ vệ sinh hồ bơi | - Phí kết nối với Trung tâm PCCC thành phố | - Vật tư thay thế nhỏ lẻ….. |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 33, item 'M&E Operation/ Vận hành M&E'): Dự ước bao gồm: | - Kiểm định nước sinh hoạt | - Kiểm định nước hồ bơi | - Hóa chất hồ bơi | - Dụng cụ vệ sinh hồ bơi | - Phí kết nối với Trung tâm PCCC thành phố | - Vật tư thay thế nhỏ lẻ | Chi phí hạng mục này đã gồm VAT
+
+[-] Accreditation Expense and Licence Expense Các chi phí liên quan đến kiểm định  (guide row 34)
+  AI GUIDELINE : Hạng mục này phải ghi chú liệt kê được tất cả các tên chi phí có số liệu trong mục mã ESA, ESL. Ngoài ra kèm thêm câu "Theo Điều 150 Luật nhà ở 2023, và Điều 32. Bảo trì nhà chung cư (quy chế sử dụng nhà chung cư), một số chi phí kiểm định khi vận hành có thể sử dụng quỹ bảo trì" |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 34, item 'Accreditation Expense and Licence Expense Các chi phí liên quan đến kiểm định'): Theo Điều 150 Luật nhà ở 2023, và Điều 32. Bảo trì nhà chung cư (quy chế sử dụng nhà chung cư), chi phí này khi vận hành có thể sử dụng quỹ bảo trì
+
+[-] Contigency/ Dự phòng & khác  (guide row 35)
+  AI GUIDELINE : Hạng mục này phải ghi chú liệt kê được tất cả các tên chi phí có số liệu trong mục mã ESR, ES# |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 35, item 'Contigency/ Dự phòng & khác'): Dự ước bao gồm: | - Chi phí thay thế cho các trường hợp miễn thường | - Dự phòng phí (ước tính dự phòng 0.5% tổng chi phí của mục Chi phí dịch vụ) | Chi phí hạng mục này đã gồm VAT
+
+[EN] =VLOOKUP(B36,'2. Budget-Management Fund'!$Y$12:$Z$495,2,0)  (guide row 36)
+  AI GUIDELINE : Hạng mục này phải nêu rõ được 2 nhóm nội dung: | - Chi phí capex gồm:  | + Trang thiết bị văn phòng ban quản lý: | + Trang thiết bị công cụ dụng cụ kỹ thuật & PCCC  | + Trang thiết bị công cộng, khu tiện ích | - Chi phí này dự kiến được khấu hao hết trong 24 tháng đầu vận hành của dự án |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 36, item "=VLOOKUP(B36,'2a.Budget-MF 12 months (year 1)'!$Z$12:$AA$492,2,0)"): Chi phí đầu tư trang thiết bị đầu tư ban đầu (CAPEX) được CĐT trang bị ban đầu bao gồm: | - Trang thiết bị văn phòng ban quản lý: | - Trang thiết bị công cụ dụng cụ kỹ thuật & PCCC  | - Trang thiết bị công cộng, khu tiện ích | Chi phí này dự kiến được khấu hao hết trong 24 tháng đầu vận hành của dự án | Chi phí hạng mục này đã gồm VAT và dự ước tại năm 1, năm 2
+
+[EEW] Water/ Nước công cộng  (guide row 38)
+  AI GUIDELINE : Hạng mục này phải nêu ra được  | - Khối lượng nước tiêu thụ tính:  <số lượng> m3/tháng, đơn giá bao gồm thuế VAT 5%, PBVMT 30%, VAT bvmt 8% (19786 đ/m3). Đơn giá nước lấy theo các dự án chung cư cùng quy mô và đơn giá là <đơn giá mỗi m3 nước> đ/m3 (Nước Sinh Hoạt > 6 m3/người/tháng, và áp dụng cho chung cư năm vận hành ổn định khi cư dân đã đăng ký định mức nước). Chi phí hạng mục này đã bao gồm VAT và dự ước tại năm 1/ năm 2/ năm.... dựa trên tỷ lệ láp đầy cư dân
+  SAMPLE REMARK (row 38, item 'Water/ Nước công cộng'): Tiêu thụ nước tính theo dự án tương đương 2751 m3/tháng, đơn giá bao gồm thuế VAT 5%, PBVMT 30%, VAT bvmt 8% (19786 đ/m3). Đơn giá nước lấy theo các dự án chung cư cùng quy mô và đơn giá là 14,400 đ/m3 (Nước Sinh Hoạt > 6 m3/người/tháng, và áp dụng cho chung cư năm vận hành ổn định khi cư dân đã đăng ký định mức nước). Chi phí hạng mục này đã bao gồm VAT và dự ước tại năm 1, năm 2 dựa trên tỷ lệ láp đầy cư dân
+
+[EEE] Electricity/ Điện công cộng  (guide row 39)
+  AI GUIDELINE : Hạng mục này phải nêu ra được: | - Tổng lượng điện tiêu thụ 1 tháng <số liệu> kw/tháng. | - Đơn giá điện đang áp dụng theo mức đơn giá điện dưới 6KV-đơn vị hành chính sự nghiệp (2226đ/Kwh), (Theo quyết định 1279/QĐ-BCT ngày 09/05/2025.) | Đối với dự án mới đưa vào vận hành dự ước tại năm 1, năm 2 dựa trên tỷ lệ lấp đầy cư dân, căn cứ theo sheet "Tỷ lệ lấp đầy cư dân". Khi đó chi phí sẽ được tính cho từng tháng (dùng tuần suất Schedule để nhập). Mức min khi tỷ lệ cư dân lấp đầy bằng 0 thì điện là bằng khoảng 40% của full chi phí. rải tăng đều, khi tỷ lệ cư dân lấp đầy 40% trở lên thì chi phí điện là full chi phí (full công suất x đơn giá) |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 39, item 'Electricity/ Điện công cộng'): Theo ước tính của Savills Tiêu thụ điện tính theo dự án tương đương 165 ngàn kw/tháng. | Đơn giá điện đang áp dụng theo mức đơn giá điện dưới 6KV-đơn vị hành chính sự nghiệp (2226đ/Kwh), (Theo quyết định 1279/QĐ-BCT ngày 09/05/2025.) | Chi phí hạng mục này đã bao gồm VAT và dự ước tại năm 1, năm 2 dựa trên tỷ lệ lấp đầy cư dân
+
+[EED] Diesel  (guide row 40)
+  AI GUIDELINE : Ghi chú, hạng mục này phải ghi rõ được số lượng máy phát điện của dự án, công suất mỗi máy. Mỗi năm chạy test không tải 12 giờ; chạy backup điện có tải do sự cố diện lưới và để bảo trì máy biến thế+ Tủ điện ha thế chính khoảng 8 giờ/ năm | ;Giá dầu DO 0.005S -Vùng 1 ngày <ngày lập ngân sách> là <đơn giá dầu theo niêm yết" đ/lít.  |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 40, item 'Diesel'): Có 02 máy phát điện dự phòng có công suất  là 1250KVA.. Mỗi năm chạy test không tải 12 giờ; chạy backup điện có tải do sự cố diện lưới và để bảo trì máy biến thế+ Tủ điện ha thế chính khoảng 8 giờ/ năm | ;Giá dầu DO 0.005S-Vùng 1 ngày 05/8/2025 là 19.068 đ/lít.  | Chi phí hạng mục này đã bao gồm VAT
+
+[EE#] Contigency/ Dự phòng  (guide row 42)
+  AI GUIDELINE : Link ghi chú từ mã tương ứng trong sheet 2. Budget-Management Fund ra
+  SAMPLE REMARK (row 42, item 'Contigency/ Dự phòng'): Dự phòng của mục năng lượng
+
+[ER] =VLOOKUP(B43,'2. Budget-Management Fund'!$Y$12:$Z$495,2,0)  (guide row 43)
+  AI GUIDELINE : Hạng mục này phải ghi chú liệt kê được tất cả các tên chi phí có số liệu trong mục mã ER |  | Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú "Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>
+  SAMPLE REMARK (row 43, item "=VLOOKUP(B43,'2a.Budget-MF 12 months (year 1)'!$Z$12:$AA$492,2,0)"): Các chi phí bảo trì, sửa chữa, thay thế trang thiết bị hệ thống kỹ thuật sẽ được dự toán và chi trả từ Quỹ bảo trì dự phòng (nếu có phát sinh) |  | Dự toán chỉ ước tính cho: Vệ sinh bồn nước định kỳ, vệ sinh hố ga, Hút vệ sinh bùn trạm xử lý chất thải, Hút hầm cầu | Chi phí hạng mục này đã gồm VAT và dự ước tại năm cơ sở năm 1, năm 2
+
+[VAT2] VAT liability Thuế VAT đối với Mã số thuế (MST) Ban Quản Trị  (guide row 51)
+  AI GUIDELINE : Khoản chi phí Chênh lệch Thuế GTGT đầu ra và đầu vào này sẽ chi trả theo thực tế phát sinh dựa vào doanh thu và chi phí vận hành hàng tháng của tòa nhà, và được chi trả từ nguồn thu Thuế GTGT của doanh thu. Vì vậy, khoản chi phí này chưa phát sinh trên dự toán này.
+  SAMPLE REMARK (row 51, item 'VAT liability Thuế VAT đối với Mã số thuế (MST) Ban Quản Trị'): Khoản chi phí Chênh lệch Thuế GTGT đầu ra và đầu vào này sẽ chi trả theo thực tế phát sinh dựa vào doanh thu và chi phí vận hành hàng tháng của tòa nhà, và được chi trả từ nguồn thu Thuế GTGT của doanh thu. Vì vậy, khoản chi phí này chưa phát sinh trên dự toán này.
+
+[CIT2] Corporate Incomes Tax on Extra Input cash Flow (CIT) Thuế thu nhập doanh nghiệp trên Doanh thu cộng thêm  (guide row 53)
+  AI GUIDELINE : Dự ước sẽ phát sinh trên doanh thu cộng thêm thực tế của tòa nhà nếu Cơ quan Thuế có công văn đề nghị áp dụng tính thuế thu nhập doanh nghiệp trên doanh thu cộng thêm. |  | Dự ước  với mức thuế suất 20%* tổng doanh thu cộng thêm, trong trường hợp thành lập BQT thì mức thuế suất này sẽ là 5% cho VAT và 5% cho CIT | Đây là số tham khảo, khi vào vận hành tùy thuộc vào doanh thu/ chi phí thực tế
+  SAMPLE REMARK (row 53, item 'Corporate Incomes Tax on Extra Input cash Flow (CIT) Thuế thu nhập doanh nghiệp trên Doanh thu cộng thêm'): Dự ước sẽ phát sinh trên doanh thu cộng thêm thực tế của tòa nhà nếu Cơ quan Thuế có công văn đề nghị áp dụng tính thuế thu nhập doanh nghiệp trên doanh thu cộng thêm. |  | Dự ước  với mức thuế suất 20%* tổng doanh thu cộng thêm, trong trường hợp thành lập BQT thì mức thuế suất này sẽ là 5% cho VAT và 5% cho CIT | Đây là số tham khảo, khi vào vận hành tùy thuộc vào doanh thu/ chi phí thực tế
+
+##############################################################################################################
+GUIDE SHEET: [2. Budget-Management Fund]  (500 rows with item/guideline text)
+SAMPLE SHEET: [2a.Budget-MF 12 months (year 1)]  (492 rows with item/remark text)
+##############################################################################################################
+
+[RM.AP] Management fee of Apartment Phí quản lý thu từ Căn hộ  (guide row 14)
+  AI GUIDELINE : Số liệu hạng mục này lấy theo Guideline đã hướng dẫn tại sheet 0. Info. Lưu ý nếu tùy chọn tại ô F7 là 'THU HỘ CHI HỘ" hoặc 'KHÔNG KHOÁN" thì doanh thu phải bao gồm VAT và khi doanh thu có VAT thì chi phí phải bao gồm VAT. Ngược lại nếu ô F7 tùy chọn là "KHOÁN" thì doanh thu không có VAT, và chi phí cũng chưa VAT |  | Và nếu dựa án mới vận hành thì lấy số từ bảng rải tiến độ ở sheet "Tỷ lệ lấp đầy cư dân"
+  SAMPLE REMARK (row 14, item 'Management fee of Apartment Phí quản lý thu từ Căn hộ'): =IF(U14>0,U14," ")
+
+[RP1] Motorbike monthly parking Tiền thu từ gắn máy tháng  (guide row 26)
+  AI GUIDELINE : Các items này nhập số liệu theo hướng dẫn tại sheet "0. Info" và nếu dự án là dự án mới thì phải căn cứ theo số liệu lấy từ sheet "Tiến độ lấp đầy bãi xe"
+  SAMPLE REMARK (row 26, item 'Motorbike monthly parking Tiền thu từ gắn máy tháng'): =IF(U26>0,U26," ")
+
+[RO1] Commision Hoa hồng  (guide row 35)
+  AI GUIDELINE : Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+  SAMPLE REMARK (row 35, item 'Commision Hoa hồng'): =IF(U35>0,U35," ")
+
+[RO2a] Bank Interest on Savills account  Lãi tiền gửi từ tài khoản ngân hàng đứng tên Savills  (guide row 37)
+  AI GUIDELINE : Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+  SAMPLE REMARK (row 37, item 'Bank Interest on Savills account  Lãi tiền gửi từ tài khoản ngân hàng đứng tên Savills'): =IF(U37>0,U37," ")
+
+[RO2b] Bank Interest on BOC account  Lãi tiền gửi từ tài khoản ngân hàng đứng tên Ban quản trị  (guide row 38)
+  AI GUIDELINE : Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+  SAMPLE REMARK (row 38, item 'Bank Interest on BOC account  Lãi tiền gửi từ tài khoản ngân hàng đứng tên Ban quản trị'): =IF(U38>0,U38," ")
+
+[RO3.A] Water fee of Apartment Tiền nước thu từ căn hộ (thu hộ)  (guide row 40)
+  AI GUIDELINE : Ngân sách VPC lập không dự ước doanh thu thu hộ
+  SAMPLE REMARK (row 40, item 'Water fee of Apartment Tiền nước thu từ căn hộ (thu hộ)'): =IF(U40>0,U40," ")
+
+[RO4.A] Electricity fee of Apartment Tiền điện thu từ khu căn hộ (thu hộ)  (guide row 48)
+  AI GUIDELINE : Ngân sách VPC lập không dự ước doanh thu thu hộ
+  SAMPLE REMARK (row 48, item 'Electricity fee of Apartment Tiền điện thu từ khu căn hộ (thu hộ)'): =IF(U48>0,U48," ")
+
+[RO5] Electricity fee of Developer/ Contractors Tiền điện thu từ Chủ Đầu Tư/ nhà thầu (thu hộ)  (guide row 55)
+  AI GUIDELINE : Ngân sách VPC lập không dự ước doanh thu thu hộ
+  SAMPLE REMARK (row 55, item 'Electricity fee of Developer/ Contractors Tiền điện thu từ Chủ Đầu Tư/ nhà thầu (thu hộ)'): =IF(U55>0,U55," ")
+
+[RO8] Laundry Giặt ủi  (guide row 58)
+  AI GUIDELINE : Những dự án hạng sang, thì mới dự ước doanh thu này
+  SAMPLE REMARK (row 58, item 'Laundry Giặt ủi'): =IF(U58>0,U58," ")
+
+[RO18] Others Khác  (guide row 68)
+  AI GUIDELINE : Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+  SAMPLE REMARK (row 68, item 'Others Khác'): =IF(U68>0,U68," ")
+
+[RO23] Collect water bill from residents Thu hộ tiền nước sinh hoạt từ Cư dân  (guide row 73)
+  AI GUIDELINE : Nếu mức PQL đã bao gồmthù lao ban quản trị thì hạng mục này không nhập số liệu. Nếu chưa bao gồm thì hạng mục này nhập số liệu bằng đúng số nhập tại mã ESI2
+  SAMPLE REMARK (row 73, item 'Collect water bill from residents Thu hộ tiền nước sinh hoạt từ Cư dân'): =IF(U73>0,U73," ")
+
+[RM.OA2] Collect costs related to Fire Insurance Thu hộ chi phí bảo hiểm cháy nổ (Fire Insurance)  (guide row 76)
+  AI GUIDELINE : Nếu mức PQL đã bao gồm bảo hiểm \ thì hạng mục này không nhập số liệu. Nếu chưa bao gồm thì hạng mục này nhập số liệu bằng đúng số nhập tại mã ESI1
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[RI1] Collect operating expenses already paid for commom area fund/  Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung  (guide row 78)
+  AI GUIDELINE : Lấy số liệu từ ô AH40
+  SAMPLE REMARK (row 76, item 'Collect operating expenses already paid for commom area fund/  Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung'): =IF(U76>0,U76," ")
+
+[EMH1] Management fee for Savills Phí quản lý cố định của Savills  (guide row 82)
+  AI GUIDELINE : Mục này xem ở sheet A1. Staff cost 08.2026 (VN)
+  SAMPLE REMARK (row 80, item 'Management fee for Savills Phí quản lý cố định của Savills'): =IF(U80>0,U80," ")
+
+[EMH2] Staff cost for Savills Phí lương gộp  (guide row 83)
+  AI GUIDELINE : Mục này xem ở sheet A1. Staff cost 08.2026 (VN)
+  SAMPLE REMARK (row 81, item 'Staff cost for Savills Phí lương gộp'): =IF(U81>0,U81," ")
+
+[EMH3] Allowance for nightshift, working public holiday Phụ cấp trực ca đêm, làm việc lễ/ tết  (guide row 84)
+  AI GUIDELINE : Mục này xem ở sheet A1. Staff cost 08.2026 (VN)
+  SAMPLE REMARK (row 82, item 'Allowance for nightshift, working public holiday Phụ cấp trực ca đêm, làm việc lễ/ tết'): =IF(U82>0,U82," ")
+
+[EMH4] Staff related cost (Training, rewards, allowance,...) Huấn luyện bắt buộc hàng năm (ATLD, PCCC, phụ cấp trưởng/phó ban PCCC)  (guide row 85)
+  AI GUIDELINE : Mục này xem ở sheet A5. Trợ cấp PCCC
+  SAMPLE REMARK (row 83, item 'Staff related cost (Training, rewards, allowance,...) Huấn luyện bắt buộc hàng năm (ATLD, PCCC, phụ cấp trưởng/phó ban PCCC)'): =IF(U83>0,U83," ")
+
+[EMA1] Telephone & internet fee Chi phí điện thoại và internet  (guide row 95)
+  AI GUIDELINE : Chi phí benchmark hoặc ước tính theo gói cước internet doanh nghiệp của FPT + chi phí thuê bao cho hotline (khoảng 500k/tháng)
+  SAMPLE REMARK (row 93, item 'Telephone & internet fee Chi phí điện thoại và internet'): =IF(U93>0,U93," ")
+
+[EMA2] Stationery Chi phí văn phòng phẩm  (guide row 96)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 94, item 'Stationery Chi phí văn phòng phẩm'): =IF(U94>0,U94," ")
+
+[EMA3] Printing Ink Mực in  (guide row 97)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 95, item 'Printing Ink Mực in'): =IF(U95>0,U95," ")
+
+[EMA4] Photocopy fee rental Thuê máy photocopy  (guide row 98)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 96, item 'Photocopy fee rental Thuê máy photocopy'): =IF(U96>0,U96," ")
+
+[EMA5] Printing (Accounting book, receipt,…) Phí in ấn  (guide row 99)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 97, item 'Printing (Accounting book, receipt,…) Phí in ấn'): =IF(U97>0,U97," ")
+
+[EMA6] Postage service Chi phí gửi thư (EMS)  (guide row 100)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 98, item 'Postage service Chi phí gửi thư (EMS)'): =IF(U98>0,U98," ")
+
+[EMA7] Drinking water Chi phí nước uống  (guide row 101)
+  AI GUIDELINE : Dự ước dựa trên cơ sở số lượng nhân sự BQL tại dự án. Trung bình 1 người uống 1 lít nước/ ngày. Bình nước 19 lít có đơn giá 60000 VND/ bình (gồm VAT). Bao gồm nước cho BQL và nước tiếp cư dân |  |  | Lưu ý về thuế VAT như đã đề cập ở trên |  |
+  SAMPLE REMARK (row 99, item 'Drinking water Chi phí nước uống'): =IF(U99>0,U99," ")
+
+[EMA8] Taxi coupon for business purpose/ Parking fee of employee Chi phí đi lại bằng taxi phục vụ cho công việc/ hoặc phí gửi xe của nhân viên  (guide row 102)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 100, item 'Taxi coupon for business purpose/ Parking fee of employee Chi phí đi lại bằng taxi phục vụ cho công việc/ hoặc phí gửi xe của nhân viên'): =IF(U100>0,U100," ")
+
+[EMA9] Office equipment maintaince Bảo trì trang thiết bị văn phòng BQL  (guide row 103)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 101, item 'Office equipment maintaince Bảo trì trang thiết bị văn phòng BQL'): =IF(U101>0,U101," ")
+
+[EMA11] Building management software Phần mềm quản lý cho tòa nhà  (guide row 105)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 103, item 'Building management software Phần mềm quản lý cho tòa nhà'): =IF(U103>0,U103," ")
+
+[EMA12] SMS Chi phí tin nhắn SMS  (guide row 106)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 104, item 'SMS Chi phí tin nhắn SMS'): =IF(U104>0,U104," ")
+
+[EMA14] Necessities for MO/ for staff working night shift (instant noodles, tea, coffee…) Nhu yếu phẩm cho văn phòng BQL hoặc nhân viên trực đêm (mì gói, trà, cà phê,…)  (guide row 108)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 106, item 'Necessities for MO/ for staff working night shift (instant noodles, tea, coffee…) Nhu yếu phẩm cho văn phòng BQL hoặc nhân viên trực đêm (mì gói, trà, cà phê,…)'): =IF(U106>0,U106," ")
+
+[EMA15] Others Khác  (guide row 109)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 107, item 'Others Khác'): =IF(U107>0,U107," ")
+
+[EMA17] Local authority contributions  Đóng quỹ an ninh phường  (guide row 111)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 109, item 'Local authority contributions  Đóng quỹ an ninh phường'): =IF(U109>0,U109," ")
+
+[EMA19] E- invoice Chi phí hóa đơn điện tử  (guide row 113)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 111, item 'E- invoice Chi phí hóa đơn điện tử'): =IF(U111>0,U111," ")
+
+[EMB1] Bank fee Phí giao dịch ngân hàng  (guide row 115)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 113, item 'Bank fee Phí giao dịch ngân hàng'): =IF(U113>0,U113," ")
+
+[EMB2] Cash Collection Phí ngân hàng thu tiền tại chỗ  (guide row 116)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 114, item 'Cash Collection Phí ngân hàng thu tiền tại chỗ'): =IF(U114>0,U114," ")
+
+[EMB3] Consultantcy fee Chi phí tư vấn  (guide row 117)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 115, item 'Consultantcy fee Chi phí tư vấn'): =IF(U115>0,U115," ")
+
+[EMB4] Auditing fee of operation Chi phí kiểm toán vận hành  (guide row 118)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 116, item 'Auditing fee of operation Chi phí kiểm toán vận hành'): =IF(U116>0,U116," ")
+
+[EMB5] Auditing fee of Energy Chi phí kiểm toán năng lượng  (guide row 119)
+  AI GUIDELINE : Chi phí benchmark với dự án tương đương
+  SAMPLE REMARK (row 117, item 'Auditing fee of Energy Chi phí kiểm toán năng lượng'): =IF(U117>0,U117," ")
+
+[EMO1] Salary subsidies for BOC Phụ cấp/ Trợ cấp lương cho Ban quản trị/ Ban tự quản  (guide row 121)
+  AI GUIDELINE : Năm 1 thường chưa có phi này, từ năm 2 dự ước chi phí theo công thức: đối với dự án nhỏ (dưới 500 căn) sẽ có 3 người trong Ban quản trị; dự án từ 500 căn trở lên có 5 người trong Ban quản trị và mức lương thành viên là bằng 1 tháng lương tối thiểu vùng, riêng trưởng ban là 1.5 lương tối thiểu vùng
+  SAMPLE REMARK (row 119, item 'Salary subsidies for BOC Phụ cấp/ Trợ cấp lương cho Ban quản trị/ Ban tự quản'): =IF(U119>0,U119," ")
+
+[EMO2] Trainning for BOC Tập huấn nghiệp vụ quản lý vận hành cho Ban quản trị/ Ban tự quản  (guide row 122)
+  AI GUIDELINE : Năm 1 thường chưa phát sinh chi phí, khi nào có chi phí mã EMO1 thì mới dự ước chi phí cho mã này, thông thường 1 năm khoảng 3 - 5 triệu hoặc có thể benchmark theo dự án tương đương
+  SAMPLE REMARK (row 120, item 'Trainning for BOC Tập huấn nghiệp vụ quản lý vận hành cho Ban quản trị/ Ban tự quản'): =IF(U120>0,U120," ")
+
+[EMO3] Access card In ấn thẻ từ  (guide row 123)
+  AI GUIDELINE : Không dự ước chi phí
+  SAMPLE REMARK (row 121, item 'Access card In ấn thẻ từ'): =IF(U121>0,U121," ")
+
+[EMO4] Parking card In ấn thẻ xe  (guide row 124)
+  AI GUIDELINE : Không dự ước chi phí
+  SAMPLE REMARK (row 122, item 'Parking card In ấn thẻ xe'): =IF(U122>0,U122," ")
+
+[EMO5] Swimming wristband Vòng tay hồ bơi  (guide row 125)
+  AI GUIDELINE : Không dự ước chi phí
+  SAMPLE REMARK (row 123, item 'Swimming wristband Vòng tay hồ bơi'): =IF(U123>0,U123," ")
+
+[EMO9] Operating expense related to maintain WELL Certification Chi phí vận hành liên quan đến chứng nhận (Well..)  (guide row 129)
+  AI GUIDELINE : Tùy theo trường hợp/ dự án cụ thể sẽ hiệu chỉnh thủ công sau
+  SAMPLE REMARK (row 127, item 'Operating expense related to maintain WELL Certification Chi phí vận hành liên quan đến chứng nhận (Well..)'): =IF(U127>0,U127," ")
+
+[EMO10] Renew Certification (WELL,…)  Chi phí gia hạn liên quan đến giấy chứng nhận tòa nhà (Well,…)  (guide row 130)
+  AI GUIDELINE : Tùy theo trường hợp/ dự án cụ thể sẽ hiệu chỉnh thủ công sau
+  SAMPLE REMARK (row 128, item 'Renew Certification (WELL,…)  Chi phí gia hạn liên quan đến giấy chứng nhận tòa nhà (Well,…)'): =IF(U128>0,U128," ")
+
+[ESC1] Events Tổ chức sự kiện  (guide row 134)
+  AI GUIDELINE : ='1. Summary'!L27
+  SAMPLE REMARK (row 132, item 'Events Tổ chức sự kiện'): =IF(U132>0,U132," ")
+
+[ESC12] Mandatory environmental disaster response plan Kế hoạch phòng ngừa, ứng phó sự cố môi trường  (guide row 143)
+  AI GUIDELINE : Kế hoạch phòng ngừa, ứng phó sự cố môi trường bắt buộc mỗi năm thực hiện 1 lần. Dự ước chi phí tạm tính khoảng 14 triệu VND/ lần (chưa VAT)
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[ESS1] Security service Dịch vụ bảo vệ  (guide row 145)
+  AI GUIDELINE : ='1. Summary'!L29
+  SAMPLE REMARK (row 142, item 'Security service Dịch vụ bảo vệ'): =IF(U142>0,U142," ")
+
+[ESS4] Cleaning service for common area Dịch vụ vệ sinh công cộng  (guide row 148)
+  AI GUIDELINE : ='1. Summary'!L30
+  SAMPLE REMARK (row 145, item 'Cleaning service for common area Dịch vụ vệ sinh công cộng'): =IF(U145>0,U145," ")
+
+[ESS9] Normal garbage collection  Thu gom rác sinh hoạt  (guide row 153)
+  AI GUIDELINE : Tính theo hướng dẫn tại sheet  | Lưu ý tính theo Quyết định 67/2025: Bảng giá thu gom rác sinh hoạt tại TPHCM mới nhất 2025 áp dụng từ ngày 01/6
+  SAMPLE REMARK (row 150, item 'Normal garbage collection  Thu gom rác sinh hoạt'): =IF(U150>0,U150," ")
+
+[ESI1] Risk asset insurance Bảo hiểm rủi ro tài sản  (guide row 189)
+  AI GUIDELINE : Lưu ý tínhtheo Nghị định 105/2025/NĐ-CP có hiệu lực từ 1/07/2025 (Ví dụ: công tình chung cư thương mại: chi phí bảo hiểm = tổng giá trị tài sản * 0.05)
+  SAMPLE REMARK (row 186, item 'Risk asset insurance Bảo hiểm rủi ro tài sản'): =IF(U186>0,U186," ")
+
+[ESM25] Cross-checking the water quality of the wastewater treatment system. Kiểm tra chéo chất lượng nước hệ xử lý nước thải  (guide row 210)
+  AI GUIDELINE : Ước tính mỗi quý thực hiện 1 lần. Mỗi lần chi phí khoảng 3,5 triệu VND/ lần (theo SCE) (chưa VAT). Đây là chi phí để kiểm tra chéo chất lượng nước hệ XLNT mà nhà thầu vận hành
+  SAMPLE REMARK (row 207, item 'Cross-checking the water quality of the wastewater treatment system. Kiểm tra chéo chất lượng nước hệ xử lý nước thải'): =IF(U207>0,U207," ")
+
+[ESA6] Safety Inspection for Up-Lifts Kiểm định an toàn thang nâng người  (guide row 212)
+  AI GUIDELINE : Lưu ý đối với hạng mục chi phí này: | 1/ Nếu thang được mua bằng quỹ bảo trì thì sử dụng quỹ bảo trì và ngược lại mua bằng quỹ vận hành thì dùng quỹ vận hành | 2/ Trường hợp không xác định được quỹ mua: thì nếu thiết bị gắn cố định với công trình thì dùng quỹ bảo trì ngược lại thì dùng quỹ vận hành
+  SAMPLE REMARK (row 209, item 'Safety Inspection for Up-Lifts Kiểm định an toàn thang nâng người'): =IF(U209>0,U209," ")
+
+[ESA11] Safety Inspection for Air Compressor Kiểm định an toàn cho máy bơm hơi  (guide row 213)
+  AI GUIDELINE : Nếu thiết bị được mua bằng quỹ bảo trì thì sử dụng quỹ bảo trì và ngược lại mua bằng quỹ vận hành thì dùng quỹ vận hành
+  SAMPLE REMARK (row 210, item 'Safety Inspection for Air Compressor Kiểm định an toàn cho máy bơm hơi'): =IF(U210>0,U210," ")
+
+[ESA12] Inspection & Register for Electric Car Đăng kiểm xe ô tô điện  (guide row 214)
+  AI GUIDELINE : Nếu thiết bị được mua bằng quỹ bảo trì thì sử dụng quỹ bảo trì và ngược lại mua bằng quỹ vận hành thì dùng quỹ vận hành
+  SAMPLE REMARK (row 211, item 'Inspection & Register for Electric Car Đăng kiểm xe ô tô điện'): =IF(U211>0,U211," ")
+
+[ESA16] Safety Inspection for water mete Kiểm định đồng hồ nước  (guide row 215)
+  AI GUIDELINE : Trường hợp đồng hồ nước thuộc sở hữu chung thì sử dụng quỹ bảo trì. Ngược lại nếu là sở hữu riêng thì không dùng quỹ bảo trì
+  SAMPLE REMARK (row 212, item 'Safety Inspection for water mete Kiểm định đồng hồ nước'): =IF(U212>0,U212," ")
+
+[-]   (guide row 506)
+  AI GUIDELINE : Chi phí lệch | (NẾU =0 là hợp lệ, trường hợp >0 hoặc <0 đều phải kiểm tra lại)
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+  -- sample rows with a Remark but NOT matched to any guide row (432) --
+     row 13 [RM] Management fee/ Phí quản lý: =IF(U13>0,U13," ")
+     row 15 [RM.OT] Management fee of Officetel Phí quản lý thu từ Officetel: =IF(U15>0,U15," ")
+     row 16 [RM.OF] Management fee of Office Phí quản lý thu từ Office: =IF(U16>0,U16," ")
+     row 17 [RM.SM] Management fee of Shopping Mall Phí quản lý thu từ Thương mại: =IF(U17>0,U17," ")
+     row 18 [RM.RE] Management fee of Retail Phí quản lý thu từ Retail: =IF(U18>0,U18," ")
+     row 19 [RM.SA] Management fee of Shop Apartment Phí quản lý thu từ Shop Apartment: =IF(U19>0,U19," ")
+     row 20 [RM.SH] Management fee of Shophouse Phí quản lý hàng tháng từ nhà phố: =IF(U20>0,U20," ")
+     row 21 [RM.VI] Management fee of Villas Phí quản lý thu từ Biệt Thự: =IF(U21>0,U21," ")
+     row 22 [RM.KG] Management fee of Kindergarten Phí quản lý thu từ Nhà trẻ: =IF(U22>0,U22," ")
+     row 23 [RM.0A] The developer pays the management fee for units that have not yet been handed over. Phí quản lý Chủ đầu tư đóng những căn chưa bàn giao: =IF(U23>0,U23," ")
+     row 24 [RM.PA] Management fee of Parking Phí quản lý các chỗ đậu xe: =IF(U24>0,U24," ")
+     row 25 [RPa] Monthly parking/ Nguồn thu xe tháng: =IF(U25>0,U25," ")
+     row 27 [RP2] Car monthly parking Tiền thu từ xe ô tô tháng: =IF(U27>0,U27," ")
+     row 28 [RP3] Bicycle daily monthly parking Tiền thu từ xe đạp tháng: =IF(U28>0,U28," ")
+     row 29 [RP4] Electric bicycle daily monthly parking Tiền thu từ xe đạp điện tháng: =IF(U29>0,U29," ")
+     row 30 [RP8] Sharing Revenue of monthly parking from developer Nguồn thu được chia sẽ từ CDT cho doanh thu xe tháng: =IF(U30>0,U30," ")
+     row 31 [RP5] Motorbike/ bicycle daily visitors' parking Tiền thu từ xe hai bánh vãng lai: =IF(U31>0,U31," ")
+     row 32 [RP6] Car daily visitors' parking Tiền thu từ xe ô tô vãng lai: =IF(U32>0,U32," ")
+     row 33 [RP7] Daily visitors' parking Tiền thu từ xe vãng lai: =IF(U33>0,U33," ")
+     row 34 [RO] Others/ Khác: =IF(U34>0,U34," ")
+     row 36 [RO2] Bank Interest Lãi tiền gửi: =IF(U36>0,U36," ")
+     row 39 [RO3] Water fee Tiền nước (thu hộ): =IF(U39>0,U39," ")
+     row 41 [RO3.T] Water fee of Officetel Tiền nước thu từ Officetel (thu hộ): =IF(U41>0,U41," ")
+     row 42 [RO3.O] Water fee of Office Tiền nước thu từ Office (thu hộ): =IF(U42>0,U42," ")
+     row 43 [RO3.M] Water fee of Shopping Mall Tiền nước thu từ thương mại (thu hộ): =IF(U43>0,U43," ")
+     row 44 [RO3.R] Water fee of Retail Tiền nước thu từ Retail (thu hộ): =IF(U44>0,U44," ")
+     row 45 [RO3.S] Water fee of Shophouse Tiền nước thu từ Shophouse (thu hộ): =IF(U45>0,U45," ")
+     row 46 [RO3.L] Water fee of Landed house Tiền nước thu từ nhà phố (thu hộ): =IF(U46>0,U46," ")
+     row 47 [RO4] Electricity fee of Residents Tiền điện thu từ cư dân (thu hộ): =IF(U47>0,U47," ")
+     row 49 [RO4.T] Electricity fee of Officetel Tiền điện thu từ Officetel (thu hộ): =IF(U49>0,U49," ")
+     row 50 [RO4.O] Electricity fee of Office  Tiền điện thu từ Office (thu hộ): =IF(U50>0,U50," ")
+     row 51 [RO4.M] Electricity fee of Shopping Mall Tiền điện thu từ khu thương mại (thu hộ): =IF(U51>0,U51," ")
+     row 52 [RO4.R] Electricity fee of Retail Tiền điện thu từ Retail (thu hộ): =IF(U52>0,U52," ")
+     row 53 [RO4.S] Electricity fee of Shophouse Tiền điện thu từ Shophouse (thu hộ): =IF(U53>0,U53," ")
+     row 54 [RO4.L] Electricity fee of Landed house Tiền điện thu từ nhà phố (thu hộ): =IF(U54>0,U54," ")
+     row 56 [RO6] Bus Xe bus: =IF(U56>0,U56," ")
+     row 57 [RO7] Housekeeping Vệ sinh: =IF(U57>0,U57," ")
+     row 59 [RO9] Tennis fee Tennis: =IF(U59>0,U59," ")
+     row 60 [RO10] Barbecue fee BBQ: =IF(U60>0,U60," ")
+     row 61 [RO11] Access card Thẻ từ: =IF(U61>0,U61," ")
+
+##############################################################################################################
+GUIDE SHEET: [A2. Bảo vệ - Security]  (24 rows with item/guideline text)
+SAMPLE SHEET: [4. Bảo vệ - Security]  (24 rows with item/remark text)
+##############################################################################################################
+
+[-] Đội trưởng kiêm tuần tra chung / Team Leader cum General Patrol Officer  (guide row 10)
+  AI GUIDELINE : Vị trí bắt buộc có, thường là 12h (ca ngày). Chi phí sẽ bằng chi phí vị trí nhân viên nhân hệ số 1.4 quy đổi về 12h
+  SAMPLE REMARK (row 10, item 'Đội trưởng kiêm tuần tra chung / Team Leader cum General Patrol Officer'): Nhiệm vụ chỉ huy chung, điều phối đội bảo vệ, chịu trách nhiệm chung của an ninh dự án và kiêm tuần tra chung dự án | 'Overall command duties, security team coordination, overall responsibility for project security and general project patrolling
+
+[-] Ca trưởng kiêm tuần tra chung / Team Leader cum General Patrol Officer  (guide row 11)
+  AI GUIDELINE : Vị trí bắt buộc có, thường là 12h (ca đêm). Chi phí sẽ bằng chi phí vị trí nhân viên nhân hệ số 1.3 quy đổi về 12h
+  SAMPLE REMARK (row 11, item 'Ca trưởng kiêm tuần tra chung / Team Leader cum General Patrol Officer'): Nhiệm vụ hỗ trợ đội trưởng trực ca (thông thường ca đêm), điều phối đội bảo vệ, chịu trách nhiệm đội an ninh trong ca trực và kiêm tuần tra chung dự án, hỗ trợ tuần tra tăng cường các khu vực công cộng, vành đai (nếu cần) | 'Duties include assisting the team leader on duty (usually night shift), coordinating the security team, being responsible for the security team during the shift and also patrolling the project in general, supporting enhanced patrols of public areas and perimeters (if needed)
+
+[-] Trực phòng CCTV / CCTV Room Duty  (guide row 12)
+  AI GUIDELINE : Nếu dự án có phòng CCTV và FCC chung 1 phòng thì chỉ cần bố trí 1 vị trí. Nếu 2 phòng này riêng biệt thì phải bố trí 2 vị trí
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Vị trí cổng chính  / Main gate position  (guide row 14)
+  AI GUIDELINE : Nếu có dự án là compound và có cổng thì phải bố trí vị trí cổng
+  SAMPLE REMARK (row 14, item 'Vị trí cổng chính  / Main gate position'): Vị trí kiểm soát cư dân/ khách của cư dân/ vãng lai,... ra vào tại cổng chính dự án | Chịu trách nhiệm soát người và phương tiện ra vào, đảm bảo an ninh, an toàn cho khu vực, ghi chép thông tin, và xử lý các tình huống khẩn cấp.  | Resident/residential visitor control position at the main gate of the project | Responsible for checking people and vehicles entering and exiting, ensuring security and safety for the area, recording information, and handling emergency situations.
+
+[-] Vị trí cổng phụ /  Side gate position  (guide row 15)
+  AI GUIDELINE : Nếu có dự án là compound và có cổng thì phải bố trí vị trí cổng
+  SAMPLE REMARK (row 15, item 'Vị trí cổng phụ /  Side gate position'): Vị trí có trách nhiệm kiểm soát nhà thầu, xe rác, xe chở hàng, vật liệu ra vào tại cổng phụ dự án | Chịu trách nhiệm soát người và phương tiện ra vào, đảm bảo an ninh, an toàn cho khu vực, ghi chép thông tin, và xử lý các tình huống khẩn cấp.  | 'Contractor control position, garbage trucks, cargo trucks, materials entering and exiting at the project's side gate | Responsible for checking people and vehicles entering and exiting, ensuring security and safety for the area, recording information, and handling emergency situations.
+
+[-] Tuần tra vành đai / Perimeter patrol  (guide row 16)
+  AI GUIDELINE : Nếu dự án có nhiều mặt tiền và không compound thì bố trí vị trí này
+  SAMPLE REMARK (row 16, item 'Tuần tra vành đai / Perimeter patrol'): Vị trí tuần ra vành đai  bên ngoài quanh khuôn viên dự án, chịu trách nhiệm giám sát, phát hiện những bất thường, đưa ra cảnh báo, bảo vệ hiện trường và báo cáo đội trưởng khi cần hỗ trợ | 'The position patrols the outer perimeter around the project site, responsible for monitoring, detecting abnormalities, giving warnings, protecting the site and report to the captain when assistance is needed.
+
+[-] Trực clubhouse / Clubhouse duty  (guide row 17)
+  AI GUIDELINE : Nếu dự án có tầng tiện ích lớn thì cần bố trí vị trí này và thường là 16 tiếng. Lương sẽ tính theo tam suất lấy lương 24h x số giờ của vị trí chia cho 24 giờ
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Hỗ trợ sảnh lễ tân/Doorman  (guide row 19)
+  AI GUIDELINE : Nếu dự án cao cấp sẽ bố trí vị trí này, và số lượng sẽ bằng số sảnh
+  SAMPLE REMARK (row 19, item 'Hỗ trợ sảnh lễ tân/Doorman'): Vị trí nhân sự phụ trách tại khu vực cửa ra/vào ở sảnh lễ tân và các lối tiếp cận vào bên trong tòa nhà được trang bị thẻ từ kiểm soát. | Vị trí này sẽ hỗ trợ khách/ cư dân trước khu vực sảnh lễ tân (mở cửa, khiêng vác đồ hỗ trợ cư dân, hỗ trợ đậu xe cho cư dân). | 'The position of the person in charge of the entrance/exit area in the reception lobby and the access points inside the building are equipped with magnetic card control. This position will support guests/residents in front of the reception lobby area (opening doors, carrying things to support residents, assisting residents with parking)
+
+[-] Tuần tra tháp căn hộ/ Apartment Tower Patrol  (guide row 20)
+  AI GUIDELINE : Nếu dự án có tháp căn hộ cao trên 30  tầng thì mỗi tháp 1 vị trí, nếu dự án thấp tầng hơn thì 2 tháp 1 vị trí. Trường hợp dự án có mức PQL thấp và quy mô nhỏ thì chỉ cần 1 vị trí
+  SAMPLE REMARK (row 20, item 'Tuần tra tháp căn hộ/ Apartment Tower Patrol'): Vị trí phụ trách tuần tra hành lang, các vị trí công cộng bên trong tháp căn hộ, chịu trách nhiệm giám sát, phát hiện những bất thường, đưa ra cảnh báo, bảo vệ hiện trường và báo cáo đội trưởng khi cần hỗ trợ. Ngoài ra vị trí này hỗ trơ giám sát nhà thầu thi công, sửa chữa tại tháp căn hộ (nếu có) | 'The position is in charge of patrolling the corridors and public areas inside the apartment tower, responsible for monitoring, detecting abnormalities, giving warnings, protecting the scene and reporting to the team leader when support is needed. In addition, this position supports the supervision of contractors performing construction and repairs at the apartment tower (if any)
+
+[-] Vị trí Valet/ Valet Location  (guide row 21)
+  AI GUIDELINE : Vị trí này thường rất ích khi bố trí, tùy trường hợp sẽ bố trí thủ công
+  SAMPLE REMARK (row 21, item 'Vị trí Valet/ Valet Location'): Vị trí đảm bảo an ninh, trật tự và an toàn cho khu vực được giao, đặc biệt là khu vực đỗ xe hoặc khu vực đón khách. Công việc này bao gồm việc chào đón khách, hỗ trợ khách di chuyển và sắp xếp xe, đồng thời duy trì sự sạch sẽ và an toàn cho khu vực đó. | Hạng mục công việc Valet - là dịch vụ cộng thêm không tính vào chi phí quản lý. Giả định chi phí cư dân trả thêm cho dịch vụ Valet (nếu có) sẽ vừa đủ bù chi phí vận hành phát sinh thêm nên hạng mục này dự ước không phát sinh số liệu, thực tế vận hành có thể điều chỉnh tùy vào thực tế phát sinh (nếu có) | The position ensures security, order and safety for the assigned area, especially the parking area or the reception area. This work includes welcoming guests, assisting guests in moving and arranging vehicles, and maintaining the cleanliness and safety of that area. Valet work item - is an additional service not included in the management cost. Assuming that the additional cost paid by residents for Valet service (if any) will be just enough to cover the additional operating costs, this item is expected to not generate data, actual operation can be adjusted depending on the actual occurrence (if any)
+
+[-] Kiểm soát chốt ra/ vào bãi xe/ Control parking lot entry/exit  (guide row 23)
+  AI GUIDELINE : Số lượng vị trí sẽ tùy thuộc số ram dốc hoặc số Barrier kiểm soát xe ra vào bãi xe
+  SAMPLE REMARK (row 23, item 'Kiểm soát chốt ra/ vào bãi xe/ Control parking lot entry/exit'): Vị trí kiểm soát cư dân/ khách của cư dân/ vãng lai ra vào tại bãi xe dự án | Chịu trách nhiệm soát người và phương tiện ra vào, đảm bảo an ninh, an toàn cho khu vực, ghi chép thông tin, và xử lý các tình huống khẩn cấp. Dự án thiết kế Hầm xe có 1 ram dốc xuống hầm, 1 ram dốc từ hầm lên (đi chung ô tô xe máy) và có trang bị Barirer =>nên cần bố trí 2 vị trí 24h/7 | 'Resident/Visitors/Visitors Access Control Position at the Project Parking Lot | Responsible for controlling people and vehicles entering and exiting, ensuring security and safety for the area, recording information, and handling emergency situations. The project's underground parking design includes one ramp down to the basement, one ramp up from the basement (shared for cars and motorbikes), and is equipped with barriers => therefore, two positions are needed, operating 24/7.'
+
+[-] Sắp xếp xe kiêm tuần tra bãi xe/ Parking lot patrol and car arrangement  (guide row 24)
+  AI GUIDELINE : Nếu dự án có quy mô lớn trên 500 căn và nhiều tầng/ nhiều hầm đậu xe => cần bố trí khoảng 2 vị trí 24h ngược lại chỉ cần 1 vị trí 24h
+  SAMPLE REMARK (row 24, item 'Sắp xếp xe kiêm tuần tra bãi xe/ Parking lot patrol and car arrangement'): Vị trí phụ trách đảm bảo an ninh, trật tự, hướng dẫn xe ra vào, sắp xếp xe gọn gàng và ngăn ngừa các sự cố: Tuần tra thường xuyên, giám sát toàn bộ khu vực bãi xe, ngăn chặn các hành vi trộm cắp, phá hoại, gây rối, đảm bảo an toàn cho tài sản và người gửi xe. Hướng dẫn xe ra vào bãi, giúp chủ phương tiện tìm đúng vị trí đỗ, sắp xếp xe gọn gàng, ngăn nắp, đảm bảo mỹ quan và tối ưu hóa diện tích bãi xe.  | Có 2 hầm => bố trí 2 vị trí từ 6h - 22h (7 ngày/ tuần) |  | 'The position is responsible for ensuring security and order, guiding vehicles in and out, arranging vehicles neatly and preventing incidents: Regularly patrolling, monitoring the entire parking area, preventing theft, vandalism, and disturbances, ensuring the safety of property and vehicle owners. Guiding vehicles in and out of the parking lot, helping vehicle owners find the right parking spot, arranging vehicles neatly and tidily, ensuring aesthetics and optimizing parking space. | There are 2 basements => arrange 2 positions from 6 AM to 10 PM (7 days/week) |
+
+[-] Đăng ký thi công/ Construction registration  (guide row 25)
+  AI GUIDELINE : Nếu dự áansbanf giao thô hoặc quy mô lớn thì cần bố trí vị trí này hoặc benchmark theo dự án so sảnh
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Tuần tra Shophouse/ Shophouse Patrol  (guide row 27)
+  AI GUIDELINE : Nếu dự án có số lượng căn shop lớn trải dài nhiều mặt tiền thì cần bố trí vị trí này
+  SAMPLE REMARK (row 27, item 'Tuần tra Shophouse/ Shophouse Patrol'): Vị trí phụ trách tuần tra hành lang trước/ sau các căn shop, các vị trí công cộng khu vực shophouse, chịu trách nhiệm giám sát, phát hiện những bất thường, đưa ra cảnh báo, bảo vệ hiện trường và báo cáo đội trưởng khi cần hỗ trợ. Ngoài ra vị trí này hỗ trơ giám sát nhà thầu thi công, sửa chữa tại các căn shophouse (nếu có) | 'The position is responsible for patrolling the corridors in front/back of the shops, public areas in the shophouse area, responsible for monitoring, detecting abnormalities, giving warnings, protecting the scene and reporting to the team leader when support is needed. In addition, this position supports the supervision of contractors performing construction and repairs at the shophouses (if any)
+
+[-] Vị trí dắt thú cưng đi dạo, rửa xe, giao hàng/ Pet walking, car wash, delivery positions  (guide row 30)
+  AI GUIDELINE : Dự án rất cao cấp mới bố trí vị trí này, hoặc trường hợp Benchmark có thì cân nhắc bố trí, thường vị trí này chỉ 12h
+  SAMPLE REMARK (row 30, item 'Vị trí dắt thú cưng đi dạo, rửa xe, giao hàng/ Pet walking, car wash, delivery positions'): Vị trí phụ trách các công việc đặc thù tại dự án: giao nhận hàng, rửa xe và dắt thú cưng,…hoặc các yêu cầu dịch vụ cụ thể tại dự án | Position in charge of specific tasks at the project: delivery, car washing and pet walking,... or specific service requests at the project
+
+  -- sample rows with a Remark but NOT matched to any guide row (5) --
+     row 12 [-] Trực phòng CCTV + FCC / CCTV + FCC Room Duty: Vị trí này trực phòng CCTV, FCC phụ trách theo dõi, quan sát mọi hoạt động diễn ra trong khu vực được trang bị hệ thống camera, phát hiện và xử lý kịp thời các tình huống bất thường, đảm bảo an ninh, an toàn và trật tự. | Vị trí này phối hợp vị trí trực FCC và các vị trí tuần tra đảm bảo an ninh tòa nhà | 'This position is in charge of CCTV, FCC room monitoring and observing all activities taking place in the area equipped with camera system, detecting and promptly handling unusual situations, ensuring security, safety and order. This position coordinates with FCC position and patrol positions to ensure building security
+     row 17 [-] Tuần tra tiện ích/ Amenities area Patrol: Vị trí phụ trách trực khu tiện ích (club), điều phối, hỗ trợ cư dân  | The position involves overseeing the amenities area (club), coordinating and assisting residents
+     row 25 [-] Đăng ký thi công kiễm hỗ trợ tuần tra/ Construction registration cum Parking Partrol: Vị trí phụ trách giám sát, hỗ trợ nhà thầu trong công tác đăng ký thi công, sửa chữa (nếu có) của nhà thầu/ cư dân. Phối hợp vị trí tuần tra tháp căn hộ, tuần tra bãi xe đảm bảo nhà thầu thi công đúng theo quy định | 'Position in charge of supervising and supporting contractors in construction and repair registration (if any) of contractors/residents. Coordinate with patrol positions of apartment towers to ensure contractors perform construction in accordance with regulations.
+     row 28 [-] Tuần tra khu thương mại (Retail/ các khu thương mại khác…)/ Patrolling the commercial area (Retail/ other commercial areas…): Vị trí phụ trách tuần tra hành lang trước/ sau các căn shop, các vị trí công cộng khu vực shophouse, chịu trách nhiệm giám sát, phát hiện những bất thường, đưa ra cảnh báo, bảo vệ hiện trường và báo cáo đội trưởng khi cần hỗ trợ. Ngoài ra vị trí này hỗ trơ giám sát nhà thầu thi công, sửa chữa tại các căn shophouse (nếu có) | 'The position is responsible for patrolling the corridors in front/back of the shops, public areas in the shophouse area, responsible for monitoring, detecting abnormalities, giving warnings, protecting the scene and reporting to the team leader when support is needed. In addition, this position supports the supervision of contractors performing construction and repairs at the shophouses (if any)
+     row 33 [-] Vị trí: Tỷ lệ diện tích so với Zenity
+
+##############################################################################################################
+GUIDE SHEET: [A3. Vệ sinh - Cleaning]  (14 rows with item/guideline text)
+SAMPLE SHEET: [5. Vệ sinh - Cleaning]  (14 rows with item/remark text)
+##############################################################################################################
+
+[-] Giám sát/ Supervisor  (guide row 10)
+  AI GUIDELINE : Vị trí bắt buộc, thường bố trí ca sáng | Lương vị trí này sẽ bằng lương nhân viên * 1.4
+  SAMPLE REMARK (row 10, item 'Giám sát/ Supervisor'): Nhân sự điều phối chung, kiểm tra, chịu trách nhiệm chung về đội vệ sinh tại dự án và hỗ trợ công việc vệ sinh của đội (nếu cần) | Personnel in charge of general coordination, inspection, general responsibility for the cleaning team at the project and support the cleaning work of the team (if needed)
+
+[-] Tổ trưởng - nhóm trưởng/ Team Leader  (guide row 11)
+  AI GUIDELINE : Vị trí tăng cường khi dự án có quy mô lớn trên 1000 căn hộ, thường bố trí ca chiều | Lương vị trí này sẽ bằng lương nhân viên * 1.3
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Định kỳ, hỗ trợ thu gom rác/ Provide periodic support in garbage collection  (guide row 14)
+  AI GUIDELINE : Nếu dự án có nhà rác tầng: | - Nếu dự án tháp căn hộ từ 20 tầng/ tháp => cần 2 nhân viên mỗi tháp | - Nếu dự án tháp căn hộ dưới 20 tầng => cần mỗi tháp 1 nhân viên
+  SAMPLE REMARK (row 14, item 'Định kỳ, hỗ trợ thu gom rác/ Provide periodic support in garbage collection'): Nhân sự thực hiện thu gom rác tại các thùng rác tầng các khu công cộng. Tập kết và phân loại tại khu/ nhà rác tập trung, giờ thấp điểm sẽ thêm các công việc như vệ sinh/tẩy đóm dơ các nhà rác tầng, nhà rác tập trung, rửa thùng rác/ thay túi rác,.....các công tác vệ sinh định kỳ: quét mạng nhện, vệ sinh mái che (<4m),... | Personnel collect garbage at the trash bins on public floors. Gather and classify at the centralized trash area/house. During off-peak hours, additional tasks will be performed such as cleaning/scrubbing the trash bins on floors, centralized trash bins, washing trash bins/changing trash bags, etc. Periodic cleaning tasks: sweeping cobwebs, cleaning the roof (<4m), etc.
+
+[-] Vệ sinh khu vực sảnh lễ tân - khu vực tiện ích/ Cleaning the reception area - utility area  (guide row 17)
+  AI GUIDELINE : Cứ 2 sảnh tương đương 1 nhân viên. Cao cấp PQL cao thì bố trí 2 ca
+  SAMPLE REMARK (row 17, item 'Vệ sinh khu vực sảnh lễ tân - khu vực tiện ích/ Cleaning the reception area - utility area'): Nhân sự phụ trách vệ sinh Khu vực sảnh lễ tân (bao gồm vệ sinh sàn, lau kính, cột, tường, quầy lễ tân, lau chùi vết dơ,...và vệ sinh khu vực tầng tiện ích Xịt rửa các gờ bậc tam cấp, rửa lối đi chung; vệ sinh các gờ đá bồn cây cảnh, quét lá, rác nổi,..vệ sinh thang máy | 'Personnel in charge of cleaning the reception area (including cleaning the floor, wiping glass, columns, walls, reception desk, wiping stains,... and cleaning the utility floor area: Spraying and washing the edges of the steps, washing the common walkways; cleaning the stone edges of the flower pots, sweeping leaves, floating trash,... cleaning the elevator.
+
+[-] Vệ sinh công cộng hành lang tầng/ Public restrooms on the floor corridors  (guide row 18)
+  AI GUIDELINE : Trường hợp: | - Nếu dự án tháp căn hộ từ 20 tầng/ tháp => cần 2 nhân viên mỗi tháp/ ca | - Nếu dự án tháp căn hộ dưới 20 tầng => cần mỗi tháp 1 nhân viên/ ca | Ca sáng thường bố trí như cách tính trên, ca chiều sẽ bằng 50% số lượng nhân sự ca sáng
+  SAMPLE REMARK (row 18, item 'Vệ sinh công cộng hành lang tầng/ Public restrooms on the floor corridors'): Nhân sự thực hiện vệ sinh lau chùi, tẩy ố hằng ngày các sàn hành lang tầng, tường, cửa, và định kỳ đánh sàn | 'Dự kiến 1 nhân sự vệ sinh trung bình có thể vệ sinh  khoảng 3000  - 4000m2/ sàn/ ngày => tương đương gần 17 - 20 tầng căn hộ mỗi tháp | Nhân sự được bố trí theo ca chính (ca sáng) và ca phụ. Ca phụ sẽ bố trí ít nhân sự hơn để duy trì vệ sinh | Ở phương án PQL thấp nhất và phương án Savills có thể QLVH, chỉ bố trí vệ sinh ca hành chính |  | 'Personnel to clean and disinfect the corridor floors, walls, doors daily, and periodically polish the floors | 'It is expected that an average cleaning staff can clean about 17- 20 floors/day or equivalent to about 3000 m2/floor/day | Personnel are arranged in main shifts (morning shift) and side shifts. The side shift will have fewer staff to maintain cleaning | In the lowest PQL option and the option Savills can manage the VH, only arrange cleaning for administrative shifts. |
+
+[-] Vệ sinh bãi xe/ Parking lot cleaning  (guide row 20)
+  AI GUIDELINE : Thường sẽ bố trí 1 nhân viên hành chính, trường hợp bãi xe lớn hoặc chia làm nhiều khu thì cần 2 nhân viên
+  SAMPLE REMARK (row 20, item 'Vệ sinh bãi xe/ Parking lot cleaning'): Nhân sự vệ sinh sảnh kiêm thực hiện vệ sinh lau chùi các lối đi chung tại bãi xe. Vệ sinh tường cột , tường bãi xe. Nhặt rác nổi và thu gom rác đến điểm tập kết và định kỳ xịt rửa bãi xe | 'Personnel clean the common walkways in the parking lot. Clean the walls, columns, and parking lot walls. Pick up floating trash and collect it to the collection point and periodically wash the parking lot.
+
+  -- sample rows with a Remark but NOT matched to any guide row (5) --
+     row 11 [-] Trưởng nhóm/ Team Leader: Nhân sự hỗ trợ điều phối chung (hoặc điều phối chung trong trường hợp không có Giám sát), kiểm tra, chịu trách nhiệm về đội vệ sinh tại dự án và hỗ trợ công việc vệ sinh của đội | 'The person who supports general coordination (or general coordination in the absence of a Supervisor), inspects, is responsible for the cleaning team at the project and supports the cleaning work of the team
+     row 12 [-] Vệ sinh các tuyến đường nội khu, công viên nội khu + tầng tiện ích/ Cleaning of internal roads, internal parks, and amenities floor.: Nhân sự thực hiện thu gom rác tại các thùng rác công cộng/ công viên nội khu, nhặt rác nổi. quét rác vỉ hè, phân loại tại khu rác tập trung, ngoài ra giờ thấp điểm sẽ thêm các công việc như tẩy đóm dơ các công trình công cộng, rửa thùng rác công cộng, (nếu có).. | Personnel collect garbage at public trash bins/internal parks, pick up floating trash, sweep sidewalks, sort trash at concentrated trash areas, and during off-peak hours, additional tasks will be performed such as cleaning public works, washing public trash bins (if any).
+     row 13 [-] Vệ sinh Clubhouse / Clubhouse cleaning: Nhân sự thực hiện vệ sinh khu CLubhouse, thu gom rác, phân loại rác, lau chùi, tẩy đóm dơ sàn tường cột,...; quét bụi trần < 4m; các khu kỹ thuật; xịt /rửa/chà sàn, rửa thùng rác,.. | This position cleans the Clubhouse area, collects trash, sorts trash, wipes, removes stains from floors, walls, columns, etc.; sweeps dust from ceilings < 4m; technical areas; sprays/washes/scrubs floors, washes trash cans, etc.
+     row 15 [-] Nhân viên lái xe quét đường kiêm hỗ trợ vệ sinh/ Driver of the street sweeper, also responsible for cleaning assistant: Vị trí phụ trách vận hành xe quét đường, kiểm tra bảo dưỡng xe, đảm bảo duy trì xe hoạt động tốt. Phụ trách vệ sinh các tuyến đường dự án. Ngoài giờ lái xe quét đường sẽ hỗ trợ vệ sinh các khu vực công cộng hoặc các khu vực khác theo yêu cầu | Position in charge of operating the street sweeper, checking and maintaining the vehicle, ensuring the vehicle is in good working order. Responsible for cleaning project routes. In addition to driving hours, the street sweeper will assist in cleaning public areas or other areas as required.
+     row 22 [-] Vệ khi công cộng khu shophouse/ retail/ Public security for shophouse/retail area: Nhân sự thực hiện vệ sinh lau chùi, tẩy ố hằng ngày các sàn hành lang lối đi công cộng khu shophouse/ retail,vệ sinh tường cột,..., và định kỳ đánh sàn | Nhân sự được bố trí theo ca chính (ca sáng) và ca phụ. Ca phụ sẽ bố trí ít nhân sự hơn để duy trì vệ sinh | 'Personnel to perform daily cleaning, wiping, and de-staining of public corridor floors in shophouse/retail areas, cleaning walls and columns, etc., and periodically polishing floors | Personnel are arranged in main shifts (morning shifts) and side shifts. Side shifts will have fewer personnel to maintain cleanliness
+
+##############################################################################################################
+GUIDE SHEET: [B2.6 Rác sinh hoạt (QD67)]  (12 rows with item/guideline text)
+SAMPLE SHEET: [17. Rác sinh hoạt (QD67)]  (6 rows with item/remark text)
+##############################################################################################################
+
+[-] Dịch vụ thu gom tại nguồn chất thải rắn sinh hoạt (CTRSH)  (guide row 5)
+  AI GUIDELINE : Khối lượng sẽ được tính bằng số nhà ở (số căn hộ,..) nhân với 2.63*30 ngày
+  SAMPLE REMARK (row 5, item 'Dịch vụ thu gom tại nguồn chất thải rắn sinh hoạt (CTRSH)'): - Ước tính khối lượng rác thải trung bình mỗi căn hộ khoảng 2.63kg/ ngày | - Áp dụng theo QĐ 67 với 3 đơn giá: thu gom, vận chuyển, xử lý
+
+[-] Dịch vụ vận chuyển CTRSH  (guide row 6)
+  AI GUIDELINE : Khối lượng sẽ được tính bằng số nhà ở (số căn hộ,..) nhân với 2.63*30 ngày
+  SAMPLE REMARK (row 6, item 'Dịch vụ vận chuyển CTRSH'): (blank)
+
+[-] Dịch vụ xử lý CTRSH  (guide row 7)
+  AI GUIDELINE : Khối lượng sẽ được tính bằng số nhà ở (số căn hộ,..) nhân với 2.63*30 ngày
+  SAMPLE REMARK (row 7, item 'Dịch vụ xử lý CTRSH'): (blank)
+
+[-] Hạng mục  (guide row 13)
+  AI GUIDELINE : AI GUIDELINE
+  SAMPLE REMARK: NO MATCHING ROW FOUND in sample sheet
+
+[-] Dịch vụ thu gom tại nguồn chất thải rắn sinh hoạt (CTRSH)  (guide row 15)
+  AI GUIDELINE : Khối lượng sẽ được tính bằng số căn shop nhân với 2.63 *1.5*30 ngày
+  SAMPLE REMARK (row 5, item 'Dịch vụ thu gom tại nguồn chất thải rắn sinh hoạt (CTRSH)'): - Ước tính khối lượng rác thải trung bình mỗi căn hộ khoảng 2.63kg/ ngày | - Áp dụng theo QĐ 67 với 3 đơn giá: thu gom, vận chuyển, xử lý
+
+[-] Dịch vụ vận chuyển CTRSH  (guide row 16)
+  AI GUIDELINE : Khối lượng sẽ được tính bằng số căn shop nhân với 2.63 *1.5*30 ngày
+  SAMPLE REMARK (row 6, item 'Dịch vụ vận chuyển CTRSH'): (blank)
+
+[-] Dịch vụ xử lý CTRSH  (guide row 17)
+  AI GUIDELINE : Khối lượng sẽ được tính bằng số căn shop nhân với 2.63 *1.5*30 ngày
+  SAMPLE REMARK (row 7, item 'Dịch vụ xử lý CTRSH'): (blank)

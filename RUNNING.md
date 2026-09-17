@@ -68,14 +68,58 @@ overwriting the formulas.
 `Project Info!B34`/`B35` (Savills' own fee) are deliberately blank. Leave them blank until a real
 contract term exists — see `docs/05-decisions.md`, D1.
 
-### 3. Run **both** generators
+### 3. Run the pipeline
+
+**The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then in
+File Explorer open `Budget_Agent\reports\` and **double-click `Run Budget Agent.cmd`**. It finds
+Python, runs both generators, and leaves the window open so you can read the result (press a key to
+close).
+
+> The green box on `Project Info` is only a reminder, not a working button. This workbook lives on
+> SharePoint, and Excel turns any cell hyperlink into a web URL — a link to the local `.cmd` just
+> opens a 404. A real one-click **button** needs a VBA macro in a macro-enabled (`.xlsm`) copy:
+> Developer tab → Insert → Button → assign this macro, then Save As `.xlsm` and point
+> `generate_project_budget.py`'s `INPUT_PATH` at the `.xlsm`:
+> ```vba
+> Sub RunBudgetAgent()
+>     Dim p As String, wbp As String
+>     wbp = ThisWorkbook.Path
+>     If LCase(Left$(wbp, 4)) = "http" Then          ' opened from SharePoint/OneDrive
+>         p = Environ$("OneDriveCommercial")
+>         If Len(p) = 0 Then p = Environ$("OneDrive")
+>         p = p & "\VN, IT Collab - Data\PM\Project_Clone2_NewData\Budget_Agent\reports\Run Budget Agent.cmd"
+>     Else
+>         p = wbp & "\Run Budget Agent.cmd"
+>     End If
+>     If Dir(p) = "" Then MsgBox "Not found: " & p, vbExclamation: Exit Sub
+>     CreateObject("WScript.Shell").Run """" & p & """", 1, False
+> End Sub
+> ```
+
+**The command-line way** — from `Budget_Agent/source_code/`:
+
+```bash
+python run.py
+```
+
+One command. It runs both generators in order. `Run Budget Agent.cmd` is just a wrapper around this
+that finds Python, changes to the right folder, and pauses at the end.
+
+Before doing anything it checks the input file exists and is not locked by Excel — the most common
+cause of a half-finished run. If the deliverable is written and the analysis then fails, it reports
+that as a **failure** naming the consequence, not as a partial success. When both succeed it re-opens
+them and confirms they name the same project, which is the actual symptom of the drift described
+below.
+
+The two generators still work on their own if you need them separately:
 
 ```bash
 python generate_project_budget.py
 python generate_project_output.py
 ```
 
-Order does not matter, but **both must run, every time, after any input change.**
+Order does not matter, but **both must run, every time, after any input change** — which is exactly
+why `run.py` exists.
 
 | Command | Produces |
 |---|---|

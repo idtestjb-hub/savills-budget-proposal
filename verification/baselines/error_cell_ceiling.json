@@ -1,0 +1,10 @@
+{
+  "recorded_at": "2026-09-14T00:00:00+07:00",
+  "reason": "Initial error-cell ceiling after removing the orphan A2/A3/A4 rate writes and filling their allocation-split basis (change reconcile-summary-with-detail-sheets, D4/task 4.3). Was 254 (204 on A2/A3/A4 + 50 on the parking-allocation block); now 50, all on the parking-allocation block, which is out of scope here (owned by fix-parking-allocation-divide-by-zero). Measured identically on the ZZ Sample fixture, the default Sample_Project_Input.xlsx fixture, and the real Wayne Tower project.",
+  "runtime": {
+    "python_version": "3.14.6",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "excel_version": "16.0"
+  },
+  "deliverable_error_cells": 50
+}

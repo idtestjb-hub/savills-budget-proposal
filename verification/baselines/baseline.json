@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-08T19:10:20+07:00",
-  "reason": "ESM4 pool chemicals now computed by the method the costing spec states (pool volume x 2.5 kg salt/m3/month x 6,000 VND/kg x 12) instead of one real project's flat figure; the sample fixture was regenerated in the current form layout with Pool Volume = 440 m3 (the spec's own worked example). opex_pool_salt_annual 79,884,000 -> 79,200,000. No other tracked figure moves: Pool Salt is Conditional, so it sits outside the Must-Have OPEX subtotal that opex_annual and total_profit_value read.",
+  "recorded_at": "2026-09-17T17:14:54+07:00",
+  "reason": "rank-comparables-by-location tasks 8.1/8.5/8.6/8.7: hand-verified projects (the 8 real detailed budget workbooks) now outrank Master-List ones within a location tier, with no size proportionality and no cap; Lumi Prestige & Elite / Lumi Signature excluded from the pool (genuinely Ha Noi, not HCMC, per user instruction 2026-09-17); the real-distance tie-break (task 2.4/2.5) is disabled via DISTANCE_COMPARISON_ENABLED=False pending a later decision; the Master-List fallback was confirmed real (78 real rates, 11 real Apartment rates) and kept rather than restricting to only the 8. derived_apartment_rate 18,350->16,500 VND/m2/mo (-10.1%), mgmt_fee_revenue_monthly 1,014,852,500->916,987,500 VND, mgmt_fee_revenue_annual 12,178,230,000->11,003,850,000 VND (-9.6%). Sign-off packet presented (artifact + PDF, 2026-09-17); Head-of-PM sign-off provisionally assumed per explicit user instruction ('confirm that later, assume it okay') pending the actual offline conversation. Also captured in this same record, NOT caused by this change: staff_cost_annual/total_profit_value/margin/markup have independently drifted from the separate, still-pending reconcile-summary-with-detail-sheets change (EMH2 now a live A1-payroll formula) -- this drift predates this session and its own Head-of-PM sign-off remains separately outstanding, see docs/project-status.md. staff_cost_annual 3,543,782,105->3,923,305,125 (+379,523,020 VND/yr) is the sole cause of total_profit_value/margin/markup moving beyond what rank-comparables-by-location's own revenue effect alone would produce.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,22 +12,22 @@
   },
   "figures": {
     "derived_apartment_rate": {
-      "value": 18350.0,
+      "value": 16500.0,
       "unit": "VND/m²/month",
       "where": "Summary!R33C2"
     },
     "mgmt_fee_revenue_monthly": {
-      "value": 1014852500.0,
+      "value": 916987500.0,
       "unit": "VND",
       "where": "Summary!R34C2"
     },
     "mgmt_fee_revenue_annual": {
-      "value": 12178230000.0,
+      "value": 11003850000.0,
       "unit": "VND",
       "where": "Summary!R35C2"
     },
     "staff_cost_annual": {
-      "value": 3543782105.0,
+      "value": 3923305124.5000005,
       "unit": "VND",
       "where": "Summary!R36C2"
     },
@@ -52,17 +52,17 @@
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 5202834513.0,
+      "value": 3648931493.5,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.4272241953879997,
+      "value": 0.3316049831195445,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.7458838029609202,
+      "value": 0.4961212677305958,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },

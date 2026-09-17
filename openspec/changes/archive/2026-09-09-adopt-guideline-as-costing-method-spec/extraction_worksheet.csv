@@ -1,0 +1,716 @@
+﻿guideline_sheet,code,item,instruction_text
+2.Budget-Management Fund,R,OPERATING FEES COLLECTION/ THU KINH PHÍ VẬN HÀNH,
+2.Budget-Management Fund,RM,Management fee/ Phí quản lý,
+2.Budget-Management Fund,RM.AP,Management fee of Apartment / Phí quản lý thu từ Căn hộ,"Số liệu hạng mục này lấy theo Guideline đã hướng dẫn tại sheet 0. Info. Lưu ý nếu tùy chọn tại ô F7 là 'THU HỘ CHI HỘ"" hoặc 'KHÔNG KHOÁN"" thì doanh thu phải bao gồm VAT và khi doanh thu có VAT thì chi phí phải bao gồm VAT. Ngược lại nếu ô F7 tùy chọn là ""KHOÁN"" thì doanh thu không có VAT, và chi phí cũng chưa VAT
+
+Và nếu dựa án mới vận hành thì lấy số từ bảng rải tiến độ ở sheet ""Tỷ lệ lấp đầy cư dân"""
+2.Budget-Management Fund,RM.OT,Management fee of Officetel / Phí quản lý thu từ Officetel,
+2.Budget-Management Fund,RM.OF,Management fee of Office / Phí quản lý thu từ Office,
+2.Budget-Management Fund,RM.SM,Management fee of Shopping Mall / Phí quản lý thu từ Thương mại,
+2.Budget-Management Fund,RM.RE,Management fee of Retail / Phí quản lý thu từ Retail,
+2.Budget-Management Fund,RM.SA,Management fee of Shop Apartment / Phí quản lý thu từ Shop Apartment,
+2.Budget-Management Fund,RM.SH,Management fee of Shophouse / Phí quản lý hàng tháng từ nhà phố,
+2.Budget-Management Fund,RM.VI,Management fee of Villas / Phí quản lý thu từ Biệt Thự,
+2.Budget-Management Fund,RM.KG,Management fee of Kindergarten / Phí quản lý thu từ Nhà trẻ,
+2.Budget-Management Fund,RM.0A,Management fee of Other Area / Phí quản lý loại hình khác của tòa nhà,
+2.Budget-Management Fund,RM.PA,Management fee of Parking / Phí quản lý các chỗ đậu xe,
+2.Budget-Management Fund,RPa,Monthly parking/ Nguồn thu xe tháng,
+2.Budget-Management Fund,RP1,Motorbike monthly parking / Tiền thu từ gắn máy tháng,"Các items này nhập số liệu theo hướng dẫn tại sheet ""0. Info"" và nếu dự án là dự án mới thì phải căn cứ theo số liệu lấy từ sheet ""Tiến độ lấp đầy bãi xe"""
+2.Budget-Management Fund,RP2,Car monthly parking / Tiền thu từ xe ô tô tháng,
+2.Budget-Management Fund,RP3,Bicycle daily monthly parking / Tiền thu từ xe đạp tháng,
+2.Budget-Management Fund,RP4,Electric bicycle daily monthly parking / Tiền thu từ xe đạp điện tháng,
+2.Budget-Management Fund,RP8,Sharing Revenue of monthly parking from developer / Nguồn thu được chia sẽ từ CDT cho doanh thu xe tháng,
+2.Budget-Management Fund,RP5,Motorbike/ bicycle daily visitors' parking / Tiền thu từ xe hai bánh vãng lai,
+2.Budget-Management Fund,RP6,Car daily visitors' parking / Tiền thu từ xe ô tô vãng lai,
+2.Budget-Management Fund,RP7,Daily visitors' parking / Tiền thu từ xe vãng lai,
+2.Budget-Management Fund,RO,Others/ Khác,
+2.Budget-Management Fund,RO1,Commision / Hoa hồng,Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+2.Budget-Management Fund,RO2,Bank Interest / Lãi tiền gửi,
+2.Budget-Management Fund,RO2a,Bank Interest on Savills account  / Lãi tiền gửi từ tài khoản ngân hàng đứng tên Savills,Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+2.Budget-Management Fund,RO2b,Bank Interest on BOC account  / Lãi tiền gửi từ tài khoản ngân hàng đứng tên Ban quản trị,Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+2.Budget-Management Fund,RO3,Water fee / Tiền nước (thu hộ),
+2.Budget-Management Fund,RO3.A,Water fee of Apartment / Tiền nước thu từ căn hộ (thu hộ),Ngân sách VPC lập không dự ước doanh thu thu hộ
+2.Budget-Management Fund,RO3.T,Water fee of Officetel / Tiền nước thu từ Officetel (thu hộ),
+2.Budget-Management Fund,RO3.O,Water fee of Office / Tiền nước thu từ Office (thu hộ),
+2.Budget-Management Fund,RO3.M,Water fee of Shopping Mall / Tiền nước thu từ thương mại (thu hộ),
+2.Budget-Management Fund,RO3.R,Water fee of Retail / Tiền nước thu từ Retail (thu hộ),
+2.Budget-Management Fund,RO3.S,Water fee of Shophouse / Tiền nước thu từ Shophouse (thu hộ),
+2.Budget-Management Fund,RO3.L,Water fee of Landed house / Tiền nước thu từ nhà phố (thu hộ),
+2.Budget-Management Fund,RO4,Electricity fee of Residents / Tiền điện thu từ cư dân (thu hộ),
+2.Budget-Management Fund,RO4.A,Electricity fee of Apartment / Tiền điện thu từ khu căn hộ (thu hộ),Ngân sách VPC lập không dự ước doanh thu thu hộ
+2.Budget-Management Fund,RO4.T,Electricity fee of Officetel / Tiền điện thu từ Officetel (thu hộ),
+2.Budget-Management Fund,RO4.O,Electricity fee of Office  / Tiền điện thu từ Office (thu hộ),
+2.Budget-Management Fund,RO4.M,Electricity fee of Shopping Mall / Tiền điện thu từ khu thương mại (thu hộ),
+2.Budget-Management Fund,RO4.R,Electricity fee of Retail / Tiền điện thu từ Retail (thu hộ),
+2.Budget-Management Fund,RO4.S,Electricity fee of Shophouse / Tiền điện thu từ Shophouse (thu hộ),
+2.Budget-Management Fund,RO4.L,Electricity fee of Landed house / Tiền điện thu từ nhà phố (thu hộ),
+2.Budget-Management Fund,RO5,Electricity fee of Developer/ Contractors / Tiền điện thu từ Chủ Đầu Tư/ nhà thầu (thu hộ),Ngân sách VPC lập không dự ước doanh thu thu hộ
+2.Budget-Management Fund,RO6,Bus / Xe bus,
+2.Budget-Management Fund,RO7,Housekeeping / Vệ sinh,
+2.Budget-Management Fund,RO8,Laundry / Giặt ủi,"Những dự án hạng sang, thì mới dự ước doanh thu này"
+2.Budget-Management Fund,RO9,Tennis fee / Tennis,
+2.Budget-Management Fund,RO10,Barbecue fee / BBQ,
+2.Budget-Management Fund,RO11,Access card / Thẻ từ,
+2.Budget-Management Fund,RO12,Parking card / Phí thẻ xe,
+2.Budget-Management Fund,RO13,Pool  / Phí dạy bơi,
+2.Budget-Management Fund,RO14,Pool Ticket / Vé bơi,
+2.Budget-Management Fund,RO15,Gym/ Sauna Fee / Phí hội viên phòng Gym/ Sauna,
+2.Budget-Management Fund,RO16,Function Room Booking Fee / Phí sử dụng các phòng chức năng,
+2.Budget-Management Fund,RO17,Renovation Works Fee / Phí thi công sửa chữa căn hộ,
+2.Budget-Management Fund,RO18,Others / Khác,Các chi phí này lấy benhmark theo dự án tương đương theo tam suất diện tích
+2.Budget-Management Fund,RO19,Cards fee (Over norm) / Phí thẻ (vượt định mức),
+2.Budget-Management Fund,RO20,Penalty fee / Phí phạt,
+2.Budget-Management Fund,RO21,Salary subsidies for BOC / Phụ cấp/ Trợ cấp lương cho Ban quản trị/ Ban tự quản,
+2.Budget-Management Fund,RO22,Fire insurance / Bảo hiểm cháy nổ,
+2.Budget-Management Fund,RO23,Collect water bill from residents / Thu hộ tiền nước sinh hoạt từ Cư dân,Nếu mức PQL đã bao gồmthù lao ban quản trị thì hạng mục này không nhập số liệu. Nếu chưa bao gồm thì hạng mục này nhập số liệu bằng đúng số nhập tại mã ESI2
+2.Budget-Management Fund,RO24,Collect costs related to water pumping activities and related costs / Thu hộ chi phí liên quan đến hoạt động truyền  dẫn nước đến căn hộ,
+2.Budget-Management Fund,RO33,Electric Vehicle Charging Service / Dịch vụ sạc xe điện ,
+2.Budget-Management Fund,RM.OA2,Collect costs related to Fire Insurance / Thu hộ chi phí bảo hiểm cháy nổ (Fire Insurance),Nếu mức PQL đã bao gồm bảo hiểm \ thì hạng mục này không nhập số liệu. Nếu chưa bao gồm thì hạng mục này nhập số liệu bằng đúng số nhập tại mã ESI1
+2.Budget-Management Fund,RI,Collect operating expenses already paid for commom area fund/ Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung,
+2.Budget-Management Fund,RI1,Collect operating expenses already paid for commom area fund/  / Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung,Lấy số liệu từ ô AH40
+2.Budget-Management Fund,E,MANAGEMENT EXPENSES/ CHI KINH PHÍ VẬN HÀNH,
+2.Budget-Management Fund,EM,Expenses for management and administration items/ Chi phí quản lý và hành chính,
+2.Budget-Management Fund,EMH,Human Resource / Chi phí quản lý và nhân sự,
+2.Budget-Management Fund,EMH1,Management fee for Savills / Phí quản lý cố định của Savills,Mục này xem ở sheet A1. Staff cost 08.2026 (VN)
+2.Budget-Management Fund,EMH2,Staff cost for Savills / Phí lương gộp,Mục này xem ở sheet A1. Staff cost 08.2026 (VN)
+2.Budget-Management Fund,EMH3,"Allowance for nightshift, working public holiday / Phụ cấp trực ca đêm, làm việc lễ/ tết",Mục này xem ở sheet A1. Staff cost 08.2026 (VN)
+2.Budget-Management Fund,EMH4,"Staff related cost (Training, rewards, allowance,...) / Huấn luyện bắt buộc hàng năm (ATLD, PCCC, phụ cấp trưởng/phó ban PCCC)",Mục này xem ở sheet A5. Trợ cấp PCCC
+2.Budget-Management Fund,EMH5,Award system for staff (person of a month) / Thưởng nhân viên của tháng,
+2.Budget-Management Fund,EMH6,"Public holiday, HR related expens (Tet holiday…) / Chi thưởng các ngày lễ",
+2.Budget-Management Fund,EMH7,Uniform / Đồng phục,
+2.Budget-Management Fund,EMH8,Mobilephone for management / Trợ cấp điện thoại di động,
+2.Budget-Management Fund,EMH9,Teambuilding Fee / Chi phí hoạt động đội nhóm,
+2.Budget-Management Fund,EMH10,Non deductible VAT / Thuế VAT không được khấu trừ,
+2.Budget-Management Fund,EMH11,Staff cost for Developer/ contractor / Phí lương gộp nhân sự của CĐT/ đơn vị khác,
+2.Budget-Management Fund,EMH12,Lump sum model / Chi phí thực hiện mô hình khoán,
+2.Budget-Management Fund,EMA,Administrative Expense / Chi phí quản lý văn phòng,
+2.Budget-Management Fund,EMA1,Telephone & internet fee / Chi phí điện thoại và internet,Chi phí benchmark hoặc ước tính theo gói cước internet doanh nghiệp của FPT + chi phí thuê bao cho hotline (khoảng 500k/tháng)
+2.Budget-Management Fund,EMA2,Stationery / Chi phí văn phòng phẩm,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA3,Printing Ink / Mực in,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA4,Photocopy fee rental / Thuê máy photocopy,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA5,"Printing (Accounting book, receipt,…) / Phí in ấn",Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA6,Postage service / Chi phí gửi thư (EMS),Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA7,Drinking water / Chi phí nước uống,"Dự ước dựa trên cơ sở số lượng nhân sự BQL tại dự án. Trung bình 1 người uống 1 lít nước/ ngày. Bình nước 19 lít có đơn giá 60000 VND/ bình (gồm VAT). Bao gồm nước cho BQL và nước tiếp cư dân
+
+
+Lưu ý về thuế VAT như đã đề cập ở trên"
+2.Budget-Management Fund,EMA8,Taxi coupon for business purpose/ Parking fee of employee / Chi phí đi lại bằng taxi phục vụ cho công việc/ hoặc phí gửi xe của nhân viên,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA9,Office equipment maintaince / Bảo trì trang thiết bị văn phòng BQL,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA10,M&O equipment depreciation / Khấu hao thiết bị văn phòng BQL,
+2.Budget-Management Fund,EMA11,Building management software / Phần mềm quản lý cho tòa nhà,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA12,SMS / Chi phí tin nhắn SMS,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA13,Cable television expense / Chi phí truyền hình cáp,
+2.Budget-Management Fund,EMA14,"Necessities for MO/ for staff working night shift (instant noodles, tea, coffee…) / Nhu yếu phẩm cho văn phòng BQL hoặc nhân viên trực đêm (mì gói, trà, cà phê,…)",Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA15,Others / Khác,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA16,Document storage fee / Phí lưu trữ hồ sơ,
+2.Budget-Management Fund,EMA17,Local authority contributions  / Đóng quỹ an ninh phường,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMA18,Bussiness license tax / Thuế môn bài,
+2.Budget-Management Fund,EMA19,E- invoice / Chi phí hóa đơn điện tử,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMB,Bank and Audit/ Ngân hàng và kiểm toán,
+2.Budget-Management Fund,EMB1,Bank fee / Phí giao dịch ngân hàng,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMB2,Cash Collection / Phí ngân hàng thu tiền tại chỗ,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMB3,Consultantcy fee / Chi phí tư vấn,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMB4,Auditing fee of operation / Chi phí kiểm toán vận hành,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMB5,Auditing fee of Energy / Chi phí kiểm toán năng lượng,Chi phí benchmark với dự án tương đương
+2.Budget-Management Fund,EMO,Other/ Khác,
+2.Budget-Management Fund,EMO1,Salary subsidies for BOC / Phụ cấp/ Trợ cấp lương cho Ban quản trị/ Ban tự quản,"Năm 1 thường chưa có phi này, từ năm 2 dự ước chi phí theo công thức: đối với dự án nhỏ (dưới 500 căn) sẽ có 3 người trong Ban quản trị; dự án từ 500 căn trở lên có 5 người trong Ban quản trị và mức lương thành viên là bằng 1 tháng lương tối thiểu vùng, riêng trưởng ban là 1.5 lương tối thiểu vùng"
+2.Budget-Management Fund,EMO2,Trainning for BOC / Tập huấn nghiệp vụ quản lý vận hành cho Ban quản trị/ Ban tự quản,"Năm 1 thường chưa phát sinh chi phí, khi nào có chi phí mã EMO1 thì mới dự ước chi phí cho mã này, thông thường 1 năm khoảng 3 - 5 triệu hoặc có thể benchmark theo dự án tương đương"
+2.Budget-Management Fund,EMO3,Access card / In ấn thẻ từ,Không dự ước chi phí
+2.Budget-Management Fund,EMO4,Parking card / In ấn thẻ xe,Không dự ước chi phí
+2.Budget-Management Fund,EMO5,Swimming wristband / Vòng tay hồ bơi,Không dự ước chi phí
+2.Budget-Management Fund,EMO6,Others / Khác,
+2.Budget-Management Fund,EMO7,Discount Management fee for Residents / Chiết khấu phí quản lý,
+2.Budget-Management Fund,EMO8,"Discount parking fee for Residents / Chiết khấu phí trông giữ xe (xe máy, ô tô, …)",
+2.Budget-Management Fund,EMO9,Operating expense related to maintain WELL Certification / Chi phí vận hành liên quan đến chứng nhận (Well..),Tùy theo trường hợp/ dự án cụ thể sẽ hiệu chỉnh thủ công sau
+2.Budget-Management Fund,EMO10,"Renew Certification (WELL,…)  / Chi phí gia hạn liên quan đến giấy chứng nhận tòa nhà (Well,…)",Tùy theo trường hợp/ dự án cụ thể sẽ hiệu chỉnh thủ công sau
+2.Budget-Management Fund,EM#,Contigency/ Dự phòng,
+2.Budget-Management Fund,ES,Expenses for Outsource Service/ Chi phí dịch vụ ,
+2.Budget-Management Fund,ESC,Communication and Event/ Hoạt động cộng đồng và sự kiện,
+2.Budget-Management Fund,ESC1,Events / Tổ chức sự kiện,"Hạng mục này ghi chú phải đảm bảo đủ 03 nội dung:
+""- Tổ chức sự kiện: Dự ước <số lượng> sự kiện (note liệt kê tên những sự kiện chính trong 1 năm vận hành: ví dụ quốc tế thiếu nhi, trung thu,...)
+- Diễn tập PCCC: Đối với dự án mới vận hành năm 1 sẽ có 2 nhóm phí: phí lập phương án PCCC và phí diện tập PCCC hằng năm
+- Trang trí dịp Giáng sinh: Dự ước trang trí khu vực sảnh lễ tân (chi phí 1 sảnh nhân với tổng số sảnh)
+- Trang trí dịp Tết Âm lịch: Dự ước trang trí khu vực sảnh lễ tân: Dự ước trang trí khu vực sảnh lễ tân (chi phí 1 sảnh nhân với tổng số sảnh có bố trí quầy lễ tân)
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+2.Budget-Management Fund,ESC2,Fire Drill / Diễn tập PCCC,
+2.Budget-Management Fund,ESC3,Annual General Meeting / Hội nghị Nhà chung cư / Hội nghị cư dân,
+2.Budget-Management Fund,ESC4,Decorations for Chistmas / Trang trí Giáng sinh,
+2.Budget-Management Fund,ESC5,Decorations for Lunar New Year / Trang trí Tết Âm lịch,
+2.Budget-Management Fund,ESC6,Decorations for others Occasion / Trang trí dịp lễ khác,
+2.Budget-Management Fund,ESC7,PR - Digital Expenses / Chi phí truyền thông,
+2.Budget-Management Fund,ESC8,"PR Advertising Expenses / Chi phí quảng cáo, tiếp thị",
+2.Budget-Management Fund,ESC9,"CRM Expenses (CRM Platforms, SMS, Customer data,..) / Chi phí liên quan đến CRM Platforms, SMS, dữ liệu khách hàng,...",
+2.Budget-Management Fund,ESC12,"Mandatory environmental disaster response plan / Kế hoạch phòng ngừa, ứng phó sự cố môi trường","Kế hoạch phòng ngừa, ứng phó sự cố môi trường bắt buộc mỗi năm thực hiện 1 lần. Dự ước chi phí tạm tính khoảng 14 triệu VND/ lần (chưa VAT)"
+2.Budget-Management Fund,ESS,Services contract/ Hợp đồng dịch vụ,
+2.Budget-Management Fund,ESS1,Security service / Dịch vụ bảo vệ,"Hạng mục này ghi chú phải đảm bảo 2 nội dung:
+ -  Nêu tổng số lượng vị trí hoặc tổng số lượng vị trí quy đổi ra 24h: ví dụ 1 Đội trưởng kiêm tuần tra, 1 ca trưởng, 1 Kiểm soát phòng CCTV và FCC, 2 trực tiện ích, 4 doorman, 2 tuần tra căn hộ, 2 Kiểm soát chốt ra vào hầm, 1 Đăng ký thi công kiêm tuần tra khu vực bãi xe và 02 Sắp xếp xe kiêm tuần tra,....=> Dựa trên sheet A2. Bảo vệ - Security để ghi ra số lượng mỗi vị trí và tổng số lượng
+- Nêu được mức đơn giá vị trí 24h giờ của nhân viên
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+2.Budget-Management Fund,ESS2,Extra fee for Security on extra-ordinary occasions / Phí bảo vệ tăng cường,
+2.Budget-Management Fund,ESS3,Extra fee for Security (Monthly) / Phí bảo vệ tăng cường (định kỳ),
+2.Budget-Management Fund,ESS4,Cleaning service for common area / Dịch vụ vệ sinh công cộng,"Hạng mục này ghi chú phải đảm bảo 2 nội dung:
+ -  Nêu tổng số lượng nhân viên + giờ làm việc của nhân viên: Giám sát, trưởng nhóm, nhân viên vệ sinh định kỳ, thu gom rác, nhân sự phụ trách vệ sinh khu vực sảnh lễ tân - khu vực tiện ích;  nhân sự  Vệ sinh công cộng hành lang tầng (ca sáng + ca chiều), nhân sự phụ trách vệ sinh bãi xe tầng hầm,....=> Dựa trên sheet A3. Vệ sinh - Cleaning để ghi ra số lượng mỗi vị trí và tổng số lượng
+- Nêu được mức đơn giá nhân viên vệ sinh (bắt buộc) và tea lady/ giám sát vệ sinh (nếu có)
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+2.Budget-Management Fund,ESS5,Cleaning service for in house apartment / Dịch vụ vệ sinh bên trong căn hộ/ khu vực khách thuê,
+2.Budget-Management Fund,ESS6,Extra fee for Cleaning on extra-ordinary occasions / Phí vệ sinh tăng cường,
+2.Budget-Management Fund,ESS7,External Cleaning service / Vệ sinh mặt ngoài tòa nhà,
+2.Budget-Management Fund,ESS8,"Maintenance of floor (marble, granite,…) / Bảo dưỡng/ phục hồi sàn (đá Marble, Granite, …)",
+2.Budget-Management Fund,ESS9,Normal garbage collection  / Thu gom rác sinh hoạt,"Tính theo hướng dẫn tại sheet 
+Lưu ý tính theo Quyết định 67/2025: Bảng giá thu gom rác sinh hoạt tại TPHCM mới nhất 2025 áp dụng từ ngày 01/6"
+2.Budget-Management Fund,ESS10,Hazardous garbage collection / Thu gom rác thải nguy hại,
+2.Budget-Management Fund,ESS11,"Other garbage collection / Thu gom và vận chuyển rác thải rắn khác (xà bần,…)",
+2.Budget-Management Fund,ESS12,Pest control service / Dịch vụ xử lý côn trùng,
+2.Budget-Management Fund,ESS13,Extra fee for pest control on extra-ordinary occasions / Phí xử lý côn trùng tăng cường,
+2.Budget-Management Fund,ESS14,Handle Termites / Phí xử lý mối,
+2.Budget-Management Fund,ESS15,Planting Rental / Thuê cây nội thất,
+2.Budget-Management Fund,ESS16,"Landscaping service / Dịch vụ chăm sóc cảnh quang, cây cảnh",
+2.Budget-Management Fund,ESS17,"Planting cost / Chi phí trồng cây, mua cây bổ sung",
+2.Budget-Management Fund,ESS18,Toiletries (public toilets) / Vật dụng nhà vệ sinh công cộng,
+2.Budget-Management Fund,ESS19,Garbage / Túi rác,
+2.Budget-Management Fund,ESS20,Flowers for Lobbies / Hoa trưng bày sảnh lễ tân,
+2.Budget-Management Fund,ESS21,Renting scenting device / Thuê máy tạo mùi hương,
+2.Budget-Management Fund,ESS22,Scented oil / Tinh dầu,
+2.Budget-Management Fund,ESS23,Staff for pool (outsource) / Nhân sự vận hành hồ bơi (thuê ngoài),
+2.Budget-Management Fund,ESS24,Staff for Gym (outsource) / Nhân sự vận hành phòng Gym (thuê ngoài),
+2.Budget-Management Fund,ESS25,Laundry Expense / Phí giặt ủi,
+2.Budget-Management Fund,ESS26,Car Rental / Phí thuê xe,
+2.Budget-Management Fund,ESS27,Health Club items / (Tower/laundry/Paper cup/Consumable office/miscellaneous) / Chi phí cho healthclub,
+2.Budget-Management Fund,ESS28,Parking Rental Expense / Chi phí thuê bãi xe,
+2.Budget-Management Fund,ESS29,Car Parking System Rental / Chi phí thuê hệ thống máy giữ xe,
+2.Budget-Management Fund,ESS30,Gasoline fee / Chi phí xăng phục vụ các trang thiết bị,
+2.Budget-Management Fund,ESS31,Wecome guests (flower/gift to tenants)  / Chi phí tiếp khách/ quà tặng khách thuê,
+2.Budget-Management Fund,ESS32,"Supplies of hantizer machine / Vật tư của máy xịt khuẩn (dung dịch, pin,….)",
+2.Budget-Management Fund,ESS33,Public Park Operation Expenses / Chi phí đóng góp hoạt động công viên,
+2.Budget-Management Fund,ESS34,Motobike Parking Operation Expenses / Chi phí đóng góp hoạt động vận hành bãi xe máy,
+2.Budget-Management Fund,ESS35,Rental Up-Lifts / Chi phí thuê xe nâng,
+2.Budget-Management Fund,ESS36,Rental Sweep road machine / Chi phí thuê xe quét đường,
+2.Budget-Management Fund,ESS37,Operating license of swimming pool  / Giấy phép hoạt động hồ bơi,
+2.Budget-Management Fund,ESS38,Sharing revenue from parking activities with Developer / Chia sẻ doanh thu hoạt động bãi xe với CĐT,
+2.Budget-Management Fund,ESS39,Covid Prevention / Chi chí phòng chống dịch ,
+2.Budget-Management Fund,ESS40,Breeding costs / Chi chí chăm sóc liên quan đến chăn nuôi thú,
+2.Budget-Management Fund,ESS41,Hygiene solution / Giải pháp vệ sinh diệt khuẩn,
+2.Budget-Management Fund,ESS42,Entertainment for Guest/Tenant... / Chi phí tiếp khách/ khách thuê…,
+2.Budget-Management Fund,ESS43,Operating expense related to maintain WELL Certification / Chi phí vận hành liên quan đến chứng nhận Well,
+2.Budget-Management Fund,ESI,Insurance/ Bảo hiểm cho tòa nhà,
+2.Budget-Management Fund,ESI1,Risk asset insurance / Bảo hiểm rủi ro tài sản,Lưu ý tínhtheo Nghị định 105/2025/NĐ-CP có hiệu lực từ 1/07/2025 (Ví dụ: công tình chung cư thương mại: chi phí bảo hiểm = tổng giá trị tài sản * 0.05)
+2.Budget-Management Fund,ESI2,Public liability insurance / Bảo hiểm trách nhiệm công cộng,
+2.Budget-Management Fund,ESI3,Business Interruption / Bảo hiểm gián đoạn kinh doanh,
+2.Budget-Management Fund,ESM,M&E Operation/ Vận hành M&E,
+2.Budget-Management Fund,ESM1,M&E Tools depreciation / Khấu hao dụng cụ kỹ thuật,
+2.Budget-Management Fund,ESM2,Outsourcing Enviromental Report / Báo cáo môi trường định kỳ  / (Báo cáo quan trắc),
+2.Budget-Management Fund,ESM3,Domestic water testing / Kiểm định nước sinh hoạt,
+2.Budget-Management Fund,ESM4,Chemicals for pool / Hóa chất hồ bơi,
+2.Budget-Management Fund,ESM5,Pool water testing / Kiểm định nước hồ bơi,
+2.Budget-Management Fund,ESM6,Pool Cleaning Equipment / Dụng cụ vệ sinh hồ bơi,
+2.Budget-Management Fund,ESM7,Chemicals for fountains / Hóa chất cho thác nước/ hồ nước,
+2.Budget-Management Fund,ESM8,Connect to HCMC Fire Fighting Dept / Phí kết nối với Trung tâm PCCC thành phố,
+2.Budget-Management Fund,ESM9,Equipment of Connect to HCMC Fire Fighting Dept / Thiết bị kết nối với Trung tâm PCCC thành phố,
+2.Budget-Management Fund,ESM10,STP chemical / Hóa chất hệ thống xử lý nước thải,
+2.Budget-Management Fund,ESM11,Treatment fee for STP / Hợp đồng chi trả chi phí xử lý nước thải cho Trạm xử lý nước thải của khu,
+2.Budget-Management Fund,ESM12,"Construction Materials for replace / Vật tư thay thế nhỏ (bao gồm vật tư tiêu hao của kỹ thuật, vật tư điện,/ nước,/ xây dựng,…)",
+2.Budget-Management Fund,ESM13,STP water testing / Kiểm định nước thải đầu ra,
+2.Budget-Management Fund,ESM14,Cooling tower water testing / Kiểm định nước tháp giải nhiệt,
+2.Budget-Management Fund,ESM15,Cooling tower and Chiller system chemical / Hóa chất cho hệ thống máy lạnh giải nhiệt bằng nước (Chiller) và tháp giải nhiệt,
+2.Budget-Management Fund,ESM16,"Sewage Treatment Plant operation (outsourced, including chemicals) / Hợp đồng vận hành hệ thống xử lý nước thải với NCC",
+2.Budget-Management Fund,ESM17,Recharge Fire Extinguisher / Nạp bình chữa cháy,
+2.Budget-Management Fund,ESM25,Cross-checking the water quality of the wastewater treatment system. / Kiểm tra chéo chất lượng nước hệ xử lý nước thải,"Ước tính mỗi quý thực hiện 1 lần. Mỗi lần chi phí khoảng 3,5 triệu VND/ lần (theo SCE) (chưa VAT). Đây là chi phí để kiểm tra chéo chất lượng nước hệ XLNT mà nhà thầu vận hành"
+2.Budget-Management Fund,ESA,Accreditation Expense / Các chi phí liên quan đến kiểm định (Báo cáo công tác bảo vệ môi trường),
+2.Budget-Management Fund,ESA6,Safety Inspection for Up-Lifts / Kiểm định an toàn thang nâng người,"Lưu ý đối với hạng mục chi phí này:
+1/ Nếu thang được mua bằng quỹ bảo trì thì sử dụng quỹ bảo trì và ngược lại mua bằng quỹ vận hành thì dùng quỹ vận hành
+2/ Trường hợp không xác định được quỹ mua: thì nếu thiết bị gắn cố định với công trình thì dùng quỹ bảo trì ngược lại thì dùng quỹ vận hành"
+2.Budget-Management Fund,ESA11,Safety Inspection for Air Compressor / Kiểm định an toàn cho máy bơm hơi,Nếu thiết bị được mua bằng quỹ bảo trì thì sử dụng quỹ bảo trì và ngược lại mua bằng quỹ vận hành thì dùng quỹ vận hành
+2.Budget-Management Fund,ESA12,Inspection & Register for Electric Car / Đăng kiểm xe ô tô điện,Nếu thiết bị được mua bằng quỹ bảo trì thì sử dụng quỹ bảo trì và ngược lại mua bằng quỹ vận hành thì dùng quỹ vận hành
+2.Budget-Management Fund,ESA16,Safety Inspection for water mete / Kiểm định đồng hồ nước,Trường hợp đồng hồ nước thuộc sở hữu chung thì sử dụng quỹ bảo trì. Ngược lại nếu là sở hữu riêng thì không dùng quỹ bảo trì
+2.Budget-Management Fund,ESA22,Report the situation of wastewater discharge into water sources / Báo cáo tình hình xả thải vào nguồn nước,
+2.Budget-Management Fund,ESL,Licence Expense / Các chi phí liên quan đến giấy phép,
+2.Budget-Management Fund,ESL1,License for discharge waste-water after treatment / Giấy phép xả thải,
+2.Budget-Management Fund,ESL2,License for using Walkie-Talkie and Radio Frequency / Giấy phép sử dụng bộ đàm & kênh tần số vô tuyến điện,
+2.Budget-Management Fund,ESR,"Replacement cost for damage cases, which claim for damages are refused by Assurance Company, or for Exemption Amount (Canopy Glasses broken down; Water flooding to Lifts…) / Chi phí thay thế, khắc phục sự cố cho các trường hợp không được bảo hiểm bồi thường, và phần miễn trừ khi được BH bồi thường: kính mặt ngoài, Canopy và các thiết bị khác… ",
+2.Budget-Management Fund,ES#,Contigency/ Dự phòng,
+2.Budget-Management Fund,EN,New Capital expenditure/ Chi phí đầu tư mua sắm thiết bị mới,
+2.Budget-Management Fund,EN1,New capital expenditure for MO / Mua trang thiết bị mới cho văn phòng ban quản lý,
+2.Budget-Management Fund,EN2,New capital expenditure for ME team / Mua trang thiết bị mới cho kỹ thuật,
+2.Budget-Management Fund,EN3,New capital expenditure for Common area / Mua trang thiết bị mới cho khu công cộng,
+2.Budget-Management Fund,EN4,New capital expenditure for Tenant area / Mua trang thiết bị mới cho khu khách thuê,
+2.Budget-Management Fund,EE,Energy Consumption/ Năng lượng,
+2.Budget-Management Fund,EEW,Water,
+2.Budget-Management Fund,EEW.A,"Water for Residential / Nước dùng riêng của cư dân/ bên trong các shophouse, officetel,... (chi hộ)",
+2.Budget-Management Fund,EEW.C,Water for Common Area and Facilities / Nước công cộng khu vực chung,
+2.Budget-Management Fund,EEW.AA,Water for Apartment / Nước công cộng khu Căn hộ,
+2.Budget-Management Fund,EEW.T,Water for Officetel / Nước công cộng khu Officetel,
+2.Budget-Management Fund,EEW.O,Water for Office / Nước công cộng khu Office,
+2.Budget-Management Fund,EEW.M,Water for Commercial / Nước công cộng khu thương mại,
+2.Budget-Management Fund,EEW.R,Water for Retail / Nước công cộng khu Retail,
+2.Budget-Management Fund,EEW.S,Water for Shophouse / Nước công cộng khu Shophouse,
+2.Budget-Management Fund,EEW.P,Water for Parking / Nước công cộng khu bãi xe,
+2.Budget-Management Fund,EEE,Electric,
+2.Budget-Management Fund,EEE.A,"Electricity for Residential / Điện dùng riêng của cư dân/ bên trong các shophouse, officetel,...  (chi hộ)",
+2.Budget-Management Fund,EEE.C,Electricity for Common Area / Điện khu công cộng khu vực chung,
+2.Budget-Management Fund,EEE.AA,Electricity for Common Area of Apartment / Điện công cộng khu căn hộ,
+2.Budget-Management Fund,EEE.T,Electricity for Officetel / Điện công cộng khu Officetel,
+2.Budget-Management Fund,EEE.O,Electricity for Officetel / Điện công cộng khu Office,
+2.Budget-Management Fund,EEE.M,Electricity for Commercial / Điện công cộng khu thương mại,
+2.Budget-Management Fund,EEE.R,Electricity for Retail / Điện công cộng khu Retail,
+2.Budget-Management Fund,EEE.S,Electricity for Shophouse / Điện công cộng khu Shophouse,
+2.Budget-Management Fund,EEE.P,Electricity for Parking / Điện công cộng khu bãi xe,
+2.Budget-Management Fund,EEE.F2,Electricity for Façade (Retail) / Điện công cộng trang trí mặt ngoài tòa nhà (khu Retail),
+2.Budget-Management Fund,EEE.F1,Electricity for Façade (Apartment) / Điện công cộng trang trí mặt ngoài tòa nhà (khu căn hộ + tầng mái),
+2.Budget-Management Fund,EED,Diesel,
+2.Budget-Management Fund,EED.C,Diesel for back up generators of Common Area and Facilities / Dầu chạy máy phát điện khu công cộng,
+2.Budget-Management Fund,EED.A,Diesel for back up generators of Apartment / Dầu chạy máy phát điện khu căn hộ,
+2.Budget-Management Fund,EED.T,Diesel for back up generators of Officetel / Dầu chạy máy phát điện khu Officetel,
+2.Budget-Management Fund,EED.O,Diesel for back up generators of Office / Dầu chạy máy phát điện khu Office,
+2.Budget-Management Fund,EED.M,Diesel for back up generators of Commercial / Dầu chạy máy phát điện khu thương mại,
+2.Budget-Management Fund,EED.R,Diesel for back up generators of Retail / Dầu chạy máy phát điện khu Retail,
+2.Budget-Management Fund,EED.S,Diesel for back up generators of Shophouse / Dầu chạy máy phát điện khu Shophouse,
+2.Budget-Management Fund,EED.P,Diesel for back up generators of Parking / Dầu chạy máy phát điện khu bãi xe,
+2.Budget-Management Fund,EED.#,Diesel for back up generators of All Project / Dầu chạy máy phát điện toàn tòa nhà,
+2.Budget-Management Fund,EEG,Gas,
+2.Budget-Management Fund,EEG.A,giấy phép xả thải / Gas sử dụng cho căn hộ,
+2.Budget-Management Fund,EE#,Contigency/ Dự phòng,
+2.Budget-Management Fund,ER,Repairs and Maintenance/ Sửa chữa & bảo dưỡng,
+2.Budget-Management Fund,ERE,Electric Systems (Main Switch Board) / Bảo trì hệ thống điện hạ thế chính (MSB),
+2.Budget-Management Fund,ERE1,Maintenace Contract for Electric Systems (MSB) / Hợp đồng bảo trì hệ thống điện (tủ điện hạ thế chính - MSB),
+2.Budget-Management Fund,ERE2,Electric Systems Spare-parts  / Vật tư thay thế/ sửa chữa hệ thống điện,
+2.Budget-Management Fund,ERE3,Electric Systems Renovation / Cải tạo nâng cấp hệ thống điện,
+2.Budget-Management Fund,ERE4,Others / Khác,
+2.Budget-Management Fund,ERG,Generator system / Hệ thống máy phát điện dự phòng,
+2.Budget-Management Fund,ERG1,Maintenace Contract for Generator system / Hợp đồng bảo trì hệ thống máy phát điện dự phòng,
+2.Budget-Management Fund,ERG2,Generator system Spare-parts  / Vật tư thay thế/ sửa chữa hệ thống máy phát điện dự phòng,
+2.Budget-Management Fund,ERG3,Generator system Renovation / Cải tạo nâng cấp hệ thống máy phát điện dự phòng,
+2.Budget-Management Fund,ERG4,Others / Khác,
+2.Budget-Management Fund,ERT,Transformer maintenance / Bảo trì trạm biến thế,
+2.Budget-Management Fund,ERT1,Maintenace Contract for Transformer / Hợp đồng bảo trì trạm biến thế,
+2.Budget-Management Fund,ERT2,Transformer Spare-parts  / Vật tư thay thế/ sửa chữa trạm biến thế,
+2.Budget-Management Fund,ERT3,Transformer Renovation / Cải tạo nâng cấp trạm biến thế,
+2.Budget-Management Fund,ERT4,Others / Khác,
+2.Budget-Management Fund,ERB,Maintenance Building Management System (BMS) / Bảo trì hệ thống quản lý trung tâm tòa nhà,
+2.Budget-Management Fund,ERB1,Maintenance Building Management System contract / Hợp đồng bảo trì hệ thống quản lý trung tâm tòa nhà,
+2.Budget-Management Fund,ERB2,"Maintenance Building Management System spare parts / Vật tư, linh kiện thay thế hệ thống quản lý trung tâm tòa nhà",
+2.Budget-Management Fund,ERB3,Maintenance Building Management System Renovation / Cải tạo nâng cấp hệ thống quản lý trung tâm tòa nhà,
+2.Budget-Management Fund,ERB4,Others / Khác,
+2.Budget-Management Fund,ERLM,Lifts maintenance / Bảo trì hệ thống thang máy,
+2.Budget-Management Fund,ERLM1,Lifts maintenance contract / Hợp đồng bảo trì thang máy với NCC,
+2.Budget-Management Fund,ERLM2,"Lifts spare parts / Vật tư, linh kiện thay thế của thang máy",
+2.Budget-Management Fund,ERLM3,Lifts Renovation / Cải tạo nâng cấp hệ thống thang máy,
+2.Budget-Management Fund,ERLM4,Others / Khác,
+2.Budget-Management Fund,ERLM#,Escalators maintenance / Bảo trì hệ thống thang cuốn,
+2.Budget-Management Fund,ERLM1#,Escalators maintenance contract / Hợp đồng bảo trì thang cuốn với NCC,
+2.Budget-Management Fund,ERLM2#,"Escalators spare parts / Vật tư, linh kiện thay thế của thang cuốn",
+2.Budget-Management Fund,ERLM3#,Escalators Renovation / Cải tạo nâng cấp hệ thống thang cuốn,
+2.Budget-Management Fund,ERLM4#,Others / Khác,
+2.Budget-Management Fund,ERLM##,Travelator maintenance / Bảo trì hệ thống thang băng chuyền,
+2.Budget-Management Fund,ERLM1##,Travelator maintenance contract / Hợp đồng bảo trì thang băng chuyền với NCC,
+2.Budget-Management Fund,ERLM2##,"Travelator spare parts / Vật tư, linh kiện thay thế của thang băng chuyền",
+2.Budget-Management Fund,ERLM3##,Travelator Renovation / Cải tạo nâng cấp hệ thống thang băng chuyền,
+2.Budget-Management Fund,ERLM4##,Others / Khác,
+2.Budget-Management Fund,ERA,Slip air-con maintenance / Bảo trì và sửa chữa máy lạnh,
+2.Budget-Management Fund,ERA1,Slip air-con maintenance contract / Hợp đồng bảo trì máy lạnh,
+2.Budget-Management Fund,ERA2,"Slip air-con spare parts / Vật tư, linh kiện thay thế máy lạnh",
+2.Budget-Management Fund,ERA3,Slip air-con Renovation / Cải tạo nâng cấp máy lạnh,
+2.Budget-Management Fund,ERA4,Others / Khác,
+2.Budget-Management Fund,ERCL,"Chiller system  / Hệ thống Chiller (bao gồm Cooling Tower, bơm nước tuần hoàn)",
+2.Budget-Management Fund,ERCL1,Chiller & Cooling Tower system maintenance contract / Hợp đồng bảo trì máy lạnh,
+2.Budget-Management Fund,ERCL2,"Chiller & Cooling Tower  system spare parts / Vật tư, linh kiện thay thế máy lạnh",
+2.Budget-Management Fund,ERCL3,Chiller system Renovation / Cải tạo nâng cấp máy lạnh,
+2.Budget-Management Fund,ERCL4,Others / Khác,
+2.Budget-Management Fund,ERCL#,"Chiller system  / Hệ thống Chiller (AHU,PAU)",
+2.Budget-Management Fund,ERCL#1,AHU/PAU maintenance contract / Hợp đồng bảo trì máy lạnh AHU/PAU,
+2.Budget-Management Fund,ERCL#2,"AHU/PAU spare parts / Vật tư, linh kiện thay thế máy lạnh AHU/PAU",
+2.Budget-Management Fund,ERCL#3,AHU/PAU Renovation AHU/PAU / Cải tạo nâng cấp máy lạnh,
+2.Budget-Management Fund,ERCL#4,Others / Khác,
+2.Budget-Management Fund,ERCL##,Chiller system  / Hệ thống Chiller (FCU),
+2.Budget-Management Fund,ERCL##1,FCU maintenance contract / Hợp đồng bảo trì máy lạnh FCU,
+2.Budget-Management Fund,ERCL##2,"FCU spare parts / Vật tư, linh kiện thay thế máy lạnh FCU",
+2.Budget-Management Fund,ERCL##3,FCU Renovation AHU/PAU / Cải tạo nâng cấp máy lạnh,
+2.Budget-Management Fund,ERCL##4,Others / Khác,
+2.Budget-Management Fund,ERVR,VRV system / Hệ thống lạnh VRV,
+2.Budget-Management Fund,ERVR1,VRV system maintenance contract / Hợp đồng bảo trì máy lạnh,
+2.Budget-Management Fund,ERVR2,"VRV system spare parts / Vật tư, linh kiện thay thế máy lạnh",
+2.Budget-Management Fund,ERVR3,VRV system Renovation / Cải tạo nâng cấp máy lạnh,
+2.Budget-Management Fund,ERVR4,Others / Khác,
+2.Budget-Management Fund,ERV,Ventilation system / Hệ thống thông gió,
+2.Budget-Management Fund,ERV1,Ventilation system maintenance contract / Hợp đồng bảo trì hệ thống thông gió,
+2.Budget-Management Fund,ERV2,"Ventilation system spare parts / Vật tư, linh kiện thay thế hệ thống thông gió",
+2.Budget-Management Fund,ERV3,Ventilation system Renovation / Cải tạo nâng cấp hệ thống thông gió,
+2.Budget-Management Fund,ERV4,Others / Khác,
+2.Budget-Management Fund,ERPS,Pump system / Hệ thống bơm,
+2.Budget-Management Fund,ERPS1,Maintenance contract of Pump system / Hợp đồng bảo trì hệ thống bơm với NCC,
+2.Budget-Management Fund,ERPS2,"Pump Repair/ Replacement / Sửa chữa, thay thế thiết bị vật tư cho hệ thống bơm",
+2.Budget-Management Fund,ERPS3,Pump system Renovation / Cải tạo nâng cấp hệ thống bơm,
+2.Budget-Management Fund,ERPS4,Irrigation system / Hệ thống tưới tự động,
+2.Budget-Management Fund,ERPS5,Plumbing & Sanitary system / Hệ thống cấp thoát nước và vệ sinh,
+2.Budget-Management Fund,ERPS6,Others / Khác,
+2.Budget-Management Fund,ERS,STP System / Hệ thống xử lý nước thải,
+2.Budget-Management Fund,ERS1,"Sewage Treatment Plant operation and maintenance (outsourced, including chemicals) / Hợp đồng bảo trì hệ thống xử lý nước thải với NCC",
+2.Budget-Management Fund,ERS2,"STP Repair/ Replacement / Sửa chữa, thay thế thiết bị vật tư cho hệ thống xử lý nước thải",
+2.Budget-Management Fund,ERS3,STP Renovation / Cải tạo nâng cấp cho hệ thống xử lý nước thải,
+2.Budget-Management Fund,ERS4,Others / Khác,
+2.Budget-Management Fund,ERC,CCTV camera system / Hệ thống camera quan sát,
+2.Budget-Management Fund,ERC1,CCTV camera system maintenance contract / Hợp đồng bảo trì hệ thống camera quan sát,
+2.Budget-Management Fund,ERC2,"CCTV camera system spare parts / Vật tư, linh kiện thay thế hệ thống camera quan sát",
+2.Budget-Management Fund,ERC3,CCTV camera system Renovation / Cải tạo nâng cấp hệ thống camera quan sát,
+2.Budget-Management Fund,ERC4,Others / Khác,
+2.Budget-Management Fund,ERAC,Access control and intercom system / Hệ thống kiểm soát và liên lạc nội bộ,
+2.Budget-Management Fund,ERAC1,Access control and intercom system maintenance contract / Hợp đồng bảo trì hệ thống kiểm soát và liên lạc nội bộ,
+2.Budget-Management Fund,ERAC2,"Access control and intercom system spare parts / Vật tư, linh kiện thay thế hệ thống kiểm soát và liên lạc nội bộ",
+2.Budget-Management Fund,ERAC3,Access control and intercom system Renovation / Cải tạo nâng cấp hệ thống kiểm soát và liên lạc nội bộ,
+2.Budget-Management Fund,ERAC4,Others / Khác,
+2.Budget-Management Fund,ERP,"Parking system (barrier, softwares,...) / Hệ thống quản lý bãi xe",
+2.Budget-Management Fund,ERP1,Parking system maintenance contract / Hợp đồng bảo trì hệ thống quản lý bãi xe,
+2.Budget-Management Fund,ERP2,"Parking system spare parts / Vật tư, linh kiện thay thế hệ thống quản lý bãi xe",
+2.Budget-Management Fund,ERP3,Parking system Renovation / Cải tạo nâng cấp hệ thống quản lý bãi xe,
+2.Budget-Management Fund,ERP4,Others / Khác,
+2.Budget-Management Fund,ERPL,Car Parking Lift Equipment / Hệ thống giàn nâng,
+2.Budget-Management Fund,ERPL1,Car Parking Lift Equipment contract / Hợp đồng bảo trì hệ thống giàn nâng,
+2.Budget-Management Fund,ERPL2,"Car Parking Lift Equipment spare parts / Vật tư, linh kiện thay thế hệ thống giàn nâng",
+2.Budget-Management Fund,ERPL3,Car Parking Lift Equipment Renovation / Cải tạo nâng cấp hệ thống giàn nâng,
+2.Budget-Management Fund,ERPL4,Others / Khác,
+2.Budget-Management Fund,ERFS,Fire Systems / Bảo trì hệ thống PCCC,
+2.Budget-Management Fund,ERFS1,Fire system maintenance contract / Hợp đồng bảo trì hệ thống PCCC,
+2.Budget-Management Fund,ERFS2,"Fire system spare parts / Vật tư, linh kiện thay thế hệ thống PCCC",
+2.Budget-Management Fund,ERFS3,Fire system Renovation / Cải tạo nâng cấp hệ thống PCCC,
+2.Budget-Management Fund,ERFS4,Others / Khác,
+2.Budget-Management Fund,ERD,Doors and accessories / Cửa và các phụ kiện cửa,
+2.Budget-Management Fund,ERD1,Doors system maintenance contract / Hợp đồng bảo trì hệ thống cửa,
+2.Budget-Management Fund,ERD2,"Doors system spare parts / Vật tư, linh kiện thay thế hệ thống cửa",
+2.Budget-Management Fund,ERD3,Doors system Renovation / Cải tạo nâng cấp hệ thống cửa,
+2.Budget-Management Fund,ERD4,Others / Khác,
+2.Budget-Management Fund,ERL,Lighting systems / Hệ thống đèn/ chiếu sáng,
+2.Budget-Management Fund,ERL1,Lighting system maintenance contract / Hợp đồng bảo trì hệ thống đèn,
+2.Budget-Management Fund,ERL2,"Lighting system spare parts / Vật tư, linh kiện thay thế hệ thống đèn",
+2.Budget-Management Fund,ERL3,Lighting system Renovation / Cải tạo nâng cấp hệ thống đèn,
+2.Budget-Management Fund,ERL4,Others / Khác,
+2.Budget-Management Fund,ERCC,Call Center / Tổng đài,
+2.Budget-Management Fund,ERCC1,Call Center system maintenance contract / Hợp đồng bảo trì hệ thống tổng đài,
+2.Budget-Management Fund,ERCC2,"Call Center system spare parts / Vật tư, linh kiện thay thế hệ thống tổng đài",
+2.Budget-Management Fund,ERCC3,Call Center system Renovation / Cải tạo nâng cấp hệ thống tổng đài,
+2.Budget-Management Fund,ERCC4,Others / Khác,
+2.Budget-Management Fund,ERPA,PA System / Hệ thống loa,
+2.Budget-Management Fund,ERPA1,PA system maintenance contract / Hợp đồng bảo trì hệ thốngloa,
+2.Budget-Management Fund,ERPA2,"PA system spare parts / Vật tư, linh kiện thay thế hệ thống loa",
+2.Budget-Management Fund,ERPA3,PA system Renovation / Cải tạo nâng cấp hệ thống loa,
+2.Budget-Management Fund,ERPA4,Others / Khác,
+2.Budget-Management Fund,ERO,Outdoor drinking water pillar / Trụ nước uống ngoài trời,
+2.Budget-Management Fund,ERO1,Outdoor drinking water pillar maintenance contract / Hợp đồng bảo trì trụ uống nước ngoài trời,
+2.Budget-Management Fund,ERO2,"Outdoor drinking water pillar spare parts / Vật tư, linh kiện thay thế trụ uống nước ngoài trời",
+2.Budget-Management Fund,ERO3,Outdoor drinking water pillar renovation / Cải tạo nâng cấp trụ uống nước ngoài trời,
+2.Budget-Management Fund,ERO4,Others / Khác,
+2.Budget-Management Fund,ERSP,Solar power / Điện năng lượng mặt trời,
+2.Budget-Management Fund,ERSP1,Solar power system maintenance contract / Hợp đồng bảo trì hệ thống điện năng lượng mặt trời,
+2.Budget-Management Fund,ERSP2,"Solar power system spare parts / Vật tư, linh kiện thay thế hệ thống điện năng lượng mặt trời",
+2.Budget-Management Fund,ERSP3,Solar power system renovation / Cải tạo nâng cấp hệ thống điện năng lượng mặt trời,
+2.Budget-Management Fund,ERSP4,Others / Khác,
+2.Budget-Management Fund,ERAM,Automatic Monitoring & Surveying Treated-Water Parameters / Hệ thống quan trắc,
+2.Budget-Management Fund,ERAM1,Maintenance contract for Automatic Monitoring & Surveying Treated-Water Parameters / Hợp đồng bảo trì hệ thống quan trắc tự động nước thải,
+2.Budget-Management Fund,ERAM2,"Spare parts for Automatic Monitoring & Surveying Treated-Water Parameters / Vật tư, linh kiện thay thế hệ thống quan trắc",
+2.Budget-Management Fund,ERAM3,Renovation for Automatic Monitoring & Surveying Treated-Water Parameters / Cải tạo nâng cấp hệ thống quan trắc,
+2.Budget-Management Fund,ERAM4,Others / Khác,
+2.Budget-Management Fund,ERGS,Gas System / Hệ thống Gas,
+2.Budget-Management Fund,ERGS1,Gas System maintenance contract / Hợp đồng bảo trì hệ thống gas,
+2.Budget-Management Fund,ERGS2,"Gas System spare parts / Vật tư, linh kiện thay thế hệ thống gas",
+2.Budget-Management Fund,ERGS3,Gas System renovation / Cải tạo nâng cấp hệ thống gas,
+2.Budget-Management Fund,ERGS4,Others / Khác,
+2.Budget-Management Fund,ERSM,Sweep Master machine / Bảo trì sửa chửa xe quét đường,
+2.Budget-Management Fund,ERSM1,Sweep Master machine maintenance contract / Hợp đồng bảo trì xe quét đường,
+2.Budget-Management Fund,ERSM2,"Sweep Master machine spare parts / Vật tư, linh kiện thay thế xe quét đường",
+2.Budget-Management Fund,ERSM3,Sweep Master machine renovation / Cải tạo nâng cấp xe quét đường,
+2.Budget-Management Fund,ERSM4,Others / Khác,
+2.Budget-Management Fund,ERMF,Multi medi fiter / Hệ thống lọc cát,
+2.Budget-Management Fund,ERMF1,Maintenance contract for system / Hợp đồng bảo trì hệ thống ,
+2.Budget-Management Fund,ERMF2,"Spare parts for system / Vật tư, linh kiện thay thế hệ thống ",
+2.Budget-Management Fund,ERMF3,Renovation system / Cải tạo nâng cấp hệ thống ,
+2.Budget-Management Fund,ERMF4,Others / Khác,
+2.Budget-Management Fund,ERF,Facilities / Tiện ích,
+2.Budget-Management Fund,ERF1,Sauna / Bảo trì phòng Sauna,
+2.Budget-Management Fund,ERF1.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF1.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF1.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF1.4,Others / Khác,
+2.Budget-Management Fund,ERF2,Gym equipments / Bảo trì máy móc thiết bị phòng gym,
+2.Budget-Management Fund,ERF2.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF2.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF2.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF2.4,Others / Khác,
+2.Budget-Management Fund,ERF3,Tennis court / Bảo trì khu tennis,
+2.Budget-Management Fund,ERF3.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF3.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF3.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF3.4,Others / Khác,
+2.Budget-Management Fund,ERF4,BBQ area and equipments / Bảo trì khu BBQ,
+2.Budget-Management Fund,ERF4.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF4.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF4.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF4.4,Others / Khác,
+2.Budget-Management Fund,ERF5,Pool system / Bảo trì hệ hồ bơi,
+2.Budget-Management Fund,ERF5.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF5.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF5.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF5.4,Others / Khác,
+2.Budget-Management Fund,ERF6,Water feature / Bảo trì hồ cảnh quang,
+2.Budget-Management Fund,ERF6.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF6.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF6.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF6.4,Others / Khác,
+2.Budget-Management Fund,ERF7,Wooden deck treatment / Bảo dưỡng sàn gỗ,
+2.Budget-Management Fund,ERF7.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF7.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF7.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF7.4,Others / Khác,
+2.Budget-Management Fund,ERF8,Outdoor loose furniture maintenance / Bảo dưỡng đồ gỗ ngoài trời,
+2.Budget-Management Fund,ERF8.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF8.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF8.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF8.4,Others / Khác,
+2.Budget-Management Fund,ERF9,Lake regulating / Bảo dưỡng hồ điều tiết,
+2.Budget-Management Fund,ERF9.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF9.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF9.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF9.4,Others / Khác,
+2.Budget-Management Fund,ERF10,Kid Room/ Childen Playground / Bảo dưỡng khu vui chơi trẻ em (trong nhà và ngoài trời),
+2.Budget-Management Fund,ERF10.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF10.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF10.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF10.4,Others / Khác,
+2.Budget-Management Fund,ERF11,Other Facilities / Bảo trì tiện ích khác,
+2.Budget-Management Fund,ERF11.1,Maintenance contract / Hợp đồng bảo trì,
+2.Budget-Management Fund,ERF11.2,"Spare parts / Vật tư, linh kiện thay thế",
+2.Budget-Management Fund,ERF11.3,Renovation / Cải tạo nâng cấp,
+2.Budget-Management Fund,ERF11.4,Others / Khác,
+2.Budget-Management Fund,ERCM,Construction/ Xây dựng,
+2.Budget-Management Fund,ERCM1,"Renovation for facade and landscape of Building / Cải tạo nâng cấp khu công cộng bên ngoài toà nhà (sân vườn, sơn mặt ngoài)",
+2.Budget-Management Fund,ERCM2,"Spare-parts for façade and landscape of Building / Vật tư thay thế, sửa chữa khu công cộng, bên ngoài toà nhà",
+2.Budget-Management Fund,ERCM3,Renovation for public areas within the building / Cải tạo nâng cấp khu công cộng bên trong toà nhà,
+2.Budget-Management Fund,ERCM4,"Spare-parts for public areas within the building / Vật tư thay thế, sửa chữa khu công cộng, bên trong toà nhà",
+2.Budget-Management Fund,ERCM5,"Water-proofing for apartment-units (Toilets; Façade of apartment-units) / Chống thấm căn hộ (từ bên ngoài, toilet, ...)",
+2.Budget-Management Fund,ERCM6,External base structure / / Xây dựng khu vực ngoại vi,
+2.Budget-Management Fund,ERCS,Clearance/ Suction / Vệ sinh/ Hút vệ sinh,
+2.Budget-Management Fund,ERCS1,Water tank periodical cleaning / Vệ sinh bồn nước định kỳ,
+2.Budget-Management Fund,ERCS2,"Drainage and manhole cleaning / Vệ sinh cống rãnh, hố ga",
+2.Budget-Management Fund,ERCS3,STP periodical cleaning/ sludge removal / Hút vệ sinh bùn trạm xử lý chất thải,
+2.Budget-Management Fund,ERCS4,Septictank clearance/ suction / Hút hầm cầu,
+2.Budget-Management Fund,ERCS5,Sewage Interceptor clearance/ suction / Hút mỡ bể tách dầu mỡ,
+2.Budget-Management Fund,ERM,Miscellaneous / Các khoản phát sinh khác,
+2.Budget-Management Fund,ERM1,Cost of purchasing high-performance/energy-saving electrical equipment and (or) using renewable energy / Chi phí mua sắm trang thiết bị điện có hiệu suất cao/ tiết kiệm điện năng và (hoặc) sử dụng năng lượng tái tạo,
+2.Budget-Management Fund,ESH,Expense sharing / Chi phí chia sẻ,
+2.Budget-Management Fund,ESH1,Expense sharing for Common Area use to Management Fund / Chi phí vận hành chia sẻ các khu vực chung (dùng quỹ quản lý vận hành),
+2.Budget-Management Fund,ESH2,Expense sharing for Common Area use to Sinking Fund / Chi phí vận hành chia sẻ các khu vực chung (dùng quỹ bảo trì),
+2.Budget-Management Fund,ESP,Parking Operation Expense / Chi phí vận hành bãi xe,
+2.Budget-Management Fund,ESP.R,Parking Operation Expense belong Residential / Chi phí vận hành bãi xe thuộc sở hữu chung của các Chủ sở hữu,
+2.Budget-Management Fund,ESP.D,Parking Operation Expense belong Developer/ Other / Chi phí vận hành bãi xe thuộc sở hữu riêng của Chủ Đầu Tư,
+2.Budget-Management Fund,ESP.M,Motobike parking Operation Expense  / Chi phí vận hành bãi xe máy,
+2.Budget-Management Fund,ESP.C,Motobike parking Operation Expense  / Chi phí vận hành bãi xe ô tô,
+2.Budget-Management Fund,PL1,ESTIMATED DIFFERENCE INPUT AND EXPENSE OF OPERATION / DỰ ƯỚC THỪA (+)/ THIẾU (-) LIÊN QUAN ĐẾN VẬN HÀNH,
+2.Budget-Management Fund,VAT,VAT liability / Thuế GTGT phải nộp Nhà nước,
+2.Budget-Management Fund,VAT1,Non deductible VAT / Thuế VAT không được khấu trừ,
+2.Budget-Management Fund,VAT2,VAT liability / Thuế VAT đối với Mã số thuế (MST) Ban Quản Trị  / (doanh thu *5%),
+2.Budget-Management Fund,CIT1,Corporate Incomes Tax (CIT) / Thuế CIT  / ,
+2.Budget-Management Fund,CIT1a,Corporate Incomes Tax on extra revenue -  / CIT cho doanh thu phụ trội đối với MST Savills - Savills xuất hóa đơn  / (doanh thu phụ trội *20%),
+2.Budget-Management Fund,CIT1b,Corporate Incomes Tax on Bank account interest of BOC / CIT cho tiền lãi của tài khoản ban quản trị (tiền lãi *5%),
+2.Budget-Management Fund,CIT2,Corporate Incomes Tax on Extra Input cash Flow (CIT) / Thuế thu nhập doanh nghiệp trên dòng tiền đầu vào cộng thêm,
+2.Budget-Management Fund,PL2,AFTER TAX ESTIMATE / DỰ ƯỚC THỪA (+)/ THIẾU (-) ,
+1.Summary,RM,Management fee/ Phí quản lý,"Hạng mục này phải ghi chú cụ thể cơ sở tính toán ra số liệu của mã RM, đảm bảo note đủ 3 nội dung:
+""Dự ước doanh thu phí quản lý năm 1/ năm 2/.... dựa trên cơ sở:  
+1/ Diện tích thu phí theo thông tin CĐT cung cấp là: ...... m2 (căn hộ), ..... m2 (căn shophouse), nhà trẻ ..... m2 => lấy thông tin từ sheet ""0. Info"" đưa vào ghi chú
+2/ Mức phí quản lý căn hộ, căn shop là: ..... VND/m2/tháng (VAT), nhà trẻ ...... VND/m2/tháng (VAT), bãi xe ô tô .... VND/m2/tháng (VAT) => lấy thông tin từ sheet ""0. Info"" đưa vào ghi chú
+3/ Ước tính theo thông tin CĐT cung cấp thu trước .... tháng PQL cư dân khi bàn giao nhà, và CĐT sẽ đóng PQL những căn chưa bàn giao=> lấy thông tin từ sheet tiến độ lấp đầy cư dân
+=>Chi tiết xem tại trang Tiến độ lấp đầy cư dân"
+1.Summary,RPa,Monthly parking/ Nguồn thu xe tháng,"Hạng mục này phải ghi chú cụ thể cơ sở tính toán ra số liệu của mã RPa, đảm bảo note đủ các nội dung:
+Dự toán hạng mục doanh thu này bao gồm:
+- Dự ước theo tỷ lệ lấp đầy cư dân tại trang ""Tiến độ lấp đầy bãi xe"".  Giả định trung bình mỗi căn hộ có 02 xe máy, với đơn giá gửi tháng khoảng .... VND/xe/ tháng => lấy thông tin từ sheet ""0. Info"" đưa vào ghi chú
+- Dự ước khoảng trung bình 100 căn sẽ có 7 căn có xe đạp gửi tháng. Đơn giá xe đạp gửi tháng là .... VND/ xe/ tháng => lấy thông tin từ sheet ""0. Info"" đưa vào ghi chú
+=> Chi tiết doanh thu bãi xe tại trang "" Tiến độ lấp đầy bãi xe bãi xe"""
+1.Summary,RA,Advertising/ Quảng cáo,"Ghi chú auto tương tự cột ghi chú kế bên. Lưu ý dự án Resi mới ghi chú như vậy, trường hợp dự án văn phòng, trung tâm thương mại, tùy thực tế sẽ input ghi chú thủ công phù hợp vào"
+1.Summary,RR,Rentals/ Cho thuê,"Ghi chú auto tương tự cột ghi chú kế bên. Lưu ý dự án Resi mới ghi chú như vậy, trường hợp dự án văn phòng, trung tâm thương mại, tùy thực tế sẽ input ghi chú thủ công phù hợp vào"
+1.Summary,RO,Others/ Khác,"Hạng mục này phần ghi chú sẽ liệt kê tất cả các Items có số liệu ở mục RO có phát sinh số liệu ở sheet ""2. Budget-Management Fund"""
+1.Summary,RI,Collect operating expenses already paid for commom area fund/ Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung,"Hạng mục này trong hầu hết các trường hợp, mặc định ghi chú là:
+""Dự ước bao gồm:
+- Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung
+Chi tiết xem tại trang ""2.2 Common area Fund"""
+1.Summary,EMH,Human Resource/   / Chi phí quản lý và nhân sự của Công ty Quản Lý,"Hạng mục này ghi chú ở cột K, nội dung ghi chú cần đảm bảo ít nhất 02 ý đầu bên dưới:
+""Chi phí hạng mục này dự ước bao gồm:
+- Chi phí quản lý của Công Ty Quản lý bao gồm chi phí thương hiệu, phần mềm, các hỗ trợ từ văn phòng chính. Chi phí hạng mục này được đề xuất dựa trên khối lượng công việc và thực tế bàn giao sản phẩm của dự án
+- Số lượng nhân sự Ban quản lý dựa trên quy mô, đặc thù dự án cũng như các yêu cầu về chất lượng nhân sự phù hợp với phân khúc dự án.Thời gian làm việc ca đêm các ngày, ca ngày dịp lễ tết theo đặc thù công việc tại dự án và quy định của nhà nước. Có thể dùng hàm đếm số lượng nhân sự BQL tại sheet A1. Staff cost 08.2026 (VN) 
+
+=> Chi tết xem tại Chi phí nhân sự xem tại trang ""A1. Staff cost 08.2026 (VN)""
+=> Chi tiết chi phí huấn luyện bắt buộc hàng năm (ATLD, PCCC) theo nghị định 105 tại trang ""A5. Trợ cấp PCCC""
+
+Lưu ý: Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,EMA,Administrative Expense / Chi phí quản lý văn phòng của VPBQL,"Hạng mục này ghi chú phải liệt kê toàn bộ những items chi phí có số liệu tại mã tổng EMA trong sheet 2. Budget-Management Fund. 
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,EMB,Bank and Audit/ Ngân hàng và kiểm toán,"Hạng mục này ghi chú phải liệt kê toàn bộ những items chi phí có số liệu tại mã tổng EMB trong sheet 2. Budget-Management Fund. 
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,ESC,Communication and Event/ Hoạt động cộng đồng và sự kiện,"Hạng mục này ghi chú phải đảm bảo đủ 03 nội dung:
+""- Tổ chức sự kiện: Dự ước <số lượng> sự kiện (note liệt kê tên những sự kiện chính trong 1 năm vận hành: ví dụ quốc tế thiếu nhi, trung thu,...)
+- Diễn tập PCCC: Đối với dự án mới vận hành năm 1 sẽ có 2 nhóm phí: phí lập phương án PCCC và phí diện tập PCCC hằng năm
+- Trang trí dịp Giáng sinh: Dự ước trang trí khu vực sảnh lễ tân (chi phí 1 sảnh nhân với tổng số sảnh)
+- Trang trí dịp Tết Âm lịch: Dự ước trang trí khu vực sảnh lễ tân: Dự ước trang trí khu vực sảnh lễ tân (chi phí 1 sảnh nhân với tổng số sảnh có bố trí quầy lễ tân)
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,ESI,Insurance/ Bảo hiểm cho tòa nhà,"Hạng mục này phải nêu rõ được ghi chú số liệu của 2 items lớn là:
+- Bảo hiểm rủi ro tài sản bao gồm cháy nổ bắt buộc (chi phí/ năm)
+- Bảo hiểm trách nhiệm công cộng (chi phí/ năm)
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,ESM,M&E Operation/ Vận hành M&E,"Hạng mục này phải ghi chú được tất cả các tên chi phí có số liệu trong mục mã ESM, ví dụ:
+- Kiểm định nước sinh hoạt
+- Kiểm định nước hồ bơi
+- Hóa chất hồ bơi
+- Dụng cụ vệ sinh hồ bơi
+- Phí kết nối với Trung tâm PCCC thành phố
+- Vật tư thay thế nhỏ lẻ…..
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,EN,New Capital expenditure/ Chi phí đầu tư mua sắm thiết bị mới,"Hạng mục này phải nêu rõ được 2 nhóm nội dung:
+- Chi phí capex gồm: 
++ Trang thiết bị văn phòng ban quản lý:
++ Trang thiết bị công cụ dụng cụ kỹ thuật & PCCC 
++ Trang thiết bị công cộng, khu tiện ích
+- Chi phí này dự kiến được khấu hao hết trong 24 tháng đầu vận hành của dự án
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,EEW,Water/ Nước công cộng,"Hạng mục này phải nêu ra được 
+- Khối lượng nước tiêu thụ tính:  <số lượng> m3/tháng, đơn giá bao gồm thuế VAT 5%, PBVMT 30%, VAT bvmt 8% (19786 đ/m3). Đơn giá nước lấy theo các dự án chung cư cùng quy mô và đơn giá là <đơn giá mỗi m3 nước> đ/m3 (Nước Sinh Hoạt > 6 m3/người/tháng, và áp dụng cho chung cư năm vận hành ổn định khi cư dân đã đăng ký định mức nước). Chi phí hạng mục này đã bao gồm VAT và dự ước tại năm 1/ năm 2/ năm.... dựa trên tỷ lệ láp đầy cư dân"
+1.Summary,EEE,Electricity/ Điện công cộng,"Hạng mục này phải nêu ra được:
+- Tổng lượng điện tiêu thụ 1 tháng <số liệu> kw/tháng.
+- Đơn giá điện đang áp dụng theo mức đơn giá điện dưới 6KV-đơn vị hành chính sự nghiệp (2226đ/Kwh), (Theo quyết định 1279/QĐ-BCT ngày 09/05/2025.)
+Đối với dự án mới đưa vào vận hành dự ước tại năm 1, năm 2 dựa trên tỷ lệ lấp đầy cư dân, căn cứ theo sheet ""Tỷ lệ lấp đầy cư dân"". Khi đó chi phí sẽ được tính cho từng tháng (dùng tuần suất Schedule để nhập). Mức min khi tỷ lệ cư dân lấp đầy bằng 0 thì điện là bằng khoảng 40% của full chi phí. rải tăng đều, khi tỷ lệ cư dân lấp đầy 40% trở lên thì chi phí điện là full chi phí (full công suất x đơn giá)
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,EED,Diesel,"Ghi chú, hạng mục này phải ghi rõ được số lượng máy phát điện của dự án, công suất mỗi máy. Mỗi năm chạy test không tải 12 giờ; chạy backup điện có tải do sự cố diện lưới và để bảo trì máy biến thế+ Tủ điện ha thế chính khoảng 8 giờ/ năm
+;Giá dầu DO 0.005S -Vùng 1 ngày <ngày lập ngân sách> là <đơn giá dầu theo niêm yết"" đ/lít. 
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,EE#,Contigency/ Dự phòng,Link ghi chú từ mã tương ứng trong sheet 2. Budget-Management Fund ra
+1.Summary,ER,Repairs and Maintenance/ Sửa chữa & bảo dưỡng,"Hạng mục này phải ghi chú liệt kê được tất cả các tên chi phí có số liệu trong mục mã ER
+
+Nếu cố liệu có bao gồm VAT thì phải có câu ghi chú ""Chi phí đã bao gồm VAT và dự ước tại năm <thời điểm thực hiện ngân sách>"
+1.Summary,VAT2,VAT liability / Thuế VAT đối với Mã số thuế (MST) Ban Quản Trị ,"Khoản chi phí Chênh lệch Thuế GTGT đầu ra và đầu vào này sẽ chi trả theo thực tế phát sinh dựa vào doanh thu và chi phí vận hành hàng tháng của tòa nhà, và được chi trả từ nguồn thu Thuế GTGT của doanh thu. Vì vậy, khoản chi phí này chưa phát sinh trên dự toán này."
+1.Summary,CIT1,Corporate Incomes Tax (CIT) -Thuế CIT,
+1.Summary,CIT2,Corporate Incomes Tax on Extra Input cash Flow (CIT) / Thuế thu nhập doanh nghiệp trên Doanh thu cộng thêm,"Dự ước sẽ phát sinh trên doanh thu cộng thêm thực tế của tòa nhà nếu Cơ quan Thuế có công văn đề nghị áp dụng tính thuế thu nhập doanh nghiệp trên doanh thu cộng thêm.
+
+Dự ước  với mức thuế suất 20%* tổng doanh thu cộng thêm, trong trường hợp thành lập BQT thì mức thuế suất này sẽ là 5% cho VAT và 5% cho CIT
+Đây là số tham khảo, khi vào vận hành tùy thuộc vào doanh thu/ chi phí thực tế"
+0.Info,(info row 6),Hạng mục,AI GUIDELINE
+0.Info,(info row 8),Apartment,"Có 3 cột quan trọng phải điền đủ là:
+- Cột D (diện tích dùng để nhân với mức phí quản lý)
+- Cột E, điền đúng số lượng căn nhà, ô hoặc số lượng khu vực sản phẩm
+- Cột I, điền mức phí quản lý (lưu ý nếu mức phí điền nếu đã là bao gồm VAT thì toàn bộ chi phí ở mục ngân sách phải là mức đã bao gồm VAT) - LƯU Ý, MỨC PHÍ NÀY LÀ MỨC PHÍ CHƯA BAO GỒM PHÍ CHO KHU VỰC NGOẠI VI (NẾU CÓ)"
+0.Info,(info row 9),Officetel,Tương tự ý như dòng 8 trên
+0.Info,(info row 10),Office,Tương tự ý như dòng 8 trên
+0.Info,(info row 11),Shophouse,Tương tự ý như dòng 8 trên
+0.Info,(info row 12),Bãi xe ô tô thuộc Sở hữu riêng của CĐT,Tương tự ý như dòng 8 trên
+0.Info,(info row 15),Bãi xe ô tô thuộc Sở hữu riêng của CĐT,"Có 3 cột quan trọng phải điền đủ là:
+- Cột D (diện tích dùng để nhân với mức phí quản lý) - nếu có
+- Cột F, điền đúng số lượng ô đậu xe
+- Cột I, điền mức phí đậu xe ô tô tháng (lưu ý nếu mức phí điền nếu là bao gồm VAT thì toàn bộ chi phí ở mục ngân sách phải là mức đã bao gồm VAT)
+A. Trường hợp 1: CĐT giao bãi xe cho cư dân khai thác -> doanh thu bãi xe ô tô điền vào phần doanh thu của ngân sách vận hành
+=> Khi tính tổng doanh thu bãi xe tháng ô tô sẽ bằng cách lấy cột F nhân với hệ số % tỷ lệ lấp đầy, sau đó nhân tiếp với cột I
++ Hệ số % tỷ lệ lấp đầy bãi xe dựa trên tỷ lệ lấp đầy cư dân tại sheet tỷ lệ lấp đầy: 
+ - Thông thường dự án mới vận hành, tỷ lệ lấp đầu sẽ tăng từ 0% ở tháng đầu - > đến cuối năm 1 tỷ lệ lấp đầy là khoảng 40 - 55%, năm thứ 2  tỷ lệ lấp đầy tiếp tục tăng gần như đều đến cuối năm 2, tỷ lệ lấp đầy bãi xe khoảng 70 - 80% số chỗ đậu => dùng hàm Schedule ở cột F trong sheet 2. Budget-Management Fund, và link số từng tháng vào từ cột H đến cột S tại dòng tương ứng mã RP2
+- Trường hợp dự án có ít chỗ đậu xe hơn số căn (thông thường nếu số chỗ đậu xe ô tô chỉ bằng 50% số căn hộ hoặc ít hơn) thì tỷ lệ lấp đầy sẽ tăng nhanh gấp đôi so với trường hợp trên
+B. Trường hợp 2: CĐT chia sẻ doanh thu bãi xe ô tô với cư dân => Cách tính doanh thu tương tự trường hợp 1, tuy nhiên sau khi tính ra doanh thu từng tháng sẽ phải NHÂN THÊM TỶ LỆ CHIA SẺ với CĐT (lấy phần thuộc về cư dân để nhập vào form ngân sách)  => cũng nhập số liệu tương tự trường hợp 1. Hoặc nhập full doanh thu như trường hợp 1 (chưa cần nhân tỷ lệ chia sẻ + sau đó xuống phần mã ESS38 (ở phần chi phí) nhập phần doanh thu mà CĐT nhận được phần chia sẻ về CĐT tương ứng từng tháng.
+C. Trường 3: CĐT giữ lại tự khai thác bãi xe ô tô => không điền doanh thu đậu xe ô tô tháng vào ngân sách quỹ vận hành. Thay vào đó sẽ điền doanh thu phí quản lý ở ô K12 vào mã RM.PA trong sheet 2. Budget-Management Fund
+
+Lưu ý: nếu trường hợp 1 hoặc 2 xảy ra: thì ngoài doanh thu bãi xe ô tô tháng, phải dự ước thêm doanh thu xe vãng lai ô tô: dựa trên"
+0.Info,(info row 18),Bãi xe gắn máy thuộc Sở hữu chung của các Chủ sở hữu,"Có 2 cột quan trọng phải điền đủ là:
+- Cột F, điền đúng số lượng ô đậu xe
+- Cột I, điền mức phí đậu xe máy tháng (lưu ý nếu mức phí điền nếu là bao gồm VAT thì toàn bộ chi phí ở mục ngân sách phải là mức đã bao gồm VAT)
+Về lập số liệu vào form ngân sách 2. Budget-Management Fund
+A. Trường hợp 1: nếu dự án mới đưa vào khai thác vận hành. + Hệ số % tỷ lệ lấp đầy bãi xe 02 bánh tháng dựa trên tỷ lệ lấp đầy cư dân tại sheet tỷ lệ lấp đầy: 
+ - Thông thường dự án mới vận hành, tỷ lệ lấp đầu sẽ tăng từ 0% ở tháng đầu - > đến cuối năm 1 tỷ lệ lấp đầy là khoảng 50 - 55%, năm thứ 2  tỷ lệ lấp đầy tiếp tục tăng gần như đều đến cuối năm 2, tỷ lệ lấp đầy bãi xe khoảng 80% số chỗ đậu (tỷ lệ lấp đầy bãi xe máy tháng, thường sẽ tương đương tỷ lệ lấp đầy cư dân ở tại sự án => dùng hàm Schedule ở cột F trong sheet 2. Budget-Management Fund, và link số từng tháng vào từ cột H đến cột S tại dòng tương ứng mã RP1
+- Trường hợp dự án có tổng số chỗ đậu xe 02 bánh thấp hơn số căn hộ, thì tỷ lệ lấp đầy sẽ tăng nhanh gấp đôi so với trường hợp trên"
+Master Info,(row 10),ITEMS,AI GUIDELINE
+Master Info,(row 28),Căn hộ,"Nhập đầy đủ thông tin lấy từ sheet ""0. Info""
+Dự án benchmark chính sẽ được sắp xếp ở cột sát bên dự án lập ngân sách"
+Master Info,(row 29),Officetel,Tượng tự ý tại dòng 28
+Master Info,(row 30),Shop Apartment,Tượng tự ý tại dòng 28
+Master Info,(row 31),Thương mại,Tượng tự ý tại dòng 28
+Master Info,(row 32),Khác,Tượng tự ý tại dòng 28
+Master Info,(row 37),Tổng số tháp ,Tượng tự ý tại dòng 28
+Master Info,(row 38),Căn/ tầng điển hình,Tượng tự ý tại dòng 28
+Master Info,(row 39),Chiều cao công trình ,Tượng tự ý tại dòng 28
+Master Info,(row 40),"Đối với dự án thấp tầng (nhà phố, villa, SA)",Tượng tự ý tại dòng 28
+Master Info,(row 41),Số tầng,Tượng tự ý tại dòng 28
+Master Info,(row 43),Tổng số sảnh (lobby),Tượng tự ý tại dòng 28
+Master Info,(row 44),Số sảnh có lễ tân,Tượng tự ý tại dòng 28
+Master Info,(row 47),Số lượng hồ bơi,Tượng tự ý tại dòng 28
+Master Info,(row 48),Số lượng phòng gym/yoga,Tượng tự ý tại dòng 28
+Master Info,(row 67),Revenue of Management fee/ Doanh thu Phí quản lý,Số liệu của các dự án so sánh Benchmark sẽ được lấy từ báo cáo trong 1 năm liền kề nhất
+Master Info,(row 68),Extra Revenue/ Doanh thu cộng thêm ngoài Phí quản lý,Số liệu của các dự án so sánh Benchmark sẽ được lấy từ báo cáo trong 1 năm liền kề nhất
+Master Info,(row 69),Expense of Operation/ Chi phí vận hành,Số liệu của các dự án so sánh Benchmark sẽ được lấy từ báo cáo trong 1 năm liền kề nhất
+Master Info,(row 70),P&L/ Dự ước thừa (+)/ thiếu (-),Số liệu của các dự án so sánh Benchmark sẽ được lấy từ báo cáo trong 1 năm liền kề nhất
+Master Info,(row 73),"Property Manager/ 
+Trưởng Ban Quản Lý","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương, đây là vị trí bắt buộc ở hầu hết dự án
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 74),"Operation management/ 
+Quản lý vận hành tòa nhà","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương, đây là vị trí thường có khi dự án lớn và có nhiều loại hình sản phẩm phức tạp
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 75),"Assistant to Property Manager/
+Trợ lý quản lý tòa nhà ","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương, vị trí này thường có khi số căn hộ khoảng 1000 căn trở lên
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 76),"Building Executive/
+Giám sát chất lượng dịch vụ","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Thông thường dự án dưới 1000 căn thì cần khoảng 1 nhân sự BE này, trên 1000 và nhiều tháp, thông thường cần 2 nhân sự
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 77),"Administration executive/
+Nhân viên hành chính","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Thông thường dự án nhỏ < 500 căn sẽ không cần, hoặc nếu đã có vị trí APM thì không cần vị trí nhân viên này 
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 78),"Procurment executive/ 
+Nhân viên thu mua","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Tuy nhiên vị trí này rất ít khi gặp, trường hợp dự án rất cao cấp, cần mua sắm nhiều thì mới cân nhắc bố trí vị trí này
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 81),"Senior Accountant/
+Kế toán cao cấp","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Nếu dự án có quy mô trên 1000 căn thì cần kế toán cao cấp + kế toán  tổng hợp. Trường hợp dự án quy mô nhỏ chỉ cần 1 vị trí kế toán cao cấp
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 86),"Customer Service Supervisor
+Trưởng nhóm chăm sóc khách hàng ",Nếu số lượng CS trên 3 thì đổi 1 CS ở dòng dưới thành 1 CSS là benchmark lương vị trí CSS ở dự án tương đương hoặc bằng lương CS + 2 triệu/ tháng
+Master Info,(row 87),"Customer Service 
+Chăm sóc khách hàng ","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Ước tính số lượng nhân sự CS dựa trên số sảnh và yêu cầu:
++ Trường hợp 1: tổng nhân sự CS bố trí trực full sảnh và 2 ca = số sảnh trực x 2 + số sảnh trực x 2/4
++ Trường hợp 2: trực full sảnh & chỉ trực giờ hành chính => số nhân sự CS = số sảnh
++ Trường hợp 3: nếu P&L âm, hoặc yêu cầu trực tập trung => chỉ cần 1 CS
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 89),"Concierge Staff
+Nhân viên hỗ trợ",Dự án rất cao cấp hoặc theo yêu cầu mới bố trí vị trí này
+Master Info,(row 92),"Amenities Attendant
+Nhân viên tiện ích ","Cứ 1 hồ bơi người lớn cần 2 vị trí có thể áp dụng giá trung bình 1 vị trí cỡ 13-15 triệu tùy phân khúc dự án cao hay thấp
+Hồ bơi trẻ em nếu gần và cùng tầng hồ bơi người lớn thì không cần bố trí thêm người. Ngược lại nếu tách biệt cách xa, khác tầng thì cứ 1 hồ cần 2 vị trí"
+Master Info,(row 94),"Chief Engineer
+Kỹ sư trưởng","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương, đây là vị trí bắt buộc ở hầu hết dự án trên 300 căn 
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 95),"Assistant to Chief Engineer
+Trợ lý kỹ sư trưởng","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Vị trí này chỉ suất hiện khi dự án có vị trí CE và dự án quy mô lớn, số lượng căn hộ nhiều trên 1000 căn 
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 96),Thư ký bộ phận kỹ thuật,"Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Vị trí này chỉ suất hiện khi dự án có vị trí CE và dự án quy mô lớn, số lượng căn hộ nhiều trên 1500 căn 
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 97),"Technical Supervisor
+Giám sát kỹ thuật","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Vị trí này thường xuất hiện nếu không có bố trí CE. Áp dụng cho dự án nhỏ thường dưới 200 căn
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 98),"Technical Duty Shift 
+Trưởng ca kỹ thuật","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Hoặc tối thiểu là 2 nhân sự (nếu dự án mức PQL thấp, quy mô nhỏ (500 - 700 căn đổ lại)
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 99),"Technician 
+Kỹ thuật viên ","Với mỗi dòng, sẽ so sánh và đề xuất 2 số liệu:
+- Về số lượng nếu dự án Benchmark có vị trí đó thì dự án lập ngân sách cũng sẽ có tương đương. Hoặc bố trí số lượng tối thiểu là 7 nhân viên đảm bảo đủ mỗi ca ít nhất 2 nhân sự kỹ thuật
+- Về lương: sẽ được ước tính dựa trên các yếu tố: 1/ mức lương tương đương vị trí của dự án benchmark"
+Master Info,(row 101),"Handover Suppervisor
+Trưởng nhóm Bàn giao","Dự án mới đưa vào vận hành hoặc giai đoạn tiền khai trương sẽ bố trí vị trí này, tùy theo quy mô dự án: nếu nhỏ hơn 500 căn cần 1-2 người, nếu trên 1000 căn cần 3 người"
+Master Info,(row 104),Fixed fee,Chi phí Fixed fee tính dựa theo tam suất benchmark theo dự án tương đương

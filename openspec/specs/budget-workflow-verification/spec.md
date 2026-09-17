@@ -49,6 +49,21 @@ Verification SHALL confirm that each generated workbook opens without repair, co
 - **WHEN** a generated workbook contains file-corruption artifacts that would trigger an Excel repair prompt
 - **THEN** verification fails and identifies the affected file
 
+Where the source template contains a formula that is undefined until an input the pipeline controls
+is populated, the pipeline SHALL populate that input or fail. It SHALL NOT emit a workbook whose
+error cells depend on which rows a given run happened to write, since that makes a latent defect
+appear and disappear with unrelated changes.
+
+#### Scenario: An undefined denominator stops the run
+- **WHEN** the pipeline is about to write a workbook in which a template formula would divide by an
+  empty value the pipeline is responsible for supplying
+- **THEN** the run fails and names the cells that would be undefined
+- **AND** no deliverable is produced
+
+#### Scenario: A latent defect does not depend on which rows were written
+- **WHEN** a cost line is added to or removed from what the pipeline writes
+- **THEN** whether the generated workbook contains error cells does NOT change as a result
+
 ### Requirement: Numeric results are compared against a recorded baseline
 
 Verification SHALL compare an agreed set of headline figures from the synthetic run against previously recorded baseline values. All figures SHALL be expressed in VND with the unit stated.
@@ -118,3 +133,58 @@ The change SHALL record an inventory of datasets that exist in the repository bu
 - **WHEN** the inventory is produced
 - **THEN** every baseline figure is unchanged
 - **AND** no previously unread dataset has become read by the pipeline
+
+### Requirement: Verification confirms the deliverable is built on the standard template
+
+Verification SHALL check that the generated client deliverable was built from the current standard
+budget template and carries its full sheet set. The recorded sheet-count expectation SHALL match the
+standard template plus the sheets the pipeline adds itself.
+
+This adds to the existing structural-soundness requirement; it does not change the "no formula
+errors after recalculation" or "no corruption artifacts" checks, which continue to run against
+whatever template is current.
+
+#### Scenario: The deliverable carries the standard sheet set
+
+- **WHEN** verification inspects a generated deliverable
+- **THEN** every sheet name the standard template defines SHALL be present
+- **AND** verification SHALL fail and name the missing sheets if any standard sheet is absent
+
+#### Scenario: The sheet-count baseline moved with a stated reason
+
+- **WHEN** the standard template changes and the deliverable's sheet count changes with it
+- **THEN** the recorded sheet-count baseline SHALL be updated together with a stated reason
+- **AND** subsequent runs compare against the updated count
+
+#### Scenario: Figures are unchanged by the template switch
+
+- **WHEN** verification runs after the deliverable is re-based onto a new template version
+- **THEN** every compared headline figure SHALL still match its recorded baseline in VND
+- **AND** a figure that changed only because of the switch SHALL be reported, not silently accepted
+
+### Requirement: The client deliverable's ramped lines have their own recorded baseline
+
+Verification SHALL record and compare a small set of figures read from the client deliverable
+itself — the year-one total of each occupancy-scaled line and the deliverable's estimated surplus —
+in addition to the analysis-workbook figures. This is because the occupancy ramp changes the
+deliverable's distribution of these lines while the analysis-workbook figures (which do not use the
+template) stay put.
+
+#### Scenario: A ramped line reverting to a flat write is caught
+
+- **WHEN** an occupancy-scaled line is written as an even one-twelfth split instead of ramped
+- **THEN** verification SHALL fail and name that line
+
+#### Scenario: The deliverable baseline is re-recordable with a stated reason
+
+- **WHEN** the fill-up curve or a ramped line's method changes by an approved change
+- **THEN** the affected deliverable baseline figures SHALL be re-recorded together with a stated
+  reason
+- **AND** subsequent runs compare against the updated values
+
+#### Scenario: The deliverable and the analysis stay consistent where they should
+
+- **WHEN** both workbooks are generated for the same project
+- **THEN** the fill-up percentage each applies to a given month SHALL be the same
+- **AND** any line that is deliberately shown at full occupancy in the analysis (as a stated
+  ceiling) SHALL be identified as such rather than treated as a mismatch

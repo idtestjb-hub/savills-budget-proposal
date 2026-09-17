@@ -14,15 +14,16 @@ Four sheets:
   Staffing Demand    Position, Shift Code, staff/day (formula for scaled positions, referencing
                      Project Info directly), coverage days, daily rate.
 
-Run generate_project_budget.py after filling this in — it produces both the budget workbook and
-the roster from this single file.
+After filling this in and SAVING, click the green "RUN BUDGET AGENT" button on the Project Info
+sheet (or double-click "Run Budget Agent.cmd" in reports/, or run `python run.py`) — it produces
+the budget workbook, the analysis workbook and the roster from this single file.
 """
 import os
 import shutil
 import tempfile
 
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protection
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.comments import Comment
 
@@ -30,6 +31,45 @@ BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OUT_DIR = os.path.join(BASE, 'reports')
 FINAL_OUT = os.path.join(OUT_DIR, 'Project_Budget_Input.xlsx')
 OUT = os.path.join(tempfile.gettempdir(), 'Project_Budget_Input.xlsx')
+
+RUN_LAUNCHER = 'Run Budget Agent.cmd'   # sits in reports\, next to this workbook
+
+
+def add_run_button(ws, top_row=1, left_col=6):
+    """A green 'RUN BUDGET AGENT' panel on the Project Info sheet (F1:G3), clear of the A:D inputs.
+
+    NOT a hyperlink: this workbook lives on SharePoint/OneDrive, and Excel resolves a cell
+    hyperlink against the web URL, so a link to the local .cmd just opens a 404 in the browser.
+    The panel is an instruction to double-click reports\\Run Budget Agent.cmd in File Explorer —
+    which always works. For a real one-click button, add a VBA macro (see docs / RUNNING.md).
+    """
+    from openpyxl.utils import get_column_letter
+    cL, cR = get_column_letter(left_col), get_column_letter(left_col + 1)
+    span = f'{cL}{top_row}:{cR}{top_row + 1}'
+    ws.merge_cells(span)
+    cell = ws.cell(row=top_row, column=left_col)
+    cell.value = 'TO RUN  ▶  double-click  "Run Budget Agent.cmd"  in this folder'
+    cell.fill = PatternFill('solid', fgColor='548235')
+    cell.font = Font(bold=True, size=11, color='FFFFFF')
+    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    thick = Side(style='medium', color='375623')
+    for row in ws[span]:
+        for c in row:
+            c.border = Border(left=thick, right=thick, top=thick, bottom=thick)
+    ws.row_dimensions[top_row].height = 22
+    ws.row_dimensions[top_row + 1].height = 22
+
+    note_row = top_row + 2
+    ws.merge_cells(f'{cL}{note_row}:{cR}{note_row}')
+    note = ws.cell(row=note_row, column=left_col,
+                   value='Fill the yellow cells, SAVE, close this file, then run the launcher. '
+                         'Or run  python run.py  in source_code\\.')
+    note.font = Font(italic=True, size=8, color='7F7F7F')
+    note.alignment = Alignment(horizontal='center', wrap_text=True)
+    ws.row_dimensions[note_row].height = 40
+    for col in (cL, cR):
+        if ws.column_dimensions[col].width is None or ws.column_dimensions[col].width < 18:
+            ws.column_dimensions[col].width = 18
 
 SHIFT_CODES = ['HC', 'S', 'C', 'D', '24H']
 SHIFT_REF = [
@@ -44,7 +84,16 @@ SHIFT_REF = [
 _TOWER_COUNT = "'Project Info'!$B$10"
 _GARDEN_AREA = "'Project Info'!$B$7"
 _OPEN_SPACE = "'Project Info'!$B$8"
-_GATE_COUNT = "'Project Info'!$B$32"   # B27 -> B31 (Product Mix grew) -> B32 (Pool Volume added)
+_GATE_COUNT = "'Project Info'!$B$11"   # moved under Tower Count 2026-09-15, was $B$32
+_POOL_AREA = "'Project Info'!$B$39"    # shifted +6 then +1 (2026-09-16) by District/City/Lat/Lon/
+                                        # Address/Passenger Elevators/Number of Basements moving into
+                                        # PROJECT SCALE above it; was $B$32
+# Lifeguards per m2 of pool water surface. STATUTORY, not a Savills assumption — Thông tư
+# 03/2018/TT-BVHTTDL Điều 5 khoản 3: "ít nhất 200m2 mặt nước bể bơi/01 nhân viên". Deliberately NOT
+# placed in Roster Setup's editable Staffing Ratios block, which holds our own tunable assumptions;
+# a legal minimum should not sit in a list of preferences. Mirrored by POOL_LIFEGUARD_M2_PER_STAFF
+# in generate_project_budget.py, which is the authoritative copy. See docs/15-pool-staffing-regulation.md.
+_POOL_M2_PER_LIFEGUARD = 200
 # Cell refs into the Roster Setup sheet's Staffing Ratios block.
 _STAFF_PER_GATE = "'Roster Setup'!$B$4"
 _SQM_PER_PATROL = "'Roster Setup'!$B$5"
@@ -171,23 +220,67 @@ EXAMPLE_DEMAND = [
      _SECURITY_NOTE + ' ' + _RATIO_NOTE + ' Shown for one shift only — for full 24h patrol coverage, copy this row for C and D shifts too.'),
     ('Cleaning - Common Area', 'S', f'=ROUNDUP({_OPEN_SPACE}/{_SQM_PER_CLEANER},0)', 7, 340000, _RATIO_NOTE),
     ('Cleaning - Supervisor', 'HC', f'=ROUNDUP({_TOWER_COUNT}/{_TOWERS_PER_SUPERVISOR},0)', 6, 480000, _RATIO_NOTE),
-    ('Reception', 'HC', 1, 7, 340000, None),
-    ('Customer Service', 'HC', 1, 7, _CUSTOMER_SERVICE_DAILY, _CUSTOMER_SERVICE_NOTE),
-    ('Property Manager', 'HC', 1, 6, _PROPERTY_MANAGER_DAILY, _PROPERTY_MANAGER_NOTE),
-    ('Chief Engineer', 'HC', 1, 6, _CHIEF_ENGINEER_DAILY, _CHIEF_ENGINEER_NOTE),
-    ('Building Executive', 'HC', 1, 6, _BUILDING_EXEC_DAILY, _BUILDING_EXEC_NOTE),
-    ('Technician (Morning)', 'S', 1, 7, _TECHNICIAN_DAILY, _TECHNICIAN_NOTE),
-    ('Technician (Afternoon)', 'C', 1, 7, _TECHNICIAN_DAILY, _TECHNICIAN_NOTE),
-    ('Technician (Night)', 'D', 1, 7, _TECHNICIAN_DAILY, _TECHNICIAN_NOTE),
-    ('Shift Leader (Morning)', 'S', 1, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
-    ('Shift Leader (Afternoon)', 'C', 1, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
-    ('Shift Leader (Night)', 'D', 1, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
-    ('Pool Attendant (Morning)', 'S', 1, 6, _POOL_ATTENDANT_DAILY, _POOL_ATTENDANT_NOTE),
-    ('Pool Attendant (Afternoon)', 'C', 1, 6, _POOL_ATTENDANT_DAILY, _POOL_ATTENDANT_NOTE),
-    ('Amenities Attendant (Morning)', 'S', 1, 6, _AMENITIES_ATTENDANT_DAILY, _AMENITIES_ATTENDANT_NOTE),
-    ('Amenities Attendant (Afternoon)', 'C', 1, 6, _AMENITIES_ATTENDANT_DAILY, _AMENITIES_ATTENDANT_NOTE),
+    # StaffPerDay seeded at 0, not 1 (change activate-dormant-staffing-ratios, 2026-09-17) — matching
+    # the Assistant Property Manager / Accountant / Cashier pattern below: 0 is falsy, so
+    # _staff_on_duty()'s override detector (`numeric and not is_formula`) does not trip, and the row
+    # falls through to its portfolio ratio instead of shipping frozen at a placeholder `1`. Ratio
+    # coverage verified against Fact_StaffingRatio_ByPosition.csv before this change (n=25/24/19/22/12
+    # for Reception/PM/Chief Engineer/Building Exec/Customer Service; n=26/22/12 for the three
+    # Technician/Shift Leader/Amenities Attendant shift-split roles) — all clear the usability floor.
+    ('Reception', 'HC', 0, 7, 340000, None),
+    ('Customer Service', 'HC', 0, 7, _CUSTOMER_SERVICE_DAILY, _CUSTOMER_SERVICE_NOTE),
+    ('Property Manager', 'HC', 0, 6, _PROPERTY_MANAGER_DAILY, _PROPERTY_MANAGER_NOTE),
+    ('Chief Engineer', 'HC', 0, 6, _CHIEF_ENGINEER_DAILY, _CHIEF_ENGINEER_NOTE),
+    ('Building Executive', 'HC', 0, 6, _BUILDING_EXEC_DAILY, _BUILDING_EXEC_NOTE),
+    ('Technician (Morning)', 'S', 0, 7, _TECHNICIAN_DAILY, _TECHNICIAN_NOTE),
+    ('Technician (Afternoon)', 'C', 0, 7, _TECHNICIAN_DAILY, _TECHNICIAN_NOTE),
+    ('Technician (Night)', 'D', 0, 7, _TECHNICIAN_DAILY, _TECHNICIAN_NOTE),
+    ('Shift Leader (Morning)', 'S', 0, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
+    ('Shift Leader (Afternoon)', 'C', 0, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
+    ('Shift Leader (Night)', 'D', 0, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
+    # Per-shift lifeguard count from pool water-surface area (statutory ratio, see _POOL_M2_PER_LIFEGUARD).
+    # Falls back to 1 — A&K Tower's own real pattern — when Pool Area is not supplied, matching how
+    # ESM4 falls back when Pool Volume is unknown. Two rows = two shifts, so the ratio applies per shift.
+    ('Pool Attendant (Morning)', 'S',
+     f'=IF({_POOL_AREA}>0,ROUNDUP({_POOL_AREA}/{_POOL_M2_PER_LIFEGUARD},0),1)', 6,
+     _POOL_ATTENDANT_DAILY, _POOL_ATTENDANT_NOTE),
+    ('Pool Attendant (Afternoon)', 'C',
+     f'=IF({_POOL_AREA}>0,ROUNDUP({_POOL_AREA}/{_POOL_M2_PER_LIFEGUARD},0),1)', 6,
+     _POOL_ATTENDANT_DAILY, _POOL_ATTENDANT_NOTE),
+    ('Amenities Attendant (Morning)', 'S', 0, 6, _AMENITIES_ATTENDANT_DAILY, _AMENITIES_ATTENDANT_NOTE),
+    ('Amenities Attendant (Afternoon)', 'C', 0, 6, _AMENITIES_ATTENDANT_DAILY, _AMENITIES_ATTENDANT_NOTE),
     ('Gardener / Landscape', 'HC', f'=ROUNDUP({_GARDEN_AREA}/{_SQM_PER_GARDENER},0)', 6, 423000,
      'Source: Fact_MasterRateCard.csv, Service/Landscape "8/24 position" row — 11,000,000 VND/month ÷ 26 ≈ 423,000/day. Delete this row if no garden. ' + _RATIO_NOTE),
+
+    # Added 2026-09-09. The 2027 Resi template carries staff-cost rows for 13 position codes; this
+    # form only ever shipped 6 of them, so APM/OM/CSS/ACC/CSR/ACE/ADCE could not be costed at all —
+    # not "priced at zero", but invisible, with no row to type a headcount into. They now ship at
+    # STAFF = 0, which costs nothing and reads as a deliberate "this project has none" rather than
+    # an omission. Enter a headcount to include one.
+    # Rates are real, from Fact_MasterRateCard.csv (Staff domain), converted the same way as every
+    # other row on this sheet: monthly ÷ 26 working days, rounded to the nearest 1,000. Each note
+    # carries the source row and its sample size, so a thin one is visible as thin.
+    ('Assistant Property Manager', 'HC', 0, 6, 654000,
+     'Trợ lý Trưởng Ban Quản Lý (template code APM). Real: Fact_MasterRateCard.csv "Trợ lý trưởng ban quản lý" '
+     '17,000,000 VND/month (n=2 — thin) ÷ 26 ≈ 654,000/day. Ships at 0 — enter a headcount if this project has one.'),
+    ('Operations Manager', 'HC', 0, 6, 1015000,
+     'Quản lý vận hành (template code OM). Real: Fact_MasterRateCard.csv "Quản lý vận hành" 26,395,822 VND/month '
+     '(n=14) ÷ 26 ≈ 1,015,000/day. Ships at 0 — enter a headcount if this project has one.'),
+    ('Customer Service Supervisor', 'HC', 0, 6, 548000,
+     'Trưởng nhóm Chăm sóc khách hàng (template code CSS). Real: Fact_MasterRateCard.csv "Trưởng nhóm Chăm Sóc '
+     'Khách Hàng" 14,240,818 VND/month (n=10) ÷ 26 ≈ 548,000/day. Ships at 0 — enter a headcount if needed.'),
+    ('Accountant', 'HC', 0, 6, 522000,
+     'Kế toán (template code ACC). Real: Fact_MasterRateCard.csv "Kế toán" 13,574,175 VND/month (n=54 — the '
+     'best-evidenced staff rate in the table) ÷ 26 ≈ 522,000/day. Ships at 0 — enter a headcount if needed.'),
+    ('Cashier', 'HC', 0, 6, 386000,
+     'Thủ quỹ (template code CSR). Real: Fact_MasterRateCard.csv "Thủ Quỹ" 10,028,473 VND/month (n=13) ÷ 26 '
+     '≈ 386,000/day. Ships at 0 — enter a headcount if needed.'),
+    ('Assistant Chief Engineer', 'HC', 0, 6, 670000,
+     'Trợ lý Kỹ sư trưởng (template code ACE). Real: Fact_MasterRateCard.csv "Trợ lý Kỹ sư trưởng" 17,427,160 '
+     'VND/month (n=24) ÷ 26 ≈ 670,000/day. Ships at 0 — enter a headcount if needed.'),
+    ('Technical Secretary', 'HC', 0, 6, 413000,
+     'Thư ký bộ phận Kỹ thuật (template code ADCE). Real: Fact_MasterRateCard.csv "Thư ký Bộ phận kỹ thuật" '
+     '10,737,610 VND/month (n=4 — thin) ÷ 26 ≈ 413,000/day. Ships at 0 — enter a headcount if needed.'),
 ]
 
 HEADER_FILL = PatternFill('solid', fgColor='1F4E78')
@@ -230,7 +323,7 @@ def main():
     # ================= Sheet 1: Project Info =================
     ws1 = wb.active
     ws1.title = 'Project Info'
-    ws1['A1'] = 'Project Info — fill in the yellow cells, then run generate_project_budget.py'
+    ws1['A1'] = 'Project Info — fill in the yellow cells, SAVE, then run "Run Budget Agent.cmd" (see top-right box)'
     ws1['A1'].font = TITLE_FONT
     ws1.merge_cells('A1:D1')
     ws1['A2'] = ('Shaped after the real "0. Info" sheet used across Savills\' 8 real project budget files, so it '
@@ -266,11 +359,95 @@ def main():
     labeled_input(ws1, 8, 'Circulation / Hardscape Area (m²) — used as open-space proxy for roster', 6000)
     labeled_input(ws1, 9, 'Floor Count', 30)
     labeled_input(ws1, 10, 'Tower Count', 2)
+    # Grouped with the other whole-building counts (change move-gate-and-pool-count-fields,
+    # 2026-09-15) rather than left under AMENITIES, where it read oddly next to pool fields it has
+    # nothing to do with. Moving it changes only where it sits on the sheet — read_input() finds it
+    # by label, not position, so no code outside this file's own _GATE_COUNT constant depends on the
+    # row number. See that constant, updated to match.
+    labeled_input(ws1, 11, 'Gate / Entrance Count', 2)
 
-    section(ws1, 12, 'PRODUCT MIX — enter what applies, leave 0 for products this project doesn\'t have')
+    # District/City/Latitude/Longitude/Street Address/Passenger Elevators — moved INTO PROJECT SCALE
+    # (2026-09-16, on request) rather than left as separate sections appended at the end of the
+    # sheet, where they read as a late afterthought disconnected from the rest of the project's
+    # basic facts. This IS an insertion into the middle of the sheet, not an append — normally
+    # avoided on this file (see input_labels.py's own docstring on the row-shift risk), done safely
+    # here only because every downstream absolute-cell reference was checked first: `grep
+    # "'Project Info'!\$" across source_code/` finds exactly 5 hardcoded cell constants
+    # (_TOWER_COUNT/_GARDEN_AREA/_OPEN_SPACE/_GATE_COUNT/_POOL_AREA, all just below, feeding Roster
+    # Setup's staffing formulas) — the first four sit ABOVE this insertion point (rows 7/8/10/11) and
+    # are untouched; only _POOL_AREA (below, in AMENITIES) shifted, and its constant was updated to
+    # match. `read_input()` itself finds every field by label, never by row, so it needed no change.
+    c_district = labeled_input(ws1, 12, 'District — leave blank if unknown', None)
+    c_district.alignment = LEFT
+    c_district.comment = Comment(
+        "Used to prefer a real comparable property in the SAME district when ranking who this "
+        "project's management-fee rate is derived from — a same-district match ranks ahead of a "
+        "different-district one even if the latter is closer in size. Leave blank to keep today's "
+        "size-only comparable matching. Spell it the way Savills' own Master List does (e.g. "
+        "'Bình Thạnh', 'District 7', 'Thủ Đức') — matching is exact text, not fuzzy.",
+        'Budget Planning Agent')
+    c_city = labeled_input(ws1, 13, 'City / Province — leave blank if unknown', None)
+    c_city.alignment = LEFT
+    c_city.comment = Comment(
+        "Fallback tier when no comparable shares this project's District above: prefers a comparable "
+        "in the same city/province over one with no location match at all. Leave blank to keep "
+        "today's size-only comparable matching.",
+        'Budget Planning Agent')
+    c_lat = labeled_input(ws1, 14, 'Latitude — leave blank if unknown', None)
+    c_lat.alignment = LEFT
+    c_lat.comment = Comment(
+        "Decimal degrees (e.g. 10.8044), from Google Maps or the project's own siting documents — "
+        "not looked up automatically. Used only to refine ordering WITHIN the District/City tier "
+        "above (nearer comparables by real distance rank ahead of farther ones); it cannot move a "
+        "comparable into a better tier than District/City already placed it in, and a comparable "
+        "with no coordinates on file simply keeps ranking by size, exactly as today. Leave blank if "
+        "unknown — District/City tiering alone still applies.",
+        'Budget Planning Agent')
+    c_lon = labeled_input(ws1, 15, 'Longitude — leave blank if unknown', None)
+    c_lon.alignment = LEFT
+    c_lon.comment = Comment(
+        "Decimal degrees (e.g. 106.7476), paired with Latitude above — leave both blank together, "
+        "or fill both; a lone value on just one of the two is treated as no coordinates at all.",
+        'Budget Planning Agent')
+    c_address = labeled_input(ws1, 16, 'Street Address — leave blank if unknown', None)
+    c_address.alignment = LEFT
+    c_address.comment = Comment(
+        "Free text (e.g. \"11D Thi Sách, Bến Nghé, District 1\"). Printed on the deliverable as a "
+        "citation only — does NOT feed District/City/Latitude/Longitude above or comparable "
+        "matching; this pipeline has no address lookup or mapping capability. Fill in District/City "
+        "(and Latitude/Longitude if known) separately for those to take effect.",
+        'Budget Planning Agent')
+    c_elevators = labeled_input(ws1, 17, 'Passenger Elevators per Tower — leave blank if unknown', None)
+    c_elevators.alignment = LEFT
+    c_elevators.comment = Comment(
+        "PASSENGER elevators only — do not include cargo/freight elevators. Used to size the "
+        "'Ad frame (tower lobby, inside elevator)' advertising-revenue line (an ad frame per "
+        "passenger elevator bank) with this project's own real count instead of the standard "
+        "~2-per-tower assumption. Does not affect the two LCD-screen advertising lines below — see "
+        "Number of Basements just below for the one that does.",
+        'Budget Planning Agent')
+    # Grouped with Passenger Elevators above (2026-09-16, on request — both are real per-project
+    # infrastructure counts, not location facts). Used to size the 'LCD screen (basement lobby)'
+    # advertising-revenue line with a real count instead of the standard flat "1 per project"
+    # assumption — same amendment pattern as the elevator field (change
+    # wire-real-elevator-count-into-ad-revenue, task 2.6). No statutory or internal-data basis exists
+    # for how many basements a building of a given size SHOULD have (checked directly: real Master
+    # List data shows basement count tracks parking-slot count loosely, not floor count, and the
+    # spread is too wide for a formula) — manual entry only, same reasoning as the elevator field.
+    c_basements = labeled_input(ws1, 18, 'Number of Basements — leave blank if unknown', None)
+    c_basements.alignment = LEFT
+    c_basements.comment = Comment(
+        "How many basement levels the building has (e.g. 1 shared basement under 2 towers = 1, not "
+        "2). Used to size the 'LCD screen (basement lobby)' advertising-revenue line — one screen "
+        "per basement level instead of the standard flat assumption of 1 screen per project "
+        "regardless of basement count. Does not affect the 'Ad frame' or 'LCD screen (tower lobby)' "
+        "lines. Leave blank to keep today's flat-1 assumption.",
+        'Budget Planning Agent')
+
+    section(ws1, 20, 'PRODUCT MIX — enter what applies, leave 0 for products this project doesn\'t have')
     headers = ['Product', 'GFA (m²)', 'NFA (m²)', 'Units']
     for c, h in enumerate(headers, start=1):
-        cell = ws1.cell(row=13, column=c, value=h)
+        cell = ws1.cell(row=21, column=c, value=h)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = CENTER
@@ -282,7 +459,7 @@ def main():
     products = ['Apartment', 'Officetel', 'Office', 'Shopping Mall', 'Retail',
                 'Shop Apartment', 'Shophouse', 'Villas', 'Nursery / Nhà trẻ']
     example_apartment = (85000, 70000, 1300)
-    for i, name in enumerate(products, start=14):
+    for i, name in enumerate(products, start=22):
         c1 = ws1.cell(row=i, column=1, value=name)
         c1.border = BORDER
         c1.alignment = LEFT
@@ -292,20 +469,34 @@ def main():
             c.fill = INPUT_FILL
             c.border = BORDER
             c.alignment = CENTER
-    APT_NFA_ROW = 14  # Apartment row — generate_project_budget.py reads C14 (NFA)
+    APT_NFA_ROW = 22  # Apartment row — read_input() actually finds this by label, not this constant;
+                       # kept in sync for any future direct reference, not read anywhere today.
 
-    section(ws1, 24, 'PARKING')
-    labeled_input(ws1, 25, 'Car Parking Slots', 300)
-    labeled_input(ws1, 26, 'Moto Parking Slots', 2000)
+    section(ws1, 32, 'PARKING')
+    labeled_input(ws1, 33, 'Car Parking Slots', 300)
+    labeled_input(ws1, 34, 'Moto Parking Slots', 2000)
 
-    section(ws1, 28, 'AMENITIES (drive roster staffing)')
+    section(ws1, 36, 'AMENITIES (drive roster staffing)')
     dv_yn = DataValidation(type='list', formula1='"Yes,No"', showErrorMessage=True,
                             errorTitle='Invalid', error='Pick Yes or No')
     ws1.add_data_validation(dv_yn)
-    c_pool = labeled_input(ws1, 29, 'Has Swimming Pool?', 'No')
+    c_pool = labeled_input(ws1, 37, 'Has Swimming Pool?', 'No')
     dv_yn.add(c_pool)
-    labeled_input(ws1, 30, 'Pool Area (m²) — optional', 0)
-    c_pool_vol = labeled_input(ws1, 31, 'Pool Volume (m³) — total water volume, all pools', 0)
+    # Grouped directly under 'Has Swimming Pool?' (change move-gate-and-pool-count-fields,
+    # 2026-09-15) rather than appended at the end of the sheet, where it read as an afterthought
+    # disconnected from the other pool fields. See input_labels.py's own docstring for why a MOVE
+    # like this is safe where an insertion elsewhere might not be: read_input() finds every field by
+    # label, and nothing outside this file addresses this field's row directly — grep
+    # "'Project Info'!\$" across source_code/ before ever moving a field, to confirm that stays true.
+    c_pool_count = labeled_input(ws1, 38, 'Number of Pools (count) — leave blank if unknown', 0)
+    c_pool_count.comment = Comment(
+        "How many distinct swimming pools the project has (e.g. 1 adult pool + 1 children's pool "
+        "= 2). Separate from 'Pool Volume' below, which is already the TOTAL water volume across "
+        "every pool and is what drives the ESM4 chemical-cost estimate — this count does not change "
+        "that figure. Leave at 0 / blank if 'Has Swimming Pool?' is 'No'.",
+        'Budget Planning Agent')
+    labeled_input(ws1, 39, 'Pool Area (m²) — optional', 0)
+    c_pool_vol = labeled_input(ws1, 40, 'Pool Volume (m³) — total water volume, all pools', 0)
     c_pool_vol.comment = Comment(
         "Total water volume across every pool, in cubic metres. EXENSIVE LOGIC.xlsx (ESM4) costs "
         "pool chemicals from VOLUME, not area: salt-electrolysis pools hold 4,000 ppm and consume "
@@ -315,11 +506,10 @@ def main():
         "taken from one real project and says so on the row. That fallback does NOT change with "
         "pool size, so a large pool and a small one cost the same.",
         'Budget Planning Agent')
-    labeled_input(ws1, 32, 'Gate / Entrance Count', 2)
 
-    section(ws1, 34, "SAVILLS' MANAGEMENT FEE (EMH1) — leave BOTH blank until this project's real contract terms are known")
-    c_fixed_fee = labeled_input(ws1, 35, 'Fixed Monthly Fee (VND) — leave blank if not fixed-fee', None)
-    c_fee_pct = labeled_input(ws1, 36, "% of Collected Management Fee — leave blank if not %-based", None, fmt='0.0%')
+    section(ws1, 42, "SAVILLS' MANAGEMENT FEE (EMH1) — leave BOTH blank until this project's real contract terms are known")
+    c_fixed_fee = labeled_input(ws1, 43, 'Fixed Monthly Fee (VND) — leave blank if not fixed-fee', None)
+    c_fee_pct = labeled_input(ws1, 44, "% of Collected Management Fee — leave blank if not %-based", None, fmt='0.0%')
     fee_comment_text = (
         "Real, negotiated per-project contract terms — cannot be derived or assumed. Blank means "
         "'not yet known', not zero: the generator leaves EMH1 (\"Management fee for Savills\") "
@@ -334,8 +524,70 @@ def main():
     c_fixed_fee.comment = Comment(fee_comment_text, 'Budget Planning Agent')
     c_fee_pct.comment = Comment(fee_comment_text, 'Budget Planning Agent')
 
+    # Appended after every existing field (change apply-guideline-remark-model, task-6 "Group B"),
+    # not inserted between them — this sheet has a history of row-shift bugs from inserting fields
+    # in the middle (see input_labels.py's own docstring), and read_input() finds every field by
+    # label anyway, so appending is the only truly safe place to add one.
+    #
+    # REMARK-ONLY. The AI Guideline's RM narrative (docs/13-remark-case-model.md Group B) has a
+    # blank for how many months of management fee the developer prepays on handover: "Ước tính
+    # theo thông tin CĐT cung cấp thu trước .... tháng PQL cư dân khi bàn giao nhà". This pipeline's
+    # RM.0A figure (the developer's top-up on un-handed-over units) is computed independently, from
+    # the resident fill-up curve — it does NOT depend on this field. So filling it in only makes the
+    # RM remark state the real month count instead of describing the mechanism without one; it
+    # changes no budgeted figure. Left blank (None) is the honest default until the PM knows the
+    # real negotiated term — same pattern as the Savills-fee fields just above.
+    section(ws1, 46, "MANAGEMENT FEE PRE-COLLECTION (remark only — does not change any figure)")
+    c_prepaid = labeled_input(
+        ws1, 47, 'Months of Management Fee Prepaid on Handover — leave blank if unknown', None)
+    c_prepaid.comment = Comment(
+        "How many months of management fee the developer collects from a resident up front at "
+        "handover, per the AI Guideline's RM remark (\"thu trước .... tháng PQL cư dân khi bàn giao "
+        "nhà\"). This is the real negotiated collection term — cannot be assumed. Leave blank until "
+        "known; the RM. management-fee remark then describes the mechanism (the developer covers "
+        "the fee on units not yet handed over) without naming a month count, rather than guessing "
+        "one. Filling it in only changes the wording of that remark — RM.0A's actual VND figure "
+        "already comes from the resident fill-up curve and does not use this field.",
+        'Budget Planning Agent')
+
+    # Change complete-ai-guideline-remark-coverage, D1 — appended after every existing field (same
+    # no-row-shift-risk reason as the prepaid field just above). One shared basis/year, not one per
+    # product: a single building has one drawing set, not a different citation per product type.
+    section(ws1, 49, "PRODUCT AREA CITATION (remark only — does not change any figure)")
+    c_area_basis = labeled_input(
+        ws1, 50, 'Area basis / drawing reference — leave blank if unknown', None)
+    c_area_basis.comment = Comment(
+        "The legal/drawing basis for the chargeable areas on '0. Info' (e.g. \"NSA per the TKTC "
+        "construction drawings\"), per the AI Guideline's '0. Info' remark. This is a real "
+        "project-specific citation — cannot be assumed. Leave blank until known; the '0. Info' "
+        "remark then states the area is PM-supplied, without inventing a drawing reference. Does "
+        "not change any area or fee figure — wording only.",
+        'Budget Planning Agent')
+    c_area_year = labeled_input(
+        ws1, 51, 'Area basis confirmed as of year — leave blank if unknown', None)
+    c_area_year.comment = Comment(
+        "The year the area basis above was last confirmed/updated by the Investor (e.g. 2026). "
+        "Paired with the area basis field — leave blank if that field is blank.",
+        'Budget Planning Agent')
+
+    # Appended, not inserted — same no-row-shift-risk reason as every field added above (see
+    # input_labels.py's own docstring on why appending, not inserting, is the default-safe choice).
+    section(ws1, 53, 'BUDGET HORIZON')
+    c_years = labeled_input(ws1, 54, 'Operating Years to Budget', 1)
+    c_years.comment = Comment(
+        "How many operating years the budget should cover, counting from handover. 1 means the "
+        "first operating year only — what this pipeline produces today, and the default. "
+        "A value above 1 is currently REJECTED rather than ignored: the per-year budget sheets, "
+        "year-on-year cost escalation and multi-year summary it implies are specified but not yet "
+        "built, so accepting it would give you a one-year workbook that claims to be more. "
+        "Any pre-opening phase before handover is counted separately and is not part of this "
+        "number.",
+        'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14}.items():
         ws1.column_dimensions[col].width = w
+
+    add_run_button(ws1)          # green RUN button at F1:G2, hyperlinked to Run Budget Agent.cmd
 
     # ================= Sheet 2: Roster Setup =================
     ws2 = wb.create_sheet('Roster Setup')
@@ -376,9 +628,11 @@ def main():
     c14.font = Font(italic=True)
 
     section(ws2, 16, 'PUBLIC HOLIDAYS THIS MONTH')
-    ws2['A17'] = ('Lunar-calendar holidays (Tết, Hùng Kings\' Day) move every year — enter the actual dates '
-                  'from your company\'s official 2026 calendar, one per row below. Fixed-date holidays '
-                  '(Jan 1, Apr 30, May 1, Sep 2) still need to be entered here too — nothing is assumed.')
+    ws2['A17'] = ('LEAVE BLANK and the pipeline fills these in from the Month and Year above — Tết and '
+                  'Hùng Kings\' Day are lunar and get converted properly, not hardcoded. The reference '
+                  'table below lists every statutory day for 2026 and 2027 so you can see what it will '
+                  'use. Type dates here ONLY to override — for example to apply the government\'s annual '
+                  '"hoán đổi" swap-day announcement, which is a policy decision and cannot be computed.')
     ws2['A17'].font = LEGEND_FONT
     ws2['A17'].alignment = LEFT
     ws2.merge_cells('A17:D17')
@@ -400,7 +654,46 @@ def main():
         c2.fill = INPUT_FILL
         c2.border = BORDER
     HOLIDAY_FIRST_ROW, HOLIDAY_LAST_ROW = 20, 29
-    for col, w in {'A': 30, 'B': 34, 'C': 14, 'D': 14}.items():
+
+    # ---- Reference block: every statutory holiday, computed and written out, so a PM can SEE what
+    # the pipeline will use rather than trusting an invisible calculation. Read-only — the yellow
+    # block above is the override. Added 2026-09-09 after the dates were computed but nowhere shown.
+    from vn_holidays import statutory_holidays
+    r = HOLIDAY_LAST_ROW + 2
+    section(ws2, r, 'STATUTORY HOLIDAYS — REFERENCE ONLY (computed, do not edit)')
+    r += 1
+    note = ws2.cell(row=r, column=1, value=(
+        'Labour Code 2019 Article 112 — 11 days a year. Tết and Giỗ Tổ Hùng Vương are lunar, so they move '
+        'every year; these are converted with the Vietnamese lunar calendar (UTC+7) and the conversion is '
+        'checked against six past Tết dates on every run. NOT included: the annual "hoán đổi" swap days, '
+        'which extend Tết in practice and are announced by the government each year — type those into the '
+        'yellow block above if this project needs them.'))
+    note.font = LEGEND_FONT
+    note.alignment = LEFT
+    ws2.merge_cells(f'A{r}:D{r}')
+    ws2.row_dimensions[r].height = 46
+    r += 1
+    # 'Holiday date', not 'Date' — the input block above already has 'Date (DD)', and the label
+    # resolver reduces both to 'date' and refuses to guess between them.
+    for c, h in enumerate(['Holiday date', 'Day', 'Month', 'Holiday'], start=1):
+        cell = ws2.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.border = BORDER
+        cell.alignment = CENTER
+    r += 1
+    for yr in (2026, 2027):
+        for d, name in statutory_holidays(yr):
+            ws2.cell(row=r, column=1, value=d.strftime('%Y-%m-%d')).alignment = CENTER
+            ws2.cell(row=r, column=2, value=d.strftime('%a')).alignment = CENTER
+            ws2.cell(row=r, column=3, value=d.month).alignment = CENTER
+            ws2.cell(row=r, column=4, value=name).alignment = LEFT
+            for c in range(1, 5):
+                ws2.cell(row=r, column=c).border = BORDER
+                ws2.cell(row=r, column=c).fill = COMPUTED_FILL
+            r += 1
+
+    for col, w in {'A': 30, 'B': 34, 'C': 14, 'D': 46}.items():
         ws2.column_dimensions[col].width = w
 
     # ================= Sheet 3: Shift Types (reference) =================
@@ -456,27 +749,62 @@ def main():
         c1.border = BORDER
         c1.alignment = LEFT
         c1.fill = INPUT_FILL
+        c1.protection = Protection(locked=False)
         c2 = ws4.cell(row=i, column=2, value=code)
         c2.border = BORDER
         c2.alignment = CENTER
         c2.fill = INPUT_FILL
+        c2.protection = Protection(locked=False)
         dv_shift.add(c2)
+        # Staff On Duty / Day: a row seeded with a live formula (the ratio-driven rows — Main Gate,
+        # Patrol, Cleaning, Gardener, Pool Attendant) stays LOCKED, so a stray paste or fill-handle
+        # drag can't silently wipe out the formula, which is what actually happened before this was
+        # added — the three-case rule in _staff_on_duty() would then read whatever number landed
+        # there as a deliberate override, with no sign anything was lost.
+        #
+        # This does not remove the override this sheet is built around (see _staff_on_duty()) — it
+        # changes how you make one. Today, typing over a live cell IS the override. With protection
+        # on, Excel blocks that keystroke and shows "this cell is protected"; Review > Unprotect
+        # Sheet (one click, no password) opens it back up. That extra step is the point: it turns an
+        # accidental overwrite into an impossible one, while leaving a deliberate override exactly as
+        # available as before. A row with no formula (every other position, including the ones
+        # 2026-09-14 wired to the portfolio-derived ratios — those are seeded as a plain number, not
+        # a formula, so there is nothing here to protect) stays unlocked as it always was.
+        is_formula_row = isinstance(staff, str) and staff.lstrip().startswith('=')
         c3 = ws4.cell(row=i, column=3, value=staff)
         c3.border = BORDER
         c3.alignment = CENTER
         c3.fill = INPUT_FILL
+        c3.protection = Protection(locked=is_formula_row)
         c4 = ws4.cell(row=i, column=4, value=days)
         c4.border = BORDER
         c4.alignment = CENTER
         c4.fill = INPUT_FILL
+        c4.protection = Protection(locked=False)
         c5 = ws4.cell(row=i, column=5, value=rate)
         c5.number_format = '#,##0'
         c5.border = BORDER
         c5.fill = INPUT_FILL
+        c5.protection = Protection(locked=False)
         if note:
             c5.comment = Comment(note, 'Budget Planning Agent')
     for col, w in {'A': 30, 'B': 12, 'C': 18, 'D': 18, 'E': 20}.items():
         ws4.column_dimensions[col].width = w
+
+    # Protection only bites where a cell is explicitly locked (every yellow cell above was just set
+    # to locked=False) — the row/section headers, this sheet's own two title cells, and any blank
+    # row beyond `last_row` stay at openpyxl's default (locked=True) and are now genuinely protected
+    # too, which is appropriate: there is nothing to type into a header. insertRows/deleteRows are
+    # explicitly allowed so "edit, add, or delete rows freely" (this sheet's own A1 title) keeps
+    # working with protection on. No password — Review > Unprotect Sheet is one click; the goal is
+    # stopping an accidental keystroke, not gatekeeping a deliberate one.
+    ws4.protection.sheet = True
+    ws4.protection.insertRows = False
+    ws4.protection.deleteRows = False
+    ws4.protection.formatCells = False
+    ws4.protection.formatRows = False
+    ws4.protection.selectLockedCells = False
+    ws4.protection.selectUnlockedCells = False
 
     wb.save(OUT)
     print('Saved locally:', OUT)

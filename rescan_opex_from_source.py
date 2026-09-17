@@ -5,6 +5,17 @@ Repairs & Maintenance) directly from the 8 real project files' own "D" series sh
 extraction of this category exists anywhere in this codebase (unlike Staff/Service/Capex, which
 all had earlier ETL passes to build on).
 
+CONSUMPTION x TARIFF (change cost-energy-from-consumption-and-tariff, 2026-09-10): the three energy
+categories (Electricity, Water, Diesel) are now stored as two halves — `Quantity` + `Unit` +
+`UnitPrice` + `PriceAsOf` beside the existing `MonthlyVND`. The costing spec states a
+consumption-based method for all three and the source workbooks already work that way; the flat
+`MonthlyVND` was the extraction collapsing it. `MonthlyVND` is kept unchanged so every current
+reader still works, and for the two non-energy rows (Repairs, Admin) it stays the only figure.
+The tariffs come from the method catalogue (`ENERGY_TARIFFS` below); A&K Tower's consumption is
+DERIVED as recorded-cost / tariff because the A&K source workbook is not in this repository clone
+(see the change design D6). Nothing here is re-read from a workbook — the figures are the same
+hand-verified ones, now split.
+
 WHY ELEVATOR/LIGHTING/SYSTEM MAINTENANCE CONTRACTS DON'T APPEAR HERE AT ALL, stated plainly since
 it's easy to mistake for a gap rather than a real finding: A&K Tower's own real budget sheet
 ("A2.1 Thiết lập chi tiết", row 287) has a cell note citing actual Vietnamese law — maintenance
@@ -65,6 +76,46 @@ OUT_CSV = os.path.join(BUDGET_AGENT, 'data', 'generation_A_star_schema', 'Fact_O
 # blindly scanned). Every number here traces to one specific real cell in one specific real file.
 
 AK_TOWER_NFA_M2 = 64_124.0  # master_comparables.py's HAND_VERIFIED_COMPARABLES — same figure, not re-derived
+
+# ============================================================================================
+# Energy tariffs — the PRICE half of "consumption x tariff" (change
+# cost-energy-from-consumption-and-tariff). A tariff is an INPUT, not a constant frozen inside a
+# cost figure: to update one, change its value and `as_of` here and re-run this script.
+#
+# Sourced from the method catalogue (data/master_list_verified/Costing_Method_Catalogue.csv,
+# extracted from the AI Guideline form and PM-signed), which records the guideline's rate for each
+# energy code with its legal citation. The A&K Tower / Parking Building source workbooks are not in
+# this repository (see the change's design D6), so A&K's CONSUMPTION is derived as
+# recorded-monthly-cost / tariff — exact by construction, and neutral to every current figure.
+ENERGY_TARIFFS = {
+    'Electricity': dict(
+        unit_price=2_226, quantity_unit='kWh/month', as_of='2025-05-09',
+        citation='QD 1279/QD-BCT ngay 09/05/2025 — dien duoi 6kV, don vi hanh chinh su nghiep (2.226 d/kWh)',
+        note='Current. Also equals A&K Tower\'s own implied rate (its real 163-row kWh equipment model / cost), '
+             'so the derived consumption reconciles exactly.'),
+    'Water': dict(
+        unit_price=19_786, quantity_unit='m3/month', as_of='2026 (AI Guideline built-up example)',
+        citation='SAWACO household-water tariff, built up: base + VAT 5% + PBVMT 30% + VAT-on-PBVMT 8% '
+                 '(AI Guideline cites 19,786 VND/m3)',
+        note='A&K Tower\'s own m3 and bill rate are not in this repository. A&K\'s consumption below is DERIVED '
+             '(recorded cost / this 2026 tariff) — an implied figure, and a lower bound if A&K\'s real ~2020 rate '
+             'was below 19,786 VND/m3.'),
+    'Diesel (Generator Fuel)': dict(
+        unit_price=19_260, quantity_unit='litre/month', as_of='~2020 (A&K Tower budget)',
+        citation='DO 0.005S Vung 1 listed price recorded in A&K Tower\'s D4. Chi Phi Dau sheet; the guideline '
+                 'says use the DO 0.005S Vung 1 listed price on the budget date',
+        note='~2020 rate, STALE for a 2027 budget — the current DO 0.005S Vung 1 listed price should replace it. '
+             'Usage basis is per-m2 NFA (design D1); diesel is driven by generator test/backup hours, which do '
+             'not obviously scale with floor area — a known limitation, not occupancy-scaled.'),
+}
+
+# Parking Building's own source sheet records real consumption AND its own blended rate directly —
+# a different building type, kept for reference, never blended into the residential ratio.
+PARKING_ENERGY_QUANTITIES = {
+    'Electricity': dict(quantity=62_622, quantity_unit='kWh/month', unit_price=3_751, as_of='~2020'),
+    'Water': dict(quantity=3_300, quantity_unit='m3/month', unit_price=29_000, as_of='~2020'),
+    'Diesel (Generator Fuel)': dict(quantity=523, quantity_unit='litre/month', unit_price=22_000, as_of='~2020'),
+}
 
 OPEX_FACTS = [
     dict(project='A&K Tower', category='Electricity', monthly_vnd=136_937_719.17 + 125_272_421.49,
@@ -154,15 +205,55 @@ def _safe_print(text):
         print(text.encode('ascii', errors='replace').decode('ascii'))
 
 
+def _split_row(row):
+    """Return (quantity, unit, unit_price, price_as_of) for a row, or four blanks.
+
+    Energy categories are split into consumption x tariff: A&K Tower rows use the catalogue tariff
+    with consumption derived as cost / tariff; Parking Building rows use their own recorded
+    consumption and blended rate. Every other category has no split and gets blanks — its
+    MonthlyVND stays the only figure.
+    """
+    cat, project, monthly = row['category'], row['project'], row['monthly_vnd']
+    if project == 'Parking Building' and cat in PARKING_ENERGY_QUANTITIES:
+        p = PARKING_ENERGY_QUANTITIES[cat]
+        return p['quantity'], p['quantity_unit'], p['unit_price'], p['as_of']
+    if cat in ENERGY_TARIFFS:
+        t = ENERGY_TARIFFS[cat]
+        # The STORED quantity — a fixed figure the estimator reads and multiplies by the tariff
+        # (so changing the tariff moves the budget). Derived once as recorded-cost / tariff because
+        # the A&K source workbook is not in this repo; written at full float precision so
+        # quantity x tariff reproduces the recorded cost exactly (design D6).
+        quantity = repr(round(monthly) / t['unit_price'])
+        return quantity, t['quantity_unit'], t['unit_price'], t['as_of']
+    return '', '', '', ''
+
+
+def _source_with_tariff(row):
+    """For an A&K energy row, append the tariff's citation to the cost provenance so the CSV `Source`
+    column carries both halves. Other rows are unchanged."""
+    if row['project'] == 'A&K Tower' and row['category'] in ENERGY_TARIFFS:
+        t = ENERGY_TARIFFS[row['category']]
+        return (f"{row['source']}  TARIFF: {t['unit_price']:,} VND/{t['quantity_unit'].split('/')[0]} "
+                f"(as of {t['as_of']}) — {t['citation']}. {t['note']}")
+    return row['source']
+
+
 def main():
     os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
+    fields = ['Project', 'Category', 'MonthlyVND', 'Quantity', 'Unit', 'UnitPrice', 'PriceAsOf', 'Source']
     with open(OUT_CSV, 'w', newline='', encoding='utf-8-sig') as f:
-        w = csv.DictWriter(f, fieldnames=['Project', 'Category', 'MonthlyVND', 'Source'])
+        w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for row in OPEX_FACTS:
+            quantity, unit, unit_price, price_as_of = _split_row(row)
             w.writerow(dict(Project=row['project'], Category=row['category'],
-                             MonthlyVND=round(row['monthly_vnd']), Source=row['source']))
+                             MonthlyVND=round(row['monthly_vnd']),
+                             Quantity=quantity, Unit=unit, UnitPrice=unit_price, PriceAsOf=price_as_of,
+                             Source=_source_with_tariff(row)))
     _safe_print(f'Wrote {len(OPEX_FACTS)} real OPEX facts to {OUT_CSV}')
+    _safe_print('Energy tariffs (the price half — edit ENERGY_TARIFFS to update):')
+    for cat, t in ENERGY_TARIFFS.items():
+        _safe_print(f'  - {cat}: {t["unit_price"]:,} VND/{t["quantity_unit"].split("/")[0]}  (as of {t["as_of"]})')
     _safe_print(f'Explicitly NOT extracted ({len(NOT_EXTRACTED)} entries, see module docstring for why):')
     for project, cats, why in NOT_EXTRACTED:
         _safe_print(f'  - {project} / {cats}: {why}')

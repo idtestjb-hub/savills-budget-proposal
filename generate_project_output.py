@@ -25,18 +25,22 @@ import math
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 
 from generate_project_budget import read_input, INPUT_PATH, PRODUCT_ROWS
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
-    RATE_CARD_SOURCE, nearest_comparables, derive_product_rate,
+    RATE_CARD_SOURCE, nearest_comparables, derive_product_rate, derive_product_rate_capped,
 )
 from estimate_capex_qty import estimate_capex_qty, estimate_capex_items
 from estimate_new_project import estimate_staff_headcount
 from estimate_opex import estimate_opex, RATIO_CATEGORIES as OPEX_RATIO_CATEGORIES
+# The month-by-month fill-up ramp now lives in fill_curve.py, shared with generate_project_budget.py
+# so the client deliverable and this analysis ramp identically. Same curve as before — moved, not
+# changed (0% at month 0, linear to 0.50/0.70/0.90/1.00 at each year end).
+from fill_curve import MONTH_ANCHORS as _MONTH_ANCHORS, monthly_fill_path as _monthly_fill_path
 
 SOURCE_DIR = os.path.dirname(__file__)
 BUDGET_AGENT = os.path.abspath(os.path.join(SOURCE_DIR, '..'))
@@ -60,6 +64,54 @@ NIGHT_DIFFERENTIAL = 1.3  # +30% night-shift premium, same factor build_staff_sh
 EMPLOYER_SI_HI_RATE = 0.205
 EMPLOYER_UNEMPLOYMENT_RATE = 0.01
 EMPLOYER_INSURANCE_RATE = EMPLOYER_SI_HI_RATE + EMPLOYER_UNEMPLOYMENT_RATE
+
+# The standard form's own real payroll calculator, 'A1. Staff cost 08.2026 (VN)', prices Savills'
+# in-house staff on a fuller basis than the flat EMPLOYER_INSURANCE_RATE above — its own formula
+# chain (rows 4-8, hidden reference block) adds a 13th-month salary, caps the statutory SI/HI/UI/
+# Trade-Union contributions at 20x a regional base, and marks the whole employer cost up 10% for
+# Savills' admin fee. Nothing read that total back into '1. Summary' before (docs/09-template-map.md
+# §9 finding 2) — 'EMH2' used the flat rate above instead and understated staff cost by 320,427,060
+# VND on the Wayne Tower example. Change reconcile-summary-with-detail-sheets, design D2/D3: EMH2
+# becomes a formula reference into A1's own total; this analysis workbook's own staff figure moves
+# onto the same components so the two keep agreeing (the "EMH2 never drifts from build_staff_sheet"
+# invariant), rather than re-deriving the same numbers with the PIT-bracket logic duplicated.
+#
+# Source of every constant below: 'A1. Staff cost 08.2026 (VN)'!I4 / I5 / L7:V8 / AB1 / N8 (the
+# template's own "Hide" reference rows) — read once 2026-09-14, not duplicated as an independent
+# guess. If Savills updates these in the template, this module drifts from it (same trade-off the
+# EMPLOYER_INSURANCE_RATE constants above already accept) until someone re-reads them here.
+STATUTORY_SI_HI_BASE_2026 = 2_530_000       # A1!I4 — SI/HI/Union contribution base (regional)
+STATUTORY_UI_BASE_2026 = 5_310_000          # A1!I5 — Unemployment-insurance contribution base
+STATUTORY_INSURANCE_CAP_MULTIPLE = 20       # A1!L7/T7/V7 = I4*20 (SI/HI, Union); M7/U7 = I5*20 (UI)
+EMPLOYER_SI_HI_RATE_FULL = 0.205            # A1!T8 — employer SI/HI, capped
+EMPLOYER_UNEMPLOYMENT_RATE_FULL = 0.01      # A1!U8 — employer unemployment insurance, capped
+TRADE_UNION_RATE = 0.02                     # A1!V8 — Công đoàn, capped at the same base as SI/HI
+STAFF_ADMIN_MARKUP = 0.10                   # A1!AB1 — Savills' admin fee, on top of everything else
+
+
+def full_payroll_annual_cost(annual_gross):
+    """The employer's real all-in annual cost of one position or group, on 'A1. Staff cost 08.2026
+    (VN)''s own basis, given its annual gross salary: a 13th-month salary, employer SI/HI 20.5% and
+    Unemployment 1% (both capped at 20x the regional base), Trade Union 2% (same cap), then Savills'
+    own 10% admin markup on the whole employer cost.
+
+    Deliberately narrower than A1's full formula chain — it leaves out A1's smaller per-position
+    extras (team-building fee, a 1.3% training/recruitment charge, an annual health check-up,
+    optional 24/24 accident insurance, a uniform allowance): together well under 1% of a typical
+    roster's total (design.md D3), and the residual is what the analysis 'Staff (Roster)' sheet
+    states rather than silently absorbs. The caps are monthly in the template; `annual_gross` is
+    spread evenly across 12 months to apply them, matching this pipeline's own "monthly estimate,
+    not a live day-grid" staffing model (see build_staff_sheet's docstring).
+    """
+    monthly = annual_gross / 12
+    si_hi_cap = STATUTORY_SI_HI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
+    ui_cap = STATUTORY_UI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
+    thirteenth_month_annual = monthly                                            # one month's pay
+    si_hi_annual = min(monthly, si_hi_cap) * EMPLOYER_SI_HI_RATE_FULL * 12
+    ui_annual = min(monthly, ui_cap) * EMPLOYER_UNEMPLOYMENT_RATE_FULL * 12
+    union_annual = min(monthly, si_hi_cap) * TRADE_UNION_RATE * 12
+    subtotal = annual_gross + thirteenth_month_annual + si_hi_annual + ui_annual + union_annual
+    return subtotal * (1 + STAFF_ADMIN_MARKUP)
 
 # Shared between build_staff_sheet (for its Service-equivalent comparison columns) and
 # build_service_sheet (for its own Qty matching) — kept in one place so the two sheets can never
@@ -172,8 +224,14 @@ def build_management_fee_sheet(wb, project):
                 'Each product priced with its own derived rate from real comparables with a rate for that product '
                 '(Apartment rate used as a labeled fallback where none exist) — see master_comparables.py.', 'A1:E1')
 
-    all_ranked = nearest_comparables(project['total_nfa'], exclude_name=project['name'], n=len(MASTER_COMPARABLES))
-    apt_rate, apt_used, apt_note = derive_product_rate(all_ranked, 'Apartment', n=2)
+    # derive_product_rate_capped (task 2.5, 2026-09-16) applies your within-1km +/-20% rate-swing
+    # cap on top of task 2.4's distance tie-break — see master_comparables.py's own docstring. Used
+    # here (not the plain nearest_comparables + derive_product_rate two-step) so this workbook's
+    # Apartment rate agrees with generate_project_budget.py's, which uses the same capped call.
+    apt_rate, apt_used, apt_note, all_ranked = derive_product_rate_capped(
+        project['total_nfa'], project['name'], 'Apartment',
+        input_district=project.get('district'), input_city=project.get('city'),
+        input_lat=project.get('lat'), input_lon=project.get('lon'))
     own_real = next((c for c in MASTER_COMPARABLES
                       if c['name'].strip().lower() in project['name'].strip().lower() and c['rates'].get('Apartment')), None)
 
@@ -230,11 +288,18 @@ def build_management_fee_sheet(wb, project):
         nfa = project['products'][product]['nfa']
         if not nfa:
             continue
-        rate, used, note = derive_product_rate(all_ranked, product, n=2)
-        is_fallback = rate is None
-        if is_fallback:
-            rate = apt_rate
-            note = f"No comparable has a real {product} rate — using this project's derived Apartment rate ({apt_rate:,}) as the best available proxy."
+        if product == 'Apartment':
+            # Reuse apt_rate as-is (already derive_product_rate_capped()'s output, task 2.5) rather
+            # than recomputing via the uncapped derive_product_rate() below — recomputing here
+            # silently overwrote the swing cap on this row (same bug caught in
+            # generate_project_budget.py 2026-09-16, fixed the same way in both places).
+            rate, used, note, is_fallback = apt_rate, apt_used, apt_note, False
+        else:
+            rate, used, note = derive_product_rate(all_ranked, product, n=2)
+            is_fallback = rate is None
+            if is_fallback:
+                rate = apt_rate
+                note = f"No comparable has a real {product} rate — using this project's derived Apartment rate ({apt_rate:,}) as the best available proxy."
         ws.cell(row=r, column=1, value=product).border = BORDER
         c2 = ws.cell(row=r, column=2, value=nfa)
         c2.border = BORDER
@@ -291,7 +356,10 @@ def build_comparison_sheet(wb, project, mgmt):
     rate happens to be known), and the flat citywide service rates for context."""
     top2, derived_rate, rate_note, own_real = mgmt['top2'], mgmt['derived_rate'], mgmt['rate_note'], mgmt['own_real']
     ws = wb.create_sheet('Comparison')
-    title_block(ws, 'Comparison', f"{project['name']} vs. the {len(top2)} nearest real comparable(s) WITH A VERIFIED APARTMENT RATE, ranked by Total NFA (whole-building) — {len(MASTER_COMPARABLES)} real candidates considered. Other product types (Officetel/Shophouse/etc.) are priced from a different comparable set — see the Management Fee sheet's Rate source column.", 'A1:D1')
+    from master_comparables import comparable_match_basis
+    match_basis = comparable_match_basis(top2, project.get('district'), project.get('city'),
+                                          input_lat=project.get('lat'), input_lon=project.get('lon'))
+    title_block(ws, 'Comparison', f"{project['name']} vs. the {len(top2)} nearest real comparable(s) WITH A VERIFIED APARTMENT RATE, ranked by {match_basis} — {len(MASTER_COMPARABLES)} real candidates considered. Other product types (Officetel/Shophouse/etc.) are priced from a different comparable set — see the Management Fee sheet's Rate source column.", 'A1:D1')
 
     headers = ['Metric', project['name']] + [c['name'] for c in top2]
     r = 4
@@ -314,6 +382,10 @@ def build_comparison_sheet(wb, project, mgmt):
         return row + 1
 
     section(ws, r, 'SCALE', ncols=4); r += 1
+    if project.get('address'):
+        # Citation only — not a matching input; see build_project_input_form.py's comment on this
+        # field for why it isn't geocoded into District/City/Latitude/Longitude.
+        r = data_row(r, 'Address', [project['address']] + ['—', '—'])
     r = data_row(r, 'Total NFA (m²) — matching basis', [project['total_nfa']] + [c['nfa'] for c in top2])
     r = data_row(r, 'NFA delta from this project', ['—'] + [round(abs(c['nfa'] - project['total_nfa'])) for c in top2])
     r = data_row(r, 'Apartment NFA (m²) — for reference only, not the matching basis',
@@ -455,10 +527,18 @@ def build_staff_sheet(wb, project, demand, year):
         cell.alignment = CENTER
         cell.border = BORDER
     # Columns 16-19 (P-S) are hidden per-row helper cells (StaffPerDay/CoverageDays/AvgDailyRate/
-    # IsNight, written per-row below) — these 2 new columns sit right after them rather than being
+    # IsNight, written per-row below) — these new columns sit right after them rather than being
     # inserted earlier, so none of the existing formula column references above need to shift.
-    for c, h in [(20, f'Employer Insurance ({EMPLOYER_INSURANCE_RATE:.1%}, real — Fact_StaffCost.csv)'),
-                 (21, 'Annual Total (incl. Employer Insurance)')]:
+    # T-Z replicate 'A1. Staff cost 08.2026 (VN)''s own employer-cost chain (see
+    # full_payroll_annual_cost() docstring) as explicit formulas, replacing the old flat
+    # EMPLOYER_INSURANCE_RATE (x1.215) shortcut — change reconcile-summary-with-detail-sheets, D3.
+    for c, h in [(20, '13th-Month Salary (A1 basis)'),
+                 (21, f'Employer SI/HI {EMPLOYER_SI_HI_RATE_FULL:.1%} (capped, A1 basis)'),
+                 (22, f'Employer UI {EMPLOYER_UNEMPLOYMENT_RATE_FULL:.1%} (capped, A1 basis)'),
+                 (23, f'Trade Union {TRADE_UNION_RATE:.1%} (capped, A1 basis)'),
+                 (24, 'Subtotal Before Admin Markup'),
+                 (25, f'Admin Markup ({STAFF_ADMIN_MARKUP:.0%}, A1 basis)'),
+                 (26, 'Annual Total (Full Payroll Basis — A1)')]:
         cell = ws.cell(row=HEADER_ROW, column=c, value=h)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
@@ -473,6 +553,9 @@ def build_staff_sheet(wb, project, demand, year):
         f = ws.cell(row=DAYS_ROW, column=col, value=f'=DAY(EOMONTH(DATE($B$3,{i + 1},1),0))')
         f.font = Font(italic=True, size=9, color='7F7F7F')
         f.alignment = CENTER
+
+    si_hi_cap = STATUTORY_SI_HI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
+    ui_cap = STATUTORY_UI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
 
     first_row = DAYS_ROW + 1
     r = first_row
@@ -499,10 +582,28 @@ def build_staff_sheet(wb, project, demand, year):
         annual.border = BORDER
         annual.font = Font(bold=True)
         annual_letter = get_column_letter(annual_col)
-        insurance = ws.cell(row=r, column=20, value=f'={annual_letter}{r}*{EMPLOYER_INSURANCE_RATE}')
-        insurance.number_format = MONEY_FMT
-        insurance.border = BORDER
-        total_incl = ws.cell(row=r, column=21, value=f'={annual_letter}{r}+T{r}')
+        thirteenth = ws.cell(row=r, column=20, value=f'={annual_letter}{r}/12')
+        thirteenth.number_format = MONEY_FMT
+        thirteenth.border = BORDER
+        si_hi = ws.cell(row=r, column=21,
+                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{EMPLOYER_SI_HI_RATE_FULL}*12')
+        si_hi.number_format = MONEY_FMT
+        si_hi.border = BORDER
+        ui = ws.cell(row=r, column=22,
+                      value=f'=MIN({annual_letter}{r}/12,{ui_cap})*{EMPLOYER_UNEMPLOYMENT_RATE_FULL}*12')
+        ui.number_format = MONEY_FMT
+        ui.border = BORDER
+        union = ws.cell(row=r, column=23,
+                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{TRADE_UNION_RATE}*12')
+        union.number_format = MONEY_FMT
+        union.border = BORDER
+        subtotal = ws.cell(row=r, column=24, value=f'={annual_letter}{r}+T{r}+U{r}+V{r}+W{r}')
+        subtotal.number_format = MONEY_FMT
+        subtotal.border = BORDER
+        markup = ws.cell(row=r, column=25, value=f'=X{r}*{STAFF_ADMIN_MARKUP}')
+        markup.number_format = MONEY_FMT
+        markup.border = BORDER
+        total_incl = ws.cell(row=r, column=26, value=f'=X{r}+Y{r}')
         total_incl.number_format = MONEY_FMT
         total_incl.border = BORDER
         total_incl.font = Font(bold=True)
@@ -526,13 +627,28 @@ def build_staff_sheet(wb, project, demand, year):
     c = ws.cell(row=r, column=annual_col, value=f'=SUM({annual_letter}{first_row}:{annual_letter}{last_row})')
     c.number_format = MONEY_FMT
     c.font = SECTION_FONT
-    c = ws.cell(row=r, column=20, value=f'=SUM(T{first_row}:T{last_row})')
-    c.number_format = MONEY_FMT
-    c.font = SECTION_FONT
-    c = ws.cell(row=r, column=21, value=f'=SUM(U{first_row}:U{last_row})')
-    c.number_format = MONEY_FMT
-    c.font = SECTION_FONT
-    ANNUAL_TOTAL_CELL = f'U{r}'  # incl. employer insurance — see EMPLOYER_INSURANCE_RATE
+    for col_letter in ('T', 'U', 'V', 'W', 'X', 'Y', 'Z'):
+        c = ws.cell(row=r, column=column_index_from_string(col_letter),
+                     value=f'=SUM({col_letter}{first_row}:{col_letter}{last_row})')
+        c.number_format = MONEY_FMT
+        c.font = SECTION_FONT
+    ANNUAL_TOTAL_CELL = f'Z{r}'  # full payroll basis — see full_payroll_annual_cost()
+    r += 1
+    ws.cell(row=r, column=1, value=(
+        "This total uses the deliverable's own 'A1. Staff cost' components (13th-month, capped "
+        'employer SI/HI 20.5% and UI 1%, Trade Union 2%, +10% admin markup) but omits A1\'s smaller '
+        'extras (team building fee, 1.3% training charge, annual checkup, optional accident insurance, '
+        'uniform allowance — together under 1% of a typical roster). Measured on Wayne Tower, this '
+        "sheet's in-house total (excl. outsourced Security/Cleaning/Landscape) runs ~4% above the "
+        "deliverable's A1!AC96 + Reception-style top-up — almost entirely because A1's own gross-salary "
+        'step (fill_staff_cost_sheet) averages a shift role\'s Morning/Afternoon/Night daily rates into '
+        'one flat monthly salary with no night-shift differential, while this sheet prices each shift '
+        "at its own rate (Night +30%, per this sheet's title). That gap is in A1's gross-salary "
+        'assignment, not in the payroll math either sheet applies on top — out of scope here (re-pricing '
+        'staff is not part of this change); flagged for a follow-up.')).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 68
     r += 2
 
     section(ws, r, 'REAL BENCHMARK CROSS-CHECK — from the Master List (derive_staffing_benchmarks.py)', ncols=6); r += 1
@@ -565,24 +681,24 @@ def build_staff_sheet(wb, project, demand, year):
     for i in range(12):
         ws.column_dimensions[get_column_letter(3 + i)].width = 12
     ws.column_dimensions[get_column_letter(annual_col)].width = 16
-    ws.column_dimensions['T'].width = 20
-    ws.column_dimensions['U'].width = 22
+    for col_letter, w in {'T': 16, 'U': 16, 'V': 16, 'W': 16, 'X': 18, 'Y': 16, 'Z': 22}.items():
+        ws.column_dimensions[col_letter].width = w
 
     r += 2
     build_roster_detail_grid(ws, demand, r)
 
     # Category-level annual cost, as a live cross-sheet formula summing this sheet's own Annual
-    # Total (incl. Employer Insurance) cells — for the Service sheet's comparison columns and Cost
+    # Total (Full Payroll Basis) cells — for the Service sheet's comparison columns and Cost
     # Priority. Same matching AND exclusion rules Service itself uses (SERVICE_CATEGORY_KEYWORDS /
     # SERVICE_EXCLUDE_KEYWORDS), so "Security" here means the exact same 7 rows Service prices as
-    # Security, not a looser/different definition. Column U (not the bare-gross O) so every
+    # Security, not a looser/different definition. Column Z (not the bare-gross O) so every
     # downstream sheet that sums this dict picks up the loaded cost automatically.
-    def _cell_sum(rows, col='U'):
+    def _cell_sum(rows, col='Z'):
         return (("='Staff (Roster)'!" + "+'Staff (Roster)'!".join(f'{col}{rr}' for rr in rows))
                 if rows else '=0')
 
     # Which column each category sums, and why it matters:
-    #   U = Annual Total INCL. employer insurance — Savills' own payroll.
+    #   Z = Annual Total, Full Payroll Basis — Savills' own in-house payroll (A1 basis).
     #   O = the bare annual, no employer contribution — outsourced vendor contracts.
     # Everything under SERVICE_CATEGORY_KEYWORDS (Security / Cleaning / Landscape, and their
     # Supervisory variants) is an outsourced contract: the template files them under ES =
@@ -795,7 +911,7 @@ def build_service_sheet(wb, demand, staff):
 
     headers = ['Category', 'Citywide Rate (VND/post/month, real)', 'Shift Roles/Post', 'Night-Shift Blend',
                'Per-Person Monthly Rate (derived)', 'Qty (real staff headcount)', 'Monthly Total (VND)',
-               'Annual (×12)', 'Staff (Roster) Equivalent, incl. Employer Insurance (VND/year)', 'Gap %', 'Gap Assessment', 'Qty source']
+               'Annual (×12)', 'Staff (Roster) Equivalent, Full Payroll Basis (VND/year)', 'Gap %', 'Gap Assessment', 'Qty source']
     r = 4
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
@@ -1200,6 +1316,43 @@ ELEVATOR_AD_ITEMS = [
 ]
 
 
+def _real_ad_frame_qty(project, tower_count):
+    """The 'Ad frame' row's real quantity when the project supplies its own real passenger-elevator
+    count (Project Info's 'Passenger Elevators per Tower' — change
+    wire-real-elevator-count-into-ad-revenue, task 2.1), else None (caller keeps
+    ELEVATOR_AD_ITEMS's own fallback qty_per_tower/assumption completely unchanged). Only the FIRST
+    ELEVATOR_AD_ITEMS tuple ('Ad frame...') ever calls this — the two LCD-screen rows have no real
+    per-project data source and are untouched by this change (design.md Non-Goals).
+
+    Deliberately tiny — not a bigger abstraction over ELEVATOR_AD_ITEMS's shape — so both generators
+    compute this one override identically and can never silently disagree on the QUANTITY (design.md
+    Risks), while each still writes its own remark text in its own language/format, matching how
+    `assumption` (English) / `_AD_ITEM_VI` (Vietnamese) already work as separate concerns."""
+    real_per_tower = project.get('passenger_elevators_per_tower')
+    if not real_per_tower:
+        return None
+    return round(tower_count * real_per_tower)
+
+
+def _real_basement_lcd_qty(project):
+    """The 'LCD screen (basement lobby)' row's real quantity when the project supplies its own real
+    basement count (Project Info's 'Number of Basements' — task 2.6, added 2026-09-16 alongside the
+    elevator field, same amendment pattern), else None (caller keeps ELEVATOR_AD_ITEMS's own flat_qty
+    of 1 unchanged). One screen assumed per basement level (each level needs its own lobby signage),
+    same "leave unassumed until real data exists" reasoning as `_real_ad_frame_qty()`.
+
+    No internal-data or statutory basis exists for a basement-COUNT formula (checked directly against
+    Dim_Property_Residential.csv: basement count tracks parking-slot count only loosely, not floor
+    count, and the spread is too wide to derive a ratio) — manual entry only, same conclusion as the
+    elevator-count research this session. Only the THIRD ELEVATOR_AD_ITEMS tuple ('LCD screen
+    (basement lobby)') ever calls this — the 'Ad frame' and 'LCD screen (tower lobby)' rows are
+    untouched."""
+    real_basements = project.get('basement_count')
+    if not real_basements:
+        return None
+    return round(real_basements)
+
+
 def build_additional_revenue_sheet(wb, project):
     """Extra Revenue beyond the management fee — Parking Fee and Elevator Advertising. New
     category: A&K Tower's own real budget structure ("A1. Tổng hợp" sheet) explicitly separates
@@ -1335,8 +1488,20 @@ def build_additional_revenue_sheet(wb, project):
     r += 1
     ad_first_row = r
     tower_count = project.get('towers') or 0
-    for item, rate, qty_per_tower, flat_qty, assumption in ELEVATOR_AD_ITEMS:
-        est_qty = round(tower_count * qty_per_tower) if qty_per_tower is not None else flat_qty
+    for idx, (item, rate, qty_per_tower, flat_qty, assumption) in enumerate(ELEVATOR_AD_ITEMS):
+        real_qty = _real_ad_frame_qty(project, tower_count) if idx == 0 else None
+        real_basements = _real_basement_lcd_qty(project) if idx == 2 else None
+        if real_qty is not None:
+            est_qty = real_qty
+            assumption = (f"Real data: this project's own {project['passenger_elevators_per_tower']:g} "
+                          f"passenger elevator(s) per tower (Project Info intake) x {tower_count} "
+                          f"tower(s) = {est_qty} ad frame(s) — not an assumption.")
+        elif real_basements is not None:
+            est_qty = real_basements
+            assumption = (f"Real data: this project's own {project['basement_count']:g} basement "
+                          f"level(s) (Project Info intake) = {est_qty} screen(s) — not an assumption.")
+        else:
+            est_qty = round(tower_count * qty_per_tower) if qty_per_tower is not None else flat_qty
         ws.cell(row=r, column=1, value=item).border = BORDER
         ws.cell(row=r, column=1).alignment = LEFT
         c2 = ws.cell(row=r, column=2, value=rate)
@@ -1434,8 +1599,9 @@ def build_opex_sheet(wb, project):
                          pool_volume_m3=project.get('pool_volume_m3'))
 
     r = 4
-    section(ws, r, 'ESTIMATED MONTHLY OPEX', ncols=6); r += 1
-    headers = ['Category', 'Monthly (VND)', 'Annual (×12)', 'Ratio (VND/m² NFA/month)', 'n', 'Source']
+    section(ws, r, 'ESTIMATED MONTHLY OPEX', ncols=8); r += 1
+    headers = ['Category', 'Monthly (VND)', 'Annual (×12)', 'Ratio (VND/m² NFA/month)', 'n', 'Source',
+               'Usage assumed (per this project)', 'Tariff (as of)']
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = HEADER_FILL
@@ -1468,6 +1634,21 @@ def build_opex_sheet(wb, project):
                            else entry['source'])
         c6.border = BORDER
         c6.alignment = LEFT
+        # Usage × tariff split (Electricity / Water / Diesel — change
+        # cost-energy-from-consumption-and-tariff). Blank for the ratio-only and flat categories.
+        if entry.get('tariff'):
+            base = entry['usage_unit'].split('/')[0]
+            c7 = ws.cell(row=r, column=7,
+                         value=f"{entry['project_quantity_month']:,.0f} {entry['usage_unit']}  "
+                               f"({entry['usage_per_m2']:,.4f} {base}/m²/month × NFA, n=1)")
+            as_of = entry['tariff_as_of']
+            c8 = ws.cell(row=r, column=8,
+                         value=f"{entry['tariff']:,.0f} {entry['tariff_unit']}  (as of {as_of}"
+                               + ("; earlier than the 2027 budget year — confirm current" if entry.get('tariff_stale') else "")
+                               + ")")
+            for cc in (c7, c8):
+                cc.border = BORDER
+                cc.alignment = LEFT
         if entry.get('reference_only'):
             footnotes.append((category, entry['reference_only']))
         r += 1
@@ -1522,7 +1703,7 @@ def build_opex_sheet(wb, project):
     ws.merge_cells(f'A{r}:F{r}')
     ws.row_dimensions[r].height = 28
 
-    for col, w in {'A': 24, 'B': 20, 'C': 20, 'D': 22, 'E': 8, 'F': 60}.items():
+    for col, w in {'A': 24, 'B': 20, 'C': 20, 'D': 22, 'E': 8, 'F': 60, 'G': 40, 'H': 34}.items():
         ws.column_dimensions[col].width = w
 
     return dict(annual_total_cell=ANNUAL_OPEX_CELL, category_annual_cells=category_annual_cells)
@@ -2423,27 +2604,6 @@ CAPEX_RESERVE_SOURCE = (
     f'Capex against its Year-1 Capex and annualised for short years — see Fact_CapexReserve.csv and '
     f'rescan_capex_reserve.py. It is NOT a rule of thumb. Note the written cost spec '
     f'(EXENSIVE LOGIC.xlsx, EN1-EN3) states ~0.1%, which no real project comes close to.')
-
-# Smooth month-by-month ramp, anchored at the SAME 4 year-end fill % points used everywhere else
-# in this workbook (0.50/0.70/0.90/1.00), linearly interpolated between them starting from 0% at
-# month 0 — one added assumption (the 0% starting point), disclosed wherever this is used. Flat
-# per-year averages understate how bad early months really are (a real building doesn't jump
-# straight to 50% fill on day 1 of Year 1), so this gives more realistic month-level resolution.
-_MONTH_ANCHORS = [(0, 0.0), (12, 0.50), (24, 0.70), (36, 0.90), (48, 1.00)]
-
-
-def _monthly_fill_path():
-    path = []
-    for month in range(1, 49):
-        for (m0, f0), (m1, f1) in zip(_MONTH_ANCHORS, _MONTH_ANCHORS[1:]):
-            if m0 < month <= m1:
-                fill = f0 + (f1 - f0) * (month - m0) / (m1 - m0)
-                break
-        year_num = (month - 1) // 12 + 1
-        month_in_year = (month - 1) % 12 + 1
-        path.append((month, f'Y{year_num} M{month_in_year}', fill))
-    return path
-
 
 def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy):
     """Tracks whether the BUILDING's own operating account — resident collections vs. Staff/OPEX/
