@@ -339,6 +339,14 @@ def _location_tier(candidate_district, candidate_city, input_district, input_cit
 DISTANCE_TIER_KM = 1.0        # within this, a real comparable's distance is trusted (task 2.5)
 MAX_DISTANCE_RATE_SWING = 0.20  # cap on how far a within-DISTANCE_TIER_KM match may move a rate
 
+# change prefer-similar-size-comparables, 2026-09-18 — a JUDGMENT CALL, not sourced from any
+# Savills guideline or reference dataset (checked: none states a size-similarity threshold). Ranks
+# ahead of verified-status in nearest_comparables()'s sort key — see that function's docstring and
+# the change's design.md D1/D2 for why. Flagged for PM review/retuning, same spirit as the fill-up
+# curve's disclosed-assumption anchors.
+SIZE_SIMILARITY_BAND = 0.50   # a same-tier candidate within ±50% of the input's Total NFA is
+                               # preferred over one outside it, even if the latter is hand-verified
+
 # Task 8.6, 2026-09-17 — your instruction: disable real-distance comparison for now, revisit later
 # ("we do that later"). Set True to re-enable task 2.4/2.5's coordinate-distance tie-break exactly as
 # it was — nothing else about it changes, this is the one switch. While False, nearest_comparables()
@@ -369,7 +377,7 @@ def _has_coords(c):
 
 
 def comparable_match_basis(comparables, input_district=None, input_city=None,
-                            input_lat=None, input_lon=None, lang='en'):
+                            input_lat=None, input_lon=None, input_nfa=None, lang='en'):
     """One short phrase describing why `comparables` were actually selected — reflects the BEST
     (lowest) location tier genuinely present among them, not a static claim of what the matching
     basis always is. A reader-facing comparables table should use this instead of a hardcoded
@@ -388,7 +396,13 @@ def comparable_match_basis(comparables, input_district=None, input_city=None,
     Also states whether any shown comparable is one of the 8 hand-verified, individually-checked
     projects (task 8.1, 2026-09-17) — real and worth disclosing either way, since a reader comparing
     two Comparison sheets should be able to tell a rate backed by a real detailed budget workbook
-    from one backed only by the auto-scraped Master List."""
+    from one backed only by the auto-scraped Master List.
+
+    Also states, when `input_nfa` is supplied, whether any shown comparable's Total NFA differs from
+    the project's own by more than `SIZE_SIMILARITY_BAND` (change prefer-similar-size-comparables,
+    2026-09-18) — the ranking now prefers a same-band comparable over a badly-sized one, but the pool
+    can still be thin enough that no comparable clears the band, and a reader SHALL be told when
+    that's the case rather than left to assume a closer match was found than actually was."""
     tiers = {_location_tier(c.get('district'), c.get('city'), input_district, input_city)
              for c in comparables}
     best = min(tiers) if tiers else 2
@@ -397,16 +411,32 @@ def comparable_match_basis(comparables, input_district=None, input_city=None,
         and any(_has_coords(c) and _haversine_km(input_lat, input_lon, c['lat'], c['lon']) <= DISTANCE_TIER_KM
                 for c in comparables))
     any_verified = any(c.get('hand_verified') for c in comparables)
+    oversized = []
+    if input_nfa:
+        oversized = [c for c in comparables
+                     if abs(c['nfa'] - input_nfa) / input_nfa > SIZE_SIMILARITY_BAND]
     if lang == 'vi':
         prefix = {0: 'cùng quận/huyện, ', 1: 'cùng tỉnh/thành, ', 2: ''}[best]
         verified_mid = 'dự án đã xác minh chi tiết, sau đó ' if any_verified else ''
         basis = 'gần nhất theo khoảng cách thực tế (km)' if used_distance \
             else 'gần nhất theo Tổng diện tích NFA (toàn bộ tòa nhà)'
-        return prefix + verified_mid + basis
+        size_note = ''
+        if oversized:
+            names = ', '.join(c['name'] for c in oversized)
+            size_note = (f' (Lưu ý: {names} có Tổng diện tích NFA lệch hơn '
+                         f'{SIZE_SIMILARITY_BAND:.0%} so với dự án này — không có dự án nào phù hợp '
+                         f'hơn trong dữ liệu hiện có)')
+        return prefix + verified_mid + basis + size_note
     prefix = {0: 'same District, then ', 1: 'same City/Province, then ', 2: ''}[best]
     verified_mid = 'individually-verified project, then ' if any_verified else ''
     basis = 'closest by real distance (km)' if used_distance else 'closest Total NFA (whole-building)'
-    return prefix + verified_mid + basis
+    size_note = ''
+    if oversized:
+        names = ', '.join(c['name'] for c in oversized)
+        size_note = (f' (note: {names} differs from this project\'s Total NFA by more than '
+                     f'{SIZE_SIMILARITY_BAND:.0%} — no closer-sized comparable exists in the '
+                     f'current data)')
+    return prefix + verified_mid + basis + size_note
 
 
 def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, input_city=None,
@@ -433,12 +463,22 @@ def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, 
     same-city) candidates to each other, and only within 1km. No weight is invented to blend km
     against NFA — a candidate is sorted by one measure or the other, never a combination of both.
 
+    WITHIN each tier and coordinate-precision bucket, a candidate whose `nfa` sits within
+    `SIZE_SIMILARITY_BAND` (±50%) of `input_nfa` now ranks ahead of one that doesn't (change
+    prefer-similar-size-comparables, 2026-09-18) — checked BEFORE hand-verified status, so a badly
+    -sized verified comparable no longer automatically beats a similarly-sized unverified one. Most
+    real intake forms carry no District/City, which collapses location tier to a constant for every
+    candidate — without this size preference, hand-verified status alone would decide most real
+    projects' comparable set regardless of how far off in size the only verified candidates happen
+    to be. If no candidate clears the band, ranking falls back to nearest-by-NFA exactly as before —
+    this is a preference, not a filter, and never returns an empty set.
+
     Omitting all four location arguments — or a project whose district/city matches no candidate and
-    has no within-DISTANCE_TIER_KM coordinate match — reproduces exactly today's NFA-only ordering:
-    every candidate lands in the same tier and the same "no near coordinates" bucket, so the sort
-    degenerates to the old `abs(nfa - input_nfa)` ordering. This remains a strict superset of the
-    pre-task-2.3 behavior. See `derive_product_rate_capped()` below for the companion rate-swing cap
-    that applies whenever this near-match tie-break actually changes which comparables get picked.
+    has no within-DISTANCE_TIER_KM coordinate match — collapses location tier and coordinate-
+    precision to a constant for every candidate, so the sort degenerates to size-tier, then
+    verified-status, then `abs(nfa - input_nfa)`. See `derive_product_rate_capped()` below for the
+    companion rate-swing cap that applies whenever this near-match tie-break actually changes which
+    comparables get picked.
 
     WITHIN each tier, and WITHIN whichever of task 2.4's two precision buckets a candidate already
     falls into (has a real, within-DISTANCE_TIER_KM coordinate match, or doesn't), a `hand_verified`
@@ -474,12 +514,17 @@ def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, 
 
     def sort_key(c):
         tier = _location_tier(c.get('district'), c.get('city'), input_district, input_city)
+        # change prefer-similar-size-comparables, 2026-09-18 — checked BEFORE verified_rank so a
+        # badly-sized hand-verified comparable no longer automatically beats a similarly-sized one
+        # that isn't. See design.md D1: this is the same "a closer match beats verified-status"
+        # principle task 8.1 already applied to coordinate precision, one dimension earlier.
+        size_tier = 0 if (input_nfa and abs(c['nfa'] - input_nfa) / input_nfa <= SIZE_SIMILARITY_BAND) else 1
         verified_rank = 0 if c.get('hand_verified') else 1
         if input_has_coords and _has_coords(c):
             dist = _haversine_km(input_lat, input_lon, c['lat'], c['lon'])
             if dist <= DISTANCE_TIER_KM:
-                return (tier, 0, verified_rank, dist)
-        return (tier, 1, verified_rank, abs(c['nfa'] - input_nfa))
+                return (tier, size_tier, 0, verified_rank, dist)
+        return (tier, size_tier, 1, verified_rank, abs(c['nfa'] - input_nfa))
 
     ranked = sorted(candidates, key=sort_key)
     return ranked[:n]

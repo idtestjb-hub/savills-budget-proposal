@@ -358,7 +358,8 @@ def build_comparison_sheet(wb, project, mgmt):
     ws = wb.create_sheet('Comparison')
     from master_comparables import comparable_match_basis
     match_basis = comparable_match_basis(top2, project.get('district'), project.get('city'),
-                                          input_lat=project.get('lat'), input_lon=project.get('lon'))
+                                          input_lat=project.get('lat'), input_lon=project.get('lon'),
+                                          input_nfa=project.get('total_nfa'))
     title_block(ws, 'Comparison', f"{project['name']} vs. the {len(top2)} nearest real comparable(s) WITH A VERIFIED APARTMENT RATE, ranked by {match_basis} — {len(MASTER_COMPARABLES)} real candidates considered. Other product types (Officetel/Shophouse/etc.) are priced from a different comparable set — see the Management Fee sheet's Rate source column.", 'A1:D1')
 
     headers = ['Metric', project['name']] + [c['name'] for c in top2]

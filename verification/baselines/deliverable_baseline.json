@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-18T02:09:55+07:00",
-  "reason": "reconcile-summary-with-detail-sheets signed off 2026-09-18 (provisional, user instruction: 'assume the sign off is approve then do next step'). Adds emh_staff_year1 (design.md D5: 'deliverable_baseline.py re-records estimated_surplus_year1 and adds the new staff figure') tracking 1. Summary!EMH -- ties the deliverable's in-house staff line to A1's real payroll total + the Reception top-up, per spec deliverable-total-integrity 'The staff figure reflects the deliverable's own payroll calculator'. Net surplus movement: -643,780,247 VND year 1 (task 6.1). Task 6.2's own spot-check found one unresolved residual (Wayne Tower Staff total +7.69% vs A1, ~222M VND not yet root-caused) accepted as a disclosed, open gap by this sign-off, not resolved by it -- see tasks.md 6.2/6.3.",
+  "recorded_at": "2026-09-18T10:58:34+07:00",
+  "reason": "prefer-similar-size-comparables signed off 2026-09-18 (provisional, user instruction: 'assume the sign-off is approved then do next step'). Same change as baseline.json's own re-record -- see that reason for the full account. Standard sample: derived_apartment_rate 16,500 -> 17,175 VND/m2/month (+4.1%).",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,12 +12,12 @@
   },
   "figures": {
     "rm_collected_year1": {
-      "value": 2980209375.0,
+      "value": 3096258750.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!SUM(G14:G22)"
     },
     "rm_developer_year1": {
-      "value": 8023640626.0,
+      "value": 8336081250.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G23"
     },
@@ -42,7 +42,7 @@
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 4813449847.589485,
+      "value": 5240359947.960442,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     },

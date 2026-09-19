@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-18T02:01:11+07:00",
-  "reason": "reconcile-summary-with-detail-sheets signed off 2026-09-18 (provisional, user instruction: 'assume the sign off is approve then do next step'). staff_cost_annual/total_profit_value/margin/markup were already reflected in the baseline (captured incidentally during rank-comparables-by-location's own 2026-09-17 re-record, which correctly flagged this as a separate, unrelated drift) -- this re-record corrects the attribution to this change now that it has its own sign-off, values are unchanged (verify.py already passed against them). Net surplus movement: -643,780,247 VND year 1, driven by EMH2's rework onto A1's live payroll formula (design D2). Task 6.2's own spot-check found one unresolved residual (Wayne Tower Staff total +7.69% vs A1, ~222M VND not yet root-caused) accepted as a disclosed, open gap by this sign-off, not resolved by it -- see tasks.md 6.2/6.3.",
+  "recorded_at": "2026-09-18T10:57:48+07:00",
+  "reason": "prefer-similar-size-comparables signed off 2026-09-18 (provisional, user instruction: 'assume the sign-off is approved then do next step'). Adds a size-similarity preference (SIZE_SIMILARITY_BAND=0.50, a disclosed judgment call) to nearest_comparables()'s sort key, ranked before verified-status -- a badly-sized hand-verified comparable no longer automatically beats a similarly-sized unverified one. Standard sample effect: derived_apartment_rate 16,500 -> 17,175 VND/m2/month (+4.1%), mgmt_fee_revenue_annual +428,490,000 VND (+3.9%). Diamond Skyline moved the OPPOSITE direction (-3.6% rate, -547,200,000 VND revenue) -- confirms this is a genuine per-project comparable-set change (Fiato Airport +54% off replaced by Masteri An Phu -4% off), not a uniform shift. Real Head-of-PM conversation still outstanding.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,17 +12,17 @@
   },
   "figures": {
     "derived_apartment_rate": {
-      "value": 16500.0,
+      "value": 17175.0,
       "unit": "VND/m²/month",
       "where": "Summary!R33C2"
     },
     "mgmt_fee_revenue_monthly": {
-      "value": 916987500.0,
+      "value": 952695000.0,
       "unit": "VND",
       "where": "Summary!R34C2"
     },
     "mgmt_fee_revenue_annual": {
-      "value": 11003850000.0,
+      "value": 11432340000.0,
       "unit": "VND",
       "where": "Summary!R35C2"
     },
@@ -52,17 +52,17 @@
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 3648931493.5,
+      "value": 4077421493.5,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.3316049831195445,
+      "value": 0.35665677311031685,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.4961212677305958,
+      "value": 0.5543802409090636,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },

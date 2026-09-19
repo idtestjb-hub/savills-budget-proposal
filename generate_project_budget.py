@@ -3170,7 +3170,8 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
 
     from master_comparables import comparable_match_basis
     match_basis = comparable_match_basis(comparables, project.get('district'), project.get('city'),
-                                          input_lat=project.get('lat'), input_lon=project.get('lon'))
+                                          input_lat=project.get('lat'), input_lon=project.get('lon'),
+                                          input_nfa=project.get('total_nfa'))
 
     ws['A1'] = (f"CROSS-PROJECT COMPARISON — {project['name']} vs. the {len(comparables)} nearest real "
                 f"comparables with a verified Apartment rate")
