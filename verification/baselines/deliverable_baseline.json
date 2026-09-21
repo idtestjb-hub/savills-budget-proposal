@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-21T15:31:20+07:00",
-  "reason": "complete-ai-guideline-remark-coverage (B2.6/ESS9 waste-collection costing) and fill-guideline-required-line-items (EMA7/EMH4/ESC12/ESM25) both provisionally signed off 2026-09-21 (assume it's approved, commit it); localize-line-level-remarks (display-only) signed off same instruction. Real Head-of-PM conversations still outstanding for all three.",
+  "recorded_at": "2026-09-21T16:52:13+07:00",
+  "reason": "activate-common-area-fund-cost-share signed off 2026-09-21 (\"confirm as correct -- ship it\", after tracing RI1 to its template-native chi ho reimbursement label and confirming no offsetting expense exists anywhere on the operating fund sheet -- template design, not a pipeline defect). 2.2 Common area Fund's expense pass-through rows (213 leaves) activated; RI1 now reads a real, non-trivial AH40 instead of near-zero. Allocation basis (revenue-share, F8) left as-is -- no strong objection raised, redesigning it is out of this change's scope per design.md.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",

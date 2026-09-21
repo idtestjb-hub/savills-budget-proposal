@@ -1008,11 +1008,20 @@ def check_remark_content(paths):
 _REQUIRED_CLASSIFICATION_FUND_SHEETS = ('2. Budget-Management Fund', '2.2 Common area Fund')
 
 # This check's own enforceable scope — the sheet(s) a zero-with-no-reason code actually FAILs the
-# run on. '2.2 Common area Fund' is scanned and reported (below) but never fails here: its own
-# Required-code completeness is entirely downstream of change activate-common-area-fund-cost-share
-# (still pending PM/finance sign-off) — every one of its expense codes either cascades to non-zero
-# once that lands, or needs that change's own remark work, not this one's. Failing this run on a
-# sheet this change does not own would conflate two separately-gated changes' completion criteria.
+# run on. '2.2 Common area Fund' is scanned and reported (below) but never fails here.
+#
+# Corrected 2026-09-21 — activate-common-area-fund-cost-share signed off ("confirm as correct —
+# ship it"), so this is no longer "pending." Checked directly (not assumed) what the remaining
+# zero codes on '2.2' actually are: every one of the 32 has an XLOOKUP-into-'2.Fund' F formula that
+# correctly resolves to zero, because the matching '2. Fund' code is ALSO zero — the same
+# genuinely-no-pricing-method codes already flagged (with a stated reason) on '2. Fund' itself
+# (EMH1, EMH3, EMA1-4, EMB1, EMB4, EMO2, EMO6, EM#, ESC1/2/4/5, ESS10/12/17/18/19/23, ESI1/2,
+# ESM6/7/9/10/12/13, ESR, ES#, EE#) — a proportional share of a real zero, not a gap this
+# activation left behind. What's still missing is that '2.2' never gets its OWN copy of those
+# disclosure remarks — `_FLAGGED_NO_METHOD` only writes to '2. Budget-Management Fund' — so
+# enforcing this sheet the same way would fail on rows that are correct but undocumented here.
+# Writing a matching '2.2' remark for each is real, additional work (~32 rows), not something to
+# absorb silently into this comment fix; flagged as a follow-up, not done.
 _REQUIRED_CLASSIFICATION_ENFORCED_SHEETS = ('2. Budget-Management Fund',)
 
 # EMA1-4 are Required but have no itemized comparable source anywhere in this repo (change
@@ -1163,9 +1172,11 @@ def check_required_line_items(paths):
             if sheet_pending:
                 notes.append(
                     f"'{sheet_name}' — {len(sheet_pending)} Required code(s) still zero with no "
-                    f"stated reason, not failed here: this sheet's own completeness is gated on "
-                    f"change activate-common-area-fund-cost-share (pending PM/finance sign-off), "
-                    f"not this change. {', '.join(c for c in sheet_pending)}")
+                    f"stated reason, not failed here: each is a proportional share (via the "
+                    f"activated XLOOKUP passthrough) of a code that is ALSO zero, with a stated "
+                    f"reason, on '2. Budget-Management Fund' — correct, not a gap — but '2.2' never "
+                    f"gets its own copy of that reason text, so this sheet isn't enforced the same "
+                    f"way yet. {', '.join(c for c in sheet_pending)}")
 
         dwb.Close(SaveChanges=False)
     finally:

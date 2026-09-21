@@ -40,15 +40,41 @@
 
 ## 3. Sign-off
 
-- [ ] 3.1 Present both open questions (design.md) plus the measured isolated movement to PM/
+- [x] 3.1 Present both open questions (design.md) plus the measured isolated movement to PM/
   finance. Capture the answer in this change's own notes and `docs/05-decisions.md`.
-- [ ] 3.2 If confirmed: record `2.2 Common area Fund`'s (and any downstream sheet's) baseline in
+  **Done 2026-09-21.** Before presenting, traced the RI1/AH40 mechanism further than design.md had:
+  RI1's own template label reads *"Collect operating expenses already paid for common area fund /
+  Thu kinh phí vận hành đã chi hộ quỹ khai thác khu vực chung"* — a "chi hộ" (paid-on-behalf-of)
+  reimbursement, template-native, not a pipeline invention. Searched the entire operating-fund
+  sheet for every cross-reference to `2.2 Common area Fund`: exactly one, RI1's own `F78`. No
+  offsetting expense exists anywhere on that sheet for whatever the fund advances. Presented both
+  questions plus this sharper finding. **RI1 double-count question: "Confirm as correct — ship
+  it."** **Allocation basis (revenue-share) question: "Not sure / no strong opinion"** — left as is,
+  flagged as an open item per design.md's own Non-Goals (redesigning `F8` is out of this change's
+  scope regardless). See `docs/05-decisions.md`'s new entry.
+- [x] 3.2 If confirmed: record `2.2 Common area Fund`'s (and any downstream sheet's) baseline in
   `deliverable_baseline.json` / `baseline.json` as applicable. Verify `verify.py` passes.
-- [ ] 3.3 If rejected or a different basis is confirmed: implement the correction (replace `$F$8`
+  **Done 2026-09-21** — only `deliverable_baseline.json` (`2.2 Common area Fund` doesn't exist on
+  the analysis workbook, confirmed by grep — `baseline.json` untouched). `verify.py` re-run: **PASS
+  end to end**, all 6 sections.
+  **Found and fixed in passing**: `check_required_line_items`'s own explanatory note for `2.2`'s 32
+  still-zero Required codes said this sheet's completeness was "gated... pending PM/finance
+  sign-off" — stale now that sign-off landed. Checked directly (not assumed): every one of the 32 is
+  a proportional share of a code that is ALSO zero, with a stated reason, on `2. Budget-Management
+  Fund` — correct, not a gap. What's actually missing is that `2.2` never gets its own copy of that
+  disclosure text (`_FLAGGED_NO_METHOD` only writes to the first sheet). Comment and printed note
+  corrected to say this; the underlying enforcement scope is unchanged (writing ~32 matching remarks
+  onto `2.2` is real, separate work, not absorbed into this fix — flagged as a follow-up).
+- [x] 3.3 If rejected or a different basis is confirmed: implement the correction (replace `$F$8`
   usage, or revert `_activate_common_area_passthrough_rows`'s call site) before proceeding to
   archive.
+  **N/A** — confirmed as correct (3.1), not rejected. Nothing to revert or replace.
 
 ## 4. Docs
 
-- [ ] 4.1 Update `docs/09-template-map.md`'s `2.2 Common area Fund` row description and
+- [x] 4.1 Update `docs/09-template-map.md`'s `2.2 Common area Fund` row description and
   `docs/project-status.md` once sign-off lands, either direction.
+  **Done 2026-09-21** — `docs/09-template-map.md`'s "Other branches" section extended with the
+  activation mechanism, the RI1/"chi hộ" finding, and a pointer to `docs/05-decisions.md`'s new
+  entry. `docs/project-status.md`: new dated amendment at the top, plus a "RESOLVED" pointer on the
+  original 2026-09-14 narrative block.
