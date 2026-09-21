@@ -68,6 +68,16 @@ overwriting the formulas.
 `Project Info!B34`/`B35` (Savills' own fee) are deliberately blank. Leave them blank until a real
 contract term exists — see `docs/05-decisions.md`, D1.
 
+**`Capex Drop-to-Reserve Year`** (`BUDGET HORIZON` section, near the bottom) controls the two
+internal analysis sheets' (`Owner Operating Position`, `Savills Fee Position`) 4-year Capex
+projection — nothing on the client deliverable. Left blank, it defaults to Year 2: every year before
+it repeats the project's full initial equipment purchase, and it and every year after drop to a
+derived ongoing reserve contribution instead. That default is evidenced, not arbitrary (3 of the 4
+real reference projects behind it drop at Year 2), but one of the four — Green Skyline — genuinely
+repeats a full purchase in Year 2 and drops in Year 3, which is worth ~290M VND on a project that
+shape. Enter `3` or `4` here only when this project's own equipment replacement cycle is known to be
+longer than the default. See `docs/05-decisions.md`, D4.
+
 ### 3. Run the pipeline
 
 **The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then in

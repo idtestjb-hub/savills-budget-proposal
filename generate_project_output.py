@@ -2551,10 +2551,12 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
 YEAR_FILL_PATH = [('Year 1', 0.50), ('Year 2', 0.70), ('Year 3', 0.90), ('Year 4', 1.00)]
 
 # Disclosed assumption, NOT real data: Capex on the rollover sheets follows a sinking-fund
-# pattern — Year 1 carries the full initial fit-out lump sum (matches the Summary/Cost Priority
-# sheets' "Year-1 lump sum" framing exactly), then Years 2-4 drop to a smaller ongoing reserve
-# contribution instead of repeating the full purchase every year (equipment like elevators/
-# generators gets replaced on a multi-year cycle, not annually). The rate is DERIVED from real
+# pattern — Year 1 always carries the full initial fit-out lump sum (matches the Summary/Cost
+# Priority sheets' "Year-1 lump sum" framing exactly), repeating in full for every year before
+# project['capex_drop_year'] (an input, default Year 2 — change derive-capex-reserve-rate, task
+# 4), which drops to a smaller ongoing reserve contribution instead of repeating the full purchase
+# (equipment like elevators/generators gets replaced on a multi-year cycle, not annually). The
+# reserve rate itself is DERIVED from real
 # projects — see _load_capex_reserve() below — not assumed.
 CAPEX_RESERVE_CSV = os.path.join(BUDGET_AGENT, 'data', 'generation_A_star_schema',
                                  'Fact_CapexReserve.csv')
@@ -2606,6 +2608,33 @@ CAPEX_RESERVE_SOURCE = (
     f'rescan_capex_reserve.py. It is NOT a rule of thumb. Note the written cost spec '
     f'(EXENSIVE LOGIC.xlsx, EN1-EN3) states ~0.1%, which no real project comes close to.')
 
+
+# Change derive-capex-reserve-rate, task 4 (2026-09-21) — the drop-to-reserve year is now an input
+# (project['capex_drop_year'], default 2, see generate_project_budget._resolve_capex_drop_year).
+# Shared by both the Owner Operating Position and Savills Fee Position sheets, yearly and monthly
+# tables alike, so the four write sites cannot drift on what "the drop year" means.
+def _capex_reserve_formula(cell, year_num, drop_year):
+    """(formula, is_full_purchase_year) for one row of the 4-year yearly sinking-fund table.
+    Years before `drop_year` repeat the full lump-sum purchase (like Year 1 always does); `drop_year`
+    and every year after it carry the derived ongoing reserve rate instead."""
+    full = year_num < drop_year
+    formula = f'={cell}' if full else f'={cell}*{CAPEX_RESERVE_RATE}'
+    return formula, full
+
+
+def _capex_reserve_monthly_formula(cell, month_num, drop_year):
+    """(formula, fill_color_or_None) for one row of the 48-month monthly sinking-fund breakdown —
+    same drop-year logic as _capex_reserve_formula, but the lump sum for a full-purchase year lands
+    on that year's first month only, with its other 11 months at zero."""
+    year_num = (month_num - 1) // 12 + 1
+    month_in_year = (month_num - 1) % 12 + 1
+    if year_num < drop_year:
+        if month_in_year == 1:
+            return f'={cell}', 'FFF7CC'
+        return 0, None
+    return f'={cell}*{CAPEX_RESERVE_RATE}/12', 'E2EFDA'
+
+
 def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy):
     """Tracks whether the BUILDING's own operating account — resident collections vs. Staff/OPEX/
     Capex reimbursement, deliberately EXCLUDING Savills' own fee — becomes self-sustaining as fill
@@ -2623,6 +2652,9 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
     RECURRING_COST = f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']})"
     CAPEX_CELL = summary['selected_capex_cell']
+    DROP_YEAR = project['capex_drop_year']
+    DROP_YEAR_NOTE = (f'the evidenced default of Year {DROP_YEAR}' if project['capex_drop_year_is_default']
+                       else f"this project's own stated Year {DROP_YEAR}")
 
     r = 4
     section(ws, r, 'YEAR-BY-YEAR OPERATING POSITION', ncols=6); r += 1
@@ -2631,9 +2663,9 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
                    f'fill path used elsewhere in this workbook as 4 sequential years, one stage per year. Staff/OPEX '
                    f'are held at full each year (per the Cost Basis toggle). Capex follows a sinking-fund pattern: '
                    f'Year 1 carries the full initial lump sum (matching the Summary/Cost Priority sheets exactly), '
-                   f'Years 2-4 drop to a {CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead of repeating '
-                   f'the full purchase — a disclosed assumption, not this project\'s own real reserve policy (see '
-                   f'NOTES).')
+                   f'repeating in full for every year before {DROP_YEAR_NOTE}, which drops to a '
+                   f'{CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead — a disclosed assumption, not '
+                   f'this project\'s own real reserve policy (see NOTES).')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:F{r}')
@@ -2663,11 +2695,11 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         c4 = ws.cell(row=r, column=4, value=f'={RECURRING_COST}')
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        capex_formula = f'={CAPEX_CELL}' if i == 0 else f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}'
+        capex_formula, capex_is_full = _capex_reserve_formula(CAPEX_CELL, i + 1, DROP_YEAR)
         c5 = ws.cell(row=r, column=5, value=capex_formula)
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        c5.fill = PatternFill('solid', fgColor='FFF7CC') if i == 0 else PatternFill('solid', fgColor='E2EFDA')
+        c5.fill = PatternFill('solid', fgColor='FFF7CC' if capex_is_full else 'E2EFDA')
         c6 = ws.cell(row=r, column=6, value=f'=D{r}+E{r}')
         c6.number_format = MONEY_FMT
         c6.border = BORDER
@@ -2690,7 +2722,8 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     ws.conditional_formatting.add(f'H{year_first_row}:H{year_last_row}', red_rule)
     r += 1
     ws.cell(row=r, column=1,
-            value='Capex column: yellow = Year 1 full lump sum, green = Years 2-4 reserve contribution (10% of Year 1).'
+            value=(f'Capex column: yellow = full lump-sum purchase, green = reserve contribution '
+                   f'({CAPEX_RESERVE_RATE:.1%} of Year 1) — drops at {DROP_YEAR_NOTE}.')
             ).font = Font(italic=True, size=8, color='7F7F7F')
     r += 1
 
@@ -2699,9 +2732,10 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
             value=(f'Fill % ramps smoothly month to month toward the SAME 50/70/90/100% year-end anchors used above '
                    f'— starting near 0%, not flat for all 12 months of Year 1. This shows worse early-month numbers '
                    f'than the flat yearly average above, on purpose: a real building doesn\'t open at 50% fill on '
-                   f'day 1. Capex follows the same sinking-fund pattern as the yearly table: the full lump sum hits '
-                   f'in Month 1 only, then Months 13-48 (Years 2-4) carry a {CAPEX_RESERVE_RATE:.1%} reserve '
-                   f'contribution spread evenly per month — Months 2-12 have no additional Capex.')
+                   f'day 1. Capex follows the same sinking-fund pattern as the yearly table: a full lump sum hits '
+                   f'the first month of every year before {DROP_YEAR_NOTE} (Months 2-12 of that year have no '
+                   f'additional Capex), then every month from {DROP_YEAR_NOTE}\'s own first month onward carries '
+                   f'a {CAPEX_RESERVE_RATE:.1%} reserve contribution spread evenly per month.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:H{r}')
@@ -2732,12 +2766,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         c4 = ws.cell(row=r, column=4, value=f'={RECURRING_COST}/12')
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        if month_num == 1:
-            capex_formula, capex_fill = f'={CAPEX_CELL}', 'FFF7CC'
-        elif month_num <= 12:
-            capex_formula, capex_fill = 0, None
-        else:
-            capex_formula, capex_fill = f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}/12', 'E2EFDA'
+        capex_formula, capex_fill = _capex_reserve_monthly_formula(CAPEX_CELL, month_num, DROP_YEAR)
         c5 = ws.cell(row=r, column=5, value=capex_formula)
         c5.number_format = MONEY_FMT
         c5.border = BORDER
@@ -2802,9 +2831,10 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
         'are — the monthly table is the more realistic view for that reason.',
         f'Capex follows a sinking-fund pattern: Year 1 carries the FULL initial lump sum — the exact same figure '
         f'and treatment as the Summary/Cost Priority sheets\' "Year-1 lump sum, not amortized" — so those sheets '
-        f'and this one now agree on Year 1. Years 2-4 drop to a {CAPEX_RESERVE_RATE:.1%} ongoing reserve '
-        f'contribution instead of repeating the full purchase, since equipment like elevators/generators gets '
-        f'replaced on a multi-year cycle, not annually. {CAPEX_RESERVE_SOURCE}',
+        f'and this one now agree on Year 1, repeating in full for every year before {DROP_YEAR_NOTE}, which drops '
+        f'to a {CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead of repeating the full purchase, since '
+        f'equipment like elevators/generators gets replaced on a multi-year cycle, not annually. '
+        f'{CAPEX_RESERVE_SOURCE}',
         'Every VND figure here is a live formula reading the Summary sheet\'s Cost Basis toggle output — nothing '
         'is re-derived independently.',
     ]
@@ -2837,6 +2867,11 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
     BASE_PACKAGE = f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']}+{summary['profit_cell']})"
     CAPEX_CELL = summary['selected_capex_cell']
+    DROP_YEAR = project['capex_drop_year']
+    DROP_YEAR_NOTE = (f'the evidenced default of Year {DROP_YEAR}' if project['capex_drop_year_is_default']
+                       else f"this project's own stated Year {DROP_YEAR}")
+    FULL_YEARS_LABEL = 'Year 1' if DROP_YEAR == 2 else f'Years 1-{DROP_YEAR - 1}'
+    RESERVE_YEARS_LABEL = f'Years {DROP_YEAR}-4'
 
     r = 4
     section(ws, r, "SAVILLS' RECOGNIZED PROFIT — ALWAYS POSITIVE, PROTECTED", ncols=5); r += 1
@@ -2883,7 +2918,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     package_rows = [
         ('Staff Cost Reimbursement (per Cost Basis toggle, VND)', summary['selected_staff_cell'], None),
         ('OPEX Reimbursement (per Cost Basis toggle, VND)', summary['selected_opex_cell'], None),
-        ('Capex Reimbursement — YEAR 1 full lump sum (VND)', summary['selected_capex_cell'], 'FFF7CC'),
+        (f'Capex Reimbursement — {FULL_YEARS_LABEL} full lump sum (VND)', summary['selected_capex_cell'], 'FFF7CC'),
         ("Savills' Own Service Fee / Profit, at 100% fill (VND)", summary['profit_cell'], None),
     ]
     package_cells = []
@@ -2897,20 +2932,20 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
             c2.fill = PatternFill('solid', fgColor=hl)
         package_cells.append(f'B{r}')
         r += 1
-    ws.cell(row=r, column=1, value='TOTAL FULL PACKAGE, YEAR 1 (VND)').font = Font(bold=True, size=12)
+    ws.cell(row=r, column=1, value=f'TOTAL FULL PACKAGE, {FULL_YEARS_LABEL} (VND)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2, value='=' + '+'.join(package_cells))
     c.number_format = MONEY_FMT
     c.font = Font(bold=True, size=12)
     c.fill = HIGHLIGHT_FILL
     FULL_PACKAGE_CELL = f'B{r}'
     r += 1
-    ws.cell(row=r, column=1, value=f'Capex Reimbursement — YEARS 2-4 reserve ({CAPEX_RESERVE_RATE:.1%} of Year 1) (VND)').font = Font(size=10, italic=True)
+    ws.cell(row=r, column=1, value=f'Capex Reimbursement — {RESERVE_YEARS_LABEL} reserve ({CAPEX_RESERVE_RATE:.1%} of Year 1) (VND)').font = Font(size=10, italic=True)
     c = ws.cell(row=r, column=2, value=f"={summary['selected_capex_cell']}*{CAPEX_RESERVE_RATE}")
     c.number_format = MONEY_FMT
     c.font = Font(size=10, italic=True)
     c.fill = PatternFill('solid', fgColor='E2EFDA')
     r += 1
-    ws.cell(row=r, column=1, value='RECURRING PACKAGE, YEARS 2-4 (Staff+OPEX+Profit; Capex at reserve rate) (VND)').font = Font(bold=True, size=12)
+    ws.cell(row=r, column=1, value=f'RECURRING PACKAGE, {RESERVE_YEARS_LABEL} (Staff+OPEX+Profit; Capex at reserve rate) (VND)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2,
                 value=f"={summary['selected_staff_cell']}+{summary['selected_opex_cell']}+{summary['profit_cell']}"
                       f"+{summary['selected_capex_cell']}*{CAPEX_RESERVE_RATE}")
@@ -2920,11 +2955,12 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     RECURRING_PACKAGE_CELL = f'B{r}'
     r += 1
     ws.cell(row=r, column=1,
-            value=(f'Year 1\'s full package always equals Management Fee Revenue at 100% fill exactly (Costs + '
-                   f'Profit = Revenue by construction) — a cross-check, not a coincidence. Years 2-4\'s recurring '
-                   f'package is LOWER (drops {1-CAPEX_RESERVE_RATE:.1%} of the Capex reimbursement, per the '
-                   f'sinking-fund assumption — see NOTES), which means the receivable below CAN partially unwind '
-                   f'in high-fill later years, unlike Year 1 where it structurally can\'t.')
+            value=(f'{FULL_YEARS_LABEL}\'s full package always equals Management Fee Revenue at 100% fill exactly '
+                   f'(Costs + Profit = Revenue by construction) — a cross-check, not a coincidence. '
+                   f'{RESERVE_YEARS_LABEL}\'s recurring package is LOWER (drops {1-CAPEX_RESERVE_RATE:.1%} of the '
+                   f'Capex reimbursement, per the sinking-fund assumption — see NOTES), which means the receivable '
+                   f'below CAN partially unwind in high-fill later years, unlike {FULL_YEARS_LABEL} where it '
+                   f'structurally can\'t.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:E{r}')
@@ -2937,8 +2973,8 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
                    'package accumulates as a receivable owed by the owner — modeled here as a deferred rollover, '
                    'per the PM\'s description (settled at contract end), NOT paid down year to year. If the real '
                    'mechanism is periodic cash-calls instead, this balance would clear each year rather than '
-                   'accumulate. Capex follows the sinking-fund pattern above (full in Year 1, reserve rate in '
-                   'Years 2-4) — see NOTES.')
+                   f'accumulate. Capex follows the sinking-fund pattern above (full in {FULL_YEARS_LABEL}, '
+                   f'reserve rate in {RESERVE_YEARS_LABEL}) — see NOTES.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:G{r}')
@@ -2964,11 +3000,11 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         c3 = ws.cell(row=r, column=3, value=f'={MGMT_100}*B{r}')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        capex_formula = f'={CAPEX_CELL}' if i == 0 else f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}'
+        capex_formula, capex_is_full = _capex_reserve_formula(CAPEX_CELL, i + 1, DROP_YEAR)
         c4 = ws.cell(row=r, column=4, value=capex_formula)
         c4.number_format = MONEY_FMT
         c4.border = BORDER
-        c4.fill = PatternFill('solid', fgColor='FFF7CC') if i == 0 else PatternFill('solid', fgColor='E2EFDA')
+        c4.fill = PatternFill('solid', fgColor='FFF7CC' if capex_is_full else 'E2EFDA')
         c5 = ws.cell(row=r, column=5, value=f"={BASE_PACKAGE}+D{r}")
         c5.number_format = MONEY_FMT
         c5.border = BORDER
@@ -2989,8 +3025,9 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     ws.cell(row=r, column=1,
             value=(f'Same smooth month-by-month fill % ramp used on the Owner Operating Position sheet, applied to '
                    f'the receivable above. Staff/OPEX/Profit portion is held flat per month; Capex follows the same '
-                   f'sinking-fund pattern as the yearly table — full lump sum in Month 1, no Capex in Months 2-12, '
-                   f'then a {CAPEX_RESERVE_RATE:.1%} reserve contribution spread evenly across Months 13-48.')
+                   f'sinking-fund pattern as the yearly table — a full lump sum in the first month of every year '
+                   f'before {DROP_YEAR_NOTE}, then a {CAPEX_RESERVE_RATE:.1%} reserve contribution spread evenly '
+                   f'per month from {DROP_YEAR_NOTE}\'s own first month onward.')
             ).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:G{r}')
@@ -3016,12 +3053,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         c3 = ws.cell(row=r, column=3, value=f'=({MGMT_100}/12)*B{r}')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        if month_num == 1:
-            capex_formula, capex_fill = f'={CAPEX_CELL}', 'FFF7CC'
-        elif month_num <= 12:
-            capex_formula, capex_fill = 0, None
-        else:
-            capex_formula, capex_fill = f'={CAPEX_CELL}*{CAPEX_RESERVE_RATE}/12', 'E2EFDA'
+        capex_formula, capex_fill = _capex_reserve_monthly_formula(CAPEX_CELL, month_num, DROP_YEAR)
         c4 = ws.cell(row=r, column=4, value=capex_formula)
         c4.number_format = MONEY_FMT
         c4.border = BORDER
@@ -3062,9 +3094,9 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         'year-end anchors, starting from 0% at month 0, instead of jumping straight to each year\'s value — same '
         'interpolation as the Owner Operating Position sheet, so the two stay comparable month for month.',
         f'Capex follows a sinking-fund pattern: Year 1 carries the FULL lump sum — matching the Summary/Cost '
-        f'Priority sheets\' "Year-1 lump sum, not amortized" exactly — then Years 2-4 drop to a '
-        f'{CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead of repeating the full purchase. '
-        f'{CAPEX_RESERVE_SOURCE}',
+        f'Priority sheets\' "Year-1 lump sum, not amortized" exactly — repeating in full for every year before '
+        f'{DROP_YEAR_NOTE}, which drops to a {CAPEX_RESERVE_RATE:.1%} ongoing reserve contribution instead of '
+        f'repeating the full purchase. {CAPEX_RESERVE_SOURCE}',
     ]
     for note in notes:
         ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')

@@ -584,6 +584,22 @@ def main():
         "number.",
         'Budget Planning Agent')
 
+    # Appended, not inserted — same no-row-shift-risk reason as every field above (change
+    # derive-capex-reserve-rate, task 4, 2026-09-21).
+    c_capex_drop = labeled_input(
+        ws1, 55, 'Capex Drop-to-Reserve Year — leave blank for the evidenced default (Year 2)', None)
+    c_capex_drop.comment = Comment(
+        "On the Owner Operating Position / Savills Fee Position sheets' 4-year Capex sinking-fund "
+        "table: Year 1 always carries the full initial lump-sum purchase. Years BEFORE this field's "
+        "value also carry a full lump sum (equipment bought again); this year and every year after "
+        "it carry the derived ongoing reserve contribution instead. Default (blank): Year 2 — what "
+        "3 of the 4 real reference projects behind the derived rate actually do. Enter 3 or 4 if "
+        "this project's own replacement cycle is known to be longer (Green Skyline, one of those "
+        "four, repeats a full purchase in Year 2 and drops in Year 3 — costs ~290M VND differently "
+        "from the default on that shape of project). Year 1 cannot be entered here — it always "
+        "carries the full lump sum.",
+        'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14}.items():
         ws1.column_dimensions[col].width = w
 

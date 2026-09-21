@@ -384,6 +384,45 @@ def _resolve_operating_years(raw):
     return years
 
 
+# Change derive-capex-reserve-rate, D3 — evidenced default: 3 of the 4 real reference projects
+# (Parking Building, Lumi Prestige & Elite, Lumi Signature) drop to the reserve at Year 2; only
+# Green Skyline repeats a full Year-2 purchase and drops at Year 3. See Fact_CapexReserve.csv.
+CAPEX_DROP_YEAR_DEFAULT = 2
+
+
+def _resolve_capex_drop_year(raw):
+    """(drop_year, is_default) for the Owner Operating Position / Savills Fee Position sheets'
+    4-year Capex sinking-fund table: Years before `drop_year` carry a full lump-sum purchase (like
+    Year 1 always does); `drop_year` and every year after it carry the derived reserve rate instead.
+
+    Year 1 SHALL always carry the full lump sum (design.md D5's own invariant — a tracked baseline
+    figure moving here would mean this change reached further than intended), so `drop_year` below
+    2 is rejected, not silently floored. Only 4 years are modelled (YEAR_FILL_PATH), so anything
+    above 4 is rejected too, rather than accepted and silently never taking effect.
+    """
+    stated = not (raw is None or (isinstance(raw, str) and not raw.strip()))
+    if not stated:
+        return CAPEX_DROP_YEAR_DEFAULT, True
+    try:
+        year = int(raw)
+        if year != float(raw):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Project Info 'Capex Drop-to-Reserve Year' is {raw!r}, which is not a whole year "
+            f"number. Enter 2, 3 or 4, or clear the cell to take the default of "
+            f"{CAPEX_DROP_YEAR_DEFAULT}."
+        )
+    if year < 2 or year > 4:
+        raise ValueError(
+            f"Project Info 'Capex Drop-to-Reserve Year' is {year}. Year 1 always carries the full "
+            f"lump-sum purchase (it cannot itself be the drop year), and only Years 1-4 are modelled "
+            f"on the Owner Operating Position / Savills Fee Position sheets. Enter 2, 3 or 4, or "
+            f"clear the cell to take the default of {CAPEX_DROP_YEAR_DEFAULT}."
+        )
+    return year, False
+
+
 def _resolve_coords(raw_lat, raw_lon):
     """(lat, lon) as floats, or (None, None). A lone value on just one of the two fields is treated
     as no coordinates at all — nearest_comparables() only uses them as a pair (a real distance needs
@@ -632,9 +671,17 @@ def read_input(path):
         # Optional: absent on workbooks created before this field was added (2026-09-16). Feeds
         # generate_project_output.py's _real_basement_lcd_qty() only; no other figure reads it.
         basement_count=(L.value('Number of Basements') if L.has('Number of Basements') else None),
+        # Optional: absent on workbooks created before this field was added (change
+        # derive-capex-reserve-rate, task 4, 2026-09-21). Feeds generate_project_output.py's
+        # Owner Operating Position / Savills Fee Position sinking-fund tables only — no figure on
+        # any other sheet reads it. Validated, with its evidenced default applied, just below.
+        capex_drop_year=(L.value('Capex Drop-to-Reserve Year')
+                         if L.has('Capex Drop-to-Reserve Year') else None),
     )
     project['lat'], project['lon'] = _resolve_coords(project['lat'], project['lon'])
     project['operating_years'] = _resolve_operating_years(project['operating_years'])
+    project['capex_drop_year'], project['capex_drop_year_is_default'] = _resolve_capex_drop_year(
+        project['capex_drop_year'])
     project['pool_count'], project['pool_count_stated'] = _resolve_pool_count(
         project['pool_count'], project['has_pool'])
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
