@@ -43,14 +43,23 @@ m²) refined by the project's own location — so that neither workbook can pick
 projects, or weight them differently, for the same input. Location ranking SHALL account for the
 project's district and city in addition to Total NFA, such that a comparable in the same district as
 the project SHALL rank at least as favorably as an equally-NFA-distant comparable in a different
-district. Within whichever district/city tier and coordinate-precision grouping a comparable already
-falls into, a comparable backed by a real, individually-verified budget workbook SHALL rank at least
-as favorably as an otherwise-equivalent comparable that is not, but this preference SHALL NOT let an
+district. Within whichever district/city tier a comparable already falls into, one whose Total NFA
+sits within the size-similarity band of the project's own Total NFA SHALL rank at least as favorably
+as an otherwise-equivalent comparable that does not, and this preference SHALL be checked before
+verification status — a comparable within the size-similarity band SHALL NOT be outranked by one
+outside it purely because the latter is individually-verified. Within whichever district/city tier,
+size-similarity grouping, and coordinate-precision grouping a comparable already falls into, a
+comparable backed by a real, individually-verified budget workbook SHALL rank at least as favorably
+as an otherwise-equivalent comparable that is not, but this preference SHALL NOT let an
 individually-verified comparable outrank a real, more location-precise comparable — precision-of-match
-takes priority over verification status, not the reverse. Where one workbook shows its comparables to
-the reader, it SHALL present them in the same ranked order the matching method produces and SHALL
-label the matching basis actually used (not always "Total NFA" — the label SHALL reflect location when
-location narrowed the pool, and SHALL state when a shown comparable is individually-verified).
+takes priority over verification status, not the reverse. Ranking SHALL NOT fail, error, or return an
+empty comparable set solely because no candidate clears the size-similarity band — it SHALL fall back
+to the nearest available comparable by Total NFA. Where one workbook shows its comparables to the
+reader, it SHALL present them in the same ranked order the matching method produces, SHALL label the
+matching basis actually used (not always "Total NFA" — the label SHALL reflect location when location
+narrowed the pool, and SHALL state when a shown comparable is individually-verified), and SHALL state
+when a shown comparable's Total NFA differs from the project's own by more than the size-similarity
+band.
 
 #### Scenario: Both workbooks agree on total revenue
 
@@ -80,13 +89,38 @@ location narrowed the pool, and SHALL state when a shown comparable is individua
 #### Scenario: A project's own district has no comparable
 
 - **WHEN** no comparable project shares this project's district or city
-- **THEN** ranking SHALL fall back to today's Total-NFA-only ordering
+- **THEN** ranking SHALL fall back to today's Total-NFA-only ordering, refined by the size-similarity
+  preference below
 - **AND** SHALL NOT fail, error, or return an empty comparable set
+
+#### Scenario: A similarly-sized comparable is preferred over a badly-sized verified one
+
+- **WHEN** the comparable pool, within the same district/city tier, contains a candidate whose Total
+  NFA sits within the size-similarity band of the project's own Total NFA and is not
+  individually-verified, and another candidate that IS individually-verified but whose Total NFA
+  sits outside that band
+- **THEN** the similarly-sized, non-verified candidate SHALL rank at or above the badly-sized,
+  verified one
+
+#### Scenario: No candidate clears the size-similarity band
+
+- **WHEN** every candidate in the project's own district/city tier sits outside the size-similarity
+  band
+- **THEN** ranking SHALL fall back to the nearest available comparable by Total NFA, exactly as it
+  did before this requirement existed
+- **AND** SHALL NOT fail, error, or return an empty comparable set
+
+#### Scenario: A comparable outside the size-similarity band is disclosed
+
+- **WHEN** a comparable shown to the reader has a Total NFA more than the size-similarity band away
+  from the project's own
+- **THEN** the matching-basis text SHALL state that its size differs beyond the band, in the
+  language the surrounding text is written in
 
 #### Scenario: An individually-verified comparable is preferred over an equally-ranked one that isn't
 
-- **WHEN** the comparable pool, within the same district/city tier and coordinate-precision grouping,
-  contains both an individually-verified project and one that is not
+- **WHEN** the comparable pool, within the same district/city tier, size-similarity grouping, and
+  coordinate-precision grouping, contains both an individually-verified project and one that is not
 - **THEN** the individually-verified comparable SHALL rank at or above the non-verified one
 
 #### Scenario: A precise location match is not displaced by verification status
