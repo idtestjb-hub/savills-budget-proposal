@@ -178,10 +178,43 @@
 
 ## 7. Manual review and sign-off
 
-- [ ] 7.1 Generate the deliverable for one real project (or the standard synthetic sample, per
+- [x] 7.1 Generate the deliverable for one real project (or the standard synthetic sample, per
       whatever `reconcile-summary-with-detail-sheets`/`apply-guideline-remark-model` used), read every
       line-level remark aloud in Vietnamese, and confirm each states the right figure or reason for
       that project and reads naturally — same review shape as the original narrative work's Wayne
       Tower read-aloud review.
-- [ ] 7.2 Confirm with Head of PM (or whoever owns Vietnamese financial/legal terminology review) that
+      **Done 2026-09-21** — generated on Diamond Skyline (the current live project), read every
+      non-blank `1. Summary` K narrative and every line-level `T` remark on both fund sheets (60+
+      cells) end to end. Found and fixed two real leftover-English fragments `check_remark_content`'s
+      diacritic-presence test cannot catch (a cell counts as "Vietnamese" if ANY part of it has a
+      diacritic, so an English tail appended after a Vietnamese sentence passes silently):
+      - `EEW.C`/`EEE.C` (water/electricity line-level remarks) each ended with an untranslated
+        "Year-1 total ... (full-occupancy annual ...)" sentence, appended at the write-call site,
+        outside the `_energy_narrative_vi()` helper Group 1 (tasks 1.1/1.2) translated — now "Tổng
+        năm 1: ... (nếu lấp đầy 100%: ... VND/năm)."
+      - `EEE.C` additionally carried a second English sentence ("Distributed across the 12 months by
+        the resident fill-up curve..., floored at 40%...") that turned out to be a stale, fully
+        redundant duplicate of a sentence `_energy_narrative_vi()` already states in Vietnamese
+        earlier in the same cell — removed rather than translated, since translating it would have
+        said the same thing twice.
+      Re-verified after the fix: `check_summary_reconciles` and `check_remark_content` both pass
+      clean (0 differences), `check_formula_errors` reports 0 new errors.
+      **Found, NOT fixed — flagged as out of this task's scope**: two smaller issues.
+      (1) `EEW.C`'s usage quantity prints as "1,855 m3/month" and `EEE.C`'s as "143,835 kWh/month" —
+      `usage_unit` is a literal string sourced from `estimate_opex.py`'s own data model (shared with
+      the analysis workbook), not composed narrative prose; changing it means touching a
+      cross-generator data contract, beyond Group 1's stated scope ("shared energy wording currently
+      inlined in `_recipe_narrative()`"). (2) `1. Summary` K16/K17 ("RA"/"RR" — advertising/common-
+      area-exploitation revenue not recognized in this fund) reads "Doanh thu **đền** từ khai thác..."
+      — should be "**đến** từ" ("revenue coming from," not "đền," which means "compensate/temple" and
+      is nonsensical here). Grepped every `.py` file for this text: no match anywhere — it is
+      TEMPLATE-OWNED text the pipeline never writes, the same boundary `localize-line-level-remarks`
+      already respected for `RP5`="demo" (task 5.1's own note) — fixing it would mean editing
+      Savills' own template file, outside this project's standing "keep the template file" rule.
+      Both flagged for the template owner separately, not fixed here.
+- [x] 7.2 Confirm with Head of PM (or whoever owns Vietnamese financial/legal terminology review) that
       the wording is correct and professional before this change is archived.
+      **Provisionally signed off 2026-09-21** — explicit instruction: "assume it's approved, commit
+      it." Not the actual Vietnamese-terminology review this task calls for. See
+      `docs/05-decisions.md`'s new entry for the full account, including the two out-of-scope issues
+      (template typo, English unit-label) flagged for separate follow-up.

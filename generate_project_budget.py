@@ -1442,6 +1442,24 @@ DRINKING_WATER_L_PER_PERSON_DAY = 1         # EMA7 — guideline: BQL headcount 
 DRINKING_WATER_BOTTLE_LITERS = 19
 DRINKING_WATER_BOTTLE_PRICE = 60_000        # incl. VAT — guideline's own cited 19L bottle vendor price
 
+# Added 2026-09-21, change complete-ai-guideline-remark-coverage (B2.6 / waste-collection-costing
+# track) — read directly from the guideline's own 'B2.6 Rác sinh hoạt (QD67)' worksheet (both the
+# docs/ source copy and the live TEMPLATE_PATH form carry the same three unit prices). QĐ
+# 67/2025/QĐ-UBND's own three-part household-waste tariff, VND/kg, excl. VAT:
+WASTE_QD67_COLLECTION_PRICE = 485.97        # Dịch vụ thu gom tại nguồn CTRSH
+WASTE_QD67_TRANSPORT_PRICE = 180.07         # Dịch vụ vận chuyển CTRSH
+WASTE_QD67_TREATMENT_PRICE = 420.45         # Dịch vụ xử lý CTRSH
+WASTE_QD67_UNIT_PRICE = (WASTE_QD67_COLLECTION_PRICE + WASTE_QD67_TRANSPORT_PRICE
+                          + WASTE_QD67_TREATMENT_PRICE)  # 1,086.49 VND/kg
+WASTE_APARTMENT_KG_PER_UNIT_DAY = 2.63      # guideline note + formula instruction agree for Apartment
+# Shophouse: the guideline sheet is internally inconsistent — its note text says "khoảng 3.41kg"
+# per unit/day, but the formula instruction beside it says "2.63 x 1.5 x 30 ngày" (= 3.945 kg/day).
+# PM decision (design.md D3): use the formula-instruction basis, not the note text — the note is
+# the guideline's own inconsistency, disclosed in the written remark, not silently followed.
+WASTE_SHOPHOUSE_KG_PER_UNIT_DAY = WASTE_APARTMENT_KG_PER_UNIT_DAY * 1.5   # 3.945
+WASTE_DAYS_PER_MONTH = 30                   # guideline's own instruction is monthly ("x 30 ngày"),
+                                             # not annual — matches every other Monthly-frequency row
+
 # Real leaf rows in "2. Budget-Management Fund" (536 rows, verified against the live 2026-08-21
 # Resi template) that generate_project_output.py's pipeline actually computes real numbers for, PLUS
 # (as of 2026-08-27) 4 real flat-reference costs cited directly in the logic spec above — everything
@@ -1495,6 +1513,16 @@ MGMT_FUND_ROWS = {
     'env_incident_plan': 143,   # ESC12  Mandatory environmental incident-response plan
     'wastewater_crosscheck': 210,  # ESM25  Cross-check of wastewater-treatment water quality
     'asset_insurance': 189,     # ESI1   Risk asset insurance — no figure written, remark-only (see below)
+    # Added 2026-09-21, change complete-ai-guideline-remark-coverage (B2.6 / waste-collection-costing
+    # track). NOT the bare "B2.6" name the guideline's own worksheet uses — that worksheet is the
+    # RATE SOURCE, not a row on this template. The actual write target, verified by content (column Y
+    # alone gives no clue — its codes are short and un-labelled): row 153 is the only one of the
+    # nearby ESS9-ESS23 codes whose own column-Z label reads "Normal garbage collection / Thu gom rác
+    # sinh hoạt" AND whose column-T guideline note explicitly names Quyết định 67/2025. ESS10 (row
+    # 154, hazardous waste) and ESS11 (row 155, construction rubble) are real, different waste
+    # streams the guideline's B2.6 sheet does not price at all — left alone. ESS19 (row 163, garbage
+    # bags) is a real waste-adjacent consumable with no unit price anywhere — left alone.
+    'waste_collection': 153,    # ESS9   Normal domestic garbage collection (QĐ 67/2025)
 }
 
 # Cost code each MGMT_FUND_ROWS key must land on — the guard below checks every row on every run
@@ -1510,6 +1538,7 @@ MGMT_FUND_EXPECTED_CODE = {
     'pool_testing': 'ESM5', 'fire_dept_connect': 'ESM8',
     'pccc_allowance': 'EMH4', 'drinking_water': 'EMA7', 'env_incident_plan': 'ESC12',
     'wastewater_crosscheck': 'ESM25', 'asset_insurance': 'ESI1',
+    'waste_collection': 'ESS9',
 }
 
 
@@ -2229,16 +2258,18 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     elec_full_monthly = opex.get('Electricity', {}).get('monthly_vnd', 0)
     _write_ramped_row(ws, MGMT_FUND_ROWS['water'], [water_full_monthly * f for f in fills], (
         _opex_remark('Water') + " " + _anchor_note
-        + f" Year-1 total {sum(water_full_monthly * f for f in fills):,.0f} VND (full-occupancy annual "
-        f"{water_full_monthly * 12:,.0f})."))
+        + f" Tổng năm 1: {sum(water_full_monthly * f for f in fills):,.0f} VND (nếu lấp đầy 100%: "
+        f"{water_full_monthly * 12:,.0f} VND/năm)."))
     _elec_fills = year1_electricity_fills()
+    # The floor-at-40%/reaches-full-by-~40%-occupancy mechanism is already stated in Vietnamese by
+    # _energy_narrative_vi() above (change localize-line-level-remarks, 2026-09-15) — this used to
+    # restate it in English before that helper existed; corrected 2026-09-21 (found reading this
+    # remark aloud for change localize-line-level-remarks task 7.1) to just add the year-1 total,
+    # not repeat the mechanism a second time.
     _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], [elec_full_monthly * f for f in _elec_fills], (
         _opex_remark('Electricity')
-        + " Distributed across the 12 months by the resident fill-up curve on sheet "
-        "'Tỷ lệ lấp đầy cư dân', floored at 40% of full monthly load at 0% occupancy and reaching "
-        "full load by ~40% occupancy (a stated assumption). "
-        f"Year-1 total {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND (full-occupancy annual "
-        f"{elec_full_monthly * 12:,.0f})."))
+        + f" Tổng năm 1: {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND (nếu lấp đầy 100%: "
+        f"{elec_full_monthly * 12:,.0f} VND/năm)."))
     write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
                         remark=_opex_remark('Diesel (Generator Fuel)'))
 
@@ -2345,6 +2376,33 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             f"trừ Bảo vệ/Vệ sinh/Cây xanh (thuê ngoài, định giá riêng). Bao gồm nước dùng tại văn "
             f"phòng BQL và khu tiếp đón cư dân."))
 
+    # ESS9 Normal domestic garbage collection — AI Guideline's 'B2.6 Rác sinh hoạt (QD67)' sheet,
+    # QĐ 67/2025/QĐ-UBND's 3-part tariff (collection + transport + treatment). Apartment and
+    # Shophouse only — the guideline sheet has no Officetel/Office section, so those stay unpriced,
+    # same as every other line this pipeline declines to guess. Change complete-ai-guideline-
+    # remark-coverage (B2.6 / waste-collection-costing track), added 2026-09-21.
+    _waste_apt_units = (project['products'].get('Apartment') or {}).get('units') or 0
+    _waste_shop_units = (project['products'].get('Shophouse') or {}).get('units') or 0
+    if _waste_apt_units or _waste_shop_units:
+        _waste_apt_monthly = (_waste_apt_units * WASTE_APARTMENT_KG_PER_UNIT_DAY
+                               * WASTE_DAYS_PER_MONTH * WASTE_QD67_UNIT_PRICE)
+        _waste_shop_monthly = (_waste_shop_units * WASTE_SHOPHOUSE_KG_PER_UNIT_DAY
+                                * WASTE_DAYS_PER_MONTH * WASTE_QD67_UNIT_PRICE)
+        waste_monthly = _waste_apt_monthly + _waste_shop_monthly
+        waste_annual = waste_monthly * 12
+        write_even_monthly('waste_collection', waste_annual, remark=(
+            f"= (Căn hộ: {_waste_apt_units} căn x {WASTE_APARTMENT_KG_PER_UNIT_DAY} kg/căn/ngày"
+            + (f" + Shophouse: {_waste_shop_units} căn x {WASTE_SHOPHOUSE_KG_PER_UNIT_DAY:.3f} "
+               f"kg/căn/ngày" if _waste_shop_units else "")
+            + f") x {WASTE_DAYS_PER_MONTH} ngày x {WASTE_QD67_UNIT_PRICE:,.2f} VND/kg (thu gom "
+              f"{WASTE_QD67_COLLECTION_PRICE:,.2f} + vận chuyển {WASTE_QD67_TRANSPORT_PRICE:,.2f} + "
+              f"xử lý {WASTE_QD67_TREATMENT_PRICE:,.2f}, theo Quyết định 67/2025/QĐ-UBND, chưa gồm "
+              f"VAT) = {waste_monthly:,.0f} VND/tháng."
+            + (" Khối lượng Shophouse tính theo hướng dẫn công thức của AI Guideline (2.63 x 1.5 x "
+               "30 ngày = 3.945 kg/căn/ngày), khác với ghi chú bằng chữ trên cùng trang nguồn "
+               "(khoảng 3.41kg) — hai số liệu này mâu thuẫn nhau trong tài liệu gốc, đã chọn theo "
+               "công thức." if _waste_shop_units else "")))
+
     # EMH4 PCCC training/allowance — 'A5. Trợ cấp PCCC' is a template sheet with its own real,
     # already-computed total (1 team leader + 2 deputies + 17 members trained 4x/year, 2 days/
     # training, at the regional minimum wage x 30% night/holiday-training loading, per NĐ 105/2025/
@@ -2432,22 +2490,29 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
                         "preparation fee) but gives no real cited VND figure, unlike ESC12/ESM25."),
         137: ('ESC4',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
         138: ('ESC5',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
-        153: ('ESS9',  "Real method exists (QĐ 67/2025 household-waste tariff table), but pricing "
-                        "it is owned by the separate change complete-ai-guideline-remark-coverage "
-                        "(its B2.6 / waste-collection-costing track) — cross-referenced here, not "
-                        "duplicated."),
-        154: ('ESS10', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
-                        "by complete-ai-guideline-remark-coverage, not priced here."),
-        156: ('ESS12', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
-                        "by complete-ai-guideline-remark-coverage, not priced here."),
-        161: ('ESS17', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
-                        "by complete-ai-guideline-remark-coverage, not priced here."),
-        162: ('ESS18', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
-                        "by complete-ai-guideline-remark-coverage, not priced here."),
-        163: ('ESS19', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
-                        "by complete-ai-guideline-remark-coverage, not priced here."),
-        167: ('ESS23', "Waste-collection sub-item — same QĐ 67/2025 tariff family as ESS9; owned "
-                        "by complete-ai-guideline-remark-coverage, not priced here."),
+        # ESS9 removed 2026-09-21 (change complete-ai-guideline-remark-coverage, B2.6 track): now
+        # priced above via MGMT_FUND_ROWS['waste_collection'], no longer a no-method line.
+        #
+        # Correction, same date: this dict previously claimed ESS10/ESS12/ESS17/ESS18/ESS19/ESS23
+        # were all "the same QĐ 67/2025 tariff family as ESS9" and all owned by this change. Checked
+        # each row's own column-Z label directly against the live template while implementing ESS9 —
+        # that claim was right for only two of the six (ESS10, ESS19); the other four are unrelated
+        # line items that happen to sit nearby: ESS12 is pest control, ESS17 is planting cost, ESS18
+        # is public-toilet toiletries, ESS23 is outsourced pool staff. None of them have anything to
+        # do with waste collection or QĐ 67. Corrected below rather than left to keep misleading a
+        # reader of the generated deliverable.
+        154: ('ESS10', "A real, different waste stream (hazardous garbage) from ESS9 (normal "
+                        "domestic garbage, now priced) — the AI Guideline's 'B2.6 Rác sinh hoạt "
+                        "(QD67)' sheet gives a QĐ 67/2025 rate only for normal domestic waste, "
+                        "nothing for hazardous waste."),
+        156: ('ESS12', "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        161: ('ESS17', "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        162: ('ESS18', "No pricing method recorded in Costing_Method_Catalogue.csv."),
+        163: ('ESS19', "A real waste-collection consumable (garbage bags), but the guideline's QĐ "
+                        "67/2025 rate on ESS9 prices the collection/transport/treatment SERVICE only "
+                        "— it has no unit price for bags themselves, and no other source in this "
+                        "pipeline does either."),
+        167: ('ESS23', "No pricing method recorded in Costing_Method_Catalogue.csv."),
         190: ('ESI2',  "Guideline column blank; the only stated method is 'annual quotation', and "
                         "no real quotation or coverage limit exists anywhere in this pipeline's "
                         "inputs."),
@@ -2492,21 +2557,17 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
                  "1) nhưng chưa có số liệu VND thực tế được trích dẫn, khác với ESC12/ESM25.",
         'ESC4':  "Chưa có phương pháp định giá được ghi nhận.",
         'ESC5':  "Chưa có phương pháp định giá được ghi nhận.",
-        'ESS9':  "Đã có phương pháp thực tế (bảng giá rác sinh hoạt theo QĐ 67/2025), nhưng việc "
-                 "định giá thuộc một hạng mục công việc đang triển khai riêng — chỉ ghi chú tham "
-                 "chiếu tại đây, không làm trùng lặp.",
-        'ESS10': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
-                 "công việc đang triển khai riêng, không định giá tại đây.",
-        'ESS12': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
-                 "công việc đang triển khai riêng, không định giá tại đây.",
-        'ESS17': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
-                 "công việc đang triển khai riêng, không định giá tại đây.",
-        'ESS18': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
-                 "công việc đang triển khai riêng, không định giá tại đây.",
-        'ESS19': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
-                 "công việc đang triển khai riêng, không định giá tại đây.",
-        'ESS23': "Hạng mục con của thu gom rác — cùng nhóm biểu giá QĐ 67/2025 như ESS9; thuộc "
-                 "công việc đang triển khai riêng, không định giá tại đây.",
+        'ESS10': "Một dòng rác thải thực tế nhưng khác với ESS9 (rác sinh hoạt thông thường, đã "
+                 "được định giá) — trang 'B2.6 Rác sinh hoạt (QD67)' của AI Guideline chỉ nêu đơn "
+                 "giá QĐ 67/2025 cho rác sinh hoạt thông thường, không có đơn giá cho rác thải "
+                 "nguy hại.",
+        'ESS12': "Chưa có phương pháp định giá được ghi nhận.",
+        'ESS17': "Chưa có phương pháp định giá được ghi nhận.",
+        'ESS18': "Chưa có phương pháp định giá được ghi nhận.",
+        'ESS19': "Một vật tư tiêu hao thực tế liên quan đến thu gom rác (túi rác), nhưng đơn giá QĐ "
+                 "67/2025 tại ESS9 chỉ định giá DỊCH VỤ thu gom/vận chuyển/xử lý — không có đơn giá "
+                 "cho bản thân túi rác, và không có nguồn nào khác trong hệ thống có đơn giá này.",
+        'ESS23': "Chưa có phương pháp định giá được ghi nhận.",
         'ESI2':  "Cột hướng dẫn để trống; phương pháp duy nhất được nêu là 'báo giá hàng năm', "
                  "nhưng chưa có báo giá thực tế hay hạn mức bảo hiểm nào trong dữ liệu đầu vào.",
         'ESM6':  "Chưa có phương pháp định giá được ghi nhận.",

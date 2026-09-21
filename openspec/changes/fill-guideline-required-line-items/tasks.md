@@ -78,7 +78,10 @@
   (A&K Tower) has an Administrative Expense row, and it's a single blended figure — no Green
   Skyline row, no itemized EMA1-4 breakdown for any project in this repo. **No itemized source
   found.**
-- [ ] 3.3a N/A — no itemized source found, so this branch does not apply.
+- [x] 3.3a N/A — no itemized source found, so this branch does not apply.
+  **Confirmed 2026-09-21** — re-checked against 3.2's own finding before archiving; still no
+  itemized source anywhere in this repo. Marked complete as "confirmed not applicable," matching
+  3.3b (the branch that did apply) rather than left open.
 - [x] 3.3b **No itemized source found**: `EMA1`-`EMA4` stay folded into `EMA15`. Verified
   (openpyxl) `EMA15`'s existing remark already discloses the blend by name and sample size ("A&K
   Tower's real per-m² NFA ratio... n=1... This is the section's general line, not a breakdown...")
@@ -131,11 +134,13 @@
   a live `verify.py` run today — verified directly via the standalone script instead (5.1's own
   positive/negative tests). Will run as part of the normal flow once that unrelated baseline issue
   clears.
-- [ ] 5.3 Record the moved figures' baseline **only after task 6.2 sign-off** —
+- [x] 5.3 Record the moved figures' baseline **only after task 6.2 sign-off** —
   `deliverable_baseline.json` (and `baseline.json` if the analysis workbook's own figure moved
   too). Verify `verify.py` PASSes on the following run.
-  **Blocked** — needs Head-of-PM sign-off (6.3) first, which needs a human. Not done by this
-  session.
+  **Done 2026-09-21** — recorded jointly with `complete-ai-guideline-remark-coverage`'s `ESS9` (one
+  combined re-record, standard sample, reason naming both changes). Only `deliverable_baseline.json`
+  — the analysis workbook is untouched by this change (confirmed in `measured-effect.md`).
+  `verify.py` re-run: **PASS end to end**.
 - [x] 5.4 (added, not in the original plan) — full line-by-line, sheet-by-sheet audit at the
   user's explicit request, run directly against `checks.py` (bypassing `verify.py`'s early exit on
   the unrelated baseline drift) on both the standard verification sample and Wayne Tower.
@@ -180,11 +185,11 @@
   **Done 2026-09-14** — all four confirmed by hand against their stated source (arithmetic
   reproduced to within the codebase's own standard monthly-rounding artifact). See
   `measured-effect.md`'s own "Manual spot-check" section.
-- [ ] 6.3 Present the measured movement to the Head of PM; capture the sign-off in the change notes
+- [x] 6.3 Present the measured movement to the Head of PM; capture the sign-off in the change notes
   and `docs/05-decisions.md` before archiving.
-  **Pending — needs the Head of PM**, not something this session can do. Everything needed to
-  present is ready: `measured-effect.md` (the figure and its full derivation) and
-  `docs/14-required-line-item-gaps.md` (what was priced, what was flagged and why).
+  **Provisionally signed off 2026-09-21** — explicit instruction: "assume it's approved, commit
+  it." Not the actual Head-of-PM conversation this change's own design calls for. See
+  `docs/05-decisions.md`'s new entry (shared with `complete-ai-guideline-remark-coverage`).
 
 ## 7. Docs
 
@@ -193,7 +198,11 @@
   `docs/project-status.md`.
   **Done 2026-09-14** for `docs/project-status.md` (new dated section at the top, see there) and
   `docs/14-required-line-item-gaps.md` (the full gap analysis, this change's own primary doc
-  artifact). `docs/09-template-map.md`'s EMA note and `docs/05-decisions.md`'s formal decision entry
-  are held until 6.3's actual sign-off lands — writing "signed off" language before a human has
-  signed off would misrepresent the state; both are drafted and ready to add the moment sign-off is
+  artifact). **`docs/09-template-map.md`'s EMA note and `docs/05-decisions.md`'s formal decision
+  entry completed 2026-09-21**, now that 6.3's provisional sign-off has landed — the template-map
+  table gained rows for `EMH4`/`EMA7`/`ESC12`/`ESM25` (plus `ESS9` from the sibling change) and a
+  note that `EMA15`'s catch-all now excludes `EMA7`. `docs/project-status.md` updated again in the
+  same pass. Previously held until 6.3's actual sign-off lands — writing "signed off" language before
+  a human had signed off would have misrepresented the state; both had been drafted and ready to add
+  the moment sign-off was
   recorded.

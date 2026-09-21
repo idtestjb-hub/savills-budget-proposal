@@ -441,7 +441,13 @@ _SUMMARY_RECONCILE_ROWS = [
     (27, 'ESC',   ('ESC',)),
     (29, 'ESS1',  ('=ESS1',)),
     (30, 'ESS4',  ('=ESS4',)),
-    (31, 'ESS16', ('=ESS16',)),
+    # Was ('=ESS16',) — corrected 2026-09-21 (change complete-ai-guideline-remark-coverage). The
+    # real formula (H31 = '2. Fund'!AK144 - H29 - H30) is "everything in the ESS section except
+    # ESS1 (Security, its own row 29) and ESS4 (Cleaning, its own row 30)" — matching only ESS16
+    # was an approximation that happened to total correctly only because every other code in that
+    # bucket (including ESS9) was zero. Pricing ESS9 (waste collection) broke that coincidence and
+    # surfaced this — see docs/05-decisions.md.
+    (31, 'ESS16', ('ESS', '!=ESS1', '!=ESS4')),
     (32, 'ESI1',  ('ESI',)),
     (33, 'ESM',   ('ESM',)),
     (34, 'ESA6',  ('ESA', 'ESL')),
@@ -457,7 +463,22 @@ _ERR_VALUES = {-2146826281, -2146826246, -2146826273, -2146826288, -2146826252, 
 
 
 def _fund_code_match(code, matchers):
+    """'X' = code starts with X; '=X' = code equals X exactly; '!X'/'!=X' = the same two forms,
+    but as an EXCLUSION that overrides any include below — added 2026-09-21 (change
+    complete-ai-guideline-remark-coverage) for row 31 (see _SUMMARY_RECONCILE_ROWS): its real
+    Excel formula is 'ESS section total - ESS1 - ESS4', not "ESS16 alone" as the matcher used to
+    say, which just happened to produce the same total while every other ESS code was zero."""
     for m in matchers:
+        if m.startswith('!'):
+            excl = m[1:]
+            if excl.startswith('='):
+                if code == excl[1:]:
+                    return False
+            elif code.startswith(excl):
+                return False
+    for m in matchers:
+        if m.startswith('!'):
+            continue
         if m.startswith('='):
             if code == m[1:]:
                 return True
@@ -920,6 +941,25 @@ def check_remark_content(paths):
             fail(label, 'priced product has no area-basis remark')
         else:
             ok(label)
+
+    # ---- ESS9 (B2.6 / waste-collection-costing track, change complete-ai-guideline-remark-
+    # coverage): a real figure must not appear without its remark. Recorded independently, matching
+    # generate_project_budget.py's own MGMT_FUND_ROWS['waste_collection'] — not imported, so a
+    # template reshape there is caught here too, not silently agreed with. ----
+    _ess9_row = 153
+    _ess9_code = fund.cell(row=_ess9_row, column=25).value
+    _ess9_code = _ess9_code.strip() if isinstance(_ess9_code, str) else _ess9_code
+    if _ess9_code == 'ESS9':
+        # F (Unit Price) is a literal the pipeline wrote directly — G is a formula pulling from it,
+        # unevaluated under this function's own data_only=False load (see the docstring above).
+        _ess9_f = fund.cell(row=_ess9_row, column=6).value
+        if isinstance(_ess9_f, (int, float)) and not isinstance(_ess9_f, bool) and _ess9_f:
+            label = f"2. Budget-Management Fund T{_ess9_row} (ESS9)"
+            _ess9_t = fund.cell(row=_ess9_row, column=20).value
+            if not (isinstance(_ess9_t, str) and _ess9_t.strip()):
+                fail(label, 'priced waste-collection line has no remark')
+            else:
+                ok(label)
 
     # ---- 'A2'/'A3' canonical position descriptions still present (design.md D2 — the template
     # ships these itself; the pipeline neither writes nor should need to write them, so the only

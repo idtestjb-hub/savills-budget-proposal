@@ -390,6 +390,18 @@ METHOD_VERDICTS = {
                   actual_method='4 occurrences/year x ~3,500,000 VND/occurrence (per SCE), '
                                 '= ~14,000,000 VND/year.',
                   verdict='matches', reasoning='Direct implementation of the catalogue\'s stated basis.'),
+    # Added 2026-09-21, change complete-ai-guideline-remark-coverage (B2.6 / waste-collection-
+    # costing track) — ESS9 written for the first time; this registry predates that write.
+    'ESS9': dict(spec_method='regulation-quantity-x-3-part-unit-price',
+                 actual_method='(Apartment units x 2.63 kg/unit/day + Shophouse units x 3.945 '
+                               'kg/unit/day) x 30 days x (485.97 + 180.07 + 420.45 VND/kg), the AI '
+                               'Guideline\'s own \'B2.6 Rác sinh hoạt (QD67)\' worksheet, citing QĐ '
+                               '67/2025/QĐ-UBND\'s collection+transport+treatment tariff directly.',
+                 verdict='matches', reasoning='Direct implementation of the guideline\'s own stated '
+                                              'formula and cited rates — the Shophouse weight uses the '
+                                              'guideline\'s formula-instruction basis (3.945 kg/unit/'
+                                              'day) over its own inconsistent note text (~3.41), '
+                                              'disclosed in the written remark, not a method mismatch.'),
     'ESI1': dict(spec_method='asset-value-x-premium-rate',
                  actual_method='No figure written — no insured-asset-value input exists on the intake '
                                 'form, so the pipeline correctly leaves this at 0 rather than guess an '

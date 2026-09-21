@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-18T10:58:34+07:00",
-  "reason": "prefer-similar-size-comparables signed off 2026-09-18 (provisional, user instruction: 'assume the sign-off is approved then do next step'). Same change as baseline.json's own re-record -- see that reason for the full account. Standard sample: derived_apartment_rate 16,500 -> 17,175 VND/m2/month (+4.1%).",
+  "recorded_at": "2026-09-21T15:31:20+07:00",
+  "reason": "complete-ai-guideline-remark-coverage (B2.6/ESS9 waste-collection costing) and fill-guideline-required-line-items (EMA7/EMH4/ESC12/ESM25) both provisionally signed off 2026-09-21 (assume it's approved, commit it); localize-line-level-remarks (display-only) signed off same instruction. Real Head-of-PM conversations still outstanding for all three.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -42,7 +42,7 @@
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 5240359947.960442,
+      "value": 4730929441.256407,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     },
