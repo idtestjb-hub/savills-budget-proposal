@@ -32,14 +32,39 @@ SHALL continue to state plainly that the figure is an assumption, not this proje
   times the project's tower count
 - **AND** its remark SHALL state that the figure is an assumption, not real per-project data
 
-### Requirement: The LCD-screen lines are not affected by the elevator-count field
+### Requirement: The tower-lobby LCD-screen line is not affected by either new field
 
-The two LCD-screen advertising lines (tower lobby, basement lobby) price a screen count, not an
-elevator count — this capability's new field SHALL NOT change their quantity or remark under any
-circumstance.
+The tower-lobby LCD-screen advertising line prices a screen count, not an elevator or basement
+count — neither this capability's elevator-count field nor its basement-count field (see below)
+SHALL change its quantity or remark under any circumstance.
 
-#### Scenario: Supplying an elevator count leaves LCD-screen quantities unchanged
+#### Scenario: Supplying an elevator or basement count leaves the tower-lobby LCD line unchanged
 
-- **WHEN** a project's intake includes a passenger-elevator-per-tower count
-- **THEN** the tower-lobby and basement-lobby LCD-screen lines' quantities SHALL be unchanged from
-  what the pipeline produced before this capability existed
+- **WHEN** a project's intake includes a passenger-elevator-per-tower count, a basement count, or
+  both
+- **THEN** the tower-lobby LCD-screen line's quantity SHALL be unchanged from what the pipeline
+  produced before this capability existed
+
+### Requirement: A real basement count drives the basement-lobby LCD quantity when supplied
+
+When a project's intake states its real basement count, the "LCD screen (basement lobby)" line's
+quantity SHALL be computed from that real figure (one screen assumed per basement level) rather
+than the flat one-screen-per-project fallback, and its remark SHALL state that the figure is this
+project's own real data. No basement-count formula derived from building scale (floor count,
+parking slots) exists — real portfolio data shows basement count tracks neither closely enough to
+derive one, the same conclusion already reached for the elevator-count field — so this requirement
+depends on the intake field, not an estimate.
+
+#### Scenario: A project states its real basement count
+
+- **WHEN** a project's intake includes a basement count
+- **THEN** the "LCD screen (basement lobby)" line's quantity SHALL equal that real count
+- **AND** its remark SHALL identify the quantity as this project's own real data, not an assumption
+
+#### Scenario: A project without a stated basement count is unaffected
+
+- **WHEN** a project's intake does not include a basement count (or states it as `0`, treated the
+  same as not entered)
+- **THEN** the "LCD screen (basement lobby)" line's quantity SHALL use the existing flat
+  one-screen-per-project fallback
+- **AND** its remark SHALL state that the figure is an assumption, not real per-project data
