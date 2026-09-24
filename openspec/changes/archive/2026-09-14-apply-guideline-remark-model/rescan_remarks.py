@@ -15,7 +15,7 @@ from common_utils_v2 import find_sheet_exact  # NFC/NFD-safe sheet lookup — so
 DOCS = r"C:\Users\CDangQuang\Savills Asia Pacific\VN, IT Collab - Data\PM\Project_Clone2_NewData\docs"
 GUIDE = os.path.join(DOCS, "AI Guideline - 2027 Resi Budget Form (IT team) __repaired.xlsx")
 SAMPLE = os.path.join(DOCS, "Ngân sách mẫu  dự án mới sẽ Operation năm 1 + năm 2 có giai đoạn tiền khai trương__repaired.xlsx")
-OUT = r"C:\Users\CDANGQ~1\AppData\Local\Temp\claude\C--Users-CDangQuang-Savills-Asia-Pacific-VN--IT-Collab---Data\90ef7234-1644-4d22-81a0-e4017c8fc3ea\scratchpad\remark_rescan_report.txt"
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "remark_rescan_report.txt")
 
 gwb = openpyxl.load_workbook(GUIDE, data_only=False)
 swb = openpyxl.load_workbook(SAMPLE, data_only=False)
