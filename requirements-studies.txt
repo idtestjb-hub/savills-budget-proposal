@@ -1,0 +1,5 @@
+# Extra packages for the one-off ETL and study scripts (derive_staffing_benchmarks.py, etl_*.py and
+# the retired modules in legacy/). The live pipeline does not import either package.
+-r requirements.txt
+pandas==3.0.3
+numpy==2.5.1

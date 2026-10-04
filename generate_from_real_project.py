@@ -14,7 +14,7 @@ Fabric reasoning layer is designed to do:
   5. Add a Comparison sheet -- including a REALITY CHECK section, since Green Skyline's actual
      real rate (15,000 VND/m2/month) is known and can be checked against what the model derived.
 
-This is the same cell-fill logic as generate_sample_project.py and 02_FillBudgetTemplate.osts,
+This is the same cell-fill logic as legacy/generate_sample_project.py and 02_FillBudgetTemplate.osts,
 with the randomization removed -- every number here is either read from a real source file or
 computed from one, never randomized.
 """

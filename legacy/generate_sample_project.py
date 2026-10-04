@@ -1,3 +1,4 @@
+# RETIRED 2026-10-04 (backlog A7): paths point at a folder that does not exist; do not run. See legacy/README.md.
 """
 Generates a fictional sample consulting budget from template 2026.xlsx, seeded from a real
 project's rates +/-15%, plus a Comparison sheet against 2 other real projects.

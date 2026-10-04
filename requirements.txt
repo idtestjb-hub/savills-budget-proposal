@@ -1,0 +1,21 @@
+# Budget Agent — runtime for the live pipeline and its verification.
+#
+# Python 3.14 (baselines recorded on 3.14.6). Only cpython-314 bytecode remains in this folder.
+# Install into a clean environment OUTSIDE this OneDrive-synced folder (a venv is thousands of
+# files, including .exe/.bat/.ps1 the tenant refuses to sync), for example:
+#     py -3.14 -m venv %LOCALAPPDATA%\budget-agent-venv
+#     %LOCALAPPDATA%\budget-agent-venv\Scripts\python -m pip install -r requirements.txt
+#
+# Versions are the ones the recorded verification baselines were produced with. Upgrading any of
+# them is its own change: re-run verification/verify.py before and after.
+
+# Both generators (generate_project_budget.py, generate_project_output.py) and the input-form builder.
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+
+# verification/ only — drives Excel through COM for full recalculation. Windows only; the pipeline
+# itself does not need it.
+pywin32==312; sys_platform == "win32"
+
+# Not needed here: pandas / numpy are used only by the one-off ETL and study scripts, never by the
+# live pipeline. See requirements-studies.txt.

@@ -1,3 +1,4 @@
+# RETIRED 2026-10-04 (backlog A7): paths point at a folder that does not exist; do not run. See legacy/README.md.
 """
 Fresh cell-level scan of the 8 real budget_planning project files.
 

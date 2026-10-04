@@ -77,7 +77,7 @@ def friendly_name(filename):
 
 
 def repair_workbook(filepath):
-    """Local-temp repair (same fix as list_positions_by_project.py) -- avoids the OneDrive-sync
+    """Local-temp repair (same fix as legacy/list_positions_by_project.py) -- avoids the OneDrive-sync
     lock hazard of writing a repaired copy back into the same synced input folder."""
     try:
         openpyxl.load_workbook(filepath, read_only=True)
@@ -232,7 +232,7 @@ def write_csv(rows):
 def append_to_detail_lists(rows):
     """Adds a 'Capex Items by Project' sheet to reports/Project_Detail_Lists.xlsx, matching the
     Security/Cleaning/Landscape Positions by Project sheets already there — same file, one more
-    real category, built the same way (list_positions_by_project.py's pattern)."""
+    real category, built the same way (legacy/list_positions_by_project.py's pattern)."""
     if os.path.exists(DETAIL_LIST_PATH):
         try:
             wb = openpyxl.load_workbook(DETAIL_LIST_PATH)

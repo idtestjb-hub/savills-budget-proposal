@@ -1,5 +1,10 @@
 # loaders_v2 — source code index
 
+> **Stale index (backlog A5).** For how the pipeline runs today, read `RUNNING.md`. Six modules
+> listed below (`run_etl_v2`, `cell_scan`, `cell_scan_report`, `build_simple_reports`,
+> `generate_sample_project`, `list_positions_by_project`) were retired to `legacy/` on 2026-10-04;
+> see `legacy/README.md`. Dependencies: `requirements.txt`.
+
 Two generations of work live here. Both are real and both still useful — this index says which
 does what, so scaling to 150+ projects means *extending* these, not re-deriving them.
 

@@ -1,3 +1,4 @@
+# RETIRED 2026-10-04 (backlog A7): paths point at a folder that does not exist; do not run. See legacy/README.md.
 """
 Builds the "just make it work with present data, simple and readable" summary reports --
 totals and indexes, no formulas, no deep drill-down. These were the first checkpoint before

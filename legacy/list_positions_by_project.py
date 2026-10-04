@@ -1,3 +1,4 @@
+# RETIRED 2026-10-04 (backlog A7): paths point at a folder that does not exist; do not run. See legacy/README.md.
 # -*- coding: utf-8 -*-
 import os, glob, re, zipfile, tempfile
 import openpyxl

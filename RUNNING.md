@@ -8,9 +8,9 @@ How this project is actually run today, traced from the code rather than from ol
 
 ## Prerequisites
 
-- **Python 3** with `openpyxl` (and `pandas` for some non-pipeline scripts). There is no dependency
-  manifest and nothing is pinned — `openpyxl 3.1.5` and Python `3.14.6` are what the recorded
-  baseline was produced with.
+- **Python 3.14** (baselines recorded on 3.14.6) with the pinned packages in `requirements.txt`
+  (`openpyxl`, plus `pywin32` for verification). `requirements-studies.txt` adds `pandas`/`numpy`
+  for the one-off ETL and study scripts; the pipeline does not need them.
 - **Microsoft Excel** for verification only. The pipeline itself does not need it.
 - Run every command from `Budget_Agent/source_code/`.
 
