@@ -828,6 +828,18 @@ _REMARKS_COL = 20  # T — real header in every real-data sheet: "Remarks (pleas
 # _vat_sentence(); _write_remark(), _opex_remark() and _compose_summary_narratives() append it.
 # Empty string = exclusive-of-VAT run (or the switch could not be read) -> nothing is appended.
 _ACTIVE_VAT_SENTENCE = ''
+
+# Zero reasons written on '2. Budget-Management Fund' in this run: code -> the Vietnamese reason,
+# without the "Để ở mức 0: " lead-in and without the VAT sentence. fill_common_area_fund_sheet()
+# copies each onto the matching '2.2 Common area Fund' line, which is a share of that same zero
+# (change explain-common-area-fund-zero-lines). Built from what was actually written, never a fixed
+# list, so a code that gets priced (EMH1 once Savills' fee terms are entered) drops out of both
+# sheets together. build_budget() clears both dicts at the start of every run.
+_ZERO_REASONS = {}
+# Catch-all lines whose remark carries other codes' reasons (EMA15 for EMA1-EMA4, matching
+# checks._REQUIRED_CODE_DISCLOSED_ON): code -> a figure-free remark for the matching '2.2' line.
+# Figure-free because the '2. Fund' remark quotes that sheet's own amounts, not the '2.2' share.
+_CATCH_ALL_REASONS = {}
 _VAT_SWITCH_DEFAULT = ('2. Budget-Management Fund', 'F7')
 
 
@@ -920,6 +932,13 @@ def _write_remark(ws, row, remark):
     cell.alignment = Alignment(wrap_text=True, vertical='top')
     # Clearing the inherited accounting format and sizing the row/column is done in one sweep by
     # _normalise_all_remark_columns() after every sheet is filled — see build_budget().
+
+
+def _write_zero_reason(ws, row, code, reason):
+    """Write a "left at zero" remark on '2. Budget-Management Fund' and record the reason so the
+    matching '2.2 Common area Fund' line can state it too (see _ZERO_REASONS)."""
+    _write_remark(ws, row, remark=f"Để ở mức 0: {reason}")
+    _ZERO_REASONS[code] = reason
 
 
 def _normalise_all_remark_columns(wb):
@@ -1135,6 +1154,18 @@ def _rollup_narrative(children, fixed_sentence=''):
     return vi
 
 
+# English unit labels from Fact_OPEX.csv's Unit column -> their form in a Vietnamese remark. The
+# source data and the English analysis workbook keep the English labels; only client-facing
+# Vietnamese text is translated (change explain-common-area-fund-zero-lines, design D5).
+_UNIT_VI = {
+    'm3/month': 'm3/tháng', 'kWh/month': 'kWh/tháng', 'litre/month': 'lít/tháng', 'VND/litre': 'VND/lít',
+}
+
+
+def _vi_unit(unit):
+    return _UNIT_VI.get(unit) or (unit or '').replace('/month', '/tháng').replace('litre', 'lít')
+
+
 def _energy_narrative_vi(category, project, yr):
     """Vietnamese narrative for one of the three consumption-x-tariff OPEX categories (Water,
     Electricity, Diesel (Generator Fuel)) — shared by the '1. Summary' composed narrative
@@ -1148,9 +1179,9 @@ def _energy_narrative_vi(category, project, yr):
                          pool_volume_m3=project.get('pool_volume_m3'))
     e = opex.get(category, {})
     qty = e.get('project_quantity_month', 0)
-    unit = e.get('usage_unit', '')
+    unit = _vi_unit(e.get('usage_unit', ''))
     tariff = e.get('tariff', 0)
-    tunit = e.get('tariff_unit', '')
+    tunit = _vi_unit(e.get('tariff_unit', ''))
     as_of = e.get('tariff_as_of', '')
     if category == 'Water':
         return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT 5%, "
@@ -2338,6 +2369,14 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
                                 "phòng, văn phòng phẩm, mực in, thuê máy photocopy, bưu phí, nước uống, bảo "
                                 "trì thiết bị văn phòng và nhu yếu phẩm ca đêm, được liệt kê chi tiết trong "
                                 "ghi chú dòng nguồn của chính A&K Tower."))
+    # EMA1-EMA4 stay at zero and are disclosed on this catch-all (checks._REQUIRED_CODE_DISCLOSED_ON);
+    # '2.2 Common area Fund' gets the same disclosure on its own EMA15 share, without this sheet's
+    # amounts (change explain-common-area-fund-zero-lines, design D3).
+    _CATCH_ALL_REASONS['EMA15'] = (
+        "Phần phân bổ từ dòng EMA15 (dòng tổng hợp Chi phí hành chính) trên '2. Budget-Management "
+        "Fund'. Các khoản EMA1–EMA4 (điện thoại và internet, văn phòng phẩm, mực in, thuê máy "
+        "photocopy) chưa có nguồn số liệu chi tiết riêng nên được gộp vào dòng tổng hợp này, không "
+        "tách thành dòng riêng — xem ghi chú tại dòng EMA15 trên trang đó.")
 
     assert_row_code('opex_repairs', 'ERM')
     write_even_monthly('opex_repairs',
@@ -2488,13 +2527,13 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # against a project with Fixed Monthly Fee filled in. Now guarded the same way the fixed-fee/%
     # branch's own condition already is.
     if not (project.get('savills_fee_fixed_monthly') or project.get('savills_fee_pct')):
-        _write_remark(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], remark=(
-            "Để ở mức 0: dự án này chưa có điều khoản hợp đồng phí quản lý của Savills (phí cố "
+        _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', (
+            "dự án này chưa có điều khoản hợp đồng phí quản lý của Savills (phí cố "
             "định, điều chỉnh theo CPI, hay theo tỷ lệ NFA). Khi có hợp đồng, sẽ định giá theo căn "
             "cứ đã xác nhận. Cho đến lúc đó, thặng dư/thâm hụt mà bản giao nộp này thể hiện CHƯA "
             "bao gồm phí quản lý của chính Savills — không phải con số lợi nhuận thực tế."))
-    _write_remark(ws, MGMT_FUND_ROWS['asset_insurance'], remark=(
-        "Để ở mức 0: chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
+    _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
+        "chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
         "hệ thống. Căn cứ ví dụ theo AI Guideline: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
         "hiểm cháy nổ bắt buộc), theo Nghị định 105/2025/NĐ-CP. Sẽ định giá khi có giá trị tài sản "
         "thực tế hoặc giá trị hợp đồng do chủ đầu tư cung cấp."))
@@ -2641,8 +2680,8 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
                 f"but carries {_found!r} — re-verify _FLAGGED_NO_METHOD against the current "
                 f"template rather than adjusting this check."
             )
-        _write_remark(ws, _row, remark=(
-            f"Để ở mức 0: {_FLAGGED_NO_METHOD_VI[_code]} Không tự đặt ra số liệu — đã được rà soát "
+        _write_zero_reason(ws, _row, _code, (
+            f"{_FLAGGED_NO_METHOD_VI[_code]} Không tự đặt ra số liệu — đã được rà soát "
             f"và ghi nhận đầy đủ."))
 
     # ---- Capex — Year-1 lump sum (see docstring above) ----
@@ -2746,6 +2785,42 @@ def _activate_common_area_passthrough_rows(ws):
     return activated
 
 
+def _write_common_area_zero_reasons(ws):
+    """Give every '2.2 Common area Fund' line that is a share of a zero '2. Budget-Management Fund'
+    line that line's own reason (change explain-common-area-fund-zero-lines). Rows are found by code
+    (column Y), not by row number, because the two sheets' rows differ. A row whose F is the
+    template's XLOOKUP-into-'2. Fund' allocation gets the reason marked "phần phân bổ". The three
+    section-contingency rows (EM#, ES#, EE#) are '2.2''s own lines, not allocations (F blank or 0),
+    and their '2. Fund' reason — no formula or percentage basis stated anywhere — is equally true of
+    them, so they get the same reason without the allocation wording (user decision 2026-10-04). Any
+    other row is skipped: the copied reason would not be known to apply. A Remarks cell already
+    holding template text is left alone; whitespace counts as empty (two template cells ship a
+    single space)."""
+    written = []
+    for row in range(1, ws.max_row + 1):
+        code = ws.cell(row=row, column=_CODE_COL).value
+        code = code.strip() if isinstance(code, str) else None
+        if code not in _ZERO_REASONS and code not in _CATCH_ALL_REASONS:
+            continue
+        f_val = ws.cell(row=row, column=6).value
+        is_allocation = isinstance(f_val, str) and 'XLOOKUP' in f_val and '2. Budget-Management Fund' in f_val
+        is_own_contingency = code.endswith('#') and code in _ZERO_REASONS and f_val in (None, '', 0)
+        if not (is_allocation or is_own_contingency):
+            continue
+        existing = ws.cell(row=row, column=_REMARKS_COL).value
+        if existing is not None and str(existing).strip():
+            continue
+        if is_own_contingency:
+            remark = f"Để ở mức 0: {_ZERO_REASONS[code]}"
+        elif code in _ZERO_REASONS:
+            remark = f"Để ở mức 0 (phần phân bổ từ '2. Budget-Management Fund'): {_ZERO_REASONS[code]}"
+        else:
+            remark = _CATCH_ALL_REASONS[code]
+        _write_remark(ws, row, remark=remark)
+        written.append(code)
+    return written
+
+
 def fill_common_area_fund_sheet(wb, project):
     """Elevator/lobby advertising revenue — real per-device rates (Fact_MasterRateCard.csv) already
     computed by generate_project_output.py's build_additional_revenue_sheet (ELEVATOR_AD_ITEMS),
@@ -2762,6 +2837,7 @@ def fill_common_area_fund_sheet(wb, project):
     ws = wb['2.2 Common area Fund']
     _assert_leaf_rows(ws, '2.2 Common area Fund', COMMON_AREA_FUND_ROWS, COMMON_AREA_FUND_EXPECTED_CODE)
     _activate_common_area_passthrough_rows(ws)
+    _write_common_area_zero_reasons(ws)
 
     # Vietnamese display name and assumption text per item, kept SEPARATE from ELEVATOR_AD_ITEMS'
     # own `item`/`assumption` fields (change localize-line-level-remarks, 2026-09-15) rather than
@@ -3181,6 +3257,8 @@ def build_budget(project, demand, year):
 
     # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
+    _ZERO_REASONS.clear()
+    _CATCH_ALL_REASONS.clear()
     fill_management_fund_sheet(wb, project, demand, year, derived_rate)
 
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see

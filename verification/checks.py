@@ -737,9 +737,11 @@ _REMARK_RECIPE_ANCHORS = {
     'ESS1': ['vị trí', 'A2. Bảo vệ'],
     'ESS4': ['vệ sinh', 'A3. Vệ sinh'],
     'EN':   ['khấu hao', '24 tháng'],
-    'EEW':  ['m3/month', 'PBVMT', 'lấp đầy cư dân'],
-    'EEE':  ['kWh', '1279', '40%'],
-    'EED':  ['0.005S', 'test', 'backup'],
+    # Units are the Vietnamese labels (change explain-common-area-fund-zero-lines); 'kWh' alone
+    # would also match the English "kWh/month", so EEE anchors on the full 'kWh/tháng'.
+    'EEW':  ['m3/tháng', 'PBVMT', 'lấp đầy cư dân'],
+    'EEE':  ['kWh/tháng', '1279', '40%'],
+    'EED':  ['lít/tháng', '0.005S', 'test', 'backup'],
 }
 
 # A line-level remark naming any of these is citing an internal engineering artifact rather than
@@ -1007,22 +1009,14 @@ def check_remark_content(paths):
 
 _REQUIRED_CLASSIFICATION_FUND_SHEETS = ('2. Budget-Management Fund', '2.2 Common area Fund')
 
-# This check's own enforceable scope — the sheet(s) a zero-with-no-reason code actually FAILs the
-# run on. '2.2 Common area Fund' is scanned and reported (below) but never fails here.
-#
-# Corrected 2026-09-21 — activate-common-area-fund-cost-share signed off ("confirm as correct —
-# ship it"), so this is no longer "pending." Checked directly (not assumed) what the remaining
-# zero codes on '2.2' actually are: every one of the 32 has an XLOOKUP-into-'2.Fund' F formula that
-# correctly resolves to zero, because the matching '2. Fund' code is ALSO zero — the same
-# genuinely-no-pricing-method codes already flagged (with a stated reason) on '2. Fund' itself
-# (EMH1, EMH3, EMA1-4, EMB1, EMB4, EMO2, EMO6, EM#, ESC1/2/4/5, ESS10/12/17/18/19/23, ESI1/2,
-# ESM6/7/9/10/12/13, ESR, ES#, EE#) — a proportional share of a real zero, not a gap this
-# activation left behind. What's still missing is that '2.2' never gets its OWN copy of those
-# disclosure remarks — `_FLAGGED_NO_METHOD` only writes to '2. Budget-Management Fund' — so
-# enforcing this sheet the same way would fail on rows that are correct but undocumented here.
-# Writing a matching '2.2' remark for each is real, additional work (~32 rows), not something to
-# absorb silently into this comment fix; flagged as a follow-up, not done.
-_REQUIRED_CLASSIFICATION_ENFORCED_SHEETS = ('2. Budget-Management Fund',)
+# The sheet(s) a zero-with-no-reason Required code FAILs the run on. Both fund sheets since change
+# explain-common-area-fund-zero-lines: each '2.2 Common area Fund' line that is a share of a zero
+# '2. Budget-Management Fund' line now carries that line's own reason
+# (generate_project_budget._write_common_area_zero_reasons), and EMA1-EMA4 are disclosed on '2.2''s
+# own EMA15 line, as on '2. Fund'. Until then the 32 such '2.2' lines (EMH1, EMH3, EMA1-4, EMB1,
+# EMB4, EMO2, EMO6, EM#, ESC1/2/4/5, ESS10/12/17/18/19/23, ESI1/2, ESM6/7/9/10/12/13, ESR, ES#,
+# EE#) were correct zeros with no remark, so this sheet was only reported, not enforced.
+_REQUIRED_CLASSIFICATION_ENFORCED_SHEETS = ('2. Budget-Management Fund', '2.2 Common area Fund')
 
 # EMA1-4 are Required but have no itemized comparable source anywhere in this repo (change
 # fill-guideline-required-line-items, design D3, task 3.2) — they stay folded into EMA15's
@@ -1033,11 +1027,10 @@ _REQUIRED_CODE_DISCLOSED_ON = {'EMA1': 'EMA15', 'EMA2': 'EMA15', 'EMA3': 'EMA15'
 
 def check_required_line_items(paths):
     """Confirm every code the AI Guideline classifies 'Bắt buộc/Required' on
-    '2. Budget-Management Fund' carries a non-zero figure, or a stated reason for staying zero
-    (change fill-guideline-required-line-items, spec guideline-required-line-items).
-
-    Also scans '2.2 Common area Fund' and reports its status as notes, but never fails the run on
-    it — see _REQUIRED_CLASSIFICATION_ENFORCED_SHEETS.
+    '2. Budget-Management Fund' or '2.2 Common area Fund' carries a non-zero figure, or a stated
+    reason for staying zero (change fill-guideline-required-line-items, spec
+    guideline-required-line-items; '2.2' enforced since explain-common-area-fund-zero-lines — see
+    _REQUIRED_CLASSIFICATION_ENFORCED_SHEETS).
 
     Reads `data/master_list_verified/AI_Guideline_Required_Classification.csv` (task 1's own
     transcribed reference — NFC-normalised at extraction time, see that CSV's own header). For
@@ -1051,9 +1044,9 @@ def check_required_line_items(paths):
       - zero G with no remark anywhere applicable -> FAIL, naming the code.
 
     A Required code with no matching Y-column row on the deliverable at all (a template-version
-    mismatch between the reference file and the live form — PL1/PL2/PL2CA/ERCS/ERCS1 as of
-    2026-09-14) is reported as a note, not a failure — a separate, already-documented concern
-    (docs/14-required-line-item-gaps.md), not something this check can price or explain.
+    mismatch between the reference file and the live form) is reported as a note, not a failure.
+    PL1/PL2/PL2CA/ERCS/ERCS1, listed here until 2026-10-04, were not mismatches: they sit below the
+    fixed row cut-off this check used to stop at; it now scans each sheet's whole used range.
 
     Returns (ok, rows, differences, notes). Raises BaselineUnavailable if Excel cannot be driven or
     the reference CSV is missing (this check has nothing to verify against without it).
@@ -1109,7 +1102,10 @@ def check_required_line_items(paths):
                 notes.append(f"'{sheet_name}' not found on the deliverable — required-line-item "
                               f"check skipped for that sheet")
                 continue
-            maxr = 495 if sheet_name.startswith('2. Budget') else 300
+            # Whole used range. A fixed 495/300 cut-off hid PL2 ('2. Fund' r505) and ERCS/ERCS1/
+            # PL1/PL2CA ('2.2' r440-466), which were then reported as "no matching row" although
+            # they exist (found while enforcing '2.2', change explain-common-area-fund-zero-lines).
+            maxr = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
             enforced = sheet_name in _REQUIRED_CLASSIFICATION_ENFORCED_SHEETS
 
             # one scan per sheet: row -> (code, G, T remark, is_header) — same structural signal
@@ -1171,12 +1167,10 @@ def check_required_line_items(paths):
 
             if sheet_pending:
                 notes.append(
-                    f"'{sheet_name}' — {len(sheet_pending)} Required code(s) still zero with no "
-                    f"stated reason, not failed here: each is a proportional share (via the "
-                    f"activated XLOOKUP passthrough) of a code that is ALSO zero, with a stated "
-                    f"reason, on '2. Budget-Management Fund' — correct, not a gap — but '2.2' never "
-                    f"gets its own copy of that reason text, so this sheet isn't enforced the same "
-                    f"way yet. {', '.join(c for c in sheet_pending)}")
+                    f"'{sheet_name}' — {len(sheet_pending)} Required code(s) zero with no stated "
+                    f"reason, reported only (this sheet is not in "
+                    f"_REQUIRED_CLASSIFICATION_ENFORCED_SHEETS): "
+                    f"{', '.join(c for c in sheet_pending)}")
 
         dwb.Close(SaveChanges=False)
     finally:

@@ -254,12 +254,13 @@ def main(argv=None):
             for label, msg in rldiffs:
                 print(f'        - {label}: {msg}')
             print("\nEvery code the AI Guideline classifies 'Bắt buộc/Required' on "
-                  "'2. Budget-Management Fund' must carry a non-zero figure or a remark stating "
-                  "why it genuinely does not apply (change fill-guideline-required-line-items). "
+                  "'2. Budget-Management Fund' or '2.2 Common area Fund' must carry a non-zero "
+                  "figure or a remark stating why it genuinely does not apply (changes "
+                  "fill-guideline-required-line-items, explain-common-area-fund-zero-lines). "
                   "A gap here is an undisclosed Required-line-item zero, not a baseline move.")
             return 1
         print(f'OK    all {sum(1 for _l, s in rlrows if s.startswith("ok"))} Required-line-item '
-              f'check(s) passed on \'2. Budget-Management Fund\'')
+              f'check(s) passed on \'2. Budget-Management Fund\' and \'2.2 Common area Fund\'')
 
         # ---- 6. coverage & method fidelity (never a pass/fail on the score itself) -----------
         _headline('6. COVERAGE & METHOD FIDELITY')
