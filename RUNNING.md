@@ -25,9 +25,14 @@ python build_project_input_form.py
 Writes `Budget_Agent/reports/Project_Budget_Input.xlsx` with four sheets: `Project Info`,
 `Roster Setup`, `Shift Types`, `Staffing Demand`.
 
-> ⚠️ **This overwrites the existing input file with placeholder data.** If you already have a
-> project filled in, copy it somewhere safe first. This has destroyed live input more than once.
-> Skip this step entirely if you are updating a project that already exists.
+> ⚠️ **It refuses to run if `Project_Budget_Input.xlsx` already exists**, so a filled-in project
+> cannot be replaced by accident (this had destroyed live input more than once). It stops with a
+> message naming the file and leaves it untouched. Skip this step entirely if you are updating a
+> project that already exists.
+>
+> To start a new project in that place anyway, run `python build_project_input_form.py --force`.
+> The existing file is first copied beside itself as
+> `Project_Budget_Input_PRE_FORCE_<date_time>.xlsx`, and nothing is replaced if that copy fails.
 
 ### 2. Fill in the yellow cells
 

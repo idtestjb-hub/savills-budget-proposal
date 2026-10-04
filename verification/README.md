@@ -27,7 +27,7 @@ supported.
 |---|---|
 | `isolation.py` | Redirects the pipeline's hardcoded paths so a run cannot read or write production data |
 | `run_workflow.py` | Runs **both** generators against the sample, and fails if any production file is touched |
-| `checks.py` | Structural checks, numeric reconciliation checks, and coverage/fidelity (`check_method_coverage`) |
+| `checks.py` | Structural checks, numeric reconciliation checks, coverage/fidelity (`check_method_coverage`), and the input-form guard (`check_input_form_guard`, `verify.py` section 7) |
 | `method_coverage.py` | Reference-budget extraction, the per-code method-verdict registry, and the coverage/fidelity computations |
 | `baseline.py` | Extracts the headline figures, hand-checks them, records and compares the baseline |
 | `verify.py` | The single entry point — runs the workflow once and applies every check |
@@ -47,6 +47,12 @@ Or run a stage on its own:
 python verification/checks.py      # structure only
 python verification/baseline.py    # figures + baseline comparison only
 ```
+
+`verify.py` has seven sections. Sections 1-6 run the workflow once and hand the same outputs to
+every check. Section 7 is separate: it builds the input form twice in a temporary folder to confirm
+`build_project_input_form.py` refuses to replace an existing `Project_Budget_Input.xlsx` unless run
+with `--force`, and keeps a dated backup when forced (change `guard-input-file-overwrite`). It
+touches no file in `reports/`, and fingerprints the live input before and after to prove it.
 
 `verify.py` runs the workflow once and hands the same outputs to every check, so it is faster than
 running the two separately. All exit `0` on success and non-zero on failure, and none of them

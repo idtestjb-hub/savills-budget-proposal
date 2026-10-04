@@ -1666,6 +1666,98 @@ def check_method_coverage(paths):
     return True, rows, differences, notes
 
 
+def check_input_form_guard():
+    """The input-form builder must not replace an existing project input workbook unless forced, and
+    a forced rebuild must keep a backup (change guard-input-file-overwrite, spec input-form-protection).
+
+    Everything happens in a temporary folder: the builder's three path globals are rebound there for
+    the duration and restored afterwards, and the live input workbook is fingerprinted before and
+    after so a path the rebinding missed would be caught. A stand-in file, not a real form, plays the
+    "existing project input".
+
+    Returns (ok, rows, differences, notes): rows are (label, 'ok' or 'fail: reason'), differences
+    the failing ones as (label, reason).
+    """
+    import contextlib
+    import hashlib
+    import io
+    import sys
+    import tempfile
+
+    src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    import build_project_input_form as bpf
+
+    def fingerprint(path):
+        if not os.path.exists(path):
+            return None
+        with open(path, 'rb') as fh:
+            return hashlib.sha256(fh.read()).hexdigest(), os.path.getmtime(path)
+
+    def listing(folder):
+        return {n: (os.path.getsize(os.path.join(folder, n)), os.path.getmtime(os.path.join(folder, n)))
+                for n in sorted(os.listdir(folder))}
+
+    rows, differences = [], []
+
+    def record(label, passed, reason=''):
+        rows.append((label, 'ok' if passed else f'fail: {reason}'))
+        if not passed:
+            differences.append((label, reason))
+
+    live_path = bpf.FINAL_OUT
+    live_before = fingerprint(live_path)
+    saved = (bpf.OUT_DIR, bpf.FINAL_OUT, bpf.OUT)
+    stand_in = b'stand-in project input for verification - not a real workbook'
+    try:
+        with tempfile.TemporaryDirectory(prefix='form_guard_') as td:
+            bpf.OUT_DIR = td
+            bpf.FINAL_OUT = os.path.join(td, 'Project_Budget_Input.xlsx')
+            bpf.OUT = os.path.join(td, '_form_build_tmp.xlsx')
+            with open(bpf.FINAL_OUT, 'wb') as fh:
+                fh.write(stand_in)
+            os.utime(bpf.FINAL_OUT, (1_700_000_000, 1_700_000_000))
+            before = listing(td)
+
+            # ---- unforced build over an existing file must be refused and change nothing ----
+            refused, message = False, ''
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    bpf.main()
+                except bpf.LiveInputExists as exc:
+                    refused, message = True, str(exc)
+            record('unforced build over an existing input is refused', refused,
+                   'the build ran and did not raise LiveInputExists')
+            record('the refusal names the file and the --force option',
+                   refused and bpf.FINAL_OUT in message and '--force' in message,
+                   'message does not name the file and --force')
+            record('the refused build left the existing file and the folder unchanged',
+                   listing(td) == before and open(bpf.FINAL_OUT, 'rb').read() == stand_in,
+                   'the stand-in input was altered, or a file was added')
+
+            # ---- forced build: backup equal to the old file, then replaced ----
+            with contextlib.redirect_stdout(io.StringIO()):
+                bpf.main(force=True)
+            backups = [n for n in os.listdir(td) if n.startswith(bpf.BACKUP_PREFIX)]
+            record('a forced build leaves exactly one backup', len(backups) == 1,
+                   f'found {len(backups)} backup file(s)')
+            record('the backup holds the content the input had before the build',
+                   len(backups) == 1 and open(os.path.join(td, backups[0]), 'rb').read() == stand_in,
+                   'backup missing or different from the earlier content')
+            with open(bpf.FINAL_OUT, 'rb') as fh:
+                head = fh.read(2)
+            record('the forced build replaced the input with a new workbook', head == b'PK',
+                   'the input was not replaced by an .xlsx')
+    finally:
+        bpf.OUT_DIR, bpf.FINAL_OUT, bpf.OUT = saved
+
+    live_after = fingerprint(live_path)
+    record('the live input workbook is byte-identical and unchanged in timestamp',
+           live_before == live_after, 'the live input workbook changed during the guard check')
+    return not differences, rows, differences, []
+
+
 def _main():
     import sys
     import tempfile

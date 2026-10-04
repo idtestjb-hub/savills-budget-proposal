@@ -290,6 +290,20 @@ def main(argv=None):
         coverage_shares = {label.split(': ', 1)[1]: v for label, v, _r in mcrows
                             if label.startswith('coverage: ')}
 
+        # ---- 7. the input-form builder cannot silently replace a project input ---------------
+        _headline('7. INPUT-FORM GUARD')
+        gok, grows, gdiffs, _gnotes = checks.check_input_form_guard()
+        for label, status in grows:
+            print(f'{"OK  " if status == "ok" else "FAIL"}  {label}'
+                  + ('' if status == 'ok' else f'  ({status[6:]})'))
+        if not gok:
+            print(f'FAIL  {len(gdiffs)} input-form guard problem(s)')
+            print('\nbuild_project_input_form.py must refuse to replace an existing '
+                  'Project_Budget_Input.xlsx unless run with --force, and keep a dated backup when '
+                  'forced (change guard-input-file-overwrite). It has destroyed live input before.')
+            return 1
+        print(f'OK    the input-form guard holds ({len(grows)} check(s), temporary folder only)')
+
         # ---- verdict -------------------------------------------------------------------------
         _headline('RESULT')
         print(f'PASS — reproduces its own recorded baseline; coverage and method fidelity are '

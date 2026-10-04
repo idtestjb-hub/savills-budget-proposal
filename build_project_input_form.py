@@ -14,12 +14,19 @@ Four sheets:
   Staffing Demand    Position, Shift Code, staff/day (formula for scaled positions, referencing
                      Project Info directly), coverage days, daily rate.
 
+This script will not replace an existing Project_Budget_Input.xlsx: it stops with a message unless run
+with --force, which first copies the existing file beside itself as Project_Budget_Input_PRE_FORCE_*.xlsx.
+
 After filling this in and SAVING, click the green "RUN BUDGET AGENT" button on the Project Info
 sheet (or double-click "Run Budget Agent.cmd" in reports/, or run `python run.py`) — it produces
 the budget workbook, the analysis workbook and the roster from this single file.
 """
+import argparse
+import datetime
+import filecmp
 import os
 import shutil
+import sys
 import tempfile
 
 import openpyxl
@@ -31,6 +38,7 @@ BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OUT_DIR = os.path.join(BASE, 'reports')
 FINAL_OUT = os.path.join(OUT_DIR, 'Project_Budget_Input.xlsx')
 OUT = os.path.join(tempfile.gettempdir(), 'Project_Budget_Input.xlsx')
+BACKUP_PREFIX = 'Project_Budget_Input_PRE_FORCE_'
 
 RUN_LAUNCHER = 'Run Budget Agent.cmd'   # sits in reports\, next to this workbook
 
@@ -317,7 +325,55 @@ def labeled_input(ws, row, label, value, fill=INPUT_FILL, fmt=None):
     return c
 
 
-def main():
+class LiveInputExists(RuntimeError):
+    """A project input workbook is already in place and the build was not forced."""
+
+    def __init__(self, path):
+        self.path = path
+        super().__init__(
+            f'{path} already exists, so nothing was built and the file is unchanged. '
+            f'To replace it with a blank form, run again with --force; the existing file is first '
+            f'copied beside it as {BACKUP_PREFIX}<date_time>.xlsx.')
+
+
+class LiveInputBackupFailed(RuntimeError):
+    """The backup copy needed before a forced rebuild could not be made, so nothing was replaced."""
+
+
+def _backup_existing(path):
+    """Copy `path` beside itself as Project_Budget_Input_PRE_FORCE_<yyyy-mm-dd_hhmmss>.xlsx.
+
+    The name follows the hand-made backups already in reports/ (..._PRE_<reason>_<date>.xlsx) and
+    carries the time to the second, with a counter if that name is taken, so a second forced run can
+    never overwrite the backup of the project the first one replaced. The copy is compared byte for
+    byte with the original before the caller is allowed to replace it.
+    """
+    stamp = datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    folder = os.path.dirname(path)
+    backup, n = os.path.join(folder, f'{BACKUP_PREFIX}{stamp}.xlsx'), 1
+    while os.path.exists(backup):
+        n += 1
+        backup = os.path.join(folder, f'{BACKUP_PREFIX}{stamp}_{n}.xlsx')
+    try:
+        shutil.copy2(path, backup)
+        same = filecmp.cmp(path, backup, shallow=False)
+    except OSError as exc:
+        raise LiveInputBackupFailed(
+            f'Could not back up {path} before replacing it ({exc}). Nothing was replaced.') from exc
+    if not same:
+        raise LiveInputBackupFailed(
+            f'The backup {backup} differs from {path}. Nothing was replaced; check the backup.')
+    return backup
+
+
+def main(force=False):
+    # Fail before building anything: replacing a filled-in project with placeholder data has
+    # destroyed live input more than once (RUNNING.md, step 1).
+    if os.path.exists(FINAL_OUT):
+        if not force:
+            raise LiveInputExists(FINAL_OUT)
+        print('Backed up existing input to:', _backup_existing(FINAL_OUT))
+
     wb = openpyxl.Workbook()
 
     # ================= Sheet 1: Project Info =================
@@ -834,4 +890,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Build a blank Project_Budget_Input.xlsx in reports/.')
+    parser.add_argument('--force', action='store_true',
+                        help='replace an existing Project_Budget_Input.xlsx (it is backed up first)')
+    args = parser.parse_args()
+    try:
+        main(force=args.force)
+    except (LiveInputExists, LiveInputBackupFailed) as exc:
+        print('STOPPED:', exc)
+        sys.exit(1)
