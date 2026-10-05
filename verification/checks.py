@@ -756,6 +756,58 @@ _INTERNAL_ARTIFACT_DENYLIST = [
     'estimate_opex', 'complete-ai-guideline-remark-coverage',
 ]
 
+# Internal wording on ANY sheet of the client deliverable (change fix-deliverable-remark-wording,
+# spec deliverable-remarks): the artifact names above plus the tool's own vocabulary, a function
+# name, the language it is written in, change-process phrasing, the internal guideline's name,
+# statistical shorthand, and the two placeholders the template ships. One list, one place.
+_INTERNAL_WORDING_DENYLIST = _INTERNAL_ARTIFACT_DENYLIST + [
+    'derive_', 'master_comparables', 'generate_project_output', 'Python', 'thay đổi này',
+    'AI Guideline', 'n=1', 'demo', '[Lưu ý nội bộ',
+]
+
+# Cells whose text comes from Savills' standard form, not from this pipeline, and so may contain a
+# word above. Listed explicitly, never by pattern. The scan compares each one with the template's own
+# text, so a cell the pipeline overwrote cannot hide behind this list. Reported to the template owner
+# (docs/23 A1, A2); not ours to edit.
+_TEMPLATE_OWNED_TEXT_CELLS = {
+    ('2.2 Common area Fund', 'T15'),      # RP5 remark, literally "demo"
+    ('2.2 Common area Fund', 'T460'),     # VAT1  "[Lưu ý nội bộ: ...]"
+    ('2.2 Common area Fund', 'T461'),     # VAT2
+    ('2.2 Common area Fund', 'T462'),     # CIT1
+    ('2.2 Common area Fund', 'T463'),     # CIT1a
+    ('2.2 Common area Fund', 'T464'),     # CIT1b
+    ('2.2 Common area Fund', 'T465'),     # CIT2
+}
+
+
+def scan_internal_wording(wb, template_wb=None):
+    """Scan every text cell of every sheet of `wb` (the generated client deliverable) for
+    `_INTERNAL_WORDING_DENYLIST`. Returns (cells_scanned, exempt_cells, failures) where failures are
+    (sheet, coordinate, reason). Formula cells are skipped; a text cell that merely starts with "="
+    (many remarks do) is still text and is scanned.
+    """
+    scanned, hits = 0, []
+    for ws in wb.worksheets:
+        for row in ws.iter_rows(max_col=min(ws.max_column, 120)):
+            for c in row:
+                v = c.value
+                if c.data_type == 'f' or not isinstance(v, str) or not v.strip():
+                    continue
+                scanned += 1
+                word = next((w for w in _INTERNAL_WORDING_DENYLIST if w in v), None)
+                if word:
+                    hits.append((ws.title, c.coordinate, word, v))
+    failures, exempt = [], []
+    for sheet, coord, word, text in hits:
+        if (sheet, coord) not in _TEMPLATE_OWNED_TEXT_CELLS:
+            failures.append((sheet, coord, f'internal wording {word!r} in client-facing text'))
+            continue
+        if template_wb is not None and template_wb[sheet][coord].value != text:
+            failures.append((sheet, coord, 'exempt template cell differs from the template'))
+            continue
+        exempt.append((sheet, coord))
+    return scanned, exempt, failures
+
 # Template-authored T-cell content this pipeline never writes to and must not edit (the project's
 # standing "keep the template file" boundary) — an EXCLUSION list, not an inclusion list. The
 # comprehensive T-remark loop below scans every non-blank coded row on both fund sheets by DEFAULT
@@ -921,12 +973,22 @@ def check_remark_content(paths):
             if not t_has_vi:
                 fail(label, 'line-level remark has no Vietnamese content')
                 row_failed = True
-            bad = next((needle for needle in _INTERNAL_ARTIFACT_DENYLIST if needle in t), None)
-            if bad:
-                fail(label, f'line-level remark names an internal artifact in its text: {bad!r}')
-                row_failed = True
+            # Internal wording is no longer checked here: scan_internal_wording() below covers this
+            # column and every other text cell of every sheet.
             if not row_failed:
                 ok(label)
+
+    # ---- Internal wording, every text cell of every sheet (change fix-deliverable-remark-wording).
+    # The template is loaded to confirm each exempt cell still holds the template's own text.
+    import openpyxl as _opx
+    template_wb = _opx.load_workbook(_template_path(), data_only=False)
+    scanned, exempt_cells, wording_failures = scan_internal_wording(wb, template_wb)
+    for sheet, coord, reason in wording_failures:
+        fail(f"{sheet}!{coord}", reason)
+    if not wording_failures:
+        ok('whole-workbook internal-wording scan')
+    notes.append(f"internal-wording scan: {scanned:,} text cells on {len(wb.worksheets)} sheets, "
+                 f"{len(exempt_cells)} exempt template cell(s)")
 
     # ---- '0. Info' per-product area-basis remark (change complete-ai-guideline-remark-coverage) ----
     # Recorded independently, matching generate_project_budget.py's own local `_INFO_FEE_ROWS` — not

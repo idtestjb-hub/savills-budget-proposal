@@ -27,7 +27,7 @@ supported.
 |---|---|
 | `isolation.py` | Redirects the pipeline's hardcoded paths so a run cannot read or write production data |
 | `run_workflow.py` | Runs **both** generators against the sample, and fails if any production file is touched |
-| `checks.py` | Structural checks, numeric reconciliation checks, coverage/fidelity (`check_method_coverage`), and the input-form guard (`check_input_form_guard`, `verify.py` section 7) |
+| `checks.py` | Structural checks, numeric reconciliation checks, the remark-content check (`check_remark_content`, with a whole-workbook scan for internal wording, `scan_internal_wording`), coverage/fidelity (`check_method_coverage`), and the input-form guard (`check_input_form_guard`, `verify.py` section 7) |
 | `method_coverage.py` | Reference-budget extraction, the per-code method-verdict registry, and the coverage/fidelity computations |
 | `baseline.py` | Extracts the headline figures, hand-checks them, records and compares the baseline |
 | `verify.py` | The single entry point — runs the workflow once and applies every check |
@@ -65,6 +65,19 @@ baseline at all — not a weaker one. `checks.py` degrades gracefully instead, a
 output when it does.
 
 ---
+
+## The internal-wording scan
+
+`check_remark_content` (section 5d of `verify.py`) scans every text cell of every sheet of the client
+deliverable for words that belong to the tool's developers, not to the Developer reading the file:
+file and function names, "Python", change-process phrasing such as "thay đổi này", the internal
+guideline's name, "n=1", and the two placeholders the standard form ships. The word list is
+`_INTERNAL_WORDING_DENYLIST` in `checks.py`. A hit fails the run and names the sheet and cell.
+
+Text that comes from Savills' standard form is exempt cell by cell: `_TEMPLATE_OWNED_TEXT_CELLS`. The
+scan compares each exempt cell with the template's own text, so a cell the pipeline has overwritten
+cannot hide there. Add a cell to that list only after confirming it is the form's own text, and report
+it to the template owner rather than editing it.
 
 ## Re-baselining
 

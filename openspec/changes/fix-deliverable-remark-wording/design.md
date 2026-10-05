@@ -44,6 +44,18 @@ replacements are client-facing text, so they are reviewed as text, not as code. 
 | T for EEW.C, EEE.C, EED.C | "(n=1 — một dự án tham chiếu duy nhất; thay đổi này tách riêng đơn giá, không mở rộng mẫu tham chiếu), nên việc áp dụng đúng phương pháp của bộ tiêu chuẩn không đồng nghĩa với số liệu đã chính xác" | "(chỉ một dự án tham chiếu), nên đây là ước tính ban đầu; cần đối chiếu với số liệu của dự án này khi có" |
 | 9 cells naming "AI Guideline", 8 cells with "n=1" | the document name; the shorthand | "hướng dẫn lập ngân sách của Savills"; "chỉ một dự án tham chiếu" |
 
+**Approved 2026-10-05 (task 2.1):** the table above as written. Both open questions are settled:
+raw cell addresses such as `'A1…'!AC96` stay in the EMH2 remark, and the internal guideline is
+named "hướng dẫn lập ngân sách của Savills" wherever "AI Guideline" appears in client text.
+
+**Found while applying (2026-10-05):** the same replacements also reach the cells that copy or repeat
+these texts: `2. Budget-Management Fund` T109, T122, T143, T145, T148, T153, T154, T160, T189, T485
+(`n=1` and "AI Guideline" in individual remarks), the matching `2.2 Common area Fund` T83, T115, T150,
+and `1. Summary` K38. The new scan also found one cell not in the table, `Comparison`!A35, which named
+`Fact_MasterRateCard.csv`; the client's Comparison sheet now says "standard rate card" (the analysis
+workbook keeps its own label). On the standard sample and on Diamond Skyline, 26 text cells differ
+from before and no formula or number does.
+
 **3. One whole-workbook scan replaces the column-T keyword check.** Forbidden words live in one list in
 `verification/checks.py` (function and file names of the tool, "Python", "thay đổi này", "AI Guideline",
 "derive_", ".py", ".csv", ".md"); the exempt template cells in a second list (today: `2.2 Common area
@@ -70,7 +82,4 @@ remark text.
 
 ## Open Questions
 
-- Replacement name for the internal guideline in client text: "hướng dẫn lập ngân sách của Savills"
-  (proposed) or no source named. Resolved in task 2.1.
-- Whether raw cell addresses (`'A1…'!AC96`) stay in client remarks. Proposed: stay (auditors use them).
-  Resolved in task 2.1.
+None. Both were settled on 2026-10-05 (see the approval note under Decisions).

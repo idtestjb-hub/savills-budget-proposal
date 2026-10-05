@@ -840,6 +840,11 @@ _ZERO_REASONS = {}
 # checks._REQUIRED_CODE_DISCLOSED_ON): code -> a figure-free remark for the matching '2.2' line.
 # Figure-free because the '2. Fund' remark quotes that sheet's own amounts, not the '2.2' share.
 _CATCH_ALL_REASONS = {}
+# The unit price each priced revenue line actually uses, recorded when the line is written: RM.* in
+# VND per m² per month, RP1/RP2 in VND per slot per month. The '1. Summary' narratives quote these,
+# not year-1 revenue divided by area or slots, which is a ramp-diluted average (change
+# fix-deliverable-remark-wording). Cleared by build_budget() at the start of every run.
+_UNIT_RATES = {}
 _VAT_SWITCH_DEFAULT = ('2. Budget-Management Fund', 'F7')
 
 
@@ -1184,9 +1189,14 @@ def _energy_narrative_vi(category, project, yr):
     tunit = _vi_unit(e.get('tariff_unit', ''))
     as_of = e.get('tariff_as_of', '')
     if category == 'Water':
+        # One source per price: when the tariff is the costing guideline's worked example, say so
+        # and do not also say it came from projects of the same size.
+        price_source = ("Đơn giá nước theo ví dụ trong hướng dẫn lập ngân sách của Savills."
+                        if 'built-up example' in as_of else
+                        "Đơn giá nước lấy theo các dự án chung cư cùng quy mô.")
         return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT 5%, "
-                f"PBVMT 30%, VAT bvmt 8% ({tariff:,.0f} {tunit}). Đơn giá nước lấy theo các dự án "
-                f"chung cư cùng quy mô. Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
+                f"PBVMT 30%, VAT bvmt 8% ({tariff:,.0f} {tunit}). {price_source} "
+                f"Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
                 f"lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư dân'.")
     if category == 'Electricity':
         return (f"Tổng lượng điện tiêu thụ 1 tháng {qty:,.0f} {unit}. Đơn giá điện đang áp dụng "
@@ -1220,7 +1230,10 @@ def _recipe_narrative(key, wb, project, demand, year, written):
             prod = code_to_prod.get(c, c)
             label = _PRODUCT_VI_LABEL.get(prod, w['name_vi'])
             nfa = ((project.get('products') or {}).get(prod) or {}).get('nfa') or 0
-            rate = w['value'] / (12 * nfa) if nfa else 0
+            if c not in _UNIT_RATES:
+                raise ValueError(f"No recorded unit rate for {c}: the fee narrative must quote the "
+                                 f"rate the line is priced at, not revenue divided by area.")
+            rate = _UNIT_RATES[c]
             area_bits.append(f"{nfa:,.0f} m2 ({label})")
             rate_bits.append(f"{label} là {rate:,.0f} VND/m2/tháng (đã gồm VAT)")
         dev = written.get('RM.0A', {}).get('value', 0)
@@ -1250,8 +1263,10 @@ def _recipe_narrative(key, wb, project, demand, year, written):
         car = written.get('RP2', {}).get('value', 0)
         moto_slots = project.get('moto_slots') or 0
         car_slots = project.get('car_slots') or 0
-        moto_rate = round(moto / 12 / moto_slots) if moto_slots else 0
-        car_rate = round(car / 12 / car_slots) if car_slots else 0
+        # The priced monthly price per slot, not year-1 revenue spread over the slots (that is a
+        # ramp-diluted average and reads as the price).
+        moto_rate = round(_UNIT_RATES['RP1']) if moto_slots else 0
+        car_rate = round(_UNIT_RATES['RP2']) if car_slots else 0
         lines = []
         if moto_slots:
             lines.append(f"Dự ước theo tỷ lệ lấp đầy cư dân tại trang 'Tiến độ lấp đầy bãi xe'. "
@@ -1295,7 +1310,7 @@ def _recipe_narrative(key, wb, project, demand, year, written):
             "- Chi phí quản lý của Công Ty Quản lý bao gồm chi phí thương hiệu, phần mềm, các hỗ "
             "trợ từ văn phòng chính. Chi phí hạng mục này được đề xuất dựa trên khối lượng công "
             f"việc và thực tế bàn giao sản phẩm của dự án. {fee_clause}\n"
-            f"- Số lượng nhân sự Ban quản lý ({head:g} vị trí, chưa gồm bảo vệ/vệ sinh/cây xanh — "
+            f"- Số lượng nhân sự Ban quản lý ({head:g} vị trí làm việc mỗi ngày, chưa gồm bảo vệ/vệ sinh/cây xanh — "
             f"thuê ngoài) dựa trên quy mô, đặc thù dự án cũng như các yêu cầu về chất lượng nhân sự "
             f"phù hợp với phân khúc dự án — {payroll_clause}, đã gồm BHXH/BHYT/BHTN phần người sử "
             "dụng lao động. Thời gian làm việc ca đêm các ngày, ca ngày dịp lễ tết theo đặc thù "
@@ -1327,19 +1342,22 @@ def _recipe_narrative(key, wb, project, demand, year, written):
         def _role_vi(r):
             return _SECURITY_CLEANING_ROLE_VI.get(r, r)
         roles = [f"{n:g} {_role_vi(r)}" for r, n in sorted(priced.items())] or [f"theo {sheet_ref}"]
-        roles += [f"{n:g} {_role_vi(r)}" for r, n in sorted(other.items())]
+        # Posts that are listed but not in this line's cost (a supervisor, say) go in their own
+        # sentence, so the list above adds up to the stated total (change fix-deliverable-remark-wording).
+        not_counted = ', '.join(f"{n:g} {_role_vi(r)}" for r, n in sorted(other.items()))
+        not_counted_note = f" {not_counted} không nằm trong khoản này." if not_counted else ''
         total_posts = sum(priced.values())
         val = written.get(key, {}).get('value', 0)
         from master_comparables import SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE
         rate = SECURITY_RATE_CITYWIDE if cat == 'Security' else CLEANING_RATE_CITYWIDE
         if cat == 'Security':
             vi = (f"Dự ước {total_posts:g} vị trí bảo vệ (quy đổi 24h) bao gồm: {', '.join(roles)} "
-                  f"— dựa trên trang {sheet_ref}.\n"
+                  f"— dựa trên trang {sheet_ref}.{not_counted_note}\n"
                   f"Đơn giá vị trí 24h khoảng {rate:,.0f} VND/vị trí/tháng.\n"
                   f"Dự ước {val:,.0f} VND năm {yr}.")
         else:
-            vi = (f"Dự ước {total_posts:g} nhân viên vệ sinh bao gồm: {', '.join(roles)} — dựa "
-                  f"trên trang {sheet_ref}.\n"
+            vi = (f"Dự ước {total_posts:g} nhân viên vệ sinh tính tiền bao gồm: {', '.join(roles)} — dựa "
+                  f"trên trang {sheet_ref}.{not_counted_note}\n"
                   f"Đơn giá nhân viên vệ sinh khoảng {rate:,.0f} VND/vị trí/tháng (bắt buộc); đơn "
                   f"giá tea lady/giám sát nếu có.\n"
                   f"Dự ước {val:,.0f} VND năm {yr}.")
@@ -1847,7 +1865,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
 
     _CONTRACT_BASIS = (
         "Phương pháp: hợp đồng hàng tháng x 12, trong đó hợp đồng được tính theo số vị trí x đơn giá "
-        "vị trí theo mặt bằng chung thành phố (n=1, A&K Tower). KHÔNG cộng thêm bảo hiểm người sử "
+        "vị trí theo mặt bằng chung thành phố (chỉ một dự án tham chiếu, A&K Tower). KHÔNG cộng thêm bảo hiểm người sử "
         "dụng lao động: đơn giá vị trí của nhà thầu đã bao gồm chi phí nhân sự của chính nhà thầu.")
     write_even_monthly('security', security_cost, remark=(
         f"= {SERVICE_CITYWIDE_RATES['Security']:,.0f} VND/vị trí/tháng / {SERVICE_SHIFT_ROLES_PER_POST['Security']} "
@@ -1900,19 +1918,17 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         f"= 'A1. Staff cost 08.2026 (VN)'!AC96 — tổng quỹ lương thực tế cả năm của chính trang này, "
         f"cho mọi vị trí theo đúng nhóm dòng đã định sẵn (lương tháng 13, BHXH/BHYT người sử dụng "
         f"lao động 20,5% và Bảo hiểm thất nghiệp 1% đã tính trần, Kinh phí công đoàn 2%, các khoản "
-        f"phụ cấp riêng nhỏ hơn của từng vị trí, toàn bộ chi phí người sử dụng lao động cộng thêm "
+        f"phụ cấp riêng của từng vị trí, toàn bộ chi phí người sử dụng lao động cộng thêm "
         f"10% phí quản lý của Savills)"
         + (f" + dòng {_A1_UNPLACED_FIRST_ROW}"
            + (f"-{last_unplaced_row}" if total_unplaced_rows > 1 else '')
            + f" của CÙNG trang này ({', '.join(top_up_names)}, {total_unplaced_rows} người) — các vị "
              f"trí mà bố cục chuẩn của A1 không có sẵn nhóm dòng, được định giá tại đó bằng công thức "
-             f"sống GIỐNG HỆT mọi dòng khác ở trên (không phải một số ước tính Python riêng)."
+             f"sống GIỐNG HỆT mọi dòng khác ở trên."
            if total_unplaced_rows else
            ". Mọi vị trí nội bộ đều đã có nhóm dòng trên A1 — không còn vị trí nào cần thêm.") +
         f" Bảo vệ/Vệ sinh/Cây xanh vẫn không tính vào đây — đó là các hợp đồng thuê ngoài được định "
-        f"giá riêng ở trên (ESS1/ESS4/ESS16). Cách tính này thay thế công thức tắt trước đây (số "
-        f"người x đơn giá x 21,5%), vốn tính thấp hơn chi phí nhân sự thực tế trên chính trang lương "
-        f"của bản giao nộp 638.780.247 VND, theo ví dụ Wayne Tower."))
+        f"giá riêng ở trên (ESS1/ESS4/ESS16)."))
 
     # ---- Management fee revenue, priced PER PRODUCT ----
     # Every product the project reports area for gets its own real rate and its own template row,
@@ -1973,6 +1989,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             is_fallback = rate is None
             if is_fallback:
                 rate = apt_rate
+        _UNIT_RATES[PRODUCT_REVENUE_EXPECTED_CODE[product]] = rate
         full_monthly = rate * nfa
         annual = full_monthly * 12
         mgmt_fee_annual += annual
@@ -2036,6 +2053,8 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     car_slots = project.get('car_slots') or 0
     moto_full_monthly = PARKING_FEE_MOTO_MONTHLY * moto_slots
     car_full_monthly = PARKING_FEE_CAR_MONTHLY * car_slots
+    _UNIT_RATES['RP1'] = PARKING_FEE_MOTO_MONTHLY
+    _UNIT_RATES['RP2'] = PARKING_FEE_CAR_MONTHLY
     moto_fills = parking_fills(moto_slots, units_for_parking)
     car_fills = parking_fills(car_slots, units_for_parking)
 
@@ -2309,20 +2328,21 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             # instead of one Vietnamese and one English. The n=1/provenance caveats the old English
             # text stated explicitly are preserved as a second Vietnamese sentence, since a client
             # reading only this cell should still see them.
+            # The date, without the internal-document label some tariffs carry in their source data.
+            tariff_date = re.sub(r"\s*\(AI Guideline built-up example\)", '', str(entry['tariff_as_of']))
             date_note = (
-                f" Đơn giá đã lập ngày {entry['tariff_as_of']}, trước năm ngân sách {_opex_yr} — "
+                f" Đơn giá đã lập ngày {tariff_date}, trước năm ngân sách {_opex_yr} — "
                 f"cần xác nhận đây vẫn là đơn giá công bố hiện hành trước khi sử dụng số liệu này."
                 if entry.get('tariff_stale') else
-                f" Đơn giá lập ngày {entry['tariff_as_of']}.")
+                f" Đơn giá lập ngày {tariff_date}.")
             return (
                 _energy_narrative_vi(category, project, _opex_yr) + date_note +
-                f" Mức tiêu thụ lấy theo số liệu thực tế của A&K Tower (n=1 — một dự án tham chiếu "
-                f"duy nhất; thay đổi này tách riêng đơn giá, không mở rộng mẫu tham chiếu), nên việc "
-                f"áp dụng đúng phương pháp của bộ tiêu chuẩn không đồng nghĩa với số liệu đã chính xác.")
+                f" Mức tiêu thụ lấy theo số liệu thực tế của A&K Tower (chỉ một dự án tham chiếu), "
+                f"nên đây là ước tính ban đầu; cần đối chiếu với số liệu của dự án này khi có.")
         cat_vi = _OPEX_CATEGORY_VI.get(category, category)
         if entry.get('ratio_per_m2') is not None:
             return (f"= Tỷ lệ VND/m² NFA thực tế của A&K Tower cho {cat_vi} ({entry['ratio_per_m2']:,.2f} "
-                    f"VND/m²/tháng, n=1 — dự án chung cư duy nhất có số liệu OPEX được kiểm chứng độc lập) "
+                    f"VND/m²/tháng, chỉ một dự án tham chiếu — dự án chung cư duy nhất có số liệu OPEX được kiểm chứng độc lập) "
                     f"x Tổng NFA của dự án này ({project['total_nfa']:,.0f} m²) x 12 = {annual:,.0f} VND/năm.")
         return (f"= Số liệu tham chiếu cố định hàng tháng thực tế của A&K Tower cho {cat_vi} x 12 = "
                 f"{annual:,.0f} VND/năm (không tính theo NFA).")
@@ -2436,7 +2456,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     # pricing method (Costing_Method_Catalogue.csv) — see that change's docs/14. ----
     write_even_monthly('env_incident_plan', ENV_INCIDENT_PLAN_ANNUAL, remark=(
         f"{ENV_INCIDENT_PLAN_ANNUAL:,.0f} VND/năm (chưa gồm VAT) — kế hoạch ứng phó sự cố môi "
-        f"trường bắt buộc (phòng ngừa & ứng phó tràn đổ/sự cố khẩn cấp), một lần/năm. AI Guideline "
+        f"trường bắt buộc (phòng ngừa & ứng phó tràn đổ/sự cố khẩn cấp), một lần/năm. Hướng dẫn lập ngân sách của Savills "
         f"nêu trực tiếp số liệu tạm tính này; không phải số liệu ước tính theo dự án tham chiếu."))
     wastewater_crosscheck_annual = WASTEWATER_CROSSCHECK_SAMPLE_PRICE * WASTEWATER_CROSSCHECK_PER_YEAR
     write_even_monthly('wastewater_crosscheck', wastewater_crosscheck_annual, remark=(
@@ -2456,7 +2476,8 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         dw_bottles_per_year = bql_headcount * DRINKING_WATER_L_PER_PERSON_DAY * 365 / DRINKING_WATER_BOTTLE_LITERS
         dw_annual = dw_bottles_per_year * DRINKING_WATER_BOTTLE_PRICE
         write_even_monthly('drinking_water', dw_annual, remark=(
-            f"= {bql_headcount} nhân sự BQL x {DRINKING_WATER_L_PER_PERSON_DAY} lít/người/ngày x 365 "
+            f"= {bql_headcount} nhân sự BQL (tính theo số người, gồm cả vòng nghỉ 7/6) x "
+            f"{DRINKING_WATER_L_PER_PERSON_DAY} lít/người/ngày x 365 "
             f"ngày / {DRINKING_WATER_BOTTLE_LITERS} lít/bình x {DRINKING_WATER_BOTTLE_PRICE:,.0f} "
             f"VND/bình (đã gồm VAT) = {dw_annual:,.0f} VND/năm. Nhân sự BQL = toàn bộ nhân sự nội bộ "
             f"trừ Bảo vệ/Vệ sinh/Cây xanh (thuê ngoài, định giá riêng). Bao gồm nước dùng tại văn "
@@ -2484,7 +2505,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
               f"{WASTE_QD67_COLLECTION_PRICE:,.2f} + vận chuyển {WASTE_QD67_TRANSPORT_PRICE:,.2f} + "
               f"xử lý {WASTE_QD67_TREATMENT_PRICE:,.2f}, theo Quyết định 67/2025/QĐ-UBND, chưa gồm "
               f"VAT) = {waste_monthly:,.0f} VND/tháng."
-            + (" Khối lượng Shophouse tính theo hướng dẫn công thức của AI Guideline (2.63 x 1.5 x "
+            + (" Khối lượng Shophouse tính theo công thức trong hướng dẫn lập ngân sách của Savills (2.63 x 1.5 x "
                "30 ngày = 3.945 kg/căn/ngày), khác với ghi chú bằng chữ trên cùng trang nguồn "
                "(khoảng 3.41kg) — hai số liệu này mâu thuẫn nhau trong tài liệu gốc, đã chọn theo "
                "công thức." if _waste_shop_units else "")))
@@ -2534,7 +2555,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
             "bao gồm phí quản lý của chính Savills — không phải con số lợi nhuận thực tế."))
     _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
         "chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
-        "hệ thống. Căn cứ ví dụ theo AI Guideline: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
+        "hệ thống. Căn cứ ví dụ theo hướng dẫn lập ngân sách của Savills: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
         "hiểm cháy nổ bắt buộc), theo Nghị định 105/2025/NĐ-CP. Sẽ định giá khi có giá trị tài sản "
         "thực tế hoặc giá trị hợp đồng do chủ đầu tư cung cấp."))
 
@@ -2632,7 +2653,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         'EMB4':  "Định giá theo dự án tham chiếu, nhưng nguồn OPEX tham chiếu duy nhất hiện có "
                  "(A&K Tower) không có dòng phí kiểm toán nào.",
         'EMO2':  "Phụ thuộc vào EMO1 (hỗ trợ lương Ban quản trị), khoản này thường bằng 0 trong năm "
-                 "đầu theo AI Guideline — hợp lý khi bằng 0 cho ngân sách năm 1, không phải thiếu "
+                 "đầu theo hướng dẫn lập ngân sách của Savills — hợp lý khi bằng 0 cho ngân sách năm 1, không phải thiếu "
                  "phương pháp định giá.",
         'EMO6':  "Chưa có phương pháp định giá được ghi nhận.",
         'EM#':   "Dòng dự phòng của nhóm Chi phí quản lý — không có công thức hay tỷ lệ phần trăm "
@@ -2644,7 +2665,7 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         'ESC4':  "Chưa có phương pháp định giá được ghi nhận.",
         'ESC5':  "Chưa có phương pháp định giá được ghi nhận.",
         'ESS10': "Một dòng rác thải thực tế nhưng khác với ESS9 (rác sinh hoạt thông thường, đã "
-                 "được định giá) — trang 'B2.6 Rác sinh hoạt (QD67)' của AI Guideline chỉ nêu đơn "
+                 "được định giá) — trang 'B2.6 Rác sinh hoạt (QD67)' của hướng dẫn lập ngân sách của Savills chỉ nêu đơn "
                  "giá QĐ 67/2025 cho rác sinh hoạt thông thường, không có đơn giá cho rác thải "
                  "nguy hại.",
         'ESS12': "Chưa có phương pháp định giá được ghi nhận.",
@@ -3215,7 +3236,7 @@ def build_budget(project, demand, year):
             info[_col].number_format = '#,##0'
         info['G21'] = ("Dòng TỔNG CỘNG ở trên (hàng 19) không có chỗ cho " + ', '.join(_rowless) +
                        " trên mẫu chuẩn Savills, nên dòng này cộng thêm: " + '; '.join(_rowless_parts) +
-                       ". Đơn giá tính theo cùng phương pháp derive_product_rate với các sản phẩm khác "
+                       ". Đơn giá tính theo cùng phương pháp với các sản phẩm khác "
                        "(2 dự án tương đồng gần nhất, dự phòng theo đơn giá Apartment nếu không có "
                        "dự án tương đồng cho sản phẩm này) — khớp với doanh thu thực tại '2. "
                        "Budget-Management Fund'.")
@@ -3259,6 +3280,7 @@ def build_budget(project, demand, year):
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
     _ZERO_REASONS.clear()
     _CATCH_ALL_REASONS.clear()
+    _UNIT_RATES.clear()
     fill_management_fund_sheet(wb, project, demand, year, derived_rate)
 
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
@@ -3363,7 +3385,7 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
                 f"comparables with a verified Apartment rate")
     ws['A1'].font = Font(bold=True, size=13)
     ws.merge_cells('A1:D1')
-    ws['A2'] = (f'Comparables are the real projects in master_comparables.py ranked by {match_basis} '
+    ws['A2'] = (f'Comparables are the real projects in the reference list ranked by {match_basis} '
                 'that have a verified Apartment management-fee rate — the same basis and the same selection the '
                 'internal analysis uses, so both reports show one rate and it is the rate the RM lines are priced at. '
                 'The MODEL-DERIVED rate below is the average of their real Apartment rates. The PROPOSAL BENCHMARK '
@@ -3579,7 +3601,8 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
     r += 1
 
     r += 1
-    r = section(r, f'SERVICE RATES ({RATE_CARD_SOURCE})')
+    # The file name is the analysis workbook's label; the client's Comparison sheet names the thing.
+    r = section(r, f"SERVICE RATES ({RATE_CARD_SOURCE.replace('Fact_MasterRateCard.csv', 'standard rate card')})")
     r = data_row(r, 'Security (VND/post/month)', [f'{SECURITY_RATE_CITYWIDE:,}'] * 3)
     r = data_row(r, 'Cleaning (VND/post/month)', [f'{CLEANING_RATE_CITYWIDE:,}'] * 3)
     r = data_row(r, 'Landscape (VND/post/month)', [f'{LANDSCAPE_RATE_CITYWIDE:,}'] * 3)
