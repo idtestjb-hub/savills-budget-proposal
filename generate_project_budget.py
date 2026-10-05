@@ -2842,6 +2842,37 @@ def _write_common_area_zero_reasons(ws):
     return written
 
 
+# The standard form ships the single word "demo" as the remark on RP5 (daily two-wheeler visitor
+# parking revenue) on '2.2 Common area Fund'. RP5 is a Required code that this pipeline leaves at
+# 0 (its method needs a visitor-volume assumption that no input supplies, docs/14), and '2. Budget-
+# Management Fund' carries no reason for it, so _write_common_area_zero_reasons() cannot copy one.
+# The reason below replaces the placeholder (change fix-verify-hand-check-and-rp5-remark, text
+# approved by the user 2026-10-05).
+_RP5_PLACEHOLDER = 'demo'
+_RP5_ZERO_REASON_VI = (
+    "Để ở mức 0: Doanh thu giữ xe hai bánh vãng lai theo ngày phụ thuộc vào số lượt khách vãng lai "
+    "mỗi ngày, mà hiện chưa có số liệu đầu vào nào cung cấp, nên không tự đặt ra con số.")
+
+
+def _write_common_area_rp5_reason(ws):
+    """Write RP5's own zero reason on '2.2 Common area Fund', in place of the form's placeholder.
+    Written only when the remark cell is empty or holds exactly the placeholder (any other text is
+    someone's own and stays), and only while the line really is at zero: a rate in F means the
+    line is priced and "Để ở mức 0" would be false. Returns the row written, or None."""
+    for row in range(1, ws.max_row + 1):
+        code = ws.cell(row=row, column=_CODE_COL).value
+        if not (isinstance(code, str) and code.strip() == 'RP5'):
+            continue
+        existing = ws.cell(row=row, column=_REMARKS_COL).value
+        if str(existing or '').strip() not in ('', _RP5_PLACEHOLDER):
+            return None
+        if ws.cell(row=row, column=6).value not in (None, '', 0):
+            return None
+        _write_remark(ws, row, remark=_RP5_ZERO_REASON_VI)
+        return row
+    return None
+
+
 def fill_common_area_fund_sheet(wb, project):
     """Elevator/lobby advertising revenue — real per-device rates (Fact_MasterRateCard.csv) already
     computed by generate_project_output.py's build_additional_revenue_sheet (ELEVATOR_AD_ITEMS),
@@ -2859,6 +2890,7 @@ def fill_common_area_fund_sheet(wb, project):
     _assert_leaf_rows(ws, '2.2 Common area Fund', COMMON_AREA_FUND_ROWS, COMMON_AREA_FUND_EXPECTED_CODE)
     _activate_common_area_passthrough_rows(ws)
     _write_common_area_zero_reasons(ws)
+    _write_common_area_rp5_reason(ws)
 
     # Vietnamese display name and assumption text per item, kept SEPARATE from ELEVATOR_AD_ITEMS'
     # own `item`/`assumption` fields (change localize-line-level-remarks, 2026-09-15) rather than

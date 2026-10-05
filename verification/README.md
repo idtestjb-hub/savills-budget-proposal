@@ -29,7 +29,7 @@ supported.
 | `run_workflow.py` | Runs **both** generators against the sample, and fails if any production file is touched |
 | `checks.py` | Structural checks, numeric reconciliation checks, the remark-content check (`check_remark_content`, with a whole-workbook scan for internal wording, `scan_internal_wording`), coverage/fidelity (`check_method_coverage`), and the input-form guard (`check_input_form_guard`, `verify.py` section 7) |
 | `method_coverage.py` | Reference-budget extraction, the per-code method-verdict registry, and the coverage/fidelity computations |
-| `baseline.py` | Extracts the headline figures, hand-checks them, records and compares the baseline |
+| `baseline.py` | Extracts the headline figures, hand-checks them, records and compares the baseline. The management-fee hand-check sums every product the tool can price (all nine product rows of the input form) and names any product that has an area but no fee as unpriced |
 | `verify.py` | The single entry point — runs the workflow once and applies every check |
 | `fixtures/Sample_Project_Input.xlsx` | The synthetic project. Obviously fictional, realistic in scale |
 | `baselines/baseline.json` | The recorded figures, plus the runtime that produced them |
@@ -78,6 +78,12 @@ Text that comes from Savills' standard form is exempt cell by cell: `_TEMPLATE_O
 scan compares each exempt cell with the template's own text, so a cell the pipeline has overwritten
 cannot hide there. Add a cell to that list only after confirming it is the form's own text, and report
 it to the template owner rather than editing it.
+
+RP5's remark on `2.2 Common area Fund` (T15, which the form ships as the single word "demo") is not on
+the list: the tool writes its own reason there. The Required-line check does not accept the form's
+placeholder as a reason (`_FORM_PLACEHOLDER_REMARKS`, matched on sheet, code and exact text), so if the
+tool ever stops writing that reason the Required check, the line-remark scan and this scan all fail
+and name the cell.
 
 ## Re-baselining
 

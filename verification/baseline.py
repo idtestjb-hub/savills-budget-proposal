@@ -180,6 +180,7 @@ def read_sample_scale(sample_path):
     """
     import openpyxl
 
+    from generate_project_budget import PRODUCT_ROWS
     from input_labels import SheetLabels
 
     wb = openpyxl.load_workbook(sample_path, data_only=True)
@@ -188,12 +189,12 @@ def read_sample_scale(sample_path):
         L = SheetLabels(ws)
         # Product rows carry GFA/NFA/Units across columns B/C/D; scalars carry one value in B.
         return {
-            'apartment_nfa': ws.cell(row=L.row_of('Apartment'), column=3).value,
+            # Every product the tool can price, by its PRODUCT_ROWS name (the Vietnamese half of
+            # 'Nursery / Nhà trẻ' is part of its label: normalise() splits on '(' and dashes, not
+            # '/'). row_of() raises on a missing label, so a form without one of the nine rows
+            # fails this hand-check by name instead of being read from a fallback position.
+            'product_nfa': {p: ws.cell(row=L.row_of(p), column=3).value for p in PRODUCT_ROWS},
             'apartment_units': ws.cell(row=L.row_of('Apartment'), column=4).value,
-            'shophouse_nfa': ws.cell(row=L.row_of('Shophouse'), column=3).value,
-            # Full label: normalise() splits on '(' and dashes, not '/', so the Vietnamese
-            # half is part of this product's name exactly as PRODUCT_ROWS spells it.
-            'nursery_nfa': ws.cell(row=L.row_of('Nursery / Nhà trẻ'), column=3).value,
             'car_slots': L.value('Car Parking Slots'),
             'moto_slots': L.value('Moto Parking Slots'),
             'gates': L.value('Gate / Entrance Count'),
@@ -217,6 +218,8 @@ def hand_checks(figures, sample_path, analysis_path):
     import pythoncom
     import win32com.client
 
+    from generate_project_budget import PRODUCT_ROWS
+
     scale = read_sample_scale(sample_path)
     work = os.path.join(tempfile.mkdtemp(prefix='handcheck_'), os.path.basename(analysis_path))
     shutil.copy(analysis_path, work)
@@ -232,13 +235,13 @@ def hand_checks(figures, sample_path, analysis_path):
         wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
         xl.CalculateFullRebuild()
 
-        # --- 1. Management fee revenue: product NFA (from the INPUT file) x each product's rate ---
+        # --- 1. Management fee revenue: every product's NFA (from the INPUT file) x its rate ---
         mf = wb.Worksheets('Management Fee')
         values, r0, _ = _read_sheet_values(mf)
         per_product = []
         for ri, row in enumerate(values):
             label = row[0] if row else None
-            if isinstance(label, str) and label.strip() in ('Apartment', 'Shophouse', 'Nursery / Nhà trẻ'):
+            if isinstance(label, str) and label.strip() in PRODUCT_ROWS:
                 nfa = mf.Cells(r0 + ri, 2).Value2
                 rate = mf.Cells(r0 + ri, 3).Value2
                 # Product names repeat further down in the PER-PRODUCT RATE NOTES block, where the
@@ -246,20 +249,27 @@ def hand_checks(figures, sample_path, analysis_path):
                 # both columns, so that is what identifies it.
                 if isinstance(nfa, (int, float)) and isinstance(rate, (int, float)):
                     per_product.append((label.strip(), nfa, rate))
-        # anchor the two biggest products to the input file, not the workbook
-        input_nfa = {'Apartment': scale['apartment_nfa'], 'Shophouse': scale['shophouse_nfa'],
-                     'Nursery / Nhà trẻ': scale['nursery_nfa']}
+
+        def _input_area(product):
+            # Every product is anchored to the input file. A blank or non-numeric cell is read as
+            # 0 m2 (the form says "leave 0 for products this project doesn't have"), so a workbook
+            # that prices an area the input does not have fails the anchoring test below.
+            raw = scale['product_nfa'][product]
+            return float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else 0.0
+
         monthly = 0.0
         anchored = True
         for label, nfa, rate in per_product:
-            from_input = input_nfa.get(label)
-            # `is not None`, never `or`: a genuine 0 is a real input, and treating it as absent is
-            # how this check used to substitute the workbook's own number for the input's and go on
-            # reporting OK. A product outside input_nfa is not anchored by design — only the three
-            # priced products are — so it legitimately uses the workbook's NFA.
-            if from_input is not None and abs(float(from_input) - float(nfa)) > 0.5:
+            from_input = _input_area(label)
+            if abs(from_input - float(nfa)) > 0.5:
                 anchored = False
-            monthly += float(from_input if from_input is not None else nfa) * float(rate)
+            monthly += from_input * float(rate)
+        # A product with an area in the input but no numeric row in the fee table is unpriced. It
+        # may be deliberate (the deliverable's own remarks say so), so it counts 0 here and is
+        # named, never silently dropped.
+        priced = {label for label, _nfa, _rate in per_product}
+        unpriced = [f"{p} ({_input_area(p):,.0f} m²)" for p in PRODUCT_ROWS
+                    if p not in priced and _input_area(p) > 0]
         expected_mf = monthly * 12
         actual_mf = figures['mgmt_fee_revenue_annual']['value']
         checks.append((
@@ -268,7 +278,9 @@ def hand_checks(figures, sample_path, analysis_path):
             # the workbook's, this check is comparing the workbook against itself and proves nothing,
             # which is worse than a red line because it looks like evidence.
             anchored and abs(expected_mf - actual_mf) < 1.0,
-            'Σ(product NFA from Sample_Project_Input.xlsx × its derived rate) × 12'
+            'Σ(product NFA from Sample_Project_Input.xlsx × its derived rate) × 12, over the '
+            f'{len(per_product)} priced product(s)'
+            + (f'; unpriced, counted as 0: {", ".join(unpriced)}' if unpriced else '')
             + ('' if anchored else '  [FAILED: input NFA does not match the workbook, so this check '
                                    'is not anchored to the input file and proves nothing]'),
         ))

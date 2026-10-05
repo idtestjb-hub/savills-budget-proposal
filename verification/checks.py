@@ -768,9 +768,10 @@ _INTERNAL_WORDING_DENYLIST = _INTERNAL_ARTIFACT_DENYLIST + [
 # Cells whose text comes from Savills' standard form, not from this pipeline, and so may contain a
 # word above. Listed explicitly, never by pattern. The scan compares each one with the template's own
 # text, so a cell the pipeline overwrote cannot hide behind this list. Reported to the template owner
-# (docs/23 A1, A2); not ours to edit.
+# (docs/23 A1, A2); not ours to edit. RP5's remark (T15, the form's "demo") is no longer here: the
+# pipeline now writes its own reason there (change fix-verify-hand-check-and-rp5-remark), so the
+# cell is scanned like any other pipeline remark.
 _TEMPLATE_OWNED_TEXT_CELLS = {
-    ('2.2 Common area Fund', 'T15'),      # RP5 remark, literally "demo"
     ('2.2 Common area Fund', 'T460'),     # VAT1  "[Lưu ý nội bộ: ...]"
     ('2.2 Common area Fund', 'T461'),     # VAT2
     ('2.2 Common area Fund', 'T462'),     # CIT1
@@ -834,7 +835,8 @@ _TEMPLATE_OWNED_T_ROWS = {
     ('2. Budget-Management Fund', 'ESA11'),  # equipment maintenance-fund guidance, already Vietnamese
     ('2. Budget-Management Fund', 'ESA12'),  # equipment maintenance-fund guidance, already Vietnamese
     ('2. Budget-Management Fund', 'ESA16'),  # water-meter maintenance-fund guidance, already Vietnamese
-    ('2.2 Common area Fund', 'RP5'),         # template placeholder, literally "demo"
+    # RP5 ("demo") was the 11th row here until change fix-verify-hand-check-and-rp5-remark: the
+    # pipeline now writes RP5's own reason, so that row is scanned like the rest.
     ('2.2 Common area Fund', 'VAT1'),        # "[Lưu ý nội bộ: ...]" internal accounting note
     ('2.2 Common area Fund', 'VAT2'),        # "[Lưu ý nội bộ: ...]" internal accounting note
     ('2.2 Common area Fund', 'CIT1'),        # "[Lưu ý nội bộ: ...]" internal accounting note
@@ -1086,6 +1088,13 @@ _REQUIRED_CLASSIFICATION_ENFORCED_SHEETS = ('2. Budget-Management Fund', '2.2 Co
 # (blank) remark cells. Recorded here as the one documented exception, not inferred at check time.
 _REQUIRED_CODE_DISCLOSED_ON = {'EMA1': 'EMA15', 'EMA2': 'EMA15', 'EMA3': 'EMA15', 'EMA4': 'EMA15'}
 
+# Remarks the standard form ships that explain nothing, so a zero Required line holding only one of
+# these has NO stated reason: (sheet, code) -> the placeholder's exact text. Matched on the whole
+# trimmed text of that one cell, never on the word, in the same spirit as the explicit cell lists
+# above (change fix-verify-hand-check-and-rp5-remark). Until that change the check accepted RP5's
+# "demo" as a reason and passed on a word that explains nothing.
+_FORM_PLACEHOLDER_REMARKS = {('2.2 Common area Fund', 'RP5'): 'demo'}
+
 
 def check_required_line_items(paths):
     """Confirm every code the AI Guideline classifies 'Bắt buộc/Required' on
@@ -1100,7 +1109,9 @@ def check_required_line_items(paths):
     'SUBTOTAL' in the G-formula signal check_summary_reconciles uses):
 
       - non-zero G -> pass;
-      - zero G, but the code's own T (Remarks) cell is non-empty -> pass (a stated reason);
+      - zero G, but the code's own T (Remarks) cell is non-empty -> pass (a stated reason), unless
+        the text is exactly a form placeholder listed in _FORM_PLACEHOLDER_REMARKS (RP5's "demo"),
+        which explains nothing and so counts as no reason;
       - zero G, and the code is one of EMA1-4 (see _REQUIRED_CODE_DISCLOSED_ON) -> check the named
         code's remark instead (EMA15's catch-all disclosure covers all four);
       - zero G with no remark anywhere applicable -> FAIL, naming the code.
@@ -1219,11 +1230,18 @@ def check_required_line_items(paths):
                             sheet_pending.append(label)
                     continue
 
-                if isinstance(t, str) and t.strip():
+                is_placeholder = (isinstance(t, str)
+                                  and _FORM_PLACEHOLDER_REMARKS.get((sheet_name, code)) == t.strip())
+                if isinstance(t, str) and t.strip() and not is_placeholder:
                     rows.append((label, 'ok — zero, reason stated'))
                 elif enforced:
-                    differences.append((label, 'Required code is zero with no stated reason'))
-                    rows.append((label, 'FAIL — zero, no stated reason'))
+                    if is_placeholder:
+                        differences.append((label, "Required code is zero and its only remark is the "
+                                                   "standard form's placeholder text"))
+                        rows.append((label, 'FAIL — zero, only the form placeholder remark'))
+                    else:
+                        differences.append((label, 'Required code is zero with no stated reason'))
+                        rows.append((label, 'FAIL — zero, no stated reason'))
                 else:
                     sheet_pending.append(label)
 
