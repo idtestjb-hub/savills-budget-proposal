@@ -1,13 +1,14 @@
 """
 Transforms input/project/2026_Master List.xlsx (Residential: 105 real properties, Commercial: 55
 real properties) into clean, typed reference tables — CSV for Power BI, plus an Excel workbook for
-human review. This REPLACES the old 8-project reference (master_comparables.py / the
-generation_B_verified CSVs built from input/budget_planning/) as the source for project generation:
-the old data had property scale and staff cost/headcount as two disjoint populations with no shared
-key (documented in docs/Fact_Dim_Master_Mapping.md); this Master List has both on the SAME row for
-73 of 105 residential properties, which is what actually lets a real staffing ratio be derived
-instead of assumed. generate_project_output.py / master_comparables.py are not yet wired to this —
-that's the next step once this output is reviewed.
+human review. It adds the Master List to the project's comparables; it does not replace the 8
+detailed project budgets. master_comparables.py reads Dim_Property_Residential.csv as its second pool
+of comparables (property scale and management-fee rates for ~75 more properties), while the 8
+detailed budgets still supply the Capex and OPEX line detail. The old 8-project data had property
+scale and staff cost/headcount as two disjoint populations with no shared key (see
+Budget_Agent/docs/15_Fact_Dim_Master_Mapping.pptx); this Master List has both on the SAME row for
+73 of 105 residential properties, which is what lets a real staffing ratio be derived
+(derive_staffing_benchmarks.py, derive_position_staffing_ratios.py) instead of assumed.
 
 The source sheet is real operational data entered by different people over time, not a clean
 database export, so most fields need real parsing, not a column copy:

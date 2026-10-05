@@ -1,8 +1,9 @@
 """
 Reusable estimation logic for Capex Qty on a NEW project — turns the two studies in
-study_capex_qty_estimation.py into one callable function. Not wired into
-generate_project_output.py yet (its Capex sheet still ships Qty blank on purpose) — this is the
-function that WOULD fill it in, once reviewed.
+study_capex_qty_estimation.py into one callable function. In use today: generate_project_output.py
+calls estimate_capex_qty() for the Capex sheet's category cross-check and estimate_capex_items() for
+its item list; generate_project_budget.py calls estimate_capex_items() for the client deliverable's
+Capex lines; estimate_new_project.py imports the Study 1 ratios.
 
 THE LOGIC, and why it's two numbers, not one:
 

@@ -2,9 +2,8 @@
 
 How this project is actually run today, traced from the code rather than from older documentation.
 
-> `README.md` in this folder describes a "Generation A/B" split that predates the current pipeline
-> and does not mention any of the modules below. Follow this file, not that one. Correcting
-> `README.md` is separate work (backlog item A5).
+> `README.md` in this folder is the module map: which modules the pipeline runs, which scripts
+> prepared its reference data, and which are history. This file is how to run it.
 
 ## Prerequisites
 
@@ -138,7 +137,7 @@ why `run.py` exists.
 
 | Command | Produces |
 |---|---|
-| `generate_project_budget.py` | `sample_output/{Project} - Sample Consulting Budget.xlsx` — the 22-sheet client deliverable, in Savills' own template<br>`reports/Roster_Demand_Model.xlsx` — the 5-sheet shift roster |
+| `generate_project_budget.py` | `sample_output/{Project} - Sample Consulting Budget.xlsx` — the 25-sheet client deliverable (the form's 24 sheets plus `Comparison`), in Savills' own template<br>`reports/Roster_Demand_Model.xlsx` — the 5-sheet shift roster |
 | `generate_project_output.py` | `reports/Project_Budget_Output.xlsx` — the 14-sheet internal analysis showing the reasoning behind every figure |
 
 ## If you run only one generator
@@ -171,17 +170,22 @@ read or write production data. See `verification/README.md`.
 
 ## What the pipeline reads
 
-Only four reference files, plus the template and your input:
+Six reference files, plus the template and your input. This list comes from tracing every file a run opens on the standard sample (2026-10-05):
 
 | File | Drives |
 |---|---|
-| `data/generation_B_verified/Fact_MasterRateCard.csv` | Capex unit prices, staff rates |
+| `data/master_list_verified/Costing_Method_Catalogue.csv` | The costing method and the remark rules for each budget code |
 | `data/master_list_verified/Dim_Property_Residential.csv` | Comparable matching, management-fee rate |
+| `data/master_list_verified/Fact_ProjectLocation.csv` | Project locations for ranking comparables |
 | `data/generation_A_star_schema/Fact_OPEX.csv` | Electricity, water, diesel |
 | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` | Capex line items |
 | `data/generation_A_star_schema/Fact_CapexReserve.csv` | The Years 2+ Capex reserve rate, derived from 4 real projects |
-| `input/template/202608 - 2027 Resi Budget Form.xlsx` | The deliverable's shape |
+| `input/template/2027 Resi Budget Form (IT team).xlsx` | The deliverable's shape |
 | `reports/Project_Budget_Input.xlsx` | Your project |
+
+One more file is read only on a fallback path: `data/generation_B_verified/Fact_MasterRateCard.csv`
+supplies a flat Capex price list when no nearest-project item list can be built
+(`load_capex_items()` in `generate_project_output.py`). A normal run does not open it.
 
 Everything else in the repository — including the real project budgets under `input/budget_planning/`
 — is not read at runtime. See `docs/06-unread-datasets.md`.

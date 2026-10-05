@@ -1,70 +1,55 @@
-# loaders_v2 — source code index
+# source_code — module map
 
-> **Stale index (backlog A5).** For how the pipeline runs today, read `RUNNING.md`. Six modules
-> listed below (`run_etl_v2`, `cell_scan`, `cell_scan_report`, `build_simple_reports`,
-> `generate_sample_project`, `list_positions_by_project`) were retired to `legacy/` on 2026-10-04;
-> see `legacy/README.md`. Dependencies: `requirements.txt`.
+**How to run the pipeline:** `RUNNING.md`. **Dependencies:** `requirements.txt` (the one-off study scripts also use `requirements-studies.txt`).
 
-Two generations of work live here. Both are real and both still useful — this index says which
-does what, so scaling to 150+ projects means *extending* these, not re-deriving them.
+This map was checked on 2026-10-05 against the `import` statements of every `*.py` file in this folder (31 files), not against older documentation. A module is "live" if `run.py`, `generate_project_budget.py`, `generate_project_output.py` or `build_project_input_form.py` imports it, directly or through another live module. If you add or move a module, re-check that statement.
 
-## Generation A — generic ETL pipeline (pre-existing, automated)
+## 1. The live pipeline (12 modules)
 
-Built to run unattended across an arbitrary number of project files without manual verification
-per file. Good candidate to be the actual 150-project pipeline once its heuristics are checked
-against the ground truth Generation B already verified by hand.
-
-| File | Purpose |
+| Module | What it does |
 |---|---|
-| `common_utils_v2.py` | Shared helpers: `repair_workbook` (strips corrupted defined-names so openpyxl can open real project files), `norm`, `find_sheet_loose`/`find_sheet_exact`, `project_code_from_filename`, `get_dept_abbr`, `split_en_vn` |
-| `etl_project_info.py` | Generic key-value scraper over each project's Info sheet → `Fact_ProjectInfo` / `Dim_Project` |
-| `etl_staff.py` | Staff/roster extraction from real project files |
-| `etl_service.py` | Security/Cleaning/Landscape sheet extraction from real project files |
-| `etl_capex.py` | Capex extraction from real project files |
-| `etl_budget.py` | Budget line-item extraction from real project files |
-| `run_etl_v2.py` | Orchestrates the above into one run |
+| `run.py` | The one command: checks the input workbook exists and is not locked, runs both generators, then confirms the two outputs name the same project |
+| `build_project_input_form.py` | Builds the blank `reports/Project_Budget_Input.xlsx`. Refuses to replace an existing one unless run with `--force` (which backs it up first) |
+| `input_labels.py` | Finds each field of the input workbook by its label, not by cell address |
+| `generate_project_budget.py` | Reads the input workbook and fills Savills' 2027 Resi budget form: the client deliverable (`sample_output/`) with its `Comparison` sheet, and the shift roster (`reports/Roster_Demand_Model.xlsx`) |
+| `generate_project_output.py` | Reads the same input and writes the internal analysis workbook `reports/Project_Budget_Output.xlsx`, showing the reasoning behind each figure |
+| `master_comparables.py` | The comparable projects, their areas and management-fee rates, and the ranking and rate-derivation functions both generators use |
+| `estimate_capex_qty.py` | Estimates Capex quantities for a new project by scaling the nearest real project's item list by total NFA; used by both generators |
+| `estimate_opex.py` | Estimates electricity, water, diesel, pool salt and repairs from `data/generation_A_star_schema/Fact_OPEX.csv` |
+| `estimate_new_project.py` | Staffing-headcount estimate (`estimate_staff_headcount`), used by the analysis workbook's cross-check; also a standalone four-part estimation model |
+| `fill_curve.py` | The single monthly occupancy fill-up curve both generators share |
+| `vn_holidays.py` | Vietnamese statutory public holidays, computed (including the lunar ones) rather than typed in |
+| `common_utils_v2.py` | Shared workbook helpers, for example `repair_workbook` |
 
-## Generation B — this session's additions (hand-verified, targeted)
+## 2. Scripts that prepared the reference data (run once; not part of a run)
 
-Built to answer specific questions precisely (cell-level classification, ground-truth intake
-schema, per-unit rate cards) rather than to run unattended. Where Generation A's heuristics
-disagree with these verified numbers, trust these first — they were cross-checked by hand
-against the actual source cells.
+Their output files are the data the live pipeline reads. They are not re-run per project. Those marked † read the confidential client workbooks in `input/budget_planning/`; do not run them without a reason.
 
-| File | Purpose | Depends on |
-|---|---|---|
-| `cell_scan.py` | Scans every non-empty cell across the 8 real project files, classifies INPUT / CALCULATED / ERROR, writes `output/CellScan.sqlite` (1.39M cells) + sheet-level summary | `common_utils_v2.py` |
-| `cell_scan_report.py` | Turns `CellScan.sqlite` into `CellScan_SheetSummary.csv`, `CellScan_Errors.csv`, `CellScan_Report.txt` | run after `cell_scan.py` |
-| `extract_info_sheets.py` | Finds and dumps the canonical Info sheet (property scale, GFA/NFA/units, parking) from any project file — the manual/precise counterpart to `etl_project_info.py`'s generic scraper. Source of the verified `Dim_Property_v2_verified.csv` (8 rows so far) | `common_utils_v2.py` |
-| `build_master_rate_card.py` | Builds the **price-for-1-unit** rate card (staff/service/capex) that feeds the agent's Fabric reasoning layer. Outputs `output/simple_reports/Master_Rate_Card.xlsx` + `output/copilot_studio_package/data/Fact_MasterRateCard.csv` | none (reads `input/` directly) |
-| `add_shift_differentials.py` | Appends the staff shift-differential rules (flat % surcharges per Vietnamese labor law — not per-project data) to the rate card | run after `build_master_rate_card.py` |
-| `build_simple_reports.py` | The "just make it work, simple and readable" staff-cost summary (totals + index), the checkpoint before the rate-card work | none |
-| `generate_sample_project.py` | Fills a copy of `template 2026.xlsx` with a fictional sample project's data (seeded from a real project ±15%) + adds a Comparison sheet vs. 2 real projects. The manual version of what the Copilot Studio agent's "Generate Budget File" tool should do automatically | `common_utils_v2.py` |
-| `list_positions_by_project.py` | Named Security/Cleaning/Landscape position lists per project, across all 89 operating properties → `Project_Detail_Lists.xlsx` | none |
-| `build_roster_input_form.py` | Builds the fillable `Roster_Input_Form.xlsx` (Month/Year, holiday dates, staffing demand table with dropdown validation) — **run this first**, edit the form, then run `generate_roster.py` | none |
-| `generate_roster.py` | Reads `Roster_Input_Form.xlsx` and generates a real full calendar-month roster (correct day count, correct weekdays, round-robin day-off rotation continued seamlessly across the month) priced with real night/holiday differentials on the dates flagged in the form → `Roster_Demand_Model.xlsx`. v2 — the form is now the actual input; editing it and re-running changes the output, which wasn't true of v1 | `build_roster_input_form.py` (must be run first) |
+| Script | Writes |
+|---|---|
+| `transform_master_list.py` | `data/master_list_verified/Dim_Property_Residential.csv` and `Dim_Property_Commercial.csv`, parsed from `input/project/2026_Master List.xlsx` |
+| `derive_position_staffing_ratios.py` | `data/master_list_verified/Fact_StaffingRatio_ByPosition.csv` (per-position staff per 1,000 m² NFA) |
+| `derive_staffing_benchmarks.py` | `Fact_StaffingBenchmark_Derived.csv` and `Staffing_Benchmark_Analysis.xlsx`, in the same folder |
+| `rescan_capex_from_source.py` † | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` and `reports/Project_Detail_Lists.xlsx` |
+| `rescan_capex_reserve.py` † | `Fact_CapexReserve.csv` (the Years 2+ reserve rate), same folder as the Capex file |
+| `rescan_opex_from_source.py` † | `Fact_OPEX.csv`, same folder |
+| `build_master_rate_card.py` | `output/simple_reports/Master_Rate_Card.xlsx` and the `Fact_MasterRateCard.csv` the pipeline reads for unit prices |
+| `add_shift_differentials.py` | Appends the shift-differential rules to the rate card above |
+| `extract_info_sheets.py` † | Dumps the canonical `Info` sheet of each real project budget, for spot-checking the master list |
 
-## Suggested run order, from scratch
+The folder `data/generation_A_star_schema/` keeps its historical name; three of its files (`Fact_OPEX.csv`, `Fact_Capex_Rescanned.csv`, `Fact_CapexReserve.csv`) are live inputs, and its other files are not read at run time.
 
-```
-1. cell_scan.py                  → CellScan.sqlite (data-quality baseline)
-2. cell_scan_report.py           → human-readable error/summary reports
-3. extract_info_sheets.py        → spot-check / extend Dim_Property_v2_verified.csv
-4. build_master_rate_card.py     → Master_Rate_Card.xlsx + Fact_MasterRateCard.csv
-5. add_shift_differentials.py    → appends shift rules to the same rate card
-6. generate_sample_project.py    → optional, demo/pitch file for a new prospect
-```
+## 3. One-off studies and older tools (not reached by a run)
 
-`build_simple_reports.py` is a standalone checkpoint, not part of this chain — run it
-independently if you just want the staff-cost totals report.
+| Module | What it is |
+|---|---|
+| `study_capex_qty_estimation.py` | The two studies behind the ratio constants in `estimate_capex_qty.py`; writes `Capex_Qty_Estimation_Study.xlsx` |
+| `generate_from_real_project.py` | A demonstration: fills a deliverable from a real project's Info sheet as if it were a new prospect's intake |
+| `build_roster_input_form.py`, `generate_roster.py` | The earlier standalone roster tool (`Roster_Input_Form.xlsx` to `Roster_Demand_Model.xlsx`). The roster is now produced by `generate_project_budget.py` from `Project_Budget_Input.xlsx` |
+| `build_project_plan_v2.py` | Builds the project-plan workbook `Budget_Agent/docs/PROJECT_PLAN_v2.xlsx` |
+| `etl_project_info.py`, `etl_staff.py`, `etl_service.py`, `etl_capex.py`, `etl_budget.py` | The generic star-schema extractors of the abandoned "Generation A" ETL. Their orchestrator `run_etl_v2.py` is retired and nothing imports them; kept for reference (`docs/10-data-layer-assessment.md`) |
+| `estimate_capex_qty.sql`, `estimate_new_project.sql` | SQL equivalents of the estimation logic of the same names; reference only, not run by the pipeline |
 
-## When the pool grows to 150+ projects
+## 4. `legacy/`
 
-The honest gap right now: Generation B's precision doesn't scale by hand past a handful of
-files — `extract_info_sheets.py` and the rate-card sourcing in `build_master_rate_card.py` were
-built by reading real cells one project at a time. Generation A's scripts are the ones actually
-designed to run unattended across many files. The real next step is **reconciling the two**:
-run Generation A across the full 150, then spot-check its output against what Generation B
-already verified for the 8 known-good projects, and tighten Generation A's heuristics wherever
-they disagree. That reconciliation pass — not a rewrite — is what "build a pipeline" should mean
-here.
+Six retired modules that fail on start-up because they look for inputs in a folder that does not exist. Do not run them. See `legacy/README.md`.
