@@ -1,0 +1,268 @@
+## Context
+
+See `proposal.md` (Why) for the 2026-10-07 rebuild of the stable-operation reference project. Its
+data stays outside this repository, under `Savills-local\budget-test\`, in the comparison folder
+dated 2026-10-07. That folder holds:
+- the comparison workbook (8 sheets, including the line-by-line comparison and the "real rates" run);
+- the clone that was run (`run\`);
+- the input-filling script and the original `fill_curve.py`.
+
+The folder's name identifies the client, so it is not written here.
+
+The current code paths these proposals touch:
+- **Rate derivation.** In `generate_project_budget.py`:
+  - Apartment, in `build_budget()` (~3131), which falls back to the blended `derive_mgmt_rate`
+    when no comparable has an Apartment rate. Apartment again in `fill_management_fund_sheet()` (~1952).
+  - Non-Apartment products in three places: the fund-sheet loop (~1989), the `0. Info` fee table
+    (~3217) and the complete-total note for products the table has no row for (~3253).
+
+  In `generate_project_output.py`, Apartment at ~231 and the other products at ~298. That file has
+  no blended fallback. The comparison run had to patch four of these sites, and missed the analysis
+  generator. Its analysis workbook still shows the comparable-derived Apartment rate.
+- **Fill-up.** `fill_curve.py` holds `MONTH_ANCHORS` (0% → 50% → 70% → 90% → 100% over 48 months)
+  as a constant. Both generators import `year1_fills`, `year1_electricity_fills`, `parking_fills`
+  and `monthly_fill_path`. `_anchor_note_vi()` in the deliverable generator hard-codes the "0% → 50%"
+  narrative.
+- **Parking.** `PARKING_FEE_CAR_MONTHLY` / `PARKING_FEE_MOTO_MONTHLY` are constants in
+  `generate_project_output.py`, imported by the deliverable generator. `RP1`/`RP2` are written as
+  bays × rate × parking fill. The `1. Summary` narrative quotes the per-bay rate from `_UNIT_RATES`.
+  `BM11` (monthly-parking allocation weight) is set to the full monthly parking revenue, and `BN11`
+  is set to 0.
+- **Collect-on-behalf.** The template carries revenue rows `RO3.A/T/O/M/R/S/L` (water) and
+  `RO4.A/T/O/M/R/S/L` (electricity). It also carries expense rows `EEW.A` / `EEE.A` (residents' own
+  use) and per-zone common-area rows `EEW.AA/T/O/M/R/S/P` and `EEE.AA/T/O/M/R/S/P`. The catalogue
+  marks `RO3.A`, `RO4.A` and `RO23` "not-estimated" ("the VPC budget does not estimate thu-hộ
+  revenue") and has no entry for the other `RO3.*`/`RO4.*` rows. The pipeline writes none of them.
+- **Input reading.** `read_input()` in the deliverable generator is shared by both generators. It
+  reads product rows by label (columns B–D). An absent product row reads as zero. An absent scalar
+  label fails, except optional ones guarded by `L.has()` (`Operating Years to Budget`).
+
+## Goals / Non-Goals
+
+**Goals:**
+- One place decides each product's rate. An entered rate then needs one code path, and both
+  workbooks cannot disagree.
+- An operating project can be described honestly on the form: real rates, stable occupancy,
+  recorded parking revenue and collect-on-behalf amounts.
+- With the new fields blank, every figure is byte-for-byte what it is today.
+
+**Non-Goals:**
+- **Expense-side inputs** the reference rebuild lacked: garden area, internal road area, insured
+  asset value. These are input completeness, not code.
+- **Lines the pipeline has no source for** (most `RO*` income, many `ESS*`/`ER*` contracts) and
+  the staff-cost gap on `EMH2`.
+- **Developer parking scenarios:** `RP8`, `ESS38`, `RM.PA`.
+- **`RI1` and the `2.2 Common area Fund` allocation basis**, which is already pending with the PM.
+- **VAT conversion** of any entered figure (PM-1 below).
+- **The product-code mapping** of a commercial area that the master list calls retail and the form
+  calls officetel. On the reference project the same area sits on `RM.RE` in the real budget and on
+  `RM.OT` in the tool's output.
+- **Excluding a real project from its own comparable set** when its name in the input differs from
+  the master list (see Risks).
+
+## Decisions
+
+### D1 — One rate resolver, called once per generator run (P5)
+
+A function next to the existing rate functions in `master_comparables.py` takes the project as read
+from the input. For each product with area it returns the applied rate, the source kind (`entered`,
+`comparable`, `apartment-fallback`, `blended-fallback`), the comparables used, the note and the
+VAT basis. It also returns the ranking that the `Comparison` sheets show.
+- `build_budget()` calls it once and passes the result to `fill_management_fund_sheet()`, the
+  `0. Info` table, the complete-total note and `add_comparison_sheet()`.
+- The analysis generator calls it once in its `Management Fee` section.
+- No site derives a rate on its own any more.
+
+*Alternatives:*
+- Compute the rates inside `read_input()`, which both generators already share. Rejected: that mixes
+  derivation into input reading, and the reading spec says reading must not change any figure.
+- Compute once in `run.py` and hand the result to both generators. Rejected: each generator must
+  still run on its own (RUNNING.md).
+
+P5 lands before P1. It is accepted only if the before/after deliverable and analysis agree in every
+formula and number, on the standard synthetic project and on the existing three-product test copy
+in `Savills-local\budget-test\`. The analysis generator gains the blended fallback. The synthetic
+sample does not reach that path, so the A/B shows no difference there; a unit-level test covers it.
+
+### D2 — Entered rate: two columns on the product rows (P1)
+
+The product mix block gains two columns: `Actual Rate (VND/m²/month)` and `Rate VAT Basis`, the
+latter a list of `incl. VAT` / `excl. VAT`. Both are found by their header text in the block's header
+row, not by column letter. A form without the columns reads every rate as blank (D6).
+- Inside the resolver, an entered rate ranks first and is not passed through
+  `derive_product_rate_capped`'s swing cap.
+- When Apartment's rate is entered, it is also the fallback for products with neither an entered
+  rate nor a comparable rate. "The project's Apartment rate" then means the rate actually applied.
+  This moves a fallback-priced product along with Apartment, and the sign-off covers it.
+- The `Comparison` sheet keeps the comparables. Its benchmark clause compares the entered rate with
+  them and labels it as the PM's figure.
+
+Draft remark, to be approved by the user before it is written:
+> = Đơn giá {sản phẩm} thực tế do PM nhập ({rate} VND/m²/tháng, {đã gồm / chưa gồm} VAT) x Diện tích
+> tính phí {sản phẩm} ({nfa} m²) = … VND/tháng ({annual} VND/năm).
+
+When the entered basis differs from the deliverable's basis, this sentence is added:
+> Lưu ý: đơn giá nhập {chưa gồm} VAT, số liệu ngân sách này trình bày {đã gồm} VAT; chưa quy đổi.
+
+*Alternatives:*
+- Use the project's own row in `Dim_Property_Residential.csv` automatically; the code already finds
+  it as `own_real`. Rejected: all 105 rows carry the same VAT tag (docs/22 D8), so the basis is
+  unknown. The list can be stale. And a rate that appears from the master list is less auditable
+  than one the PM typed.
+- An environment-variable override, as in the comparison run. Rejected: a PM cannot use it.
+
+### D3 — Stable-operation switch as an explicit parameter of the curve (P3)
+
+A `Stable Operation?` Yes/No label sits beside `Operating Years to Budget`, read through `L.has()`.
+The four `fill_curve` functions take a `stable` argument. With it, every month returns 1.0, the
+electricity fraction returns 1.0, and parking fill returns 1.0. Every caller passes
+`project['stable_operation']`. A module-level switch was rejected: the same process could run two
+projects.
+- `_anchor_note_vi()` gains the stable wording: *"Dự án đang vận hành ổn định: tính lấp đầy 100% cả
+  12 tháng theo lựa chọn tại Project Info, không dùng đường cong lấp đầy của dự án mới."*
+- `RM.0A` is written as zeros, with *"Dự án đang vận hành, không còn căn chờ bàn giao nên chủ đầu tư
+  không đóng phí thay."*
+- The two fill-up sheets show 100% and carry the same reason.
+
+*Alternative:* make the curve's anchors an input (fill % at the end of years 1–4). It is more
+general, but it asks the PM for a curve nobody has. It can follow later (PM-4).
+
+### D4 — Recorded parking revenue, not a per-bay rate (P2)
+
+Two labels go in the parking section: `Actual Car Parking Revenue (VND/month)` and
+`Actual Motorbike Parking Revenue (VND/month)`.
+- **Entered figure, stable switch Yes.** The line is the figure × 12, written flat. `_UNIT_RATES`
+  for that line is replaced by the monthly figure, so the `RPa` narrative quotes it as a recorded
+  monthly average.
+- **Entered figure, stable switch not Yes.** The run stops (PM-3).
+- **`BM11`.** It takes the entered monthly total, and `BN11` stays 0, so the split stays 100/0 and
+  the 351 allocation rows keep their proportions. If both entered figures are 0, `BM11` falls back
+  to bays × default rate (only the ratio matters), so the divide-by-zero guard is not tripped.
+
+*Alternative:* a real per-bay rate field. Rejected on evidence. On the reference project, bays ×
+the real per-bay car rate overshoots the real car parking revenue by 49%, because not every bay is
+rented. The recorded average already carries the bay occupancy.
+
+### D5 — Collect-on-behalf pairs, written only where the PM entered an amount (P4)
+
+A block `COLLECT ON BEHALF (THU HỘ CHI HỘ)` gets one row per product and two amounts per row: water
+and electricity, in VND/month. Each entered amount becomes the revenue row plus its paired expense
+row, both flat × 12.
+- **Revenue row mapping:** Apartment → `.A`, Officetel → `.T`, Office → `.O`, Shopping Mall → `.M`,
+  Retail → `.R`, Shophouse → `.S`. Villas → `.L` (Landed house) is unconfirmed (PM-5). Shop Apartment
+  and Nursery have no row, and an amount entered for them stops the run.
+- **The expense pairing is PM-2.** The reference budget paired water with the per-zone common-area
+  row (`EEW.AA`) and shophouse electricity with `EEE.S`. Those rows are labelled common-area
+  consumption, not residents' own use (`EEW.A` / `EEE.A`). The specs only require "the expense line
+  the approved pairing names", so either answer leaves them unchanged.
+- **Catalogue.** The pairing and the guideline departure go into `Costing_Method_Catalogue.csv`,
+  under a new method name for the `RO3.*` / `RO4.*` entries and their paired expense rows. `RO23`
+  (a separate water-bill row) stays "not-estimated". `verification/method_coverage.py` learns the
+  new method and treats an approved departure as expected. With no amount entered, an entry keeps
+  the guideline's "not estimated" behaviour and remark. The standard sample therefore sees the same
+  method-fidelity figure (99.9%) and the same remark assertions after the catalogue edit.
+- **Template.** The pipeline does not set `2. Budget-Management Fund!F7` ("Mô hình tài chính"),
+  so the template's VAT/CIT rows stay 0. The synthetic project checks they still do once
+  collect-on-behalf revenue is present.
+
+### D6 — Optional fields are read through `L.has()`, and the run lists them
+
+Every new label is read only when present, as `Operating Years to Budget` already is. Each run
+prints a block `Operating-project inputs:` listing every optional field as filled, blank or not on
+the form. Labels that existed before this change keep their fail-loudly behaviour.
+
+### D7 — The form builder gains the fields; the live form is never rewritten
+
+`build_project_input_form.py` adds the new labels and columns to freshly built forms. It still
+refuses to overwrite `Project_Budget_Input.xlsx` (input-form-protection). Its tests rebind
+`OUT_DIR` / `FINAL_OUT` / `OUT` to a temp folder. An existing project's form gets the fields only
+when the PM adds the labels by hand. `RUNNING.md` will say how.
+
+### D8 — Regression on the reference project runs on a clone outside SharePoint
+
+Use the same method as the 2026-10-07 comparison folder:
+1. Copy `source_code`, `data` and the template to a new dated folder under `Savills-local\budget-test\`.
+2. In the clone, delete the reference project's rows from `Dim_Property_Residential.csv` and
+   `Fact_ProjectLocation.csv`. Otherwise the pipeline picks the project as its own comparable.
+3. Fill the scale fields with the project's known values. A blank scale field crashes the run, a 0
+   zeroes the related staffing, and only the 9 ratio-based staffing rows estimate themselves.
+4. Run once per proposal, then once with all approved proposals together.
+5. Compare by line code with the real budget's scanned lines (`budget_scan.sqlite`, `fact_line`).
+
+Record the live `Project_Budget_Input.xlsx` hash before and after: it must not change. The env-var
+patches of the 2026-10-07 clone are not reused. The regression runs the real code.
+
+### D9 — Interaction with `add-multiyear-preopening-budget-phases`
+
+That change (0/30, not started) MODIFIES the occupancy-ramp curve and fill-up-sheet requirements,
+while this change only ADDS one. The two deltas do not collide at archive. Whichever change is
+applied second adds the combined rules to its own specs:
+- stable switch Yes with several operating years → 100% in every year;
+- stable switch Yes with a pre-opening phase → contradictory input, and the run stops with a message.
+
+### D10 — Order and approval gates
+
+1. **P5 first.** It moves no figure and needs only the user's go-ahead to start code.
+2. **P3 next.** P2 and P4 depend on the switch.
+3. **P1, P2 and P4** follow in any order.
+
+Each of P1–P4 starts only after the Head of PM approves it. P4 also needs the AI Guideline owner.
+- **A rejected proposal** is removed from this change with `/opsx:update` (its delta, its tasks and
+  its line in the proposal) before apply.
+- **If P3 is rejected but P2 or P4 approved,** the "requires stable operation" rule in their specs
+  changes with that update.
+
+The change is archived only after every remaining proposal is implemented, measured on the reference
+clone and signed off.
+
+## Expected movement
+
+**Standard synthetic project, all proposals:** no movement. The new fields stay blank, so the 24
+analysis figures and the 8 ramped deliverable figures keep their recorded baselines. The new
+operating-project fixture gets its own baseline.
+
+**Reference project, tool output against the real budget.** "Today" means the 2026-10-07 run at 100%
+occupancy unless stated otherwise:
+
+| # | Lines that move | Today | After | Effect on the tool's totals |
+|---|---|---|---|---|
+| P5 | none | — | — | 0 cells change (A/B) |
+| P1 | `RM.AP`; fallback-priced products such as `RM.OT` | `RM.AP` is 60% of real | equals real within rounding (< 0.01 million VND/year) | revenue from 51% to about 76% of real |
+| P2 | `RP1`, `RP2` | `RP1` 48%, `RP2` 78% of real | equal to real (recorded average × 12) | revenue +about 5 points of real (to about 81% with P1) |
+| P3 | `RM.0A`, collected `RM.*`, `RP*`, `EEE.C`, `EEW.C` | new-building curve: revenue 45%, expense 37% of real | revenue 51%, expense 41% of real; `RM.0A` 0 and collected fee up by the same amount | revenue +13%, expense +12% of the tool's own new-building figures |
+| P4 | `RO3.A`/`RO4.S`/`RO3.S` and their paired expense rows (3 pairs on this project) | 0 | equal pairs, about 6% of real revenue and of real expense | revenue and expense each +about 6 points of real; surplus 0 change |
+
+With every proposal and the existing Savills-fee field filled, the tool's revenue is about 87% of the
+real budget's and its expense about 50%. Most of the remaining expense gap is in the non-goals.
+Each row is re-measured on the regression clone (D8) before sign-off. The figures above come from
+the 2026-10-07 comparison, not from the implemented code.
+
+## Decisions awaiting the Head of PM
+
+| # | Question | Options | Specs written for |
+|---|---|---|---|
+| PM-1 | VAT basis of entered rates and recorded figures (ties to docs/22 D8) | (a) apply as entered and disclose a mismatch; (b) convert to the deliverable's basis at a VAT rate the PM states | (a) |
+| PM-2 | Expense row paired with each collect-on-behalf revenue row | (a) residents' own-use rows `EEW.A` / `EEE.A`; (b) per-zone rows `EEW.AA…` / `EEE.AA…` as in the reference budget | neutral (catalogue holds the pairing) |
+| PM-3 | Do recorded parking and collect-on-behalf amounts require the stable-operation switch? | (a) yes, otherwise the run stops; (b) allowed for any project, written flat | (a) |
+| PM-4 | Stable operation is 100% occupancy, or an entered stable occupancy (e.g. 95%)? | (a) 100%; (b) entered % | (a) |
+| PM-5 | Villas → Landed-house collect-on-behalf rows (`.L`)? | yes / no | stop for unmapped products |
+| PM-6 | Depart from the AI Guideline's "not estimated" rule for collect-on-behalf lines (P4)? Who signs for the guideline? | approve / reject | approve, gated |
+
+If PM-1 (b), PM-3 (b) or PM-4 (b) is chosen, the specs are updated with `/opsx:update` before apply.
+
+## Risks / Trade-offs
+
+- **[A typo in an entered rate moves revenue a lot]** → The `Comparison` sheet still shows the
+  comparable rates, and the benchmark clause states the gap. The printed summary shows entered and
+  derived rates side by side, with the % difference.
+- **[A misspelt optional label is read as blank]** → The `Operating-project inputs:` printout lists
+  every optional field as filled, blank or not on the form (D6).
+- **[The real project is its own comparable]** → For an operating project the master list usually
+  holds its own row. If the input name differs, name-based exclusion misses it. With P1 the applied
+  rate is unaffected, but the other products and the `Comparison` sheet are not. Left as a
+  follow-up; the regression clone removes the row (D8).
+- **[Collect-on-behalf inflates the totals]** → Any ratio computed on total revenue or expense
+  includes the pairs. The surplus is unchanged by construction, and the remarks name both sides.
+- **[New remarks trip the existing remark scans]** → Wording is approved first, then checked by
+  `check_remark_content` and the VAT-sentence rule on the operating-project fixture.
+- **[Overlap with the multi-year change]** → See D9. Neither change modifies the other's requirement.
