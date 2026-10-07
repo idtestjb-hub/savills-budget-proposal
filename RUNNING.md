@@ -84,10 +84,15 @@ longer than the default. See `docs/05-decisions.md`, D4.
 
 ### 3. Run the pipeline
 
-**The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then in
-File Explorer open `Budget_Agent\reports\` and **double-click `Run Budget Agent.cmd`**. It finds
-Python, runs both generators, and leaves the window open so you can read the result (press a key to
-close).
+**The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then
+double-click `Run Budget Agent.cmd` in `C:\Users\<you>\Savills-local\launchers\budget-agent-main\`. It
+finds Python, runs both generators, and leaves the window open so you can read the result (press a
+key to close).
+
+> The launcher lives **outside the SharePoint library on purpose**: the tenant blocks syncing `.cmd`
+> files, so a copy placed in `Budget_Agent\reports\` never uploads and shows a sync error. It is
+> local to one PC and uses absolute paths: on another PC, copy the folder and fix the `cd /d` line
+> to that PC's library path.
 
 > The green box on `Project Info` is only a reminder, not a working button. This workbook lives on
 > SharePoint, and Excel turns any cell hyperlink into a web URL — a link to the local `.cmd` just
@@ -96,15 +101,8 @@ close).
 > `generate_project_budget.py`'s `INPUT_PATH` at the `.xlsm`:
 > ```vba
 > Sub RunBudgetAgent()
->     Dim p As String, wbp As String
->     wbp = ThisWorkbook.Path
->     If LCase(Left$(wbp, 4)) = "http" Then          ' opened from SharePoint/OneDrive
->         p = Environ$("OneDriveCommercial")
->         If Len(p) = 0 Then p = Environ$("OneDrive")
->         p = p & "\VN, IT Collab - Data\PM\Project_Clone2_NewData\Budget_Agent\reports\Run Budget Agent.cmd"
->     Else
->         p = wbp & "\Run Budget Agent.cmd"
->     End If
+>     Dim p As String
+>     p = Environ$("USERPROFILE") & "\Savills-local\launchers\budget-agent-main\Run Budget Agent.cmd"
 >     If Dir(p) = "" Then MsgBox "Not found: " & p, vbExclamation: Exit Sub
 >     CreateObject("WScript.Shell").Run """" & p & """", 1, False
 > End Sub
