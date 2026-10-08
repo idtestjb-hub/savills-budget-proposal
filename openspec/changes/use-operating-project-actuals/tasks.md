@@ -3,21 +3,21 @@
 - [ ] 0.1 Through the user, take P1–P4 to the Head of PM, each with its row of design.md "Expected movement" and the "Decisions awaiting the Head of PM" table (PM-1 to PM-6). Record each answer, with name and date, in design.md and `docs/05-decisions.md`. Verify: P1–P4 each read approved or rejected; PM-1 to PM-6 each have an answer.
 - [ ] 0.2 For P4, also record the approval of whoever signs for the AI Guideline (PM-6). Verify: name, date and decision reference are in design.md. Without them, groups 6 and 7.1's collect-on-behalf fields do not start.
 - [ ] 0.3 For each rejected proposal, and for PM-1 (b), PM-3 (b) or PM-4 (b), revise this change with `/opsx:update`: remove or adjust the spec delta, these tasks and the proposal line. Verify: `openspec validate use-operating-project-actuals --strict` passes, and no remaining requirement depends on a rejected proposal.
-- [ ] 0.4 Get the user's go-ahead to start P5 (group 2), which moves no figure. Verify: the go-ahead is quoted in the session report.
+- [x] 0.4 Get the user's go-ahead to start P5 (group 2), which moves no figure. Verify: the go-ahead is quoted in the session report.
 
 ## 1. Before measurements (no code edits)
 
-- [ ] 1.1 Run `python verification/verify.py` from `Budget_Agent/source_code/` and save the output outside SharePoint as "before". Verify: PASS on every section, and the saved path is in the report.
+- [x] 1.1 Run `python verification/verify.py` from `Budget_Agent/source_code/` and save the output outside SharePoint as "before". Verify: PASS on every section, and the saved path is in the report.
 - [ ] 1.2 Build the regression clone (design D8) in a new dated folder under `Savills-local\budget-test\`. Remove the reference project from the clone's `Dim_Property_Residential.csv` and `Fact_ProjectLocation.csv`, fill the scale fields with non-zero known values, and record the hash of the live `Project_Budget_Input.xlsx`. Verify: a default (new-building) run of the clone reproduces the 2026-10-07 comparison's new-building revenue and expense totals, or any difference is explained before going on.
-- [ ] 1.3 Generate "before" deliverable and analysis copies, in a temp folder, for the standard synthetic project and the existing three-product test copy in `Savills-local\budget-test\`. Verify: four workbooks exist and their paths are in the report.
+- [x] 1.3 Generate "before" deliverable and analysis copies, in a temp folder, for the standard synthetic project and the existing three-product test copy in `Savills-local\budget-test\`. Verify: four workbooks exist and their paths are in the report.
 
 ## 2. P5: one rate resolver (moves no figure)
 
-- [ ] 2.1 Add the resolver beside the rate functions in `master_comparables.py` (design D1). It returns each product's rate, source kind, comparables used, note and VAT basis, plus the ranking. Verify: a test covers each source kind (comparable, Apartment fallback, blended fallback), and the blended fallback gives the rate `build_budget()` gives today.
-- [ ] 2.2 In `generate_project_budget.py`, call the resolver once in `build_budget()` and pass the result to `fill_management_fund_sheet()`, the `0. Info` fee table, the complete-total note and `add_comparison_sheet()`. Remove the five derivation sites. Verify: grep finds no `derive_product_rate`, `derive_product_rate_capped` or `derive_mgmt_rate` call left in that file.
-- [ ] 2.3 In `generate_project_output.py`, call the same resolver once in the `Management Fee` section and remove its two derivation sites. Verify: grep as in 2.2 finds none.
-- [ ] 2.4 Regenerate the four workbooks of 1.3 and compare them cell by cell with the "before" copies. Verify: no difference in any formula or number; the comparison output is in the report.
-- [ ] 2.5 Run `python verification/verify.py`. Verify: PASS, and no baseline re-recorded.
+- [x] 2.1 Add the resolver beside the rate functions in `master_comparables.py` (design D1). It returns each product's rate, source kind, comparables used, note and VAT basis, plus the ranking. Verify: a test covers each source kind (comparable, Apartment fallback, blended fallback), and the blended fallback gives the rate `build_budget()` gives today.
+- [x] 2.2 In `generate_project_budget.py`, call the resolver once in `build_budget()` and pass the result to `fill_management_fund_sheet()`, the `0. Info` fee table, the complete-total note and `add_comparison_sheet()`. Remove the five derivation sites. Verify: grep finds no `derive_product_rate`, `derive_product_rate_capped` or `derive_mgmt_rate` call left in that file.
+- [x] 2.3 In `generate_project_output.py`, call the same resolver once in the `Management Fee` section and remove its two derivation sites. Verify: grep as in 2.2 finds none.
+- [x] 2.4 Regenerate the four workbooks of 1.3 and compare them cell by cell with the "before" copies. Verify: no difference in any formula or number; the comparison output is in the report.
+- [x] 2.5 Run `python verification/verify.py`. Verify: PASS, and no baseline re-recorded.
 
 ## 3. P3: stable-operation switch (only if approved in 0.1)
 

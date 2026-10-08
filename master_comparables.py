@@ -613,3 +613,69 @@ def derive_product_rate_capped(project_nfa, exclude_name, product, input_distric
                   f"{basic_rate:,.0f} 'basic information as is' figure — your rule, 2026-09-16).")
     note = (note + ' ' if note else '') + clamp_note
     return clamped, used, note, all_ranked
+
+
+BLENDED_FALLBACK_NOTE = 'No comparable has a real Apartment rate — fell back to the whole-property blended rate.'
+
+
+def resolve_product_rates(project):
+    """The one place each product's applied management-fee rate (VND/m²/month) is decided — change
+    `use-operating-project-actuals`, P5. Both generators call this once per run and read every rate
+    they write or show from its result, so the deliverable's RM.* rows, its '0. Info' fee table and
+    Comparison sheet, and the analysis workbook's Management Fee / Comparison / Summary sheets cannot
+    disagree. Before P5 the deliverable derived the Apartment rate twice and the other products' rates
+    three times, and the analysis derived both again on its own.
+
+    Order of sources, the same for both workbooks:
+      Apartment  derive_product_rate_capped() (the ±20% within-1km swing cap applies); when no
+                 comparable carries an Apartment rate at all, the blended whole-property rate
+                 (derive_mgmt_rate over the 2 nearest comparables) — before P5 only the deliverable
+                 had this step.
+      others     derive_product_rate() over the same coordinate-aware ranking, uncapped; when no
+                 comparable carries that product's rate, the project's applied Apartment rate.
+
+    `project` is read_input()'s dict (name, total_nfa, district, city, lat, lon, products).
+    Returns a dict:
+      apartment_rate, apartment_used, apartment_note, apartment_source ('comparable' or
+        'blended-fallback'); apartment_used is [] on the blended fallback
+      comparables  the comparables the Comparison sheets show: apartment_used, or the 2 nearest
+                   comparables on the blended fallback
+      rate_note    the note the Comparison sheets show (apartment_note, plus BLENDED_FALLBACK_NOTE)
+      all_ranked   the coordinate-aware full ranking
+      products     {product: dict(rate, used, note, source, is_fallback)} for every product with
+                   area, in the order of project['products']; source is 'comparable',
+                   'apartment-fallback' or (Apartment only) 'blended-fallback'
+    Raises ValueError when no comparable has any management-fee rate."""
+    loc = dict(input_district=project.get('district'), input_city=project.get('city'))
+    apt_rate, apt_used, apt_note, all_ranked = derive_product_rate_capped(
+        project['total_nfa'], project['name'], 'Apartment',
+        input_lat=project.get('lat'), input_lon=project.get('lon'), **loc)
+    comparables, rate_note, apt_source = apt_used, apt_note, 'comparable'
+    if apt_rate is None:
+        comparables = nearest_comparables(project['total_nfa'], exclude_name=project['name'], n=2,
+                                          input_lat=project.get('lat'), input_lon=project.get('lon'),
+                                          **loc)
+        apt_rate, blended_note = derive_mgmt_rate(comparables, all_ranked=all_ranked)
+        rate_note = ((blended_note + '  ') if blended_note else '') + BLENDED_FALLBACK_NOTE
+        apt_source = 'blended-fallback'
+    if apt_rate is None:
+        raise ValueError("Could not derive a management-fee rate — no comparable in the master table has one.")
+
+    products = {}
+    for product, info in (project.get('products') or {}).items():
+        if not (info or {}).get('nfa'):
+            continue
+        if product == 'Apartment':
+            products[product] = dict(rate=apt_rate, used=apt_used, note=apt_note, source=apt_source,
+                                     is_fallback=False)
+            continue
+        rate, used, note = derive_product_rate(all_ranked, product, n=2)
+        if rate is None:
+            products[product] = dict(rate=apt_rate, used=[], note=note, source='apartment-fallback',
+                                     is_fallback=True)
+        else:
+            products[product] = dict(rate=rate, used=used, note=note, source='comparable',
+                                     is_fallback=False)
+    return dict(apartment_rate=apt_rate, apartment_used=apt_used, apartment_note=apt_note,
+                apartment_source=apt_source, comparables=comparables, rate_note=rate_note,
+                all_ranked=all_ranked, products=products)

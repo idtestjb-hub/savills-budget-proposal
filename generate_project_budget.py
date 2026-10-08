@@ -38,8 +38,7 @@ from openpyxl.comments import Comment
 from common_utils_v2 import repair_workbook
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
-    RATE_CARD_SOURCE, nearest_comparables, derive_mgmt_rate, derive_product_rate,
-    derive_product_rate_capped,
+    RATE_CARD_SOURCE, resolve_product_rates,
 )
 from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
@@ -1721,7 +1720,7 @@ def _unplaced_positions(demand):
     return result
 
 
-def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
+def fill_management_fund_sheet(wb, project, demand, year, rates):
     """Populates the real computed OPEX/Capex/Staff/Parking/Management-Fee numbers this pipeline
     already derives elsewhere (generate_project_output.py) into '2. Budget-Management Fund''s
     pre-labeled leaf rows (MGMT_FUND_ROWS above). Only leaf-row cells (C/F/H:S) are touched — every
@@ -1739,7 +1738,10 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
     uses a Year-1 lump sum in month 1 (Schedule frequency), matching the sinking-fund treatment
     (100% Year 1, reserve thereafter) already used in generate_project_output.py's Owner Operating
     Position / Savills Fee Position sheets — this sheet only covers one calendar year, so it gets
-    the Year-1 (full lump) value. Both choices confirmed with the PM (2026-08-21)."""
+    the Year-1 (full lump) value. Both choices confirmed with the PM (2026-08-21).
+
+    `rates` is build_budget()'s master_comparables.resolve_product_rates() result: the RM.* rows
+    are priced at exactly those rates, never re-derived here (change use-operating-project-actuals, P5)."""
     ws = wb['2. Budget-Management Fund']
 
     # Check every hardcoded leaf position against its own cost code before writing anything.
@@ -1931,30 +1933,14 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         f"giá riêng ở trên (ESS1/ESS4/ESS16)."))
 
     # ---- Management fee revenue, priced PER PRODUCT ----
-    # Every product the project reports area for gets its own real rate and its own template row,
-    # using the identical rate logic as generate_project_output.py's Management Fee sheet
-    # (derive_product_rate, falling back to the Apartment rate) so the two workbooks agree by
-    # construction. Before 2026-09-08 only Apartment was priced here, which understated the
-    # deliverable's revenue against the analysis by 1,930,800,000 VND (14.8%) — finding X-01.
-    from master_comparables import derive_product_rate, derive_product_rate_capped, MASTER_COMPARABLES
-    # Rank comparables by TOTAL building NFA — the measure master_comparables.py stores for every
-    # candidate and the measure generate_project_output.py already uses. Ranking this project's
-    # whole-building size against comparables' whole-building size is like-for-like; the old
-    # project['apartment_nfa'] here compared an apartment-only area against whole buildings, so the
-    # deliverable and the analysis could pick different comparables for the same project — the open
-    # half of finding X-01 / backlog B3 (change `unify-revenue-basis-across-outputs`).
-    # The fallback is the Apartment rate as derive_product_rate_capped computes it — NOT the
-    # derive_mgmt_rate figure passed in as `derived_rate`. The two are different functions and give
-    # different answers (on a test project: 14,750 vs 15,675). generate_project_output.py falls back
-    # to the same derive_product_rate_capped value, so using anything else here makes the two
-    # workbooks disagree on every fallback-priced product. `_capped` (task 2.5, 2026-09-16) also
-    # applies your within-1km ±20% rate-swing cap — see master_comparables.py's own docstring.
-    apt_rate, _apt_used, _apt_note, all_ranked = derive_product_rate_capped(
-        project['total_nfa'], project['name'], 'Apartment',
-        input_district=project.get('district'), input_city=project.get('city'),
-        input_lat=project.get('lat'), input_lon=project.get('lon'))
-    if apt_rate is None:
-        apt_rate = derived_rate
+    # Every product the project reports area for gets its own rate and its own template row. The
+    # rates come from `rates` — master_comparables.resolve_product_rates(), called once by
+    # build_budget() and also by generate_project_output.py's Management Fee sheet — so the two
+    # workbooks agree by construction (change use-operating-project-actuals, P5: before it this
+    # function derived the Apartment rate a second time and every other product's rate a third).
+    # Before 2026-09-08 only Apartment was priced here, which understated the deliverable's revenue
+    # against the analysis by 1,930,800,000 VND (14.8%) — finding X-01.
+    apt_rate = rates['apartment_rate']
     # Occupancy ramp (change `ramp-occupancy-scaled-lines`, catalogue: these codes are
     # occupancy_scaled). A new building opens the year part-empty, so collected management fee rises
     # month by month with the resident fill-up curve (fill_curve.year1_fills — 0% -> 50% over year 1,
@@ -1977,18 +1963,10 @@ def fill_management_fund_sheet(wb, project, demand, year, derived_rate):
         nfa = (project['products'].get(product) or {}).get('nfa')
         if not nfa:
             continue                      # no area for this product — leave the row blank, not 0
-        if product == 'Apartment':
-            # Reuse apt_rate/_apt_used as-is (already derive_product_rate_capped()'s output, task
-            # 2.5) rather than recomputing via the uncapped derive_product_rate() below —
-            # recomputing here would silently overwrite the swing cap on this one row with the
-            # uncapped figure (caught 2026-09-16: RM.AP disagreed with '0. Info'!I8 and the internal
-            # analysis before this fix).
-            rate, used, is_fallback = apt_rate, _apt_used, False
-        else:
-            rate, used, _note = derive_product_rate(all_ranked, product, n=2)
-            is_fallback = rate is None
-            if is_fallback:
-                rate = apt_rate
+        # Apartment's rate carries the swing cap; the others are uncapped or fall back to it — all
+        # decided in the resolver (the 2026-09-16 RM.AP bug was this loop re-deriving it uncapped).
+        _p_rate = rates['products'][product]
+        rate, used, is_fallback = _p_rate['rate'], _p_rate['used'], _p_rate['is_fallback']
         _UNIT_RATES[PRODUCT_REVENUE_EXPECTED_CODE[product]] = rate
         full_monthly = rate * nfa
         annual = full_monthly * 12
@@ -3120,27 +3098,15 @@ def fill_staff_cost_sheet(wb, project, demand, year):
 
 
 def build_budget(project, demand, year):
-    # Comparable matching runs on TOTAL building NFA, and the headline rate is
-    # derive_product_rate(..., 'Apartment') — the SAME basis and the SAME function
-    # generate_project_output.py and fill_management_fund_sheet() below use. So the deliverable's
-    # '0. Info' fee-rate cell, its Comparison sheet, and the internal analysis all show one rate,
-    # and it is the rate the RM lines are actually priced at (change
-    # `unify-revenue-basis-across-outputs`, backlog B3). derive_mgmt_rate (whole-property blended
-    # rate over any nearest comparable) is kept only as a last-resort fallback for the rare project
-    # where no comparable in the master table carries an Apartment rate at all.
-    derived_rate, top2, rate_note, all_ranked = derive_product_rate_capped(
-        project['total_nfa'], project['name'], 'Apartment',
-        input_district=project.get('district'), input_city=project.get('city'),
-        input_lat=project.get('lat'), input_lon=project.get('lon'))
-    if derived_rate is None:
-        top2 = nearest_comparables(project['total_nfa'], exclude_name=project['name'], n=2,
-                                   input_district=project.get('district'), input_city=project.get('city'),
-                                   input_lat=project.get('lat'), input_lon=project.get('lon'))
-        derived_rate, rate_note = derive_mgmt_rate(top2, all_ranked=all_ranked)
-        rate_note = ((rate_note + '  ') if rate_note else '') + (
-            'No comparable has a real Apartment rate — fell back to the whole-property blended rate.')
-    if derived_rate is None:
-        raise ValueError("Could not derive a management-fee rate — no comparable in the master table has one.")
+    # Every product's rate is decided ONCE, here, by master_comparables.resolve_product_rates() —
+    # the same function generate_project_output.py calls — and every place below that writes or
+    # shows a rate reads it from `rates`: the RM.* rows (fill_management_fund_sheet), the '0. Info'
+    # fee table and its complete-total note, and the Comparison sheet (change
+    # use-operating-project-actuals, P5). Comparable matching runs on TOTAL building NFA; the
+    # blended whole-property rate is the last-resort Apartment fallback for the rare project where
+    # no comparable carries an Apartment rate at all (see the resolver's docstring).
+    rates = resolve_product_rates(project)
+    derived_rate, top2, rate_note = rates['apartment_rate'], rates['comparables'], rates['rate_note']
 
     own_real = next((c for c in MASTER_COMPARABLES
                       if c['name'].strip().lower() in project['name'].strip().lower()
@@ -3195,7 +3161,7 @@ def build_budget(project, demand, year):
     # form's fee table has one row per product: Apartment(8)/Officetel(9)/Office(10)/Shophouse(11)
     # (the superseded 202608 form had Shopping Mall at row 11 — change `rebase-output-onto-25-sheet-form`).
     # Each product with an area gets BOTH its scale AND its rate, priced by the SAME per-product
-    # logic as the RM.* rows on the budget sheet (derive_product_rate, Apartment-rate fallback), so
+    # rates as the RM.* rows on the budget sheet (resolve_product_rates, Apartment-rate fallback), so
     # this sheet's K column agrees with the budget sheet. Shopping Mall / Retail / Shop Apartment /
     # Villas / Nursery have no row in this table — their revenue is on the budget sheet only, so the
     # K19 total here is the four-product subset, not the whole management fee.
@@ -3206,16 +3172,10 @@ def build_budget(project, demand, year):
         if not _p.get('nfa'):
             continue
         info[f'C{_row}'], info[f'D{_row}'], info[f'E{_row}'] = _p['gfa'], _p['nfa'], _p['units']
-        if _prod == 'Apartment':
-            # Reuse derived_rate as-is (already derive_product_rate_capped()'s output, task 2.5)
-            # rather than recomputing via the uncapped derive_product_rate() below — recomputing
-            # here silently overwrote the swing cap on this exact cell (caught 2026-09-16: '0.
-            # Info'!I8 showed the uncapped 19,400 while the internal analysis correctly showed the
-            # clamped 16,800 for the same project).
-            _rate = derived_rate
-        else:
-            _rate, _used, _ = derive_product_rate(all_ranked, _prod, n=2)
-        info[f'I{_row}'] = _rate if _rate is not None else derived_rate
+        # The applied rate from the one resolver (P5) — Apartment's carries the swing cap, so this
+        # cell cannot drift from the RM.* rows or the analysis (the 2026-09-16 '0. Info'!I8 bug
+        # was this cell recomputing the rate on its own).
+        info[f'I{_row}'] = rates['products'][_prod]['rate']
         # G = 'Ghi chú' — the AI Guideline's own '0. Info' remark: per-product area basis + as-of
         # year (change complete-ai-guideline-remark-coverage). The PM's own citation when entered;
         # otherwise state the area is PM-supplied rather than invent a drawing/legal reference.
@@ -3243,15 +3203,14 @@ def build_budget(project, demand, year):
         # generator controls, and this project's convention is never to edit the template to make
         # room. Rows 20+ are blank on every version of this sheet checked, so a second, COMPLETE
         # total is added there instead — same figures as row 19 would show if it could see every
-        # product, computed the identical way (derive_product_rate, apt-rate fallback) the real
+        # product, at the same resolved rate (resolve_product_rates, apt-rate fallback) the real
         # RM.* revenue rows use, so this total and '2. Budget-Management Fund' cannot disagree.
         _rowless_total_gfa = _rowless_total_nfa = _rowless_total_units = _rowless_total_fee = 0.0
         _rowless_parts = []
         for _rp in _rowless:
             _rinfo = project['products'].get(_rp) or {}
             _rnfa = _rinfo.get('nfa') or 0
-            _rrate, _rused, _ = derive_product_rate(all_ranked, _rp, n=2)
-            _rrate = _rrate if _rrate is not None else derived_rate
+            _rrate = rates['products'][_rp]['rate']
             _rfee = _rrate * _rnfa
             _rowless_total_gfa += _rinfo.get('gfa') or 0
             _rowless_total_nfa += _rnfa
@@ -3313,7 +3272,7 @@ def build_budget(project, demand, year):
     _ZERO_REASONS.clear()
     _CATCH_ALL_REASONS.clear()
     _UNIT_RATES.clear()
-    fill_management_fund_sheet(wb, project, demand, year, derived_rate)
+    fill_management_fund_sheet(wb, project, demand, year, rates)
 
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----

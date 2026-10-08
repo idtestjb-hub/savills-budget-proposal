@@ -32,7 +32,7 @@ from openpyxl.formatting.rule import FormulaRule
 from generate_project_budget import read_input, INPUT_PATH, PRODUCT_ROWS
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
-    RATE_CARD_SOURCE, nearest_comparables, derive_product_rate, derive_product_rate_capped,
+    RATE_CARD_SOURCE, resolve_product_rates,
 )
 from estimate_capex_qty import estimate_capex_qty, estimate_capex_items
 from estimate_new_project import estimate_staff_headcount
@@ -214,7 +214,7 @@ def build_management_fee_sheet(wb, project):
     """Revenue is now priced PER PRODUCT TYPE, not just Apartment: each of Apartment/Officetel/
     Shophouse/Shopping Mall/Nursery (whichever have nonzero NFA on this project) gets its own
     derived rate from the nearest real comparables that have a REAL rate for that specific
-    product — see master_comparables.py's PRODUCT_RATE_COLUMNS and derive_product_rate(). Real
+    product — see master_comparables.py's PRODUCT_RATE_COLUMNS and resolve_product_rates(). Real
     per-product rate data is thin outside Apartment (most comparables only have one blended
     rate), so any product with zero qualifying comparables falls back to this project's own
     derived Apartment rate — labeled in red as a fallback, never silently dropped from revenue
@@ -224,14 +224,14 @@ def build_management_fee_sheet(wb, project):
                 'Each product priced with its own derived rate from real comparables with a rate for that product '
                 '(Apartment rate used as a labeled fallback where none exist) — see master_comparables.py.', 'A1:E1')
 
-    # derive_product_rate_capped (task 2.5, 2026-09-16) applies your within-1km +/-20% rate-swing
-    # cap on top of task 2.4's distance tie-break — see master_comparables.py's own docstring. Used
-    # here (not the plain nearest_comparables + derive_product_rate two-step) so this workbook's
-    # Apartment rate agrees with generate_project_budget.py's, which uses the same capped call.
-    apt_rate, apt_used, apt_note, all_ranked = derive_product_rate_capped(
-        project['total_nfa'], project['name'], 'Apartment',
-        input_district=project.get('district'), input_city=project.get('city'),
-        input_lat=project.get('lat'), input_lon=project.get('lon'))
+    # Every rate on this sheet comes from master_comparables.resolve_product_rates() — the same
+    # call generate_project_budget.py makes once per run — so this workbook and the deliverable
+    # cannot disagree on any product's rate (change use-operating-project-actuals, P5). Apartment's
+    # carries the within-1km ±20% rate-swing cap (task 2.5, 2026-09-16); when no comparable has an
+    # Apartment rate at all it is the blended whole-property rate, which before P5 only the
+    # deliverable had.
+    rates = resolve_product_rates(project)
+    apt_rate, apt_note = rates['apartment_rate'], rates['rate_note']
     own_real = next((c for c in MASTER_COMPARABLES
                       if c['name'].strip().lower() in project['name'].strip().lower() and c['rates'].get('Apartment')), None)
 
@@ -288,18 +288,12 @@ def build_management_fee_sheet(wb, project):
         nfa = project['products'][product]['nfa']
         if not nfa:
             continue
-        if product == 'Apartment':
-            # Reuse apt_rate as-is (already derive_product_rate_capped()'s output, task 2.5) rather
-            # than recomputing via the uncapped derive_product_rate() below — recomputing here
-            # silently overwrote the swing cap on this row (same bug caught in
-            # generate_project_budget.py 2026-09-16, fixed the same way in both places).
-            rate, used, note, is_fallback = apt_rate, apt_used, apt_note, False
-        else:
-            rate, used, note = derive_product_rate(all_ranked, product, n=2)
-            is_fallback = rate is None
-            if is_fallback:
-                rate = apt_rate
-                note = f"No comparable has a real {product} rate — using this project's derived Apartment rate ({apt_rate:,}) as the best available proxy."
+        # The resolver's per-product decision: Apartment capped, the others uncapped or falling back
+        # to the Apartment rate (the 2026-09-16 bug was this loop re-deriving Apartment uncapped).
+        _p_rate = rates['products'][product]
+        rate, used, note, is_fallback = _p_rate['rate'], _p_rate['used'], _p_rate['note'], _p_rate['is_fallback']
+        if is_fallback:
+            note = f"No comparable has a real {product} rate — using this project's derived Apartment rate ({apt_rate:,}) as the best available proxy."
         ws.cell(row=r, column=1, value=product).border = BORDER
         c2 = ws.cell(row=r, column=2, value=nfa)
         c2.border = BORDER
@@ -346,7 +340,7 @@ def build_management_fee_sheet(wb, project):
         ws.column_dimensions[col].width = w
 
     return dict(monthly_revenue_cell=MONTHLY_REVENUE_CELL, annual_revenue_cell=ANNUAL_REVENUE_CELL,
-                derived_rate=apt_rate, top2=apt_used, rate_note=apt_note, own_real=own_real)
+                derived_rate=apt_rate, top2=rates['comparables'], rate_note=apt_note, own_real=own_real)
 
 
 # ============================================================================================
