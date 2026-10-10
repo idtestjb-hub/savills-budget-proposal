@@ -250,6 +250,22 @@ the 2026-10-07 comparison, not from the implemented code.
 
 If PM-1 (b), PM-3 (b) or PM-4 (b) is chosen, the specs are updated with `/opsx:update` before apply.
 
+### Answers recorded 2026-10-11 (session P13)
+
+The user decided in place of the Head of PM, and for P4 in place of whoever signs for the AI Guideline, as
+they did for `new-prospect-paid-holidays`. The user asked that the choices stay easy to change later.
+
+| # | Answer | Note |
+|---|---|---|
+| P1–P4 | Approved, all four | P1–P3 are optional fields or a switch: left blank, a run equals today's |
+| PM-1 | (a) apply as entered and disclose a mismatch | No `/opsx:update` needed |
+| PM-2 | (a) `EEW.A` / `EEE.A` | Chosen by the session, not the user. The template labels these rows "(chi hộ)". It is one catalogue entry to change |
+| PM-3 | (a) the switch is required, otherwise the run stops | |
+| PM-4 | (a) 100% | |
+| PM-5 | Not mapped | Chosen by the session. A Villas collect-on-behalf amount stops the run until the mapping is confirmed |
+| PM-6 | Approved by the user in place of the guideline owner | Departs from the guideline's "not estimated" rule for collect-on-behalf lines |
+
+
 ## Risks / Trade-offs
 
 - **[A typo in an entered rate moves revenue a lot]** → The `Comparison` sheet still shows the

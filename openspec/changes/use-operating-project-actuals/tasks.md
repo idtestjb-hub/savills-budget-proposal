@@ -1,8 +1,8 @@
 ## 0. Approval gates (no code before these)
 
-- [ ] 0.1 Through the user, take P1–P4 to the Head of PM, each with its row of design.md "Expected movement" and the "Decisions awaiting the Head of PM" table (PM-1 to PM-6). Record each answer, with name and date, in design.md and `docs/05-decisions.md`. Verify: P1–P4 each read approved or rejected; PM-1 to PM-6 each have an answer.
-- [ ] 0.2 For P4, also record the approval of whoever signs for the AI Guideline (PM-6). Verify: name, date and decision reference are in design.md. Without them, groups 6 and 7.1's collect-on-behalf fields do not start.
-- [ ] 0.3 For each rejected proposal, and for PM-1 (b), PM-3 (b) or PM-4 (b), revise this change with `/opsx:update`: remove or adjust the spec delta, these tasks and the proposal line. Verify: `openspec validate use-operating-project-actuals --strict` passes, and no remaining requirement depends on a rejected proposal.
+- [x] 0.1 Through the user, take P1–P4 to the Head of PM, each with its row of design.md "Expected movement" and the "Decisions awaiting the Head of PM" table (PM-1 to PM-6). Record each answer, with name and date, in design.md and `docs/05-decisions.md`. Verify: P1–P4 each read approved or rejected; PM-1 to PM-6 each have an answer.
+- [x] 0.2 For P4, also record the approval of whoever signs for the AI Guideline (PM-6). Verify: name, date and decision reference are in design.md. Without them, groups 6 and 7.1's collect-on-behalf fields do not start.
+- [x] 0.3 For each rejected proposal, and for PM-1 (b), PM-3 (b) or PM-4 (b), revise this change with `/opsx:update`: remove or adjust the spec delta, these tasks and the proposal line. Verify: `openspec validate use-operating-project-actuals --strict` passes, and no remaining requirement depends on a rejected proposal.
 - [x] 0.4 Get the user's go-ahead to start P5 (group 2), which moves no figure. Verify: the go-ahead is quoted in the session report.
 
 ## 1. Before measurements (no code edits)
