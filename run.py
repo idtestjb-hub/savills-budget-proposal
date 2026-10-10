@@ -136,7 +136,34 @@ def main():
               'be the most recent one in sample_output.')
         return 1
     print('  -> both outputs describe the same project.')
-    return _report_staffing_reasons(gpo.OUTPUT_PATH)
+    rc = _report_staffing_reasons(gpo.OUTPUT_PATH)
+    _report_utility_flags(gpo.OUTPUT_PATH)
+    return rc
+
+
+def _report_utility_flags(analysis_path):
+    """Existing-project mode (change carry-forward-common-utilities): print EEE.C / EEW.C and their flags
+    (missing or zero months, fewer than 12 months, a bill rate off the tariff). Flags never stop the run;
+    the stops (duplicate month, override without a reason, ...) already stopped it with a message. A
+    New-prospect workbook has no Utility Bridge and prints nothing."""
+    import openpyxl
+    import existing_utilities as eu
+    wb = openpyxl.load_workbook(analysis_path, read_only=True, data_only=True)
+    try:
+        if eu.BRIDGE_SHEET not in wb.sheetnames:
+            return
+        print(f"\n  Common-area electricity and water (sheet '{eu.BRIDGE_SHEET}' of the analysis):")
+        line = None
+        for row in wb[eu.BRIDGE_SHEET].iter_rows(values_only=True):
+            label = str(row[0] or '')
+            if label == eu.BRIDGE_TOTAL_LABEL:
+                print(f'    budget year: EEE.C {row[1]:,.0f} VND, EEW.C {row[2]:,.0f} VND')
+            elif label.split(' ')[0] in eu.LINES:
+                line = label.split(' ')[0]
+            elif label == 'Flags' and line:
+                print(f'    {line} flags: {row[1]}')
+    finally:
+        wb.close()
 
 
 def _report_staffing_reasons(analysis_path):

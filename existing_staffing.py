@@ -193,13 +193,14 @@ class ExistingInput:
     actual: list
 
 
-def _section_rows(ws):
+def _section_rows(ws, titles=SECTIONS):
     """Row of each block title in column A. Data rows may repeat any text, so this does not use
-    SheetLabels (which refuses duplicate labels); it only looks for the four block titles."""
+    SheetLabels (which refuses duplicate labels); it only looks for the block titles (`titles`:
+    this sheet's four by default; existing_utilities passes its own two)."""
     found = {}
     for row in range(1, min(ws.max_row or 1, 400) + 1):
         key = normalise(ws.cell(row=row, column=1).value)
-        for title in SECTIONS:
+        for title in titles:
             if key == normalise(title):
                 if title in found:
                     raise ValueError(f"Sheet {ws.title!r} has the block title {title!r} twice "
@@ -336,12 +337,14 @@ def read_existing(wb_values, pi_labels):
 # ------------------------------------------------------------------------------------------------
 # Reasons
 # ------------------------------------------------------------------------------------------------
-def pm_reason(code, note):
-    """A PM reason record. status is '' when complete, otherwise what is missing."""
+def pm_reason(code, note, codes=None):
+    """A PM reason record. status is '' when complete, otherwise what is missing. `codes` is the
+    approved list to check against (staffing's by default; existing_utilities passes its own, which
+    ends with the same "Khác" code)."""
     code, note = _text(code), _text(note)
     if not code:
         return {'code': '', 'note': note, 'text': '', 'source': SOURCE_PM, 'status': MISSING}
-    match = next((c for c in REASON_CODES if normalise(c) == normalise(code)), None)
+    match = next((c for c in (codes or REASON_CODES) if normalise(c) == normalise(code)), None)
     if match is None:
         return {'code': code, 'note': note, 'text': code, 'source': SOURCE_PM, 'status': UNKNOWN_CODE}
     if match == REASON_OTHER and not note:

@@ -20,6 +20,13 @@ It also builds Sample_Existing_Lump_Input.xlsx (design D15), the lump-sum path: 
 blank (Region I), approved EMH2 with a PM override and its reason, approved EMH3 with an empty
 holiday-duty block and an override, and an approved EMH4 of 0. Also invented.
 
+Change carry-forward-common-utilities (task 6.1, design D9) adds the 'Prior-Year Utilities' sheet to both:
+- the first sample is in Ho Chi Minh City ("City / Province" appended to Project Info) and has 12 months
+  09/2025-08/2026 of VAT-inclusive amounts, consumption on the first six electricity months, one zero water
+  month, and approved amounts for both lines;
+- the lump sample leaves the city blank: electricity has 2 months plus an approved amount (the fallback)
+  and a consumption override with its reason; water has 12 months of amounts at an invented bill price.
+
 Run from Budget_Agent/source_code:  python verification/fixtures/build_existing_fixture.py
 """
 import os
@@ -35,6 +42,7 @@ import openpyxl  # noqa: E402
 
 import add_existing_project_sheets  # noqa: E402
 import existing_staffing as es  # noqa: E402
+import existing_utilities as eu  # noqa: E402
 
 BASE_FIXTURE = os.path.join(HERE, 'Sample_Project_Input.xlsx')
 OUT = os.path.join(HERE, 'Sample_Existing_Input.xlsx')
@@ -59,6 +67,34 @@ ROSTER = [  # position, shift, heads, gross, new heads, new gross, reason code, 
 DUTY = {'TN': (1, 1, 2, 9_000_000), 'CS': (0, 0, 1, 4_500_000)}
 LINES = {'EMH2': (4_330_000_000, None), 'EMH3': (None, None), 'EMH4': (12_000_000, None)}
 ACTUAL = [('Technician', 5, 'C&B payroll'), ('Customer Service', 2, 'PM timesheet')]
+
+def _months(start_y, start_m, n):
+    out, y, m = [], start_y, start_m
+    for _ in range(n):
+        out.append(f'{m:02d}/{y}')
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+_E_KWH = [30_000, 29_100, 28_500, 29_400, 30_600, 31_500, 32_400, 33_000, 31_800, 30_900, 30_300, 29_700]
+_W_M3 = [1_500, 1_450, 1_400, 1_380, 1_420, 0, 1_520, 1_600, 1_650, 1_580, 1_550, 1_500]
+# line, month, amount (VND), includes VAT, consumption — 2,226 VND/kWh + 8% and 19,785.6 VND/m3 all-in (2026).
+UTILITY_ACTUALS = (
+    [('EEE.C', m, round(k * 2_226 * 1.08), 'Yes', k if i < 6 else None)
+     for i, (m, k) in enumerate(zip(_months(2025, 9, 12), _E_KWH))]
+    + [('EEW.C', m, round(q * 19_785.6), 'Yes', None) for m, q in zip(_months(2025, 9, 12), _W_M3)])
+UTILITY_LINES = {  # category, bill price, source, approved, approved incl. VAT, override, reason code, note
+    'EEE.C': (None, None, None, 850_000_000, 'Yes'),
+    'EEW.C': (None, None, None, 320_000_000, 'Yes'),
+}
+UTILITY_ACTUALS_LUMP = (
+    [('EEE.C', m, round(k * 2_226 * 1.08), 'Yes', None) for m, k in zip(_months(2026, 7, 2), (24_000, 24_500))]
+    + [('EEW.C', m, round(900 * 12_500 * 1.05), 'Yes', None) for m in _months(2025, 9, 12)])
+UTILITY_LINES_LUMP = {
+    'EEE.C': (None, None, None, 600_000_000, 'Yes', 26_000, 'Thay đổi số cư dân vào ở',
+              'Thêm cư dân dọn vào (dữ liệu thử)'),
+    'EEW.C': ('Theo giá trên hóa đơn', 12_500, 'Hóa đơn nước tháng 08/2026 (dữ liệu thử)', None, None),
+}
 NEW_POSITION_REASONS = {
     'Reception': 'Theo yêu cầu của cư dân hoặc chủ sở hữu',
     'Shift Leader': 'Thay đổi mô hình ca hoặc giờ làm việc',
@@ -74,7 +110,8 @@ def _section_first_data_row(ws, title):
     raise LookupError(title)
 
 
-def _build(out, name, region, roster, duty, lines, actual, new_position_reasons):
+def _build(out, name, region, roster, duty, lines, actual, new_position_reasons, city=None,
+           utility_actuals=(), utility_lines=None):
     tmp = tempfile.mkdtemp(prefix='existing_fixture_')
     try:
         src = os.path.join(tmp, 'Sample_Project_Input.xlsx')
@@ -88,6 +125,21 @@ def _build(out, name, region, roster, duty, lines, actual, new_position_reasons)
         pi.cell(row=labels[es.normalise(es.MODE_LABEL)], column=2, value=es.MODE_EXISTING)
         pi.cell(row=labels[es.normalise(es.REGION_LABEL)], column=2, value=region)
         pi.cell(row=labels[es.normalise(es.PRIOR_YEAR_LABEL)], column=2, value=2026)
+        if city:
+            last = max(labels.values())
+            pi.cell(row=last + 2, column=1, value='City / Province — leave blank if unknown')
+            pi.cell(row=last + 2, column=2, value=city)
+
+        uw = wb[eu.SHEET]
+        r = _section_first_data_row(uw, eu.SEC_ACTUALS)
+        for i, row in enumerate(utility_actuals):
+            for c, v in enumerate(row, 1):
+                uw.cell(row=r + i, column=c, value=v)
+        r = _section_first_data_row(uw, eu.SEC_LINES)
+        for i in range(len(eu.LINES)):
+            line = uw.cell(row=r + i, column=1).value
+            for c, v in enumerate((utility_lines or {}).get(line, ()), 2):
+                uw.cell(row=r + i, column=c, value=v)
 
         ws = wb[es.ROSTER_SHEET]
         r = _section_first_data_row(ws, es.SEC_ROSTER)
@@ -125,11 +177,13 @@ def _build(out, name, region, roster, duty, lines, actual, new_position_reasons)
 
 
 def build(out=OUT):
-    return _build(out, NAME, 'II', ROSTER, DUTY, LINES, ACTUAL, NEW_POSITION_REASONS)
+    return _build(out, NAME, 'II', ROSTER, DUTY, LINES, ACTUAL, NEW_POSITION_REASONS, city='TP. Hồ Chí Minh',
+                  utility_actuals=UTILITY_ACTUALS, utility_lines=UTILITY_LINES)
 
 
 def build_lump(out=OUT_LUMP):
-    return _build(out, NAME_LUMP, None, [], {}, LINES_LUMP, [], {})
+    return _build(out, NAME_LUMP, None, [], {}, LINES_LUMP, [], {},
+                  utility_actuals=UTILITY_ACTUALS_LUMP, utility_lines=UTILITY_LINES_LUMP)
 
 
 if __name__ == '__main__':

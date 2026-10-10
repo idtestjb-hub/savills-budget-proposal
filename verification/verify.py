@@ -326,6 +326,11 @@ def main(argv=None):
             print('FAIL  the New-prospect run produced a Staff Bridge')
             return 1
         print('OK    the standard (New-prospect) sample produces no Staff Bridge')
+        uok, _ur, _ud, _un = checks.check_utility_bridge(paths, existing_mode=False)
+        if not uok:
+            print('FAIL  the New-prospect run produced a Utility Bridge')
+            return 1
+        print('OK    the standard (New-prospect) sample produces no Utility Bridge')
         for sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
             existing_dir = os.path.join(workdir, sub)
             os.makedirs(existing_dir, exist_ok=True)
@@ -353,6 +358,8 @@ def main(argv=None):
                  lambda: checks.check_staff_bridge(ex_paths, existing_mode=True)),
                 ('EMH2, EMH3 and EMH4 equal their detail sheets',
                  lambda: checks.check_existing_detail_ties(ex_paths)),
+                ('Utility Bridge ties to EEE.C and EEW.C of the deliverable',
+                 lambda: checks.check_utility_bridge(ex_paths, existing_mode=True)),
                 ('remark content', lambda: check_remark_content(ex_paths)),
                 ('summary reconciliation', lambda: check_summary_reconciles(ex_paths)),
                 ('Required line items', lambda: check_required_line_items(ex_paths)),

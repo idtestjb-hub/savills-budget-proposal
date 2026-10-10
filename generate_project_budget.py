@@ -45,6 +45,7 @@ from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
 from input_labels import SheetLabels, normalise
 import existing_staffing
+import existing_utilities
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -693,6 +694,9 @@ def read_input(path):
     # Existing-project mode (change carry-forward-staffing): the prior-year baseline and the PM's
     # changes, or None for a New-prospect workbook — every workbook made before that change.
     project['existing'] = existing_staffing.read_existing(wb, L)
+    # Existing-project common-area electricity and water (change carry-forward-common-utilities): the
+    # 'Prior-Year Utilities' inputs, or None for a New-prospect workbook.
+    project['utilities'] = existing_utilities.read_utilities(wb, L)
     # Each product read from the row bearing ITS OWN name, inside the Product Mix block. Reading
     # positionally from a fixed start row is what once made the PARKING rows below the block get
     # read as product areas when the block grew.
@@ -1192,6 +1196,10 @@ def _energy_narrative_vi(category, project, yr):
     already-resolved budget year (see _budget_year) — both call sites pass their own, since a
     module-level function cannot read the workbook object either closure captured it from.
     """
+    ur = project.get('utilities_result')
+    if ur is not None and category in ('Water', 'Electricity'):
+        # Existing-project mode: the project's own actual consumption, no curve, no floor.
+        return existing_utilities.narrative_vi(ur, 'EEW.C' if category == 'Water' else 'EEE.C')
     opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
                          pool_volume_m3=project.get('pool_volume_m3'))
     e = opex.get(category, {})
@@ -1787,6 +1795,25 @@ def existing_result(project, demand, budget_year):
         return None
     return existing_staffing.compute(ex, demand, int(budget_year), _a1_group_of, _is_outsourced,
                                      _unplaced_code_of, _eff_headcount, _monthly_gross_of)
+
+
+def utilities_result(project, budget_year, incl_vat):
+    """existing_utilities.compute() for this project, or None in New-prospect mode. `incl_vat` is the
+    deliverable's VAT basis (False only when the form's VAT switch reads KHOÁN)."""
+    inp = project.get('utilities')
+    if inp is None:
+        return None
+    return existing_utilities.compute(inp, int(budget_year), incl_vat)
+
+
+def template_vat_inclusive():
+    """True unless the template's VAT switch ('2. Budget-Management Fund'!F7) reads KHOÁN — the same
+    reading build_budget() makes, for generate_project_output.py's Utility Bridge."""
+    wb = openpyxl.load_workbook(TEMPLATE_PATH, read_only=True, data_only=True)
+    try:
+        return bool(_vat_sentence(wb, None))
+    finally:
+        wb.close()
 
 
 def _a1_rows_by_group(ws):
@@ -2595,20 +2622,29 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # (it is driven by generator test/backup hours), so it stays flat.
     water_full_monthly = opex.get('Water', {}).get('monthly_vnd', 0)
     elec_full_monthly = opex.get('Electricity', {}).get('monthly_vnd', 0)
-    _write_ramped_row(ws, MGMT_FUND_ROWS['water'], [water_full_monthly * f for f in fills], (
-        _opex_remark('Water') + " " + _anchor_note
-        + f" Tổng năm 1: {sum(water_full_monthly * f for f in fills):,.0f} VND (nếu lấp đầy 100%: "
-        f"{water_full_monthly * 12:,.0f} VND/năm)."))
-    _elec_fills = year1_electricity_fills()
-    # The floor-at-40%/reaches-full-by-~40%-occupancy mechanism is already stated in Vietnamese by
-    # _energy_narrative_vi() above (change localize-line-level-remarks, 2026-09-15) — this used to
-    # restate it in English before that helper existed; corrected 2026-09-21 (found reading this
-    # remark aloud for change localize-line-level-remarks task 7.1) to just add the year-1 total,
-    # not repeat the mechanism a second time.
-    _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], [elec_full_monthly * f for f in _elec_fills], (
-        _opex_remark('Electricity')
-        + f" Tổng năm 1: {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND (nếu lấp đầy 100%: "
-        f"{elec_full_monthly * 12:,.0f} VND/năm)."))
+    _ur = project.get('utilities_result')
+    if _ur is not None:
+        # Existing-project mode (change carry-forward-common-utilities): the twelve amounts from the
+        # project's actual consumption at each month's price — no fill-up curve, no electricity floor.
+        for _key, _line in (('water', 'EEW.C'), ('electricity', 'EEE.C')):
+            _write_ramped_row(ws, MGMT_FUND_ROWS[_key], _ur.lines[_line].amounts, (
+                existing_utilities.narrative_vi(_ur, _line)
+                + existing_utilities.adjustment_sentence(_ur, _line)))
+    else:
+        _write_ramped_row(ws, MGMT_FUND_ROWS['water'], [water_full_monthly * f for f in fills], (
+            _opex_remark('Water') + " " + _anchor_note
+            + f" Tổng năm 1: {sum(water_full_monthly * f for f in fills):,.0f} VND (nếu lấp đầy 100%: "
+            f"{water_full_monthly * 12:,.0f} VND/năm)."))
+        _elec_fills = year1_electricity_fills()
+        # The floor-at-40%/reaches-full-by-~40%-occupancy mechanism is already stated in Vietnamese by
+        # _energy_narrative_vi() above (change localize-line-level-remarks, 2026-09-15) — this used to
+        # restate it in English before that helper existed; corrected 2026-09-21 (found reading this
+        # remark aloud for change localize-line-level-remarks task 7.1) to just add the year-1 total,
+        # not repeat the mechanism a second time.
+        _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], [elec_full_monthly * f for f in _elec_fills], (
+            _opex_remark('Electricity')
+            + f" Tổng năm 1: {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND (nếu lấp đầy 100%: "
+            f"{elec_full_monthly * 12:,.0f} VND/năm)."))
     write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
                         remark=_opex_remark('Diesel (Generator Fuel)'))
 
@@ -3622,6 +3658,9 @@ def build_budget(project, demand, year):
     # sheet, because EMH2's formula needs to know how many A1 rows go below the table.
     existing = existing_result(project, demand, _budget_year(wb, year))
     existing_layout = _existing_a1_layout(wb, existing) if existing else None
+    # Existing-project EEE.C / EEW.C (change carry-forward-common-utilities): computed once, on the VAT
+    # basis the switch above set; fill_management_fund_sheet() and the '1. Summary' narrative read it.
+    project['utilities_result'] = utilities_result(project, _budget_year(wb, year), bool(_ACTIVE_VAT_SENTENCE))
     fill_management_fund_sheet(wb, project, demand, year, rates,
                                existing=existing, existing_layout=existing_layout)
 

@@ -30,7 +30,8 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 
 from generate_project_budget import (read_input, INPUT_PATH, PRODUCT_ROWS, existing_result,
-                                     template_budget_year)
+                                     template_budget_year, utilities_result, template_vat_inclusive)
+import existing_utilities
 import existing_staffing
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
@@ -1612,6 +1613,24 @@ def build_opex_sheet(wb, project):
 
     opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
                          pool_volume_m3=project.get('pool_volume_m3'))
+    ur = project.get('utilities_result')
+    if ur is not None:
+        # Existing-project mode (change carry-forward-common-utilities, design D6): electricity and water
+        # show the client deliverable's own figures, built from the project's actual spend, so the two
+        # workbooks never disagree. The walk from last year is on the 'Utility Bridge' sheet.
+        for category, line in (('Electricity', 'EEE.C'), ('Water', 'EEW.C')):
+            lr = ur.lines[line]
+            p = lr.budget_prices[0]
+            basis = 'actual spend' if lr.basis == 'actual' else 'approved prior-year amount'
+            vat = 'incl.' if ur.incl_vat else 'excl.'
+            opex[category] = dict(
+                monthly_vnd=lr.annual / 12, ratio_per_m2=None, n='actual', existing=True,
+                source=(f"EXISTING PROJECT: {line} from the project's own {basis}; "
+                        f"see '{existing_utilities.BRIDGE_SHEET}'."),
+                usage=f'{lr.q_budget:,.0f} {lr.unit}/month ({lr.basis})',
+                price=(f"{p.price(ur.incl_vat):,.0f} VND/{lr.unit} {vat} VAT "
+                       f"(Jan {ur.budget_year}, {lr.category})"),
+                reference_only=None)
 
     r = 4
     section(ws, r, 'ESTIMATED MONTHLY OPEX', ncols=8); r += 1
@@ -1636,7 +1655,8 @@ def build_opex_sheet(wb, project):
         c3 = ws.cell(row=r, column=3, value=f'=B{r}*12')
         c3.number_format = MONEY_FMT
         c3.border = BORDER
-        c4 = ws.cell(row=r, column=4, value=entry['ratio_per_m2'] if entry['ratio_per_m2'] is not None else 'n/a (flat)')
+        c4 = ws.cell(row=r, column=4, value=entry['ratio_per_m2'] if entry['ratio_per_m2'] is not None
+                     else 'n/a (actual spend)' if entry.get('existing') else 'n/a (flat)')
         c4.border = BORDER
         c4.alignment = CENTER
         c5 = ws.cell(row=r, column=5, value=entry['n'])
@@ -1651,7 +1671,12 @@ def build_opex_sheet(wb, project):
         c6.alignment = LEFT
         # Usage × tariff split (Electricity / Water / Diesel — change
         # cost-energy-from-consumption-and-tariff). Blank for the ratio-only and flat categories.
-        if entry.get('tariff'):
+        if entry.get('existing'):
+            for col, text in ((7, entry['usage']), (8, entry['price'])):
+                cc = ws.cell(row=r, column=col, value=text)
+                cc.border = BORDER
+                cc.alignment = LEFT
+        elif entry.get('tariff'):
             base = entry['usage_unit'].split('/')[0]
             c7 = ws.cell(row=r, column=7,
                          value=f"{entry['project_quantity_month']:,.0f} {entry['usage_unit']}  "
@@ -3325,8 +3350,101 @@ def build_staff_bridge_sheet(wb, result):
     return ws
 
 
+def build_utility_bridge_sheet(wb, result):
+    """'Utility Bridge' (Existing-project mode only, change carry-forward-common-utilities design D6): for
+    EEE.C and EEW.C, from the approved prior year through the consumption, tariff, VAT and PM-override
+    effects to the budget year, then the months used and every flag. Internal: the client deliverable
+    never carries it. Its budget-year figures equal EEE.C and EEW.C on the deliverable (VND per year)."""
+    eu = existing_utilities
+    ws = wb.create_sheet(eu.BRIDGE_SHEET)
+    basis = 'including' if result.incl_vat else 'excluding'
+    title_block(ws, f'Utility Bridge — approved budget {result.prior_year} to budget year {result.budget_year}',
+                'Internal (Existing-project mode). Not part of the client deliverable. VND per year, on the '
+                f"deliverable's VAT basis ({basis} VAT). The budget-year figures equal EEE.C and EEW.C on the "
+                'client deliverable.', 'A1:F1')
+    r = 4
+    for label, value in (('Prior budget year', result.prior_year), ('Budget year', result.budget_year),
+                         ('VAT basis', 'including VAT' if result.incl_vat else 'excluding VAT (KHOÁN)'),
+                         ('Tariff region', result.region or '(blank)')):
+        ws.cell(row=r, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=r, column=2, value=value)
+        r += 1
+    r += 1
+    for c, h in enumerate(['Step', *eu.LINES, 'Note'], start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    steps = [
+        ('Approved prior year', 'approved', 'Approved amount converted to this VAT basis; blank when not given'),
+        ('Actual baseline', 'baseline',
+         'Baseline consumption x the price of the latest month used (or prior-year prices)'),
+        ('Consumption vs approved', 'consumption', 'Actual baseline minus the approved amount'),
+        ('Tariff effect', 'tariff', 'Budget-year base price (and drainage charge) vs the baseline price'),
+        ('VAT effect', 'vat', 'Budget-year VAT vs the baseline VAT'),
+        ('PM override effect', 'override', 'Override consumption minus baseline consumption, at budget-year prices'),
+        ('Rounding (monthly amounts)', 'rounding', 'Each month is written to the deliverable in whole VND'),
+        (eu.BRIDGE_TOTAL_LABEL, 'budget', 'Equals the line on the client deliverable'),
+    ]
+    for label, key, note in steps:
+        ws.cell(row=r, column=1, value=label).font = Font(bold=(key == 'budget'))
+        for c, line in enumerate(eu.LINES, start=2):
+            cell = ws.cell(row=r, column=c, value=result.lines[line].bridge.get(key))
+            cell.number_format = MONEY_FMT
+            cell.border = BORDER
+        ws.cell(row=r, column=len(eu.LINES) + 2, value=note).alignment = LEFT
+        r += 1
+
+    for line in eu.LINES:
+        lr = result.lines[line]
+        r += 1
+        section(ws, r, f'{line} — {eu.LINE_NAME_VI[line]}', ncols=7)
+        r += 1
+        p = lr.budget_prices[0]
+        bill = f' — bill price {lr.bill_price:,.0f} ({lr.bill_source})' if lr.bill_price is not None else ''
+        details = (
+            ('Basis', 'actual spend, last 12 months' if lr.basis == 'actual' else 'approved prior-year amount'),
+            ('Tariff category', lr.category + bill),
+            (f'Baseline consumption ({lr.unit}/month)', lr.q_bar),
+            (f'Budget-year consumption ({lr.unit}/month)', lr.q_budget),
+            (f'January {result.budget_year} price (VND/{lr.unit}, excl. VAT)', p.net()),
+            (f'January {result.budget_year} price (VND/{lr.unit}, incl. VAT)', p.gross()),
+            ('Reasons', '; '.join(x['text'] for x in lr.reasons if x['text'])),
+            ('Flags', '; '.join(lr.flags) or 'none'),
+            ('Note', lr.note or ''),
+        )
+        for label, value in details:
+            ws.cell(row=r, column=1, value=label).font = Font(bold=True)
+            cell = ws.cell(row=r, column=2, value=value)
+            if isinstance(value, float):
+                cell.number_format = MONEY_FMT
+            else:
+                cell.alignment = LEFT
+            r += 1
+        if lr.months:
+            for c, h in enumerate(['Month', 'Amount (VND)', 'Includes VAT', f'Consumption ({lr.unit})',
+                                   'Consumption source', f'Unit price (VND/{lr.unit})', 'Flag'], start=1):
+                cell = ws.cell(row=r, column=c, value=h)
+                cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+            r += 1
+            for mu in lr.months:
+                values = [f'{mu.month:02d}/{mu.year}', mu.amount, 'Yes' if mu.incl_vat else 'No', mu.consumption,
+                          'derived from the amount' if mu.derived else 'bill', mu.unit_price, mu.flag]
+                for c, v in enumerate(values, start=1):
+                    cell = ws.cell(row=r, column=c, value=v)
+                    cell.border = BORDER
+                    if isinstance(v, float):
+                        cell.number_format = MONEY_FMT
+                r += 1
+    for col, w in {'A': 44, 'B': 22, 'C': 22, 'D': 22, 'E': 26, 'F': 22, 'G': 50}.items():
+        ws.column_dimensions[col].width = w
+    return ws
+
+
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
+    if project.get('utilities') is not None:
+        # Existing-project EEE.C / EEW.C, on the same budget year and VAT basis as the deliverable.
+        project['utilities_result'] = utilities_result(project, template_budget_year(), template_vat_inclusive())
 
     wb = openpyxl.Workbook()
     ws_summary = wb.active
@@ -3348,6 +3466,8 @@ def main():
     build_savills_fee_position_sheet(wb, project, mgmt, summary)
     if project.get('existing') is not None:
         build_staff_bridge_sheet(wb, existing_result(project, demand, template_budget_year()))
+    if project.get('utilities_result') is not None:
+        build_utility_bridge_sheet(wb, project['utilities_result'])
 
     _fix_fake_formula_strings(wb)
 

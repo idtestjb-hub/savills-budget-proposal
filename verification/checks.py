@@ -859,6 +859,10 @@ _TEMPLATE_OWNED_T_ROWS = {
 }
 
 
+# Required parts of the Existing-project EEE / EEW summary narrative (existing_utilities.narrative_vi).
+_EXISTING_UTILITY_ANCHORS = {'EEE': ['kWh/tháng', 'đ/kWh', 'x 12 tháng'], 'EEW': ['m3/tháng', 'đ/m3', 'x 12 tháng']}
+
+
 def check_remark_content(paths):
     """Confirm the client deliverable's remarks say what the AI Guideline instructs (change
     apply-guideline-remark-model). For the generated deliverable:
@@ -892,6 +896,10 @@ def check_remark_content(paths):
     )
 
     wb = openpyxl.load_workbook(paths['deliverable'], data_only=False)
+    # Existing-project utilities run: the analysis workbook carries the Utility Bridge.
+    import existing_utilities
+    existing_utilities_run = bool(paths.get('analysis')) and (
+        existing_utilities.BRIDGE_SHEET in _sheet_names(paths['analysis']))
     summ = wb['1. Summary']
     fund = wb['2. Budget-Management Fund']
     common_fund = wb['2.2 Common area Fund']
@@ -946,6 +954,13 @@ def check_remark_content(paths):
                 fail(label, 'accreditation narrative is missing the fixed Điều 150 Luật Nhà ở 2023 sentence')
         else:  # recipe
             anchors = _REMARK_RECIPE_ANCHORS.get(code, [])
+            if existing_utilities_run and code in _EXISTING_UTILITY_ANCHORS:
+                # Existing-project EEE/EEW (change carry-forward-common-utilities): the project's own actual
+                # consumption, so the new-building parts (fill-up curve, 40% floor, guideline price build-up)
+                # are replaced, and the curve must not be described (spec occupancy-ramp).
+                anchors = _EXISTING_UTILITY_ANCHORS[code]
+                if 'lấp đầy' in k:
+                    fail(label, 'Existing-project narrative still describes the fill-up curve')
             missing = [a for a in anchors if a not in k]
             if missing:
                 fail(label, f'recipe narrative is missing required part(s): {", ".join(missing)}')
@@ -2018,6 +2033,75 @@ def check_staff_bridge(paths, existing_mode, deliverable_values=None):
     rows.append(('Staff Bridge total = EMH2 + EMH3 + EMH4', bridge_sum, deliverable_sum))
     if abs(bridge_sum - deliverable_sum) > 1:
         differences.append(('Staff Bridge total = EMH2 + EMH3 + EMH4', bridge_sum, deliverable_sum))
+    return not differences, rows, differences, notes
+
+
+_UTILITY_FUND_ROWS = {'EEE.C': 240, 'EEW.C': 230}   # MGMT_FUND_ROWS 'electricity' / 'water'
+
+
+def _deliverable_utility_lines(deliverable_path):
+    """{'EEE.C': VND/year, 'EEW.C': VND/year}: the sum of the twelve month cells H:S the generator writes
+    (constants, so no recalculation is needed). Also checks that the row really carries that code."""
+    import openpyxl
+    wb = openpyxl.load_workbook(deliverable_path, read_only=True, data_only=False)
+    try:
+        ws = wb['2. Budget-Management Fund']
+        out = {}
+        for code, row in _UTILITY_FUND_ROWS.items():
+            cells = next(ws.iter_rows(min_row=row, max_row=row, values_only=True))
+            if str(cells[24] or '').strip() != code:       # column Y holds the code
+                raise ValueError(f"'2. Budget-Management Fund' row {row} is {cells[24]!r}, expected {code}")
+            out[code] = sum(_num(v) or 0 for v in cells[7:19])
+        return out
+    finally:
+        wb.close()
+
+
+def check_utility_bridge(paths, existing_mode, deliverable_values=None):
+    """Existing-project mode (change carry-forward-common-utilities): the Utility Bridge's budget-year figure
+    of EEE.C and EEW.C equals the twelve months of the same line on the client deliverable, within 1 VND,
+    and the deliverable carries no bridge. New-prospect mode: neither workbook carries one.
+
+    Returns (ok, rows, differences, notes). `deliverable_values` ({code: VND/year}) skips reading (tests).
+    """
+    import openpyxl
+    import existing_utilities as eu
+
+    rows, differences, notes = [], [], []
+    label = 'client deliverable carries no Utility Bridge'
+    ok_here = eu.BRIDGE_SHEET not in _sheet_names(paths['deliverable'])
+    rows.append((label, 'ok' if ok_here else 'FAIL'))
+    if not ok_here:
+        differences.append((label, 'present', 'absent'))
+    analysis = openpyxl.load_workbook(paths['analysis'], read_only=True, data_only=True)
+    try:
+        has_bridge = eu.BRIDGE_SHEET in analysis.sheetnames
+        if not existing_mode:
+            label = 'New-prospect run produces no Utility Bridge'
+            rows.append((label, 'ok' if not has_bridge else 'FAIL'))
+            if has_bridge:
+                differences.append((label, 'present', 'absent'))
+            return not differences, rows, differences, notes
+        if not has_bridge:
+            differences.append(('Utility Bridge in the analysis workbook', 'absent', 'present'))
+            return False, rows, differences, notes
+        table = list(analysis[eu.BRIDGE_SHEET].iter_rows(values_only=True))
+    finally:
+        analysis.close()
+    header = next((r for r in table if str(r[0] or '').strip() == 'Step'), None)
+    total = next((r for r in table if str(r[0] or '').strip() == eu.BRIDGE_TOTAL_LABEL), None)
+    if header is None or total is None:
+        differences.append((f"'{eu.BRIDGE_SHEET}' row '{eu.BRIDGE_TOTAL_LABEL}'", 'missing', 'present'))
+        return False, rows, differences, notes
+    cols = {str(v or '').strip(): i for i, v in enumerate(header)}
+    values = deliverable_values if deliverable_values is not None else _deliverable_utility_lines(paths['deliverable'])
+    for code in eu.LINES:
+        b = _num(total[cols[code]]) if code in cols else None
+        d = values.get(code)
+        label = f'Utility Bridge {code} = deliverable {code} (sum of 12 months)'
+        rows.append((label, b, d))
+        if b is None or d is None or abs(b - d) > 1:
+            differences.append((label, b, d))
     return not differences, rows, differences, notes
 
 

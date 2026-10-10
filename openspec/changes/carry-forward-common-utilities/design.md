@@ -84,8 +84,10 @@ The reason list sits in a side column that feeds the dropdowns, as on `Prior-Yea
 
 ### D2. Tariff table `data/generation_B_verified/Ref_UtilityTariffs.csv`
 
-**Columns:** `Utility`, `Category`, `Component`, `Value`, `Unit`, `EffectiveFrom`, `EffectiveTo`, `Region`,
-`LegalBasis`, `SourceUrl`, `CheckedOn`, `Note`.
+**Columns** (snake_case, like `Ref_LaborLawParams.csv`): `utility`, `category`, `component`, `value`, `unit`,
+`effective_from`, `effective_to`, `region`, `legal_basis`, `source_url`, `checked_on`, `note`. A blank
+`category` applies to every category of the utility; a blank `region` applies everywhere. The price of a month
+is the one in force on the 1st of that month.
 
 **Components:**
 - `base` (VND per kWh or m³, excluding VAT);

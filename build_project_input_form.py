@@ -482,6 +482,94 @@ def add_prior_year_roster_sheet(wb):
     return ws
 
 
+UTILITY_ACTUAL_ROWS = 30      # 12 months x 2 lines plus spare rows
+# Side lists on 'Prior-Year Utilities' that feed the dropdowns (categories carry commas, so an inline
+# list cannot hold them): L = electricity categories, M = water categories, N = reason codes.
+UTILITY_LIST_COLS = {'electricity': 12, 'water': 13, 'reason': 14}
+
+
+def add_prior_year_utilities_sheet(wb):
+    """The 'Prior-Year Utilities' sheet (change carry-forward-common-utilities, design D1): monthly
+    actual spend on common-area electricity and water, and one settings row per line."""
+    import existing_utilities as eu
+    import utility_tariffs as ut
+    from openpyxl.utils import get_column_letter
+    ws = wb.create_sheet(eu.SHEET)
+    # The title must not read like a block title: existing_utilities finds blocks by their titles.
+    ws['A1'] = ('Existing-project inputs for common-area electricity (EEE.C) and water (EEW.C) — used only '
+                'when Project Mode is "Existing project"')
+    ws['A1'].font = TITLE_FONT
+    ws['A2'] = ("One row per line and month, from the bills of the last 12 months: the amount paid (VND) and "
+                "whether it includes VAT; consumption is optional. Blank amount = no bill yet; 0 = a real zero. "
+                "Outside Ho Chi Minh City, or on a business electricity tariff, enter the unit price on the bill.")
+    ws['A2'].font = SUB_FONT
+
+    def side_list(key, title, values):
+        col = UTILITY_LIST_COLS[key]
+        ws.cell(row=2, column=col, value=title).font = Font(bold=True)
+        for i, v in enumerate(values):
+            ws.cell(row=3 + i, column=col, value=v)
+        letter = get_column_letter(col)
+        return f"='{eu.SHEET}'!${letter}$3:${letter}${2 + len(values)}"
+
+    cat_ref = {line: side_list(eu.LINE_UTILITY[line], f'{line} tariff categories',
+                               ut.CATEGORIES[eu.LINE_UTILITY[line]])
+               for line in eu.LINES}
+    reason_ref = side_list('reason', 'Reason codes (dropdown list)', eu.REASON_CODES)
+
+    def dv_list(formula, title):
+        dv = DataValidation(type='list', formula1=formula, showErrorMessage=True, errorTitle=title,
+                            error=f'Pick a value from the list ({title})')
+        ws.add_data_validation(dv)
+        return dv
+
+    dv_line = dv_list('"' + ','.join(eu.LINES) + '"', 'Line')
+    dv_yes = dv_list('"Yes,No"', 'Yes or No')
+    dv_reason = dv_list(reason_ref, 'Reason Code')
+
+    def block(row, title, headers, n_rows, prefill=()):
+        section(ws, row, title, span=f'A:{get_column_letter(len(headers))}')
+        for c, h in enumerate(headers, start=1):
+            cell = ws.cell(row=row + 1, column=c, value=h)
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = CENTER
+            cell.border = BORDER
+        for i in range(n_rows):
+            for c in range(1, len(headers) + 1):
+                cell = ws.cell(row=row + 2 + i, column=c)
+                cell.fill = INPUT_FILL
+                cell.border = BORDER
+            if i < len(prefill):
+                ws.cell(row=row + 2 + i, column=1, value=prefill[i])
+        return row + 2, row + 1 + n_rows
+
+    first, last = block(4, eu.SEC_ACTUALS, [
+        'Line', 'Month (MM/YYYY)', 'Amount (VND)', 'Includes VAT (Yes/No)',
+        'Consumption (kWh or m3) — optional', 'Note'], UTILITY_ACTUAL_ROWS)
+    for i in range(first, last + 1):
+        dv_line.add(ws.cell(row=i, column=1))
+        ws.cell(row=i, column=2).number_format = '@'
+        ws.cell(row=i, column=3).number_format = '#,##0'
+        dv_yes.add(ws.cell(row=i, column=4))
+        ws.cell(row=i, column=5).number_format = '#,##0'
+    first, last = block(last + 2, eu.SEC_LINES, [
+        'Line', 'Tariff Category — blank = default', 'Unit Price on Bill (VND, excl. VAT) — optional',
+        'Unit Price Source', 'Prior-Year Approved (VND/year) — optional', 'Approved Includes VAT (Yes/No)',
+        'Budget-Year Consumption Override (kWh or m3 per month) — optional', 'Reason Code', 'Reason Note'],
+        len(eu.LINES), prefill=eu.LINES)
+    for i, line in zip(range(first, last + 1), eu.LINES):
+        dv_list(cat_ref[line], f'{line} Tariff Category').add(ws.cell(row=i, column=2))
+        dv_yes.add(ws.cell(row=i, column=6))
+        dv_reason.add(ws.cell(row=i, column=8))
+        for c in (3, 5, 7):
+            ws.cell(row=i, column=c).number_format = '#,##0'
+    for col, w in {'A': 12, 'B': 34, 'C': 22, 'D': 22, 'E': 26, 'F': 22, 'G': 30, 'H': 34, 'I': 30,
+                   'L': 40, 'M': 34, 'N': 40}.items():
+        ws.column_dimensions[col].width = w
+    return ws
+
+
 def add_demand_reason_columns(ws, first_row, last_row):
     """'Reason Code' / 'Reason Note' on Staffing Demand, in the first free columns of header row 4.
     Only Existing-project mode reads them: a position the prior-year roster does not cover is new."""
@@ -1012,6 +1100,7 @@ def main(force=False):
     # same no-row-shift rule as above.
     add_existing_project_fields(ws1, 57)
     add_prior_year_roster_sheet(wb)
+    add_prior_year_utilities_sheet(wb)
     add_demand_reason_columns(ws4, 5, last_row)
 
     # Protection only bites where a cell is explicitly locked (every yellow cell above was just set

@@ -10,8 +10,9 @@ never touches the original:
 
 The copy is <name>_EXISTING_<yyyymmdd_HHMM>.xlsx. It gets the three Project Info fields (appended
 below the last used row), the 'Prior-Year Roster' sheet and the two reason columns on Staffing
-Demand, with exactly the labels a fresh form carries. Review the copy, then replace the original
-with it yourself when you are ready.
+Demand, and the 'Prior-Year Utilities' sheet (change carry-forward-common-utilities), with exactly the
+labels a fresh form carries. A form that already has the staffing sheet gets only the utilities
+sheet. Review the copy, then replace the original with it yourself when you are ready.
 """
 import datetime
 import hashlib
@@ -22,6 +23,7 @@ import openpyxl
 
 import build_project_input_form as bpf
 import existing_staffing as es
+import existing_utilities as eu
 
 
 def _sha256(path):
@@ -45,17 +47,23 @@ def add_to_copy(src, now=None):
     before = _sha256(src)
 
     wb = openpyxl.load_workbook(src)
-    if es.ROSTER_SHEET in wb.sheetnames:
-        raise RuntimeError(f"{name} already has a '{es.ROSTER_SHEET}' sheet; nothing to add.")
-    pi = wb['Project Info']
-    last = max((r for r in range(1, (pi.max_row or 1) + 1)
-                if pi.cell(row=r, column=1).value not in (None, '')), default=1)
-    bpf.add_existing_project_fields(pi, last + 2)
-    bpf.add_prior_year_roster_sheet(wb)
-    sd = wb['Staffing Demand']
-    last_demand = max(5, max((r for r in range(5, (sd.max_row or 5) + 1)
-                              if sd.cell(row=r, column=1).value not in (None, '')), default=5))
-    bpf.add_demand_reason_columns(sd, 5, max(last_demand, 4 + 20))
+    has_roster, has_utilities = es.ROSTER_SHEET in wb.sheetnames, eu.SHEET in wb.sheetnames
+    if has_roster and has_utilities:
+        raise RuntimeError(f"{name} already has the '{es.ROSTER_SHEET}' and '{eu.SHEET}' sheets; nothing to add.")
+    if not has_roster:
+        pi = wb['Project Info']
+        last = max((r for r in range(1, (pi.max_row or 1) + 1)
+                    if pi.cell(row=r, column=1).value not in (None, '')), default=1)
+        bpf.add_existing_project_fields(pi, last + 2)
+        bpf.add_prior_year_roster_sheet(wb)
+        sd = wb['Staffing Demand']
+        last_demand = max(5, max((r for r in range(5, (sd.max_row or 5) + 1)
+                                  if sd.cell(row=r, column=1).value not in (None, '')), default=5))
+        bpf.add_demand_reason_columns(sd, 5, max(last_demand, 4 + 20))
+    if not has_utilities:
+        # Change carry-forward-common-utilities: a form that already carries the staffing sheet gets
+        # only the utilities sheet.
+        bpf.add_prior_year_utilities_sheet(wb)
     wb.save(dst)
 
     # The copy is written into the synced library: same OneDrive clean-up as every generator.
