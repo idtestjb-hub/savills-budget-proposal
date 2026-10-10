@@ -28,6 +28,13 @@ from verification.run_workflow import (PartialRun, ProductionTouched,        # n
                                        DEFAULT_SAMPLE, diff_snapshots,
                                        run_workflow)
 
+# Invented Existing-project samples (change carry-forward-staffing); rebuilt by
+# verification/fixtures/build_existing_fixture.py. The second one has no roster (design D15).
+EXISTING_SAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures',
+                               'Sample_Existing_Input.xlsx')
+EXISTING_LUMP_SAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures',
+                                    'Sample_Existing_Lump_Input.xlsx')
+
 
 def _headline(text):
     print(f'\n{text}\n' + '-' * len(text))
@@ -303,6 +310,68 @@ def main(argv=None):
                   'forced (change guard-input-file-overwrite). It has destroyed live input before.')
             return 1
         print(f'OK    the input-form guard holds ({len(grows)} check(s), temporary folder only)')
+
+        # ---- 8. Existing-project mode on its own invented sample -----------------------------
+        # Change carry-forward-staffing. The standard sample above is a New prospect and must
+        # produce no Staff Bridge; the invented Existing-project sample must tie its bridge to the
+        # deliverable and give every changed staffing line a reason. No recorded baseline is used
+        # or moved here.
+        _headline('8. EXISTING-PROJECT MODE')
+        try:
+            bok, brows, bdiffs, _bn = checks.check_staff_bridge(paths, existing_mode=False)
+        except bl.BaselineUnavailable as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        if not bok:
+            print('FAIL  the New-prospect run produced a Staff Bridge')
+            return 1
+        print('OK    the standard (New-prospect) sample produces no Staff Bridge')
+        for sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
+            existing_dir = os.path.join(workdir, sub)
+            os.makedirs(existing_dir, exist_ok=True)
+            try:
+                ex_outputs, ex_before, ex_after = run_workflow(sample=sample, workdir=existing_dir)
+            except (PartialRun, ProductionTouched) as exc:
+                print(f'FAIL  {type(exc).__name__}\n{exc}')
+                return 1
+            if diff_snapshots(ex_before, ex_after):
+                print('FAIL  production artefacts changed during the Existing-project run')
+                return 1
+            ex_paths = locate_outputs(ex_outputs)
+            print(f'OK    both generators completed on {os.path.basename(sample)}')
+            try:
+                check_artifacts(ex_paths)
+                exfe = check_formula_errors(ex_paths)
+            except (CorruptionArtifact, FormulaError) as exc:
+                print(f'FAIL  {exc}')
+                return 1
+            print(f'OK    no corruption artifacts, no Excel errors introduced ({exfe["method"]})')
+            sections = [
+                ('every changed staffing line has a reason',
+                 lambda: checks.check_staffing_reasons(ex_paths['analysis'])),
+                ('Staff Bridge ties to EMH2 + EMH3 + EMH4 of the deliverable',
+                 lambda: checks.check_staff_bridge(ex_paths, existing_mode=True)),
+                ('EMH2, EMH3 and EMH4 equal their detail sheets',
+                 lambda: checks.check_existing_detail_ties(ex_paths)),
+                ('remark content', lambda: check_remark_content(ex_paths)),
+                ('summary reconciliation', lambda: check_summary_reconciles(ex_paths)),
+                ('Required line items', lambda: check_required_line_items(ex_paths)),
+            ]
+            for title, run in sections:
+                try:
+                    sok, srows, sdiffs, snotes = run()
+                except bl.BaselineUnavailable as exc:
+                    print(f'FAIL  {title}: {exc}')
+                    return 1
+                for n in snotes:
+                    print(f'NOTE  {n}')
+                if not sok:
+                    print(f'FAIL  {title}: {len(sdiffs)} problem(s)')
+                    for d in sdiffs:
+                        print('        - ' + ' | '.join(f'{x:,.0f}' if isinstance(x, (int, float)) else str(x)
+                                                      for x in d))
+                    return 1
+                print(f'OK    {title} ({len(srows)} check(s))')
 
         # ---- verdict -------------------------------------------------------------------------
         _headline('RESULT')

@@ -19,6 +19,9 @@ This map was checked on 2026-10-05 against the `import` statements of every `*.p
 | `estimate_new_project.py` | Staffing-headcount estimate (`estimate_staff_headcount`), used by the analysis workbook's cross-check; also a standalone four-part estimation model |
 | `fill_curve.py` | The single monthly occupancy fill-up curve both generators share |
 | `vn_holidays.py` | Vietnamese statutory public holidays, computed (including the lunar ones) rather than typed in |
+| `labor_law_params.py` | Reads the dated labour-law table `data/generation_B_verified/Ref_LaborLawParams.csv` (regional minimum wage, insurance base and caps, employer rates) and returns the values in force each month of a year |
+| `existing_staffing.py` | Existing-project mode: reads the prior-year baseline by label, recomputes the staff lines (EMH2/EMH3/EMH4) under law only, keeps a reason for every change, and replicates the template's A1/A1.1 formulas for the Staff Bridge |
+| `add_existing_project_sheets.py` | Adds the Existing-project fields to a dated copy of an already filled input workbook; the original is never touched |
 | `common_utils_v2.py` | Shared workbook helpers, for example `repair_workbook` |
 
 ## 2. Scripts that prepared the reference data (run once; not part of a run)

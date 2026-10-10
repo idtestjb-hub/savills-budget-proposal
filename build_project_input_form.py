@@ -366,6 +366,150 @@ def _backup_existing(path):
     return backup
 
 
+# ---- Existing-project mode (change carry-forward-staffing, task 2.1) -------------------------
+# Used by main() for a fresh form and by add_existing_project_sheets.py for a filled one, so both
+# carry exactly the same labels. The labels are what existing_staffing.read_existing() looks for.
+REASON_LIST_COL = 14          # N on 'Prior-Year Roster': the reason codes the dropdowns offer
+ROSTER_INPUT_ROWS = 30
+ACTUAL_INPUT_ROWS = 20
+
+
+def _reason_list_ref():
+    from existing_staffing import ROSTER_SHEET, REASON_CODES
+    from openpyxl.utils import get_column_letter
+    col = get_column_letter(REASON_LIST_COL)
+    return f"='{ROSTER_SHEET}'!${col}$3:${col}${2 + len(REASON_CODES)}"
+
+
+def add_existing_project_fields(ws, row):
+    """'Project Mode', 'Minimum Wage Region' and 'Prior Budget Year' on Project Info, from `row`."""
+    import existing_staffing as es
+    section(ws, row, 'EXISTING PROJECT — carry last year\'s approved staffing forward')
+    mode = labeled_input(ws, row + 1, es.MODE_LABEL, es.MODE_NEW)
+    dv = DataValidation(type='list', formula1='"' + ','.join(es.MODES) + '"', showErrorMessage=True,
+                        errorTitle='Project Mode', error='Pick New prospect or Existing project')
+    ws.add_data_validation(dv)
+    dv.add(mode)
+    mode.comment = Comment(
+        "New prospect: the staffing is estimated as before. Existing project: the staff lines (A1, "
+        "EMH2, EMH3, EMH4) start from last year's APPROVED budget on the 'Prior-Year Roster' sheet, "
+        "are recalculated under state law only, and every change needs a reason.", 'Budget Planning Agent')
+    region = labeled_input(ws, row + 2, es.REGION_LABEL + ' — blank = I', None)
+    dv2 = DataValidation(type='list', formula1='"I,II,III,IV"', showErrorMessage=True,
+                         errorTitle='Minimum Wage Region', error='Pick I, II, III or IV')
+    ws.add_data_validation(dv2)
+    dv2.add(region)
+    region.comment = Comment(
+        "Regional minimum-wage zone of the project's location (Nghị định 293/2025/NĐ-CP appendix). "
+        "Used only in Existing-project mode, for the minimum-wage floor and the unemployment-insurance "
+        "ceiling. Blank means Region I, which the standard form assumes.", 'Budget Planning Agent')
+    labeled_input(ws, row + 3, es.PRIOR_YEAR_LABEL + ' — the approved budget copied', None, fmt='0')
+
+
+def add_prior_year_roster_sheet(wb):
+    """The 'Prior-Year Roster' sheet: four labelled blocks plus the reason-code list (design D8-D10)."""
+    import existing_staffing as es
+    from openpyxl.utils import get_column_letter
+    ws = wb.create_sheet(es.ROSTER_SHEET)
+    # The title must not read like a block title: existing_staffing finds blocks by their titles.
+    ws['A1'] = 'Existing-project inputs — used only when Project Mode is "Existing project"'
+    ws['A1'].font = TITLE_FONT
+    ws['A2'] = ("Copy from LAST YEAR'S APPROVED budget, not a draft: the A1 staff sheet (one row per "
+                "position: heads and monthly gross per head), the night/holiday allowance sheet, and "
+                "the approved EMH2/EMH3/EMH4 amounts. Type changes in the 'New …' columns with a reason.")
+    ws['A2'].font = SUB_FONT
+
+    dv_reason = DataValidation(type='list', formula1=_reason_list_ref(), showErrorMessage=True,
+                               errorTitle='Reason Code', error='Pick a reason code from the list')
+    dv_shift = DataValidation(type='list', formula1='"' + ','.join(SHIFT_CODES) + '"',
+                              showErrorMessage=True, errorTitle='Invalid shift code',
+                              error='Pick a code from the Shift Types sheet')
+    ws.add_data_validation(dv_reason)
+    ws.add_data_validation(dv_shift)
+
+    def block(row, title, headers, n_rows, prefill=(), widths_from=1):
+        section(ws, row, title, span=f'A:{get_column_letter(len(headers))}')
+        for c, h in enumerate(headers, start=1):
+            cell = ws.cell(row=row + 1, column=c, value=h)
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = CENTER
+            cell.border = BORDER
+        for i in range(n_rows):
+            for c in range(1, len(headers) + 1):
+                cell = ws.cell(row=row + 2 + i, column=c)
+                cell.fill = INPUT_FILL
+                cell.border = BORDER
+            if i < len(prefill):
+                ws.cell(row=row + 2 + i, column=1, value=prefill[i])
+        return row + 2, row + 1 + n_rows
+
+    r = 4
+    first, last = block(r, es.SEC_ROSTER, [
+        'Position', 'Shift Code', 'Headcount', 'Monthly Gross per Head (VND)', 'Budget Year',
+        'New Headcount', 'New Monthly Gross (VND)', 'Reason Code', 'Reason Note', 'Note'],
+        ROSTER_INPUT_ROWS)
+    for i in range(first, last + 1):
+        dv_shift.add(ws.cell(row=i, column=2))
+        dv_reason.add(ws.cell(row=i, column=8))
+        for c in (4, 7):
+            ws.cell(row=i, column=c).number_format = '#,##0'
+    r = last + 2
+    first, last = block(r, es.SEC_DUTY, [
+        'Code', 'Night Staff per Normal Night', 'Night Staff per Holiday Night',
+        'Day Staff per Holiday', 'Monthly Gross for Allowance (VND)', 'Note'],
+        len(es.DUTY_CODES), prefill=es.DUTY_CODES)
+    for i in range(first, last + 1):
+        ws.cell(row=i, column=5).number_format = '#,##0'
+    r = last + 2
+    first, last = block(r, es.SEC_LINES, [
+        'Line', 'Prior-Year Approved (VND/year)', 'Budget-Year Override (VND/year)', 'Reason Code',
+        'Reason Note'], len(es.STAFF_LINES), prefill=es.STAFF_LINES)
+    for i in range(first, last + 1):
+        dv_reason.add(ws.cell(row=i, column=4))
+        for c in (2, 3):
+            ws.cell(row=i, column=c).number_format = '#,##0'
+    r = last + 2
+    block(r, es.SEC_ACTUAL + ' (OPTIONAL — C&B payroll / PM timesheet, shown only, changes no figure)',
+          ['Position', 'Actual Headcount', 'Source', 'Note'], ACTUAL_INPUT_ROWS)
+
+    ws.cell(row=2, column=REASON_LIST_COL, value='Reason codes (dropdown list)').font = Font(bold=True)
+    for i, code in enumerate(es.REASON_CODES):
+        ws.cell(row=3 + i, column=REASON_LIST_COL, value=code)
+    for col, w in {'A': 30, 'B': 14, 'C': 14, 'D': 20, 'E': 20, 'F': 16, 'G': 20, 'H': 34, 'I': 30,
+                   'J': 24, get_column_letter(REASON_LIST_COL): 44}.items():
+        ws.column_dimensions[col].width = w
+    return ws
+
+
+def add_demand_reason_columns(ws, first_row, last_row):
+    """'Reason Code' / 'Reason Note' on Staffing Demand, in the first free columns of header row 4.
+    Only Existing-project mode reads them: a position the prior-year roster does not cover is new."""
+    col = 1
+    while ws.cell(row=4, column=col).value not in (None, ''):
+        col += 1
+    dv = DataValidation(type='list', formula1=_reason_list_ref(), showErrorMessage=True,
+                        errorTitle='Reason Code', error='Pick a reason code from the list')
+    ws.add_data_validation(dv)
+    for offset, header in enumerate(('Reason Code', 'Reason Note')):
+        cell = ws.cell(row=4, column=col + offset, value=header)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+        for r in range(first_row, last_row + 1):
+            c = ws.cell(row=r, column=col + offset)
+            c.fill = INPUT_FILL
+            c.border = BORDER
+            c.protection = Protection(locked=False)
+            if offset == 0:
+                dv.add(c)
+    from openpyxl.utils import get_column_letter
+    ws.column_dimensions[get_column_letter(col)].width = 34
+    ws.column_dimensions[get_column_letter(col + 1)].width = 30
+    return col
+
+
 def main(force=False):
     # Fail before building anything: replacing a filled-in project with placeholder data has
     # destroyed live input more than once (RUNNING.md, step 1).
@@ -862,6 +1006,12 @@ def main(force=False):
             c5.comment = Comment(note, 'Budget Planning Agent')
     for col, w in {'A': 30, 'B': 12, 'C': 18, 'D': 18, 'E': 20}.items():
         ws4.column_dimensions[col].width = w
+
+    # Existing-project mode (change carry-forward-staffing): appended after every existing field,
+    # same no-row-shift rule as above.
+    add_existing_project_fields(ws1, 57)
+    add_prior_year_roster_sheet(wb)
+    add_demand_reason_columns(ws4, 5, last_row)
 
     # Protection only bites where a cell is explicitly locked (every yellow cell above was just set
     # to locked=False) — the row/section headers, this sheet's own two title cells, and any blank

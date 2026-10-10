@@ -22,6 +22,13 @@ to bridge a holiday to the weekend, which is how a 5-day Tet becomes 9 in practi
 policy decision, not a calculation, and this module does not invent them. It returns the STATUTORY
 days, which is the correct basis for a budget: they are what carries the legal pay multiplier.
 A PM who wants the observed calendar can still type dates into Roster Setup, which override these.
+
+24 NOVEMBER: Nghị quyết 28/2026/QH16 (passed 24/04/2026, Article 2, in force 01/07/2026) makes
+24 November "Ngày Văn hóa Việt Nam", a paid day off, so from 2026 the law gives 12 paid days.
+statutory_holidays() still returns the 11 days of Article 112, because the New-prospect budget's
+recorded figures are built on them and changing that moves figures (its own change, PM sign-off).
+paid_holidays() applies the law in force on a given date, 24 November included; Existing-project
+mode uses it (docs/05-decisions.md, 2026-10-10).
 """
 import datetime
 import math
@@ -162,6 +169,28 @@ def statutory_holidays(year):
         offset = i - TET_LEAD_DAYS
         days.append((tet + datetime.timedelta(days=offset), f'Tet Am lich ({i + 1}/{TET_DAYS})'))
     return sorted(days)
+
+
+# Nghị quyết 28/2026/QH16, Article 2: 24 November is a paid day off, in force from 01/07/2026.
+CULTURE_DAY = (11, 24)
+CULTURE_DAY_IN_FORCE = datetime.date(2026, 7, 1)
+CULTURE_DAY_NAME = 'Ngay Van hoa Viet Nam / Vietnam Culture Day'
+CULTURE_DAY_NAME_VN = 'Ngày Văn hóa Việt Nam (24/11)'
+
+
+def paid_holidays(year, as_of=None):
+    """Paid public holidays of `year` under the law in force on `as_of` (default: 1 January of `year`).
+
+    The default answers "which calendar did a budget for this year use when it was approved":
+    a 2026 budget was approved before Nghị quyết 28/2026/QH16 existed, so it has 11 days; a 2027
+    budget has 12. Pass as_of explicitly to ask about the law at another date.
+    """
+    as_of = as_of or datetime.date(year, 1, 1)
+    days = statutory_holidays(year)
+    culture = datetime.date(year, *CULTURE_DAY)
+    if as_of >= CULTURE_DAY_IN_FORCE and culture >= CULTURE_DAY_IN_FORCE:
+        days = sorted(days + [(culture, CULTURE_DAY_NAME)])
+    return days
 
 
 def holidays_in_month(year, month):

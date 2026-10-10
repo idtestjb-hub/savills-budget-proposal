@@ -82,6 +82,44 @@ repeats a full purchase in Year 2 and drops in Year 3, which is worth ~290M VND 
 shape. Enter `3` or `4` here only when this project's own equipment replacement cycle is known to be
 longer than the default. See `docs/05-decisions.md`, D4.
 
+### 2b. A project Savills already manages: Existing-project mode
+
+For a building Savills already runs, the staff lines start from last year's **approved** budget instead of
+being estimated (change `carry-forward-staffing`). Leave `Project Mode` at `New prospect` for a new building:
+nothing below applies and no figure changes.
+
+1. On `Project Info`, at the bottom (`EXISTING PROJECT` section): set `Project Mode` to `Existing project`,
+   pick the `Minimum Wage Region` of the site (blank = Region I) and type the `Prior Budget Year` (e.g. 2026).
+2. On the sheet `Prior-Year Roster`, copy from the approved budget. Fill one of the two baselines; both is fine.
+   - **Roster:** one row per position, with headcount and monthly gross salary per head (from that budget's A1
+     sheet). Type a change in `New Headcount` / `New Monthly Gross`, with a `Reason Code` from the dropdown.
+   - **Staff Lines:** the approved EMH2, EMH3 and EMH4 amounts (VND/year). Use this alone when the approved
+     budget has no per-position table. `Budget-Year Override` is a whole-line change and needs a reason code.
+   - **Holiday and Night Duty:** per code, the staff on duty (normal nights, holiday nights, day shift on
+     holidays) and the gross they are paid on, from last year's holiday sheet. EMH3 is priced from this.
+   - **Actual Headcount (optional):** C&B or timesheet counts, shown beside the baseline, never used in a figure.
+3. On `Staffing Demand`, an in-house position whose code is not in the roster is a new position: give it a
+   `Reason Code` in the last two columns.
+
+The tool then recomputes the year under state law only: the regional minimum wage, the insurance base and
+caps, the employer rates (all from `data/generation_B_verified/Ref_LaborLawParams.csv`, with dates and legal
+sources), and the paid-holiday calendar (24 November counts from 2026). It adds no percentage of its own. Every
+changed line gets "Điều chỉnh so với NS <năm>: …" in its remark, and the analysis workbook gets a `Staff Bridge`
+sheet. **`run.py` fails if a changed line has no reason, and names it.** Fix the reason and run again.
+
+On the deliverable, EMH2, EMH3 and EMH4 are always formulas into their detail sheets (`A1`, `A1.1`, `A5`). An
+approved amount carried forward shows there as its own row ("… đã duyệt NS <năm> mang sang"), and an override
+as a row "Điều chỉnh của PM" with its reason, so each line equals its detail sheet.
+
+A workbook filled in before this change has none of these fields. Add them to a dated copy:
+
+```bash
+python add_existing_project_sheets.py
+```
+
+The original stays untouched. The copy is written beside it as `Project_Budget_Input_EXISTING_<date>.xlsx`;
+check it, then replace the original with it yourself.
+
 ### 3. Run the pipeline
 
 **The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then
@@ -180,6 +218,9 @@ Six reference files, plus the template and your input. This list comes from trac
 | `data/generation_A_star_schema/Fact_CapexReserve.csv` | The Years 2+ Capex reserve rate, derived from 4 real projects |
 | `input/template/2027 Resi Budget Form (IT team).xlsx` | The deliverable's shape |
 | `reports/Project_Budget_Input.xlsx` | Your project |
+
+`data/generation_B_verified/Ref_LaborLawParams.csv` (the labour-law table) is read on every run for the
+analysis workbook's payroll caps and rates, and drives the staff lines in Existing-project mode.
 
 One more file is read only on a fallback path: `data/generation_B_verified/Fact_MasterRateCard.csv`
 supplies a flat Capex price list when no nearest-project item list can be built

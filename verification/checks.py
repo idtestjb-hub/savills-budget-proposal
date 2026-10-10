@@ -635,6 +635,11 @@ def check_summary_reconciles(paths):
         # independently verifies what the formula computes, not just that it parses. A legacy
         # "AC96+<number>" constant (pre this row-based design) is still accepted for robustness.
         emh2_formula = str(fund_ws.Cells(83, 6).Formula or '')
+        # Existing-project mode (change carry-forward-staffing, design D8/D10): EMH2 either leaves
+        # A1's night/holiday allowance (AC90) out because EMH3 carries it, or is the carried /
+        # overridden amount itself (a number, no formula).
+        allowance_out = re.search(r"AC96-'A1[^!]*'!AC90\*'A1[^!]*'!AC95", emh2_formula)
+        emh2_is_amount = not emh2_formula.lstrip().startswith('=')
         top_up = None
         range_m = re.search(r"AC(\d+):AC(\d+)\)\*12", emh2_formula)
         single_m = re.search(r"!AC(\d+)\*12", emh2_formula)
@@ -659,6 +664,14 @@ def check_summary_reconciles(paths):
         )
         h22 = _num(sum_ws.Cells(22, 8).Value2)
         label = "'1. Summary'!H22 (EMH) vs A1!AC96 + top-up + other EMH-family leaves"
+        if allowance_out and a1_total is not None:
+            a1_total -= (_num(a1_ws.Cells(90, 29).Value2) or 0.0) * (_num(a1_ws.Cells(95, 29).Value2) or 0.0)
+            label = "'1. Summary'!H22 (EMH) vs A1!AC96 - allowance (in EMH3) + top-up + other EMH leaves"
+        if emh2_is_amount:
+            a1_total = next((g for r, code, g, ak, is_header in leaf_rows
+                             if code == 'EMH2' and not is_header and isinstance(g, (int, float))), None)
+            top_up = 0.0
+            label = "'1. Summary'!H22 (EMH) vs EMH2 carried amount + other EMH-family leaves"
         if a1_total is None or top_up is None:
             rows.append((label, h22, None))
             differences.append((label, h22, None))
@@ -1836,6 +1849,288 @@ def check_input_form_guard():
     record('the live input workbook is byte-identical and unchanged in timestamp',
            live_before == live_after, 'the live input workbook changed during the guard check')
     return not differences, rows, differences, []
+
+
+# ---- Existing-project mode (change carry-forward-staffing, task 7.1) ---------------------------
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _bridge_reason_records(ws):
+    """The 'CHANGED LINES AND REASONS' table of a Staff Bridge sheet, as dicts keyed by header."""
+    import existing_staffing as es
+    title_row = next((r for r in range(1, (ws.max_row or 0) + 1)
+                      if str(ws.cell(row=r, column=1).value or '').strip() == es.REASONS_TITLE), None)
+    if title_row is None:
+        raise StructureError(f"'{es.BRIDGE_SHEET}' has no '{es.REASONS_TITLE}' table.")
+    headers = {str(ws.cell(row=title_row + 1, column=c).value or '').strip(): c
+               for c in range(1, (ws.max_column or 1) + 1)}
+    missing = [h for h in es.REASON_HEADERS if h not in headers]
+    if missing:
+        raise StructureError(f"'{es.BRIDGE_SHEET}' reason table lacks columns {missing}.")
+    records = []
+    for r in range(title_row + 2, (ws.max_row or 0) + 1):
+        if ws.cell(row=r, column=1).value in (None, ''):
+            break
+        rec = {h: ws.cell(row=r, column=headers[h]).value for h in es.REASON_HEADERS}
+        if str(rec['Line']).startswith('No staffing line changed'):
+            break
+        rec['_row'] = r
+        records.append(rec)
+    return records
+
+
+def check_staffing_reasons(analysis_path):
+    """Every changed staffing line listed on the Staff Bridge carries a reason, and the code "Khác"
+    carries a note (spec budget-workflow-verification). Re-derives the rule from the records'
+    own fields rather than trusting their Status column.
+
+    Returns (ok, rows, differences, notes); a workbook without a Staff Bridge (New prospect) passes
+    with a note.
+    """
+    import openpyxl
+    import existing_staffing as es
+    from input_labels import normalise
+
+    wb = openpyxl.load_workbook(analysis_path, read_only=False)
+    if es.BRIDGE_SHEET not in wb.sheetnames:
+        return True, [], [], ['no Staff Bridge in this workbook (New-prospect mode): nothing to check']
+    rows, differences = [], []
+    codes = {normalise(c): c for c in es.REASON_CODES}
+    for rec in _bridge_reason_records(wb[es.BRIDGE_SHEET]):
+        label = f"{rec['Line']} — {rec['Item']} (row {rec['_row']})"
+        text = str(rec['Reason'] or '').strip()
+        source = str(rec['Source'] or '').strip()
+        code = str(rec['Reason code'] or '').strip()
+        note = str(rec['Reason note'] or '').strip()
+        problem = None
+        if not text:
+            problem = 'changed with no reason'
+        elif source == es.SOURCE_PM and normalise(code) not in codes:
+            problem = f'reason code {code!r} is not on the approved list'
+        elif source == es.SOURCE_PM and codes.get(normalise(code)) == es.REASON_OTHER and not note:
+            problem = 'reason code "Khác" without a note'
+        rows.append((label, 'ok' if problem is None else f'FAIL: {problem}'))
+        if problem:
+            differences.append((label, problem))
+    return not differences, rows, differences, []
+
+
+def _deliverable_staff_lines(deliverable_path):
+    """EMH2/EMH3/EMH4 column G of the deliverable's fund sheet, after Excel recalculates a copy."""
+    import shutil
+    import tempfile
+    import openpyxl
+    from verification.baseline import BaselineUnavailable
+
+    fund = openpyxl.load_workbook(deliverable_path, read_only=True)['2. Budget-Management Fund']
+    where = {}
+    for r, row in enumerate(fund.iter_rows(min_row=1, max_row=200, min_col=25, max_col=25,
+                                           values_only=True), start=1):
+        code = str(row[0] or '').strip()
+        if code in ('EMH2', 'EMH3', 'EMH4') and code not in where:
+            where[code] = r
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The Staff Bridge tie needs Excel ({exc}).') from exc
+    work = os.path.join(tempfile.mkdtemp(prefix='bridge_tie_'), os.path.basename(deliverable_path))
+    shutil.copy(deliverable_path, work)
+    pythoncom.CoInitialize()
+    xl = wb = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        ws = wb.Worksheets('2. Budget-Management Fund')
+        return {code: _num(ws.Cells(r, 7).Value2) for code, r in where.items()}
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
+    finally:
+        try:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        try:
+            if xl is not None:
+                xl.Quit()
+        except Exception:
+            pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+
+
+def check_staff_bridge(paths, existing_mode, deliverable_values=None):
+    """Existing-project mode: the Staff Bridge's budget-year total of EMH2, EMH3 and EMH4 equals the
+    same lines of the client deliverable as Excel recalculates it, and the deliverable carries no
+    bridge. New-prospect mode: neither workbook carries a bridge.
+
+    Returns (ok, rows, differences, notes). `deliverable_values` ({code: VND/year}) skips Excel (tests).
+    """
+    import openpyxl
+    import existing_staffing as es
+
+    rows, differences, notes = [], [], []
+    deliverable_sheets = _sheet_names(paths['deliverable'])
+    label = 'client deliverable carries no Staff Bridge'
+    ok_here = es.BRIDGE_SHEET not in deliverable_sheets
+    rows.append((label, 'ok' if ok_here else 'FAIL'))
+    if not ok_here:
+        differences.append((label, 'present', 'absent'))
+    analysis = openpyxl.load_workbook(paths['analysis'], read_only=False)
+    has_bridge = es.BRIDGE_SHEET in analysis.sheetnames
+    if not existing_mode:
+        label = 'New-prospect run produces no Staff Bridge'
+        rows.append((label, 'ok' if not has_bridge else 'FAIL'))
+        if has_bridge:
+            differences.append((label, 'present', 'absent'))
+        return not differences, rows, differences, notes
+    if not has_bridge:
+        differences.append(('Staff Bridge in the analysis workbook', 'absent', 'present'))
+        return False, rows, differences, notes
+    ws = analysis[es.BRIDGE_SHEET]
+    total_row = next((r for r in range(1, (ws.max_row or 0) + 1)
+                      if str(ws.cell(row=r, column=1).value or '').strip() == es.BRIDGE_TOTAL_LABEL), None)
+    header_row = next((r for r in range(1, total_row or 0)
+                       if str(ws.cell(row=r, column=1).value or '').strip() == 'Step'), None)
+    if total_row is None or header_row is None:
+        differences.append((f"'{es.BRIDGE_SHEET}' row '{es.BRIDGE_TOTAL_LABEL}'", 'missing', 'present'))
+        return False, rows, differences, notes
+    cols = {str(ws.cell(row=header_row, column=c).value or '').strip(): c for c in range(1, 8)}
+    values = deliverable_values if deliverable_values is not None else _deliverable_staff_lines(paths['deliverable'])
+    bridge_sum = deliverable_sum = 0.0
+    for code in es.STAFF_LINES:
+        b = _num(ws.cell(row=total_row, column=cols[code]).value)
+        d = values.get(code)
+        label = f'Staff Bridge {code} = deliverable {code}'
+        rows.append((label, b, d))
+        if b is None or d is None or abs(b - d) > 1:
+            differences.append((label, b, d))
+        bridge_sum += b or 0
+        deliverable_sum += d or 0
+    rows.append(('Staff Bridge total = EMH2 + EMH3 + EMH4', bridge_sum, deliverable_sum))
+    if abs(bridge_sum - deliverable_sum) > 1:
+        differences.append(('Staff Bridge total = EMH2 + EMH3 + EMH4', bridge_sum, deliverable_sum))
+    return not differences, rows, differences, notes
+
+
+_FUND_SHEET = '2. Budget-Management Fund'
+_STAFF_DETAIL_SHEETS = {'EMH2': 'A1. Staff cost 08.2026 (VN)', 'EMH3': 'A1.1 Allowance (From 08.2026)',
+                        'EMH4': 'A5. Trợ cấp PCCC'}
+
+
+def existing_detail_ties(cell, fund_rows):
+    """Pure core of check_existing_detail_ties (change carry-forward-staffing, design D15).
+
+    `cell(sheet, row, col)` -> (value, formula or None) after Excel recalculation; `fund_rows` maps
+    EMH2/EMH3/EMH4 to their row on the fund sheet. Each line's VND/year is recomputed from its detail
+    sheet without reading the line's own formula:
+      EMH2 = A1!AC96 - AC90*AC95 + 12 * every AC value from row 98 down (overflow, carried, adjustment);
+      EMH3 = 12 * A1.1!S13 + every typed S below row 13 (carried, adjustment; VND/year);
+      EMH4 = A5!H8 + every typed H below row 8.
+    The line must be a formula naming its detail sheet. A line left at zero with a "Để ở mức 0" remark
+    (EMH3 with no duty data and no approved amount) is not priced and passes."""
+    rows, differences, notes = [], [], []
+
+    def num(sheet, r, c):
+        v = _num(cell(sheet, r, c)[0])
+        return v or 0.0
+
+    a1, a11, a5 = (_STAFF_DETAIL_SHEETS[k] for k in ('EMH2', 'EMH3', 'EMH4'))
+    expected = {
+        'EMH2': (num(a1, 96, 29) - num(a1, 90, 29) * num(a1, 95, 29)
+                 + 12 * sum(num(a1, r, 29) for r in range(98, 141))),
+        'EMH3': 12 * num(a11, 13, 19) + sum(num(a11, r, 19) for r in range(14, 41) if cell(a11, r, 19)[1] is None),
+        'EMH4': num(a5, 8, 8) + sum(num(a5, r, 8) for r in range(9, 41) if cell(a5, r, 8)[1] is None),
+    }
+    for code in ('EMH2', 'EMH3', 'EMH4'):
+        r = fund_rows.get(code)
+        label = f"'{_FUND_SHEET}' {code} = '{_STAFF_DETAIL_SHEETS[code]}'"
+        if r is None:
+            differences.append((label, 'row not found', ''))
+            continue
+        formula = cell(_FUND_SHEET, r, 6)[1]
+        g = _num(cell(_FUND_SHEET, r, 7)[0])
+        remark = str(cell(_FUND_SHEET, r, 20)[0] or '')
+        if formula is None:
+            if not g and remark.startswith('Để ở mức 0'):
+                rows.append((label, 'ok — zero, reason stated'))
+            else:
+                differences.append((label, f'typed amount {g}', 'a formula into its detail sheet'))
+            continue
+        if _nfc(f"'{_STAFF_DETAIL_SHEETS[code]}'!") not in _nfc(formula):
+            differences.append((label, formula, f"a formula into '{_STAFF_DETAIL_SHEETS[code]}'"))
+            continue
+        rows.append((label, g, expected[code]))
+        if g is None or abs(g - expected[code]) > 1:
+            differences.append((label, g, expected[code]))
+    return not differences, rows, differences, notes
+
+
+def check_existing_detail_ties(paths):
+    """Existing-project mode: EMH2, EMH3 and EMH4 on the fund sheet are formulas into A1 / A1.1 / A5
+    and equal those sheets as Excel recalculates them (existing_detail_ties). Returns
+    (ok, rows, differences, notes)."""
+    import shutil
+    import tempfile
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The detail-sheet tie needs Excel ({exc}).') from exc
+    work = os.path.join(tempfile.mkdtemp(prefix='detail_tie_'), os.path.basename(paths['deliverable']))
+    shutil.copy(paths['deliverable'], work)
+    pythoncom.CoInitialize()
+    xl = wb = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        sheets = {_nfc(ws.Name): ws for ws in wb.Worksheets}
+
+        def cell(sheet, r, c):
+            ws = sheets.get(_nfc(sheet))
+            if ws is None:
+                raise BaselineUnavailable(f"'{sheet}' not found on the deliverable.")
+            x = ws.Cells(r, c)
+            return x.Value2, (str(x.Formula) if x.HasFormula else None)
+
+        fund = sheets[_nfc(_FUND_SHEET)]
+        fund_rows = {}
+        for r in range(1, 201):
+            code = str(fund.Cells(r, 25).Value2 or '').strip()
+            if code in _STAFF_DETAIL_SHEETS and code not in fund_rows:
+                fund_rows[code] = r
+        return existing_detail_ties(cell, fund_rows)
+    except BaselineUnavailable:
+        raise
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
+    finally:
+        try:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        try:
+            if xl is not None:
+                xl.Quit()
+        except Exception:
+            pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
 
 
 def _main():

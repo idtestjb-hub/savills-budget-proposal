@@ -136,7 +136,27 @@ def main():
               'be the most recent one in sample_output.')
         return 1
     print('  -> both outputs describe the same project.')
-    return 0
+    return _report_staffing_reasons(gpo.OUTPUT_PATH)
+
+
+def _report_staffing_reasons(analysis_path):
+    """Existing-project mode (change carry-forward-staffing, design D13): every changed staffing line
+    needs a reason. PMs never run verification, so the run itself says which line lacks one. A
+    New-prospect workbook has no Staff Bridge and passes silently."""
+    from verification.checks import check_staffing_reasons
+    ok, rows, problems, _notes = check_staffing_reasons(analysis_path)
+    if not rows:
+        return 0
+    if ok:
+        print(f'  -> every changed staffing line has a reason ({len(rows)} on the Staff Bridge).')
+        return 0
+    print('\n  FAILED: these staffing lines changed without a valid reason '
+          "(sheet 'Staff Bridge' of the analysis):")
+    for label, problem in problems:
+        print(f'    - {label}: {problem}')
+    print("  Fill the Reason Code (and a Reason Note for \"Khác\") on 'Prior-Year Roster' or "
+          "'Staffing Demand', save, and run again. Do not send the budget until this passes.")
+    return 1
 
 
 if __name__ == '__main__':

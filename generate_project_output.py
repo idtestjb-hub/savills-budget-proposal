@@ -29,7 +29,9 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 
-from generate_project_budget import read_input, INPUT_PATH, PRODUCT_ROWS
+from generate_project_budget import (read_input, INPUT_PATH, PRODUCT_ROWS, existing_result,
+                                     template_budget_year)
+import existing_staffing
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
     RATE_CARD_SOURCE, resolve_product_rates,
@@ -37,6 +39,7 @@ from master_comparables import (
 from estimate_capex_qty import estimate_capex_qty, estimate_capex_items
 from estimate_new_project import estimate_staff_headcount
 from estimate_opex import estimate_opex, RATIO_CATEGORIES as OPEX_RATIO_CATEGORIES
+import labor_law_params
 # The month-by-month fill-up ramp now lives in fill_curve.py, shared with generate_project_budget.py
 # so the client deliverable and this analysis ramp identically. Same curve as before — moved, not
 # changed (0% at month 0, linear to 0.50/0.70/0.90/1.00 at each year end).
@@ -76,20 +79,37 @@ EMPLOYER_INSURANCE_RATE = EMPLOYER_SI_HI_RATE + EMPLOYER_UNEMPLOYMENT_RATE
 # onto the same components so the two keep agreeing (the "EMH2 never drifts from build_staff_sheet"
 # invariant), rather than re-deriving the same numbers with the PIT-bracket logic duplicated.
 #
-# Source of every constant below: 'A1. Staff cost 08.2026 (VN)'!I4 / I5 / L7:V8 / AB1 / N8 (the
-# template's own "Hide" reference rows) — read once 2026-09-14, not duplicated as an independent
-# guess. If Savills updates these in the template, this module drifts from it (same trade-off the
-# EMPLOYER_INSURANCE_RATE constants above already accept) until someone re-reads them here.
-STATUTORY_SI_HI_BASE_2026 = 2_530_000       # A1!I4 — SI/HI/Union contribution base (regional)
-STATUTORY_UI_BASE_2026 = 5_310_000          # A1!I5 — Unemployment-insurance contribution base
-STATUTORY_INSURANCE_CAP_MULTIPLE = 20       # A1!L7/T7/V7 = I4*20 (SI/HI, Union); M7/U7 = I5*20 (UI)
-EMPLOYER_SI_HI_RATE_FULL = 0.205            # A1!T8 — employer SI/HI, capped
-EMPLOYER_UNEMPLOYMENT_RATE_FULL = 0.01      # A1!U8 — employer unemployment insurance, capped
-TRADE_UNION_RATE = 0.02                     # A1!V8 — Công đoàn, capped at the same base as SI/HI
-STAFF_ADMIN_MARKUP = 0.10                   # A1!AB1 — Savills' admin fee, on top of everything else
+# These used to be STATUTORY_*_2026 constants copied from the template's "Hide" reference rows
+# ('A1. Staff cost 08.2026 (VN)'!I4 / I5 / L7:V8 / AB1), and drifted from the law whenever the law
+# changed. They now come from the labour-law table (data/generation_B_verified/
+# Ref_LaborLawParams.csv, change carry-forward-staffing) through statutory_payroll_params().
+# This sheet uses the values in force in the last month of the schedule year, for Region I (the
+# region the template's A1!I5 assumes): for 2026 and 2027 that is 2,530,000 / 5,310,000, x20 caps,
+# 20.5% / 1% / 2%, 10% markup — the template's own values, so no figure moved.
+def _plain(x):
+    """A table value as it should print inside formula text: 2530000.0 -> 2530000."""
+    return int(x) if float(x).is_integer() else x
 
 
-def full_payroll_annual_cost(annual_gross):
+def statutory_payroll_params(year, region=None):
+    """A1's payroll parameters for `year`: the values in force in its last month (see above)."""
+    p = labor_law_params.params_for_year(year, region)
+    m = 12
+    base = p.value('insurance_base', m)
+    ui_base = p.value('min_wage_region', m)
+    return {
+        'si_hi_base': _plain(base),
+        'ui_base': _plain(ui_base),
+        'si_hi_cap': _plain(base * p.value('si_hi_ceiling_multiple', m)),
+        'ui_cap': _plain(ui_base * p.value('ui_ceiling_multiple', m)),
+        'si_hi_rate': _plain(round(p.value('employer_si_rate', m) + p.value('employer_hi_rate', m), 6)),
+        'ui_rate': _plain(p.value('employer_ui_rate', m)),
+        'union_rate': _plain(p.value('union_rate', m)),
+        'markup': _plain(p.value('admin_markup', m)),
+    }
+
+
+def full_payroll_annual_cost(annual_gross, year):
     """The employer's real all-in annual cost of one position or group, on 'A1. Staff cost 08.2026
     (VN)''s own basis, given its annual gross salary: a 13th-month salary, employer SI/HI 20.5% and
     Unemployment 1% (both capped at 20x the regional base), Trade Union 2% (same cap), then Savills'
@@ -103,15 +123,14 @@ def full_payroll_annual_cost(annual_gross):
     spread evenly across 12 months to apply them, matching this pipeline's own "monthly estimate,
     not a live day-grid" staffing model (see build_staff_sheet's docstring).
     """
+    s = statutory_payroll_params(year)
     monthly = annual_gross / 12
-    si_hi_cap = STATUTORY_SI_HI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
-    ui_cap = STATUTORY_UI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
     thirteenth_month_annual = monthly                                            # one month's pay
-    si_hi_annual = min(monthly, si_hi_cap) * EMPLOYER_SI_HI_RATE_FULL * 12
-    ui_annual = min(monthly, ui_cap) * EMPLOYER_UNEMPLOYMENT_RATE_FULL * 12
-    union_annual = min(monthly, si_hi_cap) * TRADE_UNION_RATE * 12
+    si_hi_annual = min(monthly, s['si_hi_cap']) * s['si_hi_rate'] * 12
+    ui_annual = min(monthly, s['ui_cap']) * s['ui_rate'] * 12
+    union_annual = min(monthly, s['si_hi_cap']) * s['union_rate'] * 12
     subtotal = annual_gross + thirteenth_month_annual + si_hi_annual + ui_annual + union_annual
-    return subtotal * (1 + STAFF_ADMIN_MARKUP)
+    return subtotal * (1 + s['markup'])
 
 # Shared between build_staff_sheet (for its Service-equivalent comparison columns) and
 # build_service_sheet (for its own Qty matching) — kept in one place so the two sheets can never
@@ -527,12 +546,13 @@ def build_staff_sheet(wb, project, demand, year):
     # T-Z replicate 'A1. Staff cost 08.2026 (VN)''s own employer-cost chain (see
     # full_payroll_annual_cost() docstring) as explicit formulas, replacing the old flat
     # EMPLOYER_INSURANCE_RATE (x1.215) shortcut — change reconcile-summary-with-detail-sheets, D3.
+    s = statutory_payroll_params(year)
     for c, h in [(20, '13th-Month Salary (A1 basis)'),
-                 (21, f'Employer SI/HI {EMPLOYER_SI_HI_RATE_FULL:.1%} (capped, A1 basis)'),
-                 (22, f'Employer UI {EMPLOYER_UNEMPLOYMENT_RATE_FULL:.1%} (capped, A1 basis)'),
-                 (23, f'Trade Union {TRADE_UNION_RATE:.1%} (capped, A1 basis)'),
+                 (21, f'Employer SI/HI {s["si_hi_rate"]:.1%} (capped, A1 basis)'),
+                 (22, f'Employer UI {s["ui_rate"]:.1%} (capped, A1 basis)'),
+                 (23, f'Trade Union {s["union_rate"]:.1%} (capped, A1 basis)'),
                  (24, 'Subtotal Before Admin Markup'),
-                 (25, f'Admin Markup ({STAFF_ADMIN_MARKUP:.0%}, A1 basis)'),
+                 (25, f'Admin Markup ({s["markup"]:.0%}, A1 basis)'),
                  (26, 'Annual Total (Full Payroll Basis — A1)')]:
         cell = ws.cell(row=HEADER_ROW, column=c, value=h)
         cell.fill = HEADER_FILL
@@ -549,8 +569,8 @@ def build_staff_sheet(wb, project, demand, year):
         f.font = Font(italic=True, size=9, color='7F7F7F')
         f.alignment = CENTER
 
-    si_hi_cap = STATUTORY_SI_HI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
-    ui_cap = STATUTORY_UI_BASE_2026 * STATUTORY_INSURANCE_CAP_MULTIPLE
+    si_hi_cap = s['si_hi_cap']
+    ui_cap = s['ui_cap']
 
     first_row = DAYS_ROW + 1
     r = first_row
@@ -581,21 +601,21 @@ def build_staff_sheet(wb, project, demand, year):
         thirteenth.number_format = MONEY_FMT
         thirteenth.border = BORDER
         si_hi = ws.cell(row=r, column=21,
-                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{EMPLOYER_SI_HI_RATE_FULL}*12')
+                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{s["si_hi_rate"]}*12')
         si_hi.number_format = MONEY_FMT
         si_hi.border = BORDER
         ui = ws.cell(row=r, column=22,
-                      value=f'=MIN({annual_letter}{r}/12,{ui_cap})*{EMPLOYER_UNEMPLOYMENT_RATE_FULL}*12')
+                      value=f'=MIN({annual_letter}{r}/12,{ui_cap})*{s["ui_rate"]}*12')
         ui.number_format = MONEY_FMT
         ui.border = BORDER
         union = ws.cell(row=r, column=23,
-                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{TRADE_UNION_RATE}*12')
+                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{s["union_rate"]}*12')
         union.number_format = MONEY_FMT
         union.border = BORDER
         subtotal = ws.cell(row=r, column=24, value=f'={annual_letter}{r}+T{r}+U{r}+V{r}+W{r}')
         subtotal.number_format = MONEY_FMT
         subtotal.border = BORDER
-        markup = ws.cell(row=r, column=25, value=f'=X{r}*{STAFF_ADMIN_MARKUP}')
+        markup = ws.cell(row=r, column=25, value=f'=X{r}*{s["markup"]}')
         markup.number_format = MONEY_FMT
         markup.border = BORDER
         total_incl = ws.cell(row=r, column=26, value=f'=X{r}+Y{r}')
@@ -3179,6 +3199,132 @@ def _fix_fake_formula_strings(wb):
         print(f'Fixed {fixed} text annotation(s) that were accidentally in formula position (leading "= ").')
 
 
+def build_staff_bridge_sheet(wb, result):
+    """'Staff Bridge' (Existing-project mode only, change carry-forward-staffing D4/D13): from the
+    prior-year baseline to the budget year in fixed steps, per staff line, with the reason record of
+    every change. Internal: the client deliverable never carries it. Its total equals EMH2 + EMH3 +
+    EMH4 of the deliverable, which verification confirms after Excel recalculates the deliverable."""
+    es = existing_staffing
+    ws = wb.create_sheet(es.BRIDGE_SHEET)
+    title_block(ws, f'Staff Bridge — approved budget {result.prior_year} to budget year {result.budget_year}',
+                'Internal (Existing-project mode). Not part of the client deliverable. VND per year. The '
+                'budget-year total equals EMH2 + EMH3 + EMH4 on the client deliverable.', 'A1:G1')
+    info = [
+        ('Prior budget year', result.prior_year),
+        ('Budget year', result.budget_year),
+        ('Minimum wage region', result.region),
+        ('Baseline', 'Prior-Year Roster (per position)' if result.kind == 'roster'
+         else 'Approved line amounts (no per-position roster)'),
+        ('Insurance base on A1 (VND/month)', result.a1_cells['I4']),
+        ('Regional minimum wage on A1 (VND/month)', result.a1_cells['I5']),
+    ]
+    r = 4
+    for label, value in info:
+        ws.cell(row=r, column=1, value=label).font = Font(bold=True)
+        c = ws.cell(row=r, column=2, value=value)
+        if isinstance(value, float):
+            c.number_format = MONEY_FMT
+        r += 1
+
+    r += 1
+    for c, h in enumerate(['Step', 'EMH2', 'EMH3', 'EMH4', 'Total', 'Note'], start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    lines = [result.lines[k] for k in es.STAFF_LINES]
+    bc = result.backcast
+    if bc.get('flag'):
+        baseline_note = ('FLAG: the recomputed prior year differs from the approved EMH2 by more than 1% '
+                         f"({bc['recomputed']:,.0f} vs {bc['approved']:,.0f})")
+    elif result.kind == 'roster':
+        baseline_note = 'Prior year recomputed with the law in force in each month of that year'
+    else:
+        baseline_note = 'Approved amounts, carried forward'
+    steps = [
+        ('Prior-year approved (as entered)', [l.approved for l in lines],
+         'Shown for reference; not part of the sum below.'),
+        (es.BRIDGE_BASELINE_LABEL, [l.baseline for l in lines], baseline_note),
+        ('Wage and insurance effect (law)', [l.law for l in lines],
+         'Minimum-wage floor, insurance base and rates of the budget year' if result.kind == 'roster'
+         else 'Not computable without a per-position roster'),
+        ('Headcount and salary changes (PM)', [l.headcount for l in lines],
+         'Roster changes and new positions, each with its reason below'),
+        ('Allowance effect (calendar, minimum wage)', [l.allowance for l in lines],
+         'EMH3 night/holiday allowance and EMH4 fire-team allowance'),
+        ('PM line overrides', [l.override for l in lines], 'Whole-line overrides with a reason code'),
+        (es.BRIDGE_TOTAL_LABEL, [l.budget for l in lines], 'Equals the client deliverable'),
+    ]
+    first = r + 1
+    for label, values, note in steps:
+        r += 1
+        ws.cell(row=r, column=1, value=label).border = BORDER
+        for i, v in enumerate(values):
+            c = ws.cell(row=r, column=2 + i, value=v)
+            c.number_format, c.border = MONEY_FMT, BORDER
+        tot = ws.cell(row=r, column=5, value=f'=SUM(B{r}:D{r})')
+        tot.number_format, tot.border = MONEY_FMT, BORDER
+        ws.cell(row=r, column=6, value=note).alignment = LEFT
+    total_row = r
+    r += 1
+    ws.cell(row=r, column=1, value='Check: baseline + effects − total (must be 0)').font = Font(italic=True)
+    for col in 'BCDE':
+        c = ws.cell(row=r, column=ord(col) - 64,
+                    value=f'=ROUND({col}{first + 1}+{col}{first + 2}+{col}{first + 3}+{col}{first + 4}'
+                          f'+{col}{first + 5}-{col}{total_row},0)')
+        c.number_format = MONEY_FMT
+    for row in (first + 1, total_row):
+        ws.cell(row=row, column=1).font = Font(bold=True)
+
+    r += 2
+    ws.cell(row=r, column=1, value=es.REASONS_TITLE).font = Font(bold=True, size=11)
+    r += 1
+    for c, h in enumerate(es.REASON_HEADERS, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    for rec in result.reason_rows:
+        r += 1
+        row = [rec['line'], rec['item'], rec['baseline'], rec['budget'], rec['diff'], rec['code'],
+               rec['note'], rec['text'], rec['source'], rec['status'] or 'OK']
+        for c, v in enumerate(row, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = BORDER
+            if c == 5:
+                cell.number_format = MONEY_FMT
+            if c == 10 and rec['status']:
+                cell.font = Font(bold=True, color='C00000')
+    if not result.reason_rows:
+        r += 1
+        ws.cell(row=r, column=1, value='No staffing line changed.')
+
+    if result.actual_rows:
+        r += 2
+        ws.cell(row=r, column=1, value='ACTUAL HEADCOUNT (optional, shown only)').font = Font(bold=True, size=11)
+        r += 1
+        for c, h in enumerate(['Position', 'Baseline heads', 'Actual heads', 'Differs', 'Source', 'Note'], 1):
+            cell = ws.cell(row=r, column=c, value=h)
+            cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+        for a in result.actual_rows:
+            r += 1
+            for c, v in enumerate([a['position'], a['baseline'], a['heads'],
+                                   'yes' if a['differs'] else 'no', a['source'], a['note']], 1):
+                ws.cell(row=r, column=c, value=v).border = BORDER
+
+    notes = list(result.notes) + [
+        "The 'Staff (Roster)' sheet and the Summary staff figure of this workbook are the New-prospect "
+        "estimate from Staffing Demand. In Existing-project mode the budget's staff lines are the ones "
+        "on this sheet."]
+    r += 2
+    ws.cell(row=r, column=1, value='Notes').font = Font(bold=True, size=11)
+    for n in notes:
+        r += 1
+        ws.cell(row=r, column=1, value=n).alignment = LEFT
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+        ws.row_dimensions[r].height = 30
+    for col, w in {'A': 44, 'B': 20, 'C': 20, 'D': 18, 'E': 20, 'F': 34, 'G': 22, 'H': 60, 'I': 8,
+                   'J': 18}.items():
+        ws.column_dimensions[col].width = w
+    return ws
+
+
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
 
@@ -3200,6 +3346,8 @@ def main():
     year1_strategy = build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue)
     build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy)
     build_savills_fee_position_sheet(wb, project, mgmt, summary)
+    if project.get('existing') is not None:
+        build_staff_bridge_sheet(wb, existing_result(project, demand, template_budget_year()))
 
     _fix_fake_formula_strings(wb)
 

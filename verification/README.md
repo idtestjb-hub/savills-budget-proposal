@@ -27,11 +27,13 @@ supported.
 |---|---|
 | `isolation.py` | Redirects the pipeline's hardcoded paths so a run cannot read or write production data |
 | `run_workflow.py` | Runs **both** generators against the sample, and fails if any production file is touched |
-| `checks.py` | Structural checks, numeric reconciliation checks, the remark-content check (`check_remark_content`, with a whole-workbook scan for internal wording, `scan_internal_wording`), coverage/fidelity (`check_method_coverage`), and the input-form guard (`check_input_form_guard`, `verify.py` section 7) |
+| `checks.py` | Structural checks, numeric reconciliation checks, the remark-content check (`check_remark_content`, with a whole-workbook scan for internal wording, `scan_internal_wording`), coverage/fidelity (`check_method_coverage`), and the input-form guard (`check_input_form_guard`, `verify.py` section 7), and the Existing-project checks (`check_staffing_reasons`, `check_staff_bridge`, `check_existing_detail_ties`, `verify.py` section 8) |
 | `method_coverage.py` | Reference-budget extraction, the per-code method-verdict registry, and the coverage/fidelity computations |
 | `baseline.py` | Extracts the headline figures, hand-checks them, records and compares the baseline. The management-fee hand-check sums every product the tool can price (all nine product rows of the input form) and names any product that has an area but no fee as unpriced |
 | `verify.py` | The single entry point — runs the workflow once and applies every check |
 | `fixtures/Sample_Project_Input.xlsx` | The synthetic project. Obviously fictional, realistic in scale |
+| `fixtures/Sample_Existing_Input.xlsx` | The same project switched to Existing-project mode with invented prior-year data (region II, a salary below the floor, a headcount change, an A1 overflow, new positions with reasons). Rebuilt by `fixtures/build_existing_fixture.py`. Section 8 runs the pipeline on it; no recorded baseline is used or moved |
+| `fixtures/Sample_Existing_Lump_Input.xlsx` | The lump-sum path of Existing-project mode, invented: no roster, region blank (Region I), approved EMH2 and EMH3 with a PM override and reason each, an empty holiday-duty block, approved EMH4 of 0. Built by `build_lump()` in the same script. Section 8 runs it after the roster sample, with the same checks |
 | `baselines/baseline.json` | The recorded figures, plus the runtime that produced them |
 
 ## Running it

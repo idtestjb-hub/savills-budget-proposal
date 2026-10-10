@@ -119,3 +119,31 @@ def test_every_statutory_day_is_found_in_its_month():
 def test_holidays_in_month_outside_1_to_12_is_empty():
     assert vh.holidays_in_month(2024, 0) == []
     assert vh.holidays_in_month(2024, 13) == []
+
+
+# --- paid_holidays: the law in force on a date, 24 November included (Nghị quyết 28/2026/QH16) ---
+# Source: chinhphu.vn "Ngày 24/11 hằng năm là Ngày Văn hóa Việt Nam, người lao động được nghỉ, hưởng nguyên
+# lương" (resolution passed 24/04/2026, Article 2, in force 01/07/2026); docs/project-status.md gives 12 for 2027.
+
+def test_paid_holidays_2027_are_twelve_with_24_november():
+    days = vh.paid_holidays(2027)
+    assert len(days) == 12
+    assert (D(2027, 11, 24), vh.CULTURE_DAY_NAME) in days
+    assert [d for d, _ in days] == sorted(d for d, _ in days)
+
+
+def test_a_2026_budget_approved_before_the_resolution_has_eleven():
+    # Default as_of = 1 January of the year: the calendar a budget for that year was approved on.
+    assert len(vh.paid_holidays(2026)) == 11
+    assert len(vh.paid_holidays(2025)) == 11
+
+
+def test_2026_under_the_law_from_july_has_twelve():
+    days = vh.paid_holidays(2026, as_of=D(2026, 7, 1))
+    assert len(days) == 12 and D(2026, 11, 24) in [d for d, _ in days]
+    assert len(vh.paid_holidays(2026, as_of=D(2026, 6, 30))) == 11
+
+
+def test_statutory_holidays_stay_eleven_for_new_prospect_mode():
+    # New-prospect figures are recorded on the 11 Article-112 days; moving them is a separate change.
+    assert len(vh.statutory_holidays(2027)) == 11

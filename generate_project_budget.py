@@ -27,6 +27,7 @@ import re
 import math
 import shutil
 import tempfile
+import unicodedata
 import calendar as cal
 
 import openpyxl
@@ -42,7 +43,8 @@ from master_comparables import (
 )
 from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
-from input_labels import SheetLabels
+from input_labels import SheetLabels, normalise
+import existing_staffing
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -688,6 +690,9 @@ def read_input(path):
             "Project Info!B34 (Fixed Monthly Fee) and B35 (% of Collected Fee) are BOTH filled in — "
             "pick one basis for Savills' management fee, not both. Clear whichever doesn't apply."
         )
+    # Existing-project mode (change carry-forward-staffing): the prior-year baseline and the PM's
+    # changes, or None for a New-prospect workbook — every workbook made before that change.
+    project['existing'] = existing_staffing.read_existing(wb, L)
     # Each product read from the row bearing ITS OWN name, inside the Product Mix block. Reading
     # positionally from a fixed start row is what once made the PARKING rows below the block get
     # read as product areas when the block grew.
@@ -773,6 +778,12 @@ def read_input(path):
 
     ws_demand = wb['Staffing Demand']
     ws_demand_f = wb_formulas['Staffing Demand']
+    # Reason Code / Reason Note: found by their header (row 4), absent on forms made before change
+    # carry-forward-staffing. Only Existing-project mode reads them (a new position's reason).
+    demand_headers = {normalise(ws_demand.cell(row=4, column=c).value): c
+                      for c in range(1, (ws_demand.max_column or 1) + 1)}
+    reason_code_col = demand_headers.get('reason code')
+    reason_note_col = demand_headers.get('reason note')
     demand = []
     for r in range(5, ws_demand.max_row + 1):
         pos = ws_demand.cell(row=r, column=1).value
@@ -789,6 +800,8 @@ def read_input(path):
             Position=str(pos), ShiftCode=str(code),
             StaffPerDay=staff, CoverageDays=int(days), AvgDailyRate=float(rate),
             SourceRow=r, Basis=basis,
+            ReasonCode=ws_demand.cell(row=r, column=reason_code_col).value if reason_code_col else None,
+            ReasonNote=ws_demand.cell(row=r, column=reason_note_col).value if reason_note_col else None,
         ))
     if not demand:
         raise ValueError("Staffing Demand sheet has no complete rows.")
@@ -1720,7 +1733,257 @@ def _unplaced_positions(demand):
     return result
 
 
-def fill_management_fund_sheet(wb, project, demand, year, rates):
+# ---- Existing-project mode (change carry-forward-staffing) -----------------------------------
+# The helpers below hand existing_staffing.compute() this module's own position mapping and the
+# New-prospect conversions, unchanged, so a new position in Existing-project mode is priced exactly
+# as it would be today. generate_project_output.py calls existing_result() too, so the Staff bridge
+# and the deliverable come from one computation.
+A11_SHEET = 'A1.1 Allowance (From 08.2026)'
+
+
+def _a1_group_of(position):
+    """The A1 row group a position is costed in ('PM', 'TN', 'AA_POOL', ...), or None."""
+    p = position.lower()
+    for suffix, keywords in STAFF_COST_AA_KEYWORDS.items():
+        if any(kw in p for kw in keywords):
+            return f'AA_{suffix.upper()}'
+    for code, keywords in STAFF_COST_KEYWORDS.items():
+        if any(kw in p for kw in keywords) and not any(x in p for x in STAFF_COST_EXCLUDE.get(code, ())):
+            return code
+    return None
+
+
+def _is_outsourced(position):
+    from generate_project_output import SERVICE_CATEGORY_KEYWORDS
+    p = position.lower()
+    return any(kw in p for kws in SERVICE_CATEGORY_KEYWORDS.values() for kw in kws)
+
+
+def _unplaced_code_of(position):
+    return _UNPLACED_POSITION_CODE.get(position, position[:2].upper())
+
+
+def _monthly_gross_of(rows):
+    """Headcount-weighted monthly gross of demand rows — group_stats()'s own conversion."""
+    total = sum(_eff_headcount(d) for d in rows)
+    if not total:
+        return 0
+    return round(sum(_eff_headcount(d) * d['AvgDailyRate'] for d in rows) / total * WORKDAYS_PER_MONTH)
+
+
+def template_budget_year():
+    """The template's budget year ('2. Budget-Management Fund'!AL5), read without building a budget."""
+    wb = openpyxl.load_workbook(TEMPLATE_PATH, read_only=True, data_only=True)
+    try:
+        return int(_budget_year(wb))
+    finally:
+        wb.close()
+
+
+def existing_result(project, demand, budget_year):
+    """existing_staffing.compute() for this project, or None in New-prospect mode."""
+    ex = project.get('existing')
+    if ex is None:
+        return None
+    return existing_staffing.compute(ex, demand, int(budget_year), _a1_group_of, _is_outsourced,
+                                     _unplaced_code_of, _eff_headcount, _monthly_gross_of)
+
+
+def _a1_rows_by_group(ws):
+    """Each A1 row group's rows, read from the template's own column D / B (rows 15-88)."""
+    rows_by_code = {}
+    for r in range(15, 89):
+        code = ws.cell(row=r, column=4).value
+        label = ws.cell(row=r, column=2).value
+        if label and 'hồ bơi' in str(label).lower():
+            rows_by_code.setdefault('AA_POOL', []).append(r)
+        elif label and 'gym' in str(label).lower():
+            rows_by_code.setdefault('AA_GYM', []).append(r)
+        elif code:
+            rows_by_code.setdefault(str(code).strip(), []).append(r)
+    return rows_by_code
+
+
+def _existing_a1_layout(wb, result):
+    """Where each budget-year person goes on A1: ({row: Person}, [Person below the table]).
+    Heads beyond a group's template rows, and positions with no group, go below the table from
+    _A1_UNPLACED_FIRST_ROW (design D12)."""
+    rows_by_group = _a1_rows_by_group(wb[STAFF_COST_SHEET])
+    free = {g: list(rows) for g, rows in rows_by_group.items()}
+    placed, below = {}, []
+    for person in result.persons:
+        slots = free.get(person.group) if person.group else None
+        if slots:
+            placed[slots.pop(0)] = person
+        else:
+            below.append(person)
+    return placed, below
+
+
+A5_SHEET = 'A5. Trợ cấp PCCC'
+_A11_EXTRA_FIRST_ROW = 15     # below A1.1's row 13 total
+_A5_EXTRA_FIRST_ROW = 10      # below A5's row 8 total
+_A5_TEAM_ROWS = {5: 'Đội trưởng', 6: 'Đội phó', 7: 'Thành viên'}
+
+
+def _existing_detail_layout(result, layout):
+    """Where design D15's carried / adjustment rows go, shared by the detail-sheet writer and the fund
+    formulas: {'EMH2'|'EMH3'|'EMH4': [(row, item)], 'a1_last': last A1 row below the table or None,
+    'a11_total' / 'a5_total': the total row or None}."""
+    rows = existing_staffing.detail_rows(result)
+    below = len(layout[1]) if layout else 0
+    first = _A1_UNPLACED_FIRST_ROW + below
+    out = {'EMH2': [(first + i, it) for i, it in enumerate(rows['EMH2'])],
+           'EMH3': [(_A11_EXTRA_FIRST_ROW + i, it) for i, it in enumerate(rows['EMH3'])],
+           'EMH4': [(_A5_EXTRA_FIRST_ROW + i, it) for i, it in enumerate(rows['EMH4'])]}
+    n_a1 = below + len(rows['EMH2'])
+    out['a1_last'] = _A1_UNPLACED_FIRST_ROW + n_a1 - 1 if n_a1 else None
+    out['a11_total'] = _A11_EXTRA_FIRST_ROW + len(rows['EMH3']) if rows['EMH3'] else None
+    out['a5_total'] = _A5_EXTRA_FIRST_ROW + len(rows['EMH4']) if rows['EMH4'] else None
+    return out
+
+
+def _rows_text(items):
+    """"'label' (dòng r), 'label' (dòng r)" for a remark."""
+    return ', '.join(f"'{it['label']}' (dòng {r})" for r, it in items)
+
+
+def _write_existing_detail_rows(wb, result, layout):
+    """Design D15 on the detail sheets: the carried / minimum-wage / PM-adjustment rows below A1, A1.1
+    and A5, a total row on A1.1 and A5, zero cost on an A1 PM row without a person, and A5's default
+    fire team set to zero when EMH4 is carried forward."""
+    money_fmt = '#,##0'
+    detail = _existing_detail_layout(result, layout)
+    ws = wb[STAFF_COST_SHEET]
+    placed = layout[0] if layout else {}
+    # The template's PM-row accident insurance (X) costs 154,342 VND/month with no salary; an empty
+    # row costs zero here, as in existing_staffing.a1_row_cost.
+    for r in _a1_rows_by_group(ws).get('PM', []):
+        if r not in placed:
+            ws.cell(row=r, column=24, value=0)
+    for r, it in detail['EMH2']:
+        ws.cell(row=r, column=2, value=it['label'])
+        ws.cell(row=r, column=29, value=it['annual'] / 12).number_format = money_fmt
+        ws.cell(row=r, column=31, value=it['note'])
+
+    if detail['EMH3']:
+        a11 = wb[A11_SHEET]
+        for r, it in detail['EMH3']:
+            a11.cell(row=r, column=2, value=it['label'])
+            a11.cell(row=r, column=19, value=it['annual']).number_format = money_fmt
+            a11.cell(row=r, column=20, value=f'=S{r}/$T$2').number_format = money_fmt
+            a11.cell(row=r, column=21, value=it['note'])
+        t = detail['a11_total']
+        a11.cell(row=t, column=2, value='Tổng EMH3/tháng (dòng 13 cộng các dòng trên)').font = Font(bold=True)
+        a11.cell(row=t, column=20,
+                 value=f'=S13+SUM(T{_A11_EXTRA_FIRST_ROW}:T{t - 1})').number_format = money_fmt
+
+    if detail['EMH4']:
+        a5 = wb[A5_SHEET]
+        if result.lines['EMH4'].kind == 'carried':
+            for r, label in _A5_TEAM_ROWS.items():
+                found = unicodedata.normalize('NFC', str(a5.cell(row=r, column=2).value or '')).strip()
+                if found != label:     # the template mixes NFC and NFD ('Thành viên')
+                    raise ValueError(f"'{A5_SHEET}' row {r} is {a5.cell(row=r, column=2).value!r}, not {label!r}.")
+                a5.cell(row=r, column=7, value=0)
+        for r, it in detail['EMH4']:
+            a5.cell(row=r, column=2, value=it['label'])
+            a5.cell(row=r, column=8, value=it['annual']).number_format = money_fmt
+            a5.cell(row=r, column=9, value=it['note'])
+        t = detail['a5_total']
+        a5.cell(row=t, column=2, value='Tổng EMH4/năm (dòng 8 cộng các dòng trên)').font = Font(bold=True)
+        a5.cell(row=t, column=8, value=f'=H8+SUM(H{_A5_EXTRA_FIRST_ROW}:H{t - 1})').number_format = money_fmt
+
+
+def _a1_chain_formulas(r):
+    """A1's own per-row formula chain (columns I..AC), as on row 15, for a row written below the
+    table. Shared by the New-prospect unplaced rows and Existing-project mode."""
+    return {
+        9:  f'=ROUND((G{r}*H{r})+G{r},0)',                                    # I Proposed Gross
+        10: f'=I{r}',                                                         # J Proposed Total Gross
+        11: f'=I{r}',                                                         # K Salary for insurance
+        12: f'=IF(I{r}>$L$7,$L$7*$L$8,K{r}*$L$8)',                            # L Employee SI&HI 9.5%
+        13: f'=IF(I{r}>$M$7,$M$7*$M$8,K{r}*$M$8)',                            # M Employee UI 1%
+        14: f'=I{r}/$N$8',                                                    # N 13th month
+        15: f'=IF(I{r}-L{r}-M{r}-$O$7>0,I{r}-L{r}-M{r}-$O$7,0)',              # O Taxable income
+        16: (f'=IF(O{r}<=10000000,O{r}*5%,IF(O{r}<=30000000,O{r}*10%-500000,'
+            f'IF(O{r}<=60000000,O{r}*20%-3500000,IF(O{r}<=100000000,O{r}*30%-9500000,'
+            f'O{r}*35%-14500000))))'),                                        # P PIT
+        17: f'=I{r}-L{r}-M{r}+N{r}-P{r}',                                     # Q Net pay
+        18: f'=IF(AND(D{r}="PM",I{r}>0),1000000,IF(I{r}>0,300000,))',         # R Team building
+        19: f'=I{r}*$S$8',                                                    # S Training 1.3%
+        20: f'=IF(I{r}>$T$7,$T$7*$T$8,I{r}*$T$8)',                            # T Employer SI&HI 20.5%
+        21: f'=IF(I{r}>$U$7,$U$7*$U$8,I{r}*$U$8)',                            # U Employer UI 1%
+        22: f'=IF(I{r}>$V$7,$V$7*$V$8,I{r}*$V$8)',                            # V Trade Union 2%
+        23: f'=IF(I{r}>0,$W$7/$W$8,)',                                        # W Annual checkup
+        24: (f'=IF(D{r}="PM",(J{r}*30*0.099%+J{r}*3*0.44%+446985+2456000)*58%/12,'
+            f'IF(J{r}=0,0,IF((J{r}*30*0.099%+J{r}*3*0.44%+446985)*40%/12<30000,30000,'
+            f'(J{r}*30*0.099%+J{r}*3*0.44%+446985)*40%/12)))'),                # X Accident insurance
+        26: f'=IF(I{r}>0,300000,)',                                           # Z Uniform (25=Y blank)
+        27: f'=ROUND(I{r}+N{r}+R{r}+S{r}+T{r}+U{r}+V{r}+W{r}+X{r}+Y{r}+Z{r},0)',  # AA Total excl admin
+        28: f'=ROUND(AA{r}*$AB$1,0)',                                         # AB Admin markup
+        29: f'=AA{r}+AB{r}',                                                  # AC Total incl admin
+    }
+
+
+def fill_existing_staff_sheets(wb, result, layout):
+    """Existing-project mode's writes to 'A1. Staff cost' and 'A1.1 Allowance' (design D10, D12, D14).
+    A1's formula chain is not edited: only column G (gross), C (shift), AE (where the figure comes
+    from), the rows below the table, and the hidden reference cells of the budget year."""
+    ws = wb[STAFF_COST_SHEET]
+    money_fmt = '#,##0'
+    c = result.a1_cells
+    ws['I4'] = c['I4']
+    ws['I5'] = c['I5']
+    for coord in ('L7', 'T7', 'V7'):
+        ws[coord] = f"=$I$4*{int(c['si_hi_multiple'])}"
+    for coord in ('M7', 'U7'):
+        ws[coord] = f"=$I$5*{int(c['ui_multiple'])}"
+    ws['T8'], ws['U8'], ws['V8'], ws['AB1'] = c['T8'], c['U8'], c['V8'], c['AB1']
+    placed, below = layout
+    for r, person in placed.items():
+        g = ws.cell(row=r, column=7, value=person.gross)
+        g.number_format = money_fmt
+        ws.cell(row=r, column=3, value=person.shift or None)
+        ws.cell(row=r, column=31, value=person.note)
+    for i, person in enumerate(below):
+        r = _A1_UNPLACED_FIRST_ROW + i
+        ws.cell(row=r, column=2, value=_UNPLACED_POSITION_VI.get(person.label, person.label))
+        ws.cell(row=r, column=3, value=person.shift or None)
+        ws.cell(row=r, column=4, value=person.code)
+        g = ws.cell(row=r, column=7, value=person.gross)
+        g.number_format = money_fmt
+        ws.cell(row=r, column=8, value=0)
+        for col, formula in _a1_chain_formulas(r).items():
+            cell = ws.cell(row=r, column=col, value=formula)
+            cell.number_format = money_fmt
+        ws.cell(row=r, column=31, value=person.note)
+    if below:
+        note = ws.cell(row=_A1_UNPLACED_FIRST_ROW - 1, column=2, value=(
+            "Nhân sự vượt số dòng sẵn có của nhóm, hoặc vị trí không có nhóm dòng cố định trong mẫu "
+            "chuẩn — định giá dưới đây bằng đúng công thức của bảng trên."))
+        note.font = Font(italic=True, size=9, color='7F7F7F')
+    elif result.kind == 'lump':
+        note = ws.cell(row=_A1_UNPLACED_FIRST_ROW - 1, column=2, value=(
+            f"Dự án đang quản lý, không có bảng nhân sự theo vị trí: EMH2 bằng các dòng dưới đây (số đã "
+            f"duyệt NS {result.prior_year} mang sang), không tính lại theo lương từng người."))
+        note.font = Font(italic=True, size=9, color='7F7F7F')
+    _write_existing_detail_rows(wb, result, layout)
+
+    if result.duty and A11_SHEET in wb.sheetnames:
+        a11 = wb[A11_SHEET]
+        rows = {str(a11.cell(row=r, column=3).value or '').strip(): r for r in range(7, 12)}
+        a11['H6'], a11['L6'], a11['P6'] = result.a11_days
+        for d in result.duty:
+            r = rows[d.code]
+            gross = a11.cell(row=r, column=4, value=d.gross)
+            gross.number_format = money_fmt
+            a11.cell(row=r, column=7, value=d.night_normal or None)
+            a11.cell(row=r, column=11, value=d.night_holiday or None)
+            a11.cell(row=r, column=15, value=d.day_holiday or None)
+
+
+def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, existing_layout=None):
     """Populates the real computed OPEX/Capex/Staff/Parking/Management-Fee numbers this pipeline
     already derives elsewhere (generate_project_output.py) into '2. Budget-Management Fund''s
     pre-labeled leaf rows (MGMT_FUND_ROWS above). Only leaf-row cells (C/F/H:S) are touched — every
@@ -2679,6 +2942,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates):
                 f"but carries {_found!r} — re-verify _FLAGGED_NO_METHOD against the current "
                 f"template rather than adjusting this check."
             )
+        if _code == 'EMH3' and _existing_emh3_priced(existing):
+            continue    # priced in Existing-project mode (_write_existing_staff_lines)
         _write_zero_reason(ws, _row, _code, (
             f"{_FLAGGED_NO_METHOD_VI[_code]} Không tự đặt ra số liệu — đã được rà soát "
             f"và ghi nhận đầy đủ."))
@@ -2712,6 +2977,112 @@ def fill_management_fund_sheet(wb, project, demand, year, rates):
     write_year1_lump('capex_me', capex_annual.get('M&E Equipment', 0), remark=_capex_remark('M&E Equipment'))
     write_year1_lump('capex_public', capex_annual.get('Public Area', 0), remark=_capex_remark('Public Area'))
     write_year1_lump('capex_amenity', capex_annual.get('Amenity Area', 0), remark=_capex_remark('Amenity Area'))
+
+    if existing:
+        _write_existing_staff_lines(ws, existing, existing_layout)
+
+
+_FUND_EMH3_ROW = 84
+
+
+def _existing_emh3_priced(existing):
+    """True when Existing-project mode gives EMH3 a figure (its zero reason must not be written)."""
+    if not existing:
+        return False
+    line = existing.lines['EMH3']
+    return line.kind in ('duty', 'carried') or line.override != 0
+
+
+def _write_existing_staff_lines(ws, existing, layout):
+    """EMH2, EMH3 and EMH4 on '2. Budget-Management Fund' in Existing-project mode (design D8-D11,
+    D15): always a formula into A1 / A1.1 / A5, whose carried and PM-adjustment rows
+    _write_existing_detail_rows() writes at the rows _existing_detail_layout() gives; each remark is
+    the line's own explanation followed by the "Điều chỉnh so với NS <năm>" sentence when the figure
+    moved (spec deliverable-remarks)."""
+    a1_ref = f"'{STAFF_COST_SHEET}'"
+    a11_ref = f"'{A11_SHEET}'"
+
+    def put(row, value):
+        ws.cell(row=row, column=3, value='Monthly')
+        for col in [6] + list(range(8, 20)):
+            c = ws.cell(row=row, column=col, value=value)
+            c.number_format = _NUM_FMT
+
+    def remark(row, code, base):
+        text = base + existing_staffing.adjustment_sentence(existing, code)
+        _write_remark(ws, row, text)
+        # A line that ends at zero (e.g. an approved EMH4 of 0 kept at 0) gives its reason to the
+        # matching '2.2 Common area Fund' allocation too, as _write_zero_reason does elsewhere.
+        if not existing.lines[code].budget:
+            _ZERO_REASONS[code] = text
+
+    detail = _existing_detail_layout(existing, layout)
+
+    # EMH2 — always a formula into A1 (design D15): the table, less the allowance that EMH3 carries,
+    # plus every row below it (overflow heads, the carried amount, the PM adjustment).
+    emh2 = existing.lines['EMH2']
+    row = MGMT_FUND_ROWS['staff_remainder']
+    last = detail['a1_last']
+    extra = ''
+    if last is not None:
+        extra = (f"+{a1_ref}!AC{_A1_UNPLACED_FIRST_ROW}*12" if last == _A1_UNPLACED_FIRST_ROW else
+                 f"+SUM({a1_ref}!AC{_A1_UNPLACED_FIRST_ROW}:AC{last})*12")
+    put(row, f"=({a1_ref}!AC96-{a1_ref}!AC90*{a1_ref}!AC95{extra})/12")
+    if emh2.kind == 'lump':
+        base = (f"= các dòng {_rows_text(detail['EMH2'])} của trang '{STAFF_COST_SHEET}': dự án không có "
+                f"bảng nhân sự theo vị trí nên bảng lương trên trang để trống và không tính lại theo lương "
+                f"từng người.")
+    else:
+        base = (f"= '{STAFF_COST_SHEET}'!AC96 trừ phụ cấp ca đêm/ngày lễ (AC90, tính riêng ở EMH3)"
+                + (f" cộng các dòng từ {_A1_UNPLACED_FIRST_ROW} của cùng trang" if last is not None else '')
+                + f" — quỹ lương cả năm của nhân sự mang từ NS {existing.prior_year} đã duyệt, tính lại "
+                  f"theo lương tối thiểu vùng {existing.region} và mức đóng bảo hiểm năm "
+                  f"{existing.budget_year} (lương tháng 13, BHXH/BHYT 20,5% và BHTN 1% có trần, kinh "
+                  f"phí công đoàn 2%, cộng 10% phí quản lý của Savills).")
+        if detail['EMH2']:
+            base += f" Gồm dòng {_rows_text(detail['EMH2'])}."
+    remark(row, 'EMH2', base)
+
+    # EMH3 — A1.1!S13, or A1.1's total row when carried / adjustment rows sit below it.
+    emh3 = existing.lines['EMH3']
+    if _existing_emh3_priced(existing):
+        assert_code = ws.cell(row=_FUND_EMH3_ROW, column=_CODE_COL).value
+        if str(assert_code).strip() != 'EMH3':
+            raise ValueError(f"'2. Budget-Management Fund' row {_FUND_EMH3_ROW} is {assert_code!r}, not EMH3.")
+        h6, n, _p6 = existing.a11_days
+        duty_text = (f"phụ cấp làm ca đêm ngày thường (30%), ca đêm ngày lễ (390%) và ca ngày ngày lễ "
+                     f"(300%) theo Điều 98 Bộ luật Lao động, cho số nhân sự trực mang từ NS "
+                     f"{existing.prior_year}; năm {existing.budget_year} có {n} ngày lễ hưởng nguyên lương "
+                     f"và {h6} ngày thường")
+        t = detail['a11_total']
+        if t is None:
+            put(_FUND_EMH3_ROW, f"={a11_ref}!S13")
+            base = f"= '{A11_SHEET}'!S13 — {duty_text}."
+        else:
+            put(_FUND_EMH3_ROW, f"={a11_ref}!T{t}")
+            base = (f"= '{A11_SHEET}'!T{t}: dòng 13 ("
+                    + (duty_text if emh3.kind == 'duty' else 'bảng trực ca đêm/ngày lễ để trống')
+                    + f") cộng dòng {_rows_text(detail['EMH3'])}.")
+        remark(_FUND_EMH3_ROW, 'EMH3', base)
+
+    # EMH4 — A5's total row when carried forward or overridden; left to the template otherwise.
+    emh4 = existing.lines['EMH4']
+    if detail['EMH4']:
+        row = MGMT_FUND_ROWS['pccc_allowance']
+        t = detail['a5_total']
+        put(row, f"='{A5_SHEET}'!H{t}/12")
+        if emh4.kind != 'carried':
+            base = (f"= '{A5_SHEET}'!H{t} / 12: đội PCCC mặc định của mẫu (dòng 8) cộng dòng "
+                    f"{_rows_text(detail['EMH4'])}.")
+        elif emh4.budget:
+            base = (f"= '{A5_SHEET}'!H{t} / 12: dòng {_rows_text(detail['EMH4'])} — phụ cấp huấn luyện "
+                    f"đội PCCC cơ sở theo NĐ 105/2025/NĐ-CP tính trên lương tối thiểu vùng {existing.region}; "
+                    f"đội mặc định của mẫu đặt về 0.")
+        else:
+            base = (f"Không dùng ở NS {existing.prior_year} đã duyệt (số đã duyệt bằng 0), giữ nguyên "
+                    f"cho năm {existing.budget_year}: = '{A5_SHEET}'!H{t} / 12, đội mặc định của mẫu đặt "
+                    f"về 0.")
+        remark(row, 'EMH4', base)
 
 
 # "2.2 Common area Fund" is a SEPARATE real fund from "2. Budget-Management Fund" — same ~500-code
@@ -3061,32 +3432,7 @@ def fill_staff_cost_sheet(wb, project, demand, year):
         g = ws.cell(row=r, column=7, value=monthly_gross)                              # G Current Gross
         g.number_format = money_fmt
         ws.cell(row=r, column=8, value=0)                                              # H Increase rate
-        formulas = {
-            9:  f'=ROUND((G{r}*H{r})+G{r},0)',                                    # I Proposed Gross
-            10: f'=I{r}',                                                         # J Proposed Total Gross
-            11: f'=I{r}',                                                         # K Salary for insurance
-            12: f'=IF(I{r}>$L$7,$L$7*$L$8,K{r}*$L$8)',                            # L Employee SI&HI 9.5%
-            13: f'=IF(I{r}>$M$7,$M$7*$M$8,K{r}*$M$8)',                            # M Employee UI 1%
-            14: f'=I{r}/$N$8',                                                    # N 13th month
-            15: f'=IF(I{r}-L{r}-M{r}-$O$7>0,I{r}-L{r}-M{r}-$O$7,0)',              # O Taxable income
-            16: (f'=IF(O{r}<=10000000,O{r}*5%,IF(O{r}<=30000000,O{r}*10%-500000,'
-                f'IF(O{r}<=60000000,O{r}*20%-3500000,IF(O{r}<=100000000,O{r}*30%-9500000,'
-                f'O{r}*35%-14500000))))'),                                        # P PIT
-            17: f'=I{r}-L{r}-M{r}+N{r}-P{r}',                                     # Q Net pay
-            18: f'=IF(AND(D{r}="PM",I{r}>0),1000000,IF(I{r}>0,300000,))',         # R Team building
-            19: f'=I{r}*$S$8',                                                    # S Training 1.3%
-            20: f'=IF(I{r}>$T$7,$T$7*$T$8,I{r}*$T$8)',                            # T Employer SI&HI 20.5%
-            21: f'=IF(I{r}>$U$7,$U$7*$U$8,I{r}*$U$8)',                            # U Employer UI 1%
-            22: f'=IF(I{r}>$V$7,$V$7*$V$8,I{r}*$V$8)',                            # V Trade Union 2%
-            23: f'=IF(I{r}>0,$W$7/$W$8,)',                                        # W Annual checkup
-            24: (f'=IF(D{r}="PM",(J{r}*30*0.099%+J{r}*3*0.44%+446985+2456000)*58%/12,'
-                f'IF(J{r}=0,0,IF((J{r}*30*0.099%+J{r}*3*0.44%+446985)*40%/12<30000,30000,'
-                f'(J{r}*30*0.099%+J{r}*3*0.44%+446985)*40%/12)))'),                # X Accident insurance
-            26: f'=IF(I{r}>0,300000,)',                                           # Z Uniform (25=Y blank)
-            27: f'=ROUND(I{r}+N{r}+R{r}+S{r}+T{r}+U{r}+V{r}+W{r}+X{r}+Y{r}+Z{r},0)',  # AA Total excl admin
-            28: f'=ROUND(AA{r}*$AB$1,0)',                                         # AB Admin markup
-            29: f'=AA{r}+AB{r}',                                                  # AC Total incl admin
-        }
+        formulas = _a1_chain_formulas(r)
         for col, formula in formulas.items():
             c = ws.cell(row=r, column=col, value=formula)
             c.number_format = money_fmt
@@ -3272,7 +3618,12 @@ def build_budget(project, demand, year):
     _ZERO_REASONS.clear()
     _CATCH_ALL_REASONS.clear()
     _UNIT_RATES.clear()
-    fill_management_fund_sheet(wb, project, demand, year, rates)
+    # Existing-project mode (change carry-forward-staffing): computed once here, before the fund
+    # sheet, because EMH2's formula needs to know how many A1 rows go below the table.
+    existing = existing_result(project, demand, _budget_year(wb, year))
+    existing_layout = _existing_a1_layout(wb, existing) if existing else None
+    fill_management_fund_sheet(wb, project, demand, year, rates,
+                               existing=existing, existing_layout=existing_layout)
 
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
@@ -3280,7 +3631,10 @@ def build_budget(project, demand, year):
 
     # ---- 1. Staff cost: real per-position headcount/salary from Staffing Demand, mapped onto
     # the PM's own payroll-calculator sheet — see fill_staff_cost_sheet()'s docstring above. ----
-    fill_staff_cost_sheet(wb, project, demand, year)
+    if existing:
+        fill_existing_staff_sheets(wb, existing, existing_layout)
+    else:
+        fill_staff_cost_sheet(wb, project, demand, year)
 
     # Safety net for a real bug class hit this session: Remarks text like "= Derived Apartment
     # management-fee rate... = 13,089,600,000 VND/year" gets serialized by openpyxl as an actual
