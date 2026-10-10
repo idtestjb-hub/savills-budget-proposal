@@ -874,12 +874,13 @@ def main(force=False):
     # ---- Reference block: every statutory holiday, computed and written out, so a PM can SEE what
     # the pipeline will use rather than trusting an invisible calculation. Read-only — the yellow
     # block above is the override. Added 2026-09-09 after the dates were computed but nowhere shown.
-    from vn_holidays import statutory_holidays
+    from vn_holidays import paid_days_of_year
     r = HOLIDAY_LAST_ROW + 2
     section(ws2, r, 'STATUTORY HOLIDAYS — REFERENCE ONLY (computed, do not edit)')
     r += 1
     note = ws2.cell(row=r, column=1, value=(
-        'Labour Code 2019 Article 112 — 11 days a year. Tết and Giỗ Tổ Hùng Vương are lunar, so they move '
+        'Labour Code 2019 Article 112 clause 1 — 11 days a year, plus 24 November (Ngày Văn hóa Việt Nam) from '
+        '01/07/2026 under Nghị quyết 28/2026/QH16 Article 2: 12 days from 2026. Tết and Giỗ Tổ Hùng Vương are lunar, so they move '
         'every year; these are converted with the Vietnamese lunar calendar (UTC+7) and the conversion is '
         'checked against six past Tết dates on every run. NOT included: the annual "hoán đổi" swap days, '
         'which extend Tết in practice and are announced by the government each year — type those into the '
@@ -899,7 +900,7 @@ def main(force=False):
         cell.alignment = CENTER
     r += 1
     for yr in (2026, 2027):
-        for d, name in statutory_holidays(yr):
+        for d, name in paid_days_of_year(yr):
             ws2.cell(row=r, column=1, value=d.strftime('%Y-%m-%d')).alignment = CENTER
             ws2.cell(row=r, column=2, value=d.strftime('%a')).alignment = CENTER
             ws2.cell(row=r, column=3, value=d.month).alignment = CENTER

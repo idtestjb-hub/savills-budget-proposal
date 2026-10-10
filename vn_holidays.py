@@ -25,10 +25,10 @@ A PM who wants the observed calendar can still type dates into Roster Setup, whi
 
 24 NOVEMBER: Nghị quyết 28/2026/QH16 (passed 24/04/2026, Article 2, in force 01/07/2026) makes
 24 November "Ngày Văn hóa Việt Nam", a paid day off, so from 2026 the law gives 12 paid days.
-statutory_holidays() still returns the 11 days of Article 112, because the New-prospect budget's
-recorded figures are built on them and changing that moves figures (its own change, PM sign-off).
-paid_holidays() applies the law in force on a given date, 24 November included; Existing-project
-mode uses it (docs/05-decisions.md, 2026-10-10).
+statutory_holidays() returns the 11 days of Article 112 only. paid_holidays() applies the law in
+force on a given date, 24 November included: Existing-project mode asks it for the calendar of an
+approved budget (the law on 1 January of that year), and holidays_in_month() asks it for the days
+actually paid in a roster month (change new-prospect-paid-holidays; docs/05-decisions.md, 2026-10-10).
 """
 import datetime
 import math
@@ -176,6 +176,8 @@ CULTURE_DAY = (11, 24)
 CULTURE_DAY_IN_FORCE = datetime.date(2026, 7, 1)
 CULTURE_DAY_NAME = 'Ngay Van hoa Viet Nam / Vietnam Culture Day'
 CULTURE_DAY_NAME_VN = 'Ngày Văn hóa Việt Nam (24/11)'
+LAW_NOTE_VN = ('Ngày lễ hưởng nguyên lương theo Bộ luật Lao động 2019 Điều 112 khoản 1 (11 ngày) và, từ '
+               '01/07/2026, ngày 24/11 (Ngày Văn hóa Việt Nam) theo Nghị quyết 28/2026/QH16 Điều 2.')
 
 
 def paid_holidays(year, as_of=None):
@@ -193,9 +195,15 @@ def paid_holidays(year, as_of=None):
     return days
 
 
+def paid_days_of_year(year):
+    """The days of `year` that are paid holidays under the law in force on each day (24 November
+    counts from 2026, since its resolution took effect on 01/07/2026)."""
+    return paid_holidays(year, as_of=datetime.date(year, 12, 31))
+
+
 def holidays_in_month(year, month):
-    """Day-of-month numbers that are statutory holidays — the shape Roster Setup wants."""
-    return sorted(d.day for d, _ in statutory_holidays(year) if d.year == year and d.month == month)
+    """Day-of-month numbers that are paid holidays — the shape Roster Setup wants."""
+    return sorted(d.day for d, _ in paid_days_of_year(year) if d.year == year and d.month == month)
 
 
 def test_known_tet():

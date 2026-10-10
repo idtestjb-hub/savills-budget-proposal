@@ -4074,6 +4074,10 @@ def build_roster(project, ratios, month, year, holiday_days, demand):
     ws0['B21'] = '=DAY(EOMONTH(DATE(B20,B19,1),0))'
     ws0['A23'] = 'Holiday dates this month'
     ws0['A23'].font = Font(bold=True)
+    # Change new-prospect-paid-holidays: name the law the computed dates follow.
+    from vn_holidays import LAW_NOTE_VN
+    ws0['B23'] = (f'{LAW_NOTE_VN} Ngày nhập tay tại Roster Setup (nếu có) thay cho danh sách tự tính.')
+    ws0['B23'].alignment = Alignment(wrap_text=True, vertical='top')
     for i, d in enumerate(sorted(holiday_days), start=24):
         ws0.cell(row=i, column=1, value=d)
     holiday_last_row = max(24 + len(holiday_days) - 1, 24)

@@ -44,9 +44,8 @@ def test_hung_kings_is_the_lunar_10th_of_month_3(year, expected):
 
 
 def test_statutory_days_are_eleven_in_a_year():
-    # not settled: 11 (Article 112, as the module returns) against 12 in the 2027 Resi template.
-    # See docs/05-decisions.md Q2. A 2026 news item (vietcetera.com, "Vietnam Expands Public Holiday
-    # List In 2026") suggests the count may be changing; its content was not checked. A change of the rule shows up here.
+    # Article 112 alone gives 11; 24 November (from 2026) is added by paid_holidays(), see the tests
+    # at the end and docs/05-decisions.md Q2.
     for year in (2023, 2024, 2025, 2026):
         assert len(vh.statutory_holidays(year)) == 11
 
@@ -109,11 +108,19 @@ def test_holidays_in_month_are_sorted_ints():
     assert got == sorted(got) and all(isinstance(d, int) for d in got)
 
 
-def test_every_statutory_day_is_found_in_its_month():
-    for year in (2022, 2024, 2026):
+def test_every_paid_day_is_found_in_its_month():
+    for year in (2022, 2024, 2026, 2027):
         from_months = sorted((year, m, d) for m in range(1, 13) for d in vh.holidays_in_month(year, m))
-        direct = sorted((d.year, d.month, d.day) for d, _ in vh.statutory_holidays(year))
+        direct = sorted((d.year, d.month, d.day) for d, _ in vh.paid_days_of_year(year))
         assert from_months == direct
+
+
+@pytest.mark.parametrize('year, days', [(2025, []), (2026, [24]), (2027, [24])])
+def test_november_counts_24_november_from_2026(year, days):
+    # Change new-prospect-paid-holidays: a roster month counts the days the law in force on that
+    # day makes paid; Nghị quyết 28/2026/QH16 Article 2 took effect on 01/07/2026.
+    assert vh.holidays_in_month(year, 11) == days
+    assert 'Điều 112' in vh.LAW_NOTE_VN and '28/2026/QH16' in vh.LAW_NOTE_VN
 
 
 def test_holidays_in_month_outside_1_to_12_is_empty():
@@ -144,6 +151,8 @@ def test_2026_under_the_law_from_july_has_twelve():
     assert len(vh.paid_holidays(2026, as_of=D(2026, 6, 30))) == 11
 
 
-def test_statutory_holidays_stay_eleven_for_new_prospect_mode():
-    # New-prospect figures are recorded on the 11 Article-112 days; moving them is a separate change.
+def test_statutory_holidays_are_article_112_only():
+    # statutory_holidays() is the 11 days of Article 112; paid_holidays()/paid_days_of_year() add 24/11.
     assert len(vh.statutory_holidays(2027)) == 11
+    assert len(vh.paid_days_of_year(2026)) == len(vh.paid_days_of_year(2027)) == 12
+    assert len(vh.paid_days_of_year(2025)) == 11
