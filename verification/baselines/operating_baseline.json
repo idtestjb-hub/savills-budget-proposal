@@ -1,0 +1,205 @@
+{
+  "recorded_at": "2026-10-11T12:01:14+07:00",
+  "reason": "use-operating-project-actuals task 7.2: first recording of section 9 (operating fixture Sample_Operating_Input.xlsx, HEAD 081b9bc + section 9 code), all section-9 checks passing",
+  "runtime": {
+    "python_version": "3.14.6",
+    "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "openpyxl_version": "3.1.5",
+    "excel_version": "16.0",
+    "sample_fixture": "Sample_Operating_Input.xlsx",
+    "sample_sha256": "4f1a5cdb46878d8c438bb8d79c83913d120c41e1ec8e7d050801f927d1ca2d0e"
+  },
+  "figures": {
+    "derived_apartment_rate": {
+      "value": 16500.0,
+      "unit": "VND/m²/month",
+      "where": "Summary!R33C2"
+    },
+    "mgmt_fee_revenue_monthly": {
+      "value": 912937500.0,
+      "unit": "VND",
+      "where": "Summary!R34C2"
+    },
+    "mgmt_fee_revenue_annual": {
+      "value": 10955250000.0,
+      "unit": "VND",
+      "where": "Summary!R35C2"
+    },
+    "staff_cost_annual": {
+      "value": 3923305124.5000005,
+      "unit": "VND",
+      "where": "Summary!R36C2"
+    },
+    "service_reference_annual": {
+      "value": 1846958000.0,
+      "unit": "VND",
+      "where": "Summary!R37C2"
+    },
+    "capex_selected": {
+      "value": 309940810.0,
+      "unit": "VND",
+      "where": "Summary!R38C2"
+    },
+    "opex_annual": {
+      "value": 3121672572.0,
+      "unit": "VND",
+      "where": "Summary!R39C2"
+    },
+    "additional_revenue_annual": {
+      "value": 1438545456.0,
+      "unit": "VND",
+      "where": "Summary!R40C2"
+    },
+    "total_profit_value": {
+      "value": 3600331493.5,
+      "unit": "VND",
+      "where": "Summary!R19C2"
+    },
+    "margin": {
+      "value": 0.3286398296250656,
+      "unit": "ratio",
+      "where": "Summary!R20C2"
+    },
+    "markup": {
+      "value": 0.489513444685779,
+      "unit": "ratio",
+      "where": "Summary!R21C2"
+    },
+    "service_security_annual": {
+      "value": 1294958000.0,
+      "unit": "VND",
+      "where": "Service!'Security' row 5, col 8"
+    },
+    "service_cleaning_annual": {
+      "value": 288000000.0,
+      "unit": "VND",
+      "where": "Service!'Cleaning' row 6, col 8"
+    },
+    "service_landscape_annual": {
+      "value": 264000000.0,
+      "unit": "VND",
+      "where": "Service!'Landscape' row 7, col 8"
+    },
+    "capex_mo_equipment": {
+      "value": 181667810.0,
+      "unit": "VND",
+      "where": "Cost Priority!'MO Equipment' row 25, col 2"
+    },
+    "capex_public_area": {
+      "value": 172735000.0,
+      "unit": "VND",
+      "where": "Cost Priority!'Public Area' row 26, col 2"
+    },
+    "capex_me_equipment": {
+      "value": 128273000.0,
+      "unit": "VND",
+      "where": "Cost Priority!'M&E Equipment' row 27, col 2"
+    },
+    "capex_amenity_area": {
+      "value": 12939000.0,
+      "unit": "VND",
+      "where": "Cost Priority!'Amenity Area' row 28, col 2"
+    },
+    "opex_electricity_annual": {
+      "value": 2669371536.0,
+      "unit": "VND",
+      "where": "OPEX!'Electricity' row 6, col 3"
+    },
+    "opex_water_annual": {
+      "value": 306003816.0,
+      "unit": "VND",
+      "where": "OPEX!'Water' row 7, col 3"
+    },
+    "opex_diesel_annual": {
+      "value": 60994764.0,
+      "unit": "VND",
+      "where": "OPEX!'Diesel (Generator Fuel)' row 8, col 3"
+    },
+    "opex_repairs_annual": {
+      "value": 28135740.0,
+      "unit": "VND",
+      "where": "OPEX!'Repairs & Maintenance (materials only)' row 9, col 3"
+    },
+    "opex_admin_annual": {
+      "value": 57166716.0,
+      "unit": "VND",
+      "where": "OPEX!'Administrative Expense (office overhead)' row 10, col 3"
+    },
+    "opex_pool_salt_annual": {
+      "value": 79200000.0,
+      "unit": "VND",
+      "where": "OPEX!'Pool Salt' row 11, col 3"
+    },
+    "op_rm_apartment_year": {
+      "value": 10296000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G14"
+    },
+    "op_rm_shophouse_year": {
+      "value": 529650000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G20"
+    },
+    "op_rm_nursery_year": {
+      "value": 129600000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G22"
+    },
+    "op_rm_0a_year": {
+      "value": 0.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G23 (RM.0A)"
+    },
+    "op_rp1_year": {
+      "value": 732000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G26 (RP1)"
+    },
+    "op_rp2_year": {
+      "value": 624000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G27 (RP2)"
+    },
+    "op_ro3_a_year": {
+      "value": 3720000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G40 (RO3.A)"
+    },
+    "op_ro3_s_year": {
+      "value": 0.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G45 (RO3.S)"
+    },
+    "op_ro4_a_year": {
+      "value": 5460000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G48 (RO4.A)"
+    },
+    "op_ro4_s_year": {
+      "value": 330000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G53 (RO4.S)"
+    },
+    "op_eee_a_year": {
+      "value": 5790000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G239 (EEE.A)"
+    },
+    "op_eew_a_year": {
+      "value": 3720000000.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G229 (EEW.A)"
+    },
+    "op_eee_c_year": {
+      "value": 2669371536.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G240 (EEE.C)"
+    },
+    "op_eew_c_year": {
+      "value": 306003816.0,
+      "unit": "VND",
+      "where": "2. Budget-Management Fund!G230 (EEW.C)"
+    }
+  }
+}

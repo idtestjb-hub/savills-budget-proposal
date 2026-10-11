@@ -241,6 +241,24 @@ real budget's and its expense about 50%. Most of the remaining expense gap is in
 Each row is re-measured on the regression clone (D8) before sign-off. The figures above come from
 the 2026-10-07 comparison, not from the implemented code.
 
+**Measured on the regression clone, 2026-10-11 (session P16, code `081b9bc`; ratios only, in
+`clone-ratios-2026-10-11.txt` beside this file):**
+
+| # | Measured | Against "After" above |
+|---|---|---|
+| P1 | `RM.AP` / real = 1.0000003 (+8,280 VND/year); revenue 51.1% → 75.9% of real | as expected |
+| P2 | With the 2025 recorded averages from the real budget's remarks: `RP1` 96.7%, `RP2` 85.0% of real. With the real budget's own monthly figures: equal to real, but that is the line being compared, so it only proves the pass-through. `RP8`, `ESS38`, `RM.PA` unchanged | not equal to real: the real budget projects above its 2025 averages. The tool applies the entered figure × 12 exactly |
+| P3 | revenue 45.1% → 51.1%, expense 36.6% → 41.0% of real; tool +13.2% / +12.2%; `RM.0A` → 0, collected `RM.*` up by the same amount (0 VND residual) | as expected |
+| P4 | three pairs each = real; surplus change 0.0000 VND on both funds; pairs 6.2% of real revenue, 6.3% of real expense | as expected |
+| All | revenue 85.3% of real with the 2025 parking averages (87.5% with the real budget's own parking figures); expense 47.4%; the tool fills 24 of the real budget's 127 lines (was 21) | expense 47.4% vs "about 50%": the Savills-fee field (EMH1) was left blank; filled, it adds about 2.8 points |
+
+A default run of the clone (no new field) is unchanged cell for cell. Notes from the measurement:
+- P1 and P2 also lower `RI1` (by about 65 million VND with every proposal on), because higher fund revenue
+  shrinks the `2.2` revenue share. That is how the template works, so the surplus effect of P1/P2 is not
+  exactly the revenue they add.
+- With every proposal on, the surplus is still 18.5 times the real one: revenue is close to real but expense is
+  not. The gap sits in the non-goals (contracts, staffing at scale fields 0, EMH1 blank, `RI1`).
+
 ## Decisions awaiting the Head of PM
 
 | # | Question | Options | Specs written for |
@@ -285,6 +303,14 @@ The user approved, in one round before any remark was written:
 | # | Question | Answer |
 |---|---|---|
 | W1a | With the switch Yes, `check_remark_content` failed on `1. Summary` `EEW`: the W1 water sentence ("…với tỷ lệ lấp đầy 100% …") lacks the required part "lấp đầy cư dân" | **Amend the wording, keep the check.** The sentence now reads "Chi phí hạng mục này dự ước tại năm {năm} với tỷ lệ lấp đầy cư dân 100% (dự án đang vận hành ổn định)." (`operating_inputs.water_stable_vi`) |
+
+### Answers recorded 2026-10-11 (session P16)
+
+| # | Question | Answer |
+|---|---|---|
+| Sign-off | The five measured movements on the clone (3.4, 4.5, 5.4, 6.5, 8.1) | **Approved** by the user, standing in for the Head of PM and the guideline approver |
+| PM-2 | Pair collect-on-behalf with one expense line per utility (`EEW.A`/`EEE.A`), or per product as the reference budget does | **Keep one line per utility** (now the user's choice, was the session's) |
+| W3 | On an entered-rate line the approved PM-1 note ("…chưa gồm VAT…; chưa quy đổi.") was followed by the generic "Chi phí hạng mục này đã bao gồm VAT…", which contradicts it and calls revenue a cost | **Fix in this change.** The line ends with "Doanh thu hạng mục này dự ước tại năm {năm}." (`operating_inputs.entered_rate_year_vi`); the generic sentence is not appended; `check_remark_content` enforces both; delta spec `deliverable-remarks` |
 
 
 ## Risks / Trade-offs

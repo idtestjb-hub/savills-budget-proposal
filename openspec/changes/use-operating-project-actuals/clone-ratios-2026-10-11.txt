@@ -1,0 +1,49 @@
+Ratios against the real budget ('2. Budget-Management Fund'); line counts out of 127 real lines with a figure (46 Required)
+run                           R/real  E/real tool lines  both tool-only Req both
+10-07 ramp                     45.1%   36.6%         27    21         6       20
+10-07 stable (env-patched)     51.1%   41.0%         26    21         5       20
+p14 default                    45.1%   36.6%         27    21         6       20
+default                        45.1%   36.6%         27    21         6       20
+p3                             51.1%   41.0%         26    21         5       20
+p1                             69.9%   36.6%         27    21         6       20
+p3p1                           75.9%   41.0%         26    21         5       20
+p3p2                           56.5%   41.0%         26    21         5       20
+p3p4                           57.3%   47.4%         31    24         7       20
+all                            87.5%   47.4%         31    24         7       20
+all_park2025                   85.3%   47.4%         31    24         7       20
+
+3.4  P3 switch off -> on (tool, 2. Fund):
+     revenue +13.2%, expense +12.2% of the tool's new-building figures; of real: revenue 45.1% -> 51.1%, expense 36.6% -> 41.0%; RM.0A -> 0 and collected RM.* up by the same amount (residual 0 VND)
+     RM.AP    on/off   3.692   off/real   16.4%   on/real   60.4%
+     RM.OT    on/off   3.692   off/real     n/a   on/real     n/a
+     RM.RE    on/off     n/a   off/real    0.0%   on/real    0.0%
+     RM.0A    on/off   0.000   off/real     n/a   on/real     n/a
+     RM.PA    on/off     n/a   off/real    0.0%   on/real    0.0%
+     RP1      on/off   1.846   off/real   25.9%   on/real   47.8%
+     RP2      on/off   1.846   off/real   42.2%   on/real   77.9%
+     RP8      on/off     n/a   off/real    0.0%   on/real    0.0%
+     EEE.C    on/off   1.452   off/real   55.0%   on/real   79.9%
+     EEW.C    on/off   3.692   off/real   27.2%   on/real  100.6%
+
+4.5  P1 entered rates (p3 -> p3p1):
+     RM.AP / real = 1.0000003 (diff +0.0083 million VND/year; threshold 0.01)
+     revenue of real 51.1% -> 75.9% (+24.9 points)
+     RM.OT (tool, 46,400 entered) / real RM.RE = 0.969
+
+5.4  P2 recorded parking (p3 -> p3p2):
+     RP1: before/real 47.8%, after/real 100.0000%, 2025-average sensitivity/real 96.7%
+     RP2: before/real 77.9%, after/real 100.0000%, 2025-average sensitivity/real 85.0%
+     RP8, ESS38, RM.PA unchanged by P2: True
+     revenue of real 51.1% -> 56.5% (+5.4 points)
+
+6.5  P4 collect-on-behalf (p3 -> p3p4):
+     RO3.A/real = 1.0000000
+     RO3.S/real = 1.0000000
+     RO4.S/real = 1.0000000
+     pairs balance: water diff +0.00 VND, electricity diff +0.00 VND
+     2. Fund surplus change +0.0000 VND; 2.2 surplus change +0.0000 VND
+     pairs = 6.2% of real revenue, 6.3% of real expense; revenue of real 51.1% -> 57.3%, expense 41.0% -> 47.4%
+
+8.1  all proposals (P1+P2+P3+P4) vs real:
+     revenue 87.5%, expense 47.4%, surplus R-E tool/real 18.48x
+     lines: tool has a figure on 31, both 24 of 127, tool-only 7, Required both 20 of 46

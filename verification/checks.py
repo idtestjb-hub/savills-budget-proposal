@@ -997,7 +997,15 @@ def check_remark_content(paths):
             label = f"{sheet_label} T{r} ({code})"
 
             row_failed = False
-            if incl_vat and vat_vi not in t:
+            entered_rate_line = 'thực tế do PM nhập' in t and code.startswith('RM.')
+            if entered_rate_line:
+                # W3 (2026-10-11): a line priced from an entered rate states its own VAT basis and ends
+                # with the revenue sentence; the generic "Chi phí … đã bao gồm VAT" must not follow it.
+                if 'Doanh thu hạng mục này dự ước tại năm' not in t or vat_vi in t:
+                    fail(label, 'entered-rate line must end with the revenue sentence and not the generic '
+                                'VAT sentence')
+                    row_failed = True
+            elif incl_vat and vat_vi not in t:
                 fail(label, 'inclusive-of-VAT run but this written T remark has no VAT-treatment sentence')
                 row_failed = True
             t_has_vi = any(ch in t for ch in 'ạảấầẩẫậắằẳẵặẹẻẽếềểễệọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹđ')

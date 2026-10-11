@@ -34,7 +34,10 @@ supported.
 | `fixtures/Sample_Project_Input.xlsx` | The synthetic project. Obviously fictional, realistic in scale |
 | `fixtures/Sample_Existing_Input.xlsx` | The same project switched to Existing-project mode with invented prior-year data (region II, a salary below the floor, a headcount change, an A1 overflow, new positions with reasons). Rebuilt by `fixtures/build_existing_fixture.py`. Section 8 runs the pipeline on it; no recorded baseline is used or moved |
 | `fixtures/Sample_Existing_Lump_Input.xlsx` | The lump-sum path of Existing-project mode, invented: no roster, region blank (Region I), approved EMH2 and EMH3 with a PM override and reason each, an empty holiday-duty block, approved EMH4 of 0. Built by `build_lump()` in the same script. Section 8 runs it after the roster sample, with the same checks |
+| `operating_project.py` | The operating-project checks (`verify.py` section 9). `read_expected()` reads the operating fixture by label; `read_outputs()` reads both workbooks once in Excel; `check_operating()` is a pure check of one against the other; `compare_existing_stable()` compares the utility lines with and without the stable switch. `--record` writes its own baseline |
+| `fixtures/Sample_Operating_Input.xlsx` | The standard sample described as a building in operation, every figure invented: stable switch on, entered rates on Apartment (excl. VAT) and Nursery (incl. VAT), Shophouse left to comparables, recorded car and motorbike parking, collect-on-behalf amounts on Apartment and Shophouse with one entered at 0. Built by `fixtures/build_operating_fixture.py`; none of its values equals a value of the reference project used to design the change |
 | `baselines/baseline.json` | The recorded figures, plus the runtime that produced them |
+| `baselines/operating_baseline.json` | Section 9's own baseline: the operating run's analysis figures plus its RM, RP, collect-on-behalf and utility lines |
 
 ## Running it
 
@@ -50,11 +53,35 @@ python verification/checks.py      # structure only
 python verification/baseline.py    # figures + baseline comparison only
 ```
 
-`verify.py` has seven sections. Sections 1-6 run the workflow once and hand the same outputs to
+`verify.py` has nine sections. Sections 1-6 run the workflow once and hand the same outputs to
 every check. Section 7 is separate: it builds the input form twice in a temporary folder to confirm
 `build_project_input_form.py` refuses to replace an existing `Project_Budget_Input.xlsx` unless run
 with `--force`, and keeps a dated backup when forced (change `guard-input-file-overwrite`). It
 touches no file in `reports/`, and fingerprints the live input before and after to prove it.
+
+Section 8 runs the two Existing-project samples (changes `carry-forward-staffing`,
+`carry-forward-common-utilities`). Section 9 (change `use-operating-project-actuals`) runs two more:
+- **The operating sample.** Each entered rate x NFA x 12 must be on both workbooks, and Shophouse, which has no
+  entered rate, must equal the standard run's figure. Both fill-up sheets must be 100% in all 12 months, every RM
+  row flat, and `RM.0A` 0. `RP1` (motorbike) and `RP2` (car) must be the entered monthly figure x 12. Each
+  collect-on-behalf revenue line must be its amount x 12, and `EEE.A` / `EEW.A` the sum of their revenue lines;
+  a mismatch names the expense code and its revenue codes. The figures expected are read from the fixture itself,
+  never from the workbooks or `operating_inputs`. The usual checks run on it too (revenue agreement at stable
+  occupancy, remarks, summary reconciliation, Required lines), and its figures are compared with
+  `baselines/operating_baseline.json`.
+- **The first Existing sample with `Stable Operation?` = Yes**, built at run time. `EEW.C` / `EEE.C` (year,
+  12 months, remark) and the `1. Summary` K38/K39 narratives must be identical to section 8's run without the
+  switch.
+
+To record or re-record section 9's baseline (only after every check passes; the command checks first and
+refuses otherwise):
+
+```bash
+python verification/operating_project.py --record --reason "..."
+```
+
+It writes only `operating_baseline.json`; `baseline.json` and `deliverable_baseline.json` must show no
+`git diff` afterwards.
 
 `verify.py` runs the workflow once and hands the same outputs to every check, so it is faster than
 running the two separately. All exit `0` on success and non-zero on failure, and none of them

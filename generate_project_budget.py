@@ -942,8 +942,8 @@ def _append_vat(remark):
     remark gets it appended after a space, matching the worked sample's usage."""
     if not _ACTIVE_VAT_SENTENCE or not remark:
         return remark
-    if _ACTIVE_VAT_SENTENCE in remark:
-        return remark
+    if _ACTIVE_VAT_SENTENCE in remark or operating_inputs.ENTERED_RATE_YEAR_PREFIX in remark:
+        return remark                     # already there, or an entered-rate line with its own (W3)
     if remark.endswith('\n'):
         sep = ''
     elif '\n' in remark:
@@ -2307,7 +2307,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
             _write_ramped_row(ws, row, [full_monthly * f for f in fills], (
                 operating_inputs.entered_rate_remark_vi(product_vi, rate, _p_rate['vat'], nfa,
                                                         full_monthly, annual)
-                + f" {_anchor_note}" + (f" {_mismatch}" if _mismatch else '')))
+                + f" {_anchor_note}" + (f" {_mismatch}" if _mismatch else '')
+                + f" {operating_inputs.entered_rate_year_vi(_budget_year(ws.parent))}"))
             continue
         _apt_entered = (operating_inputs.FALLBACK_ENTERED_APARTMENT_VI
                         if rates.get('apartment_entered') else '')

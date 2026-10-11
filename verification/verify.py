@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from verification import baseline as bl                                      # noqa: E402
 from verification import checks                                              # noqa: E402
+from verification import operating_project as op                             # noqa: E402
 from verification.checks import (CorruptionArtifact, FormulaError,           # noqa: E402
                                  StructureError, check_artifacts,
                                  check_formula_errors, check_sheets,
@@ -38,6 +39,27 @@ EXISTING_LUMP_SAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 
 def _headline(text):
     print(f'\n{text}\n' + '-' * len(text))
+
+
+def _run_sections(sections):
+    """Run (title, check) pairs, each check returning (ok, rows, diffs, notes); print them and stop at
+    the first failure. True when all pass."""
+    for title, run in sections:
+        try:
+            sok, srows, sdiffs, snotes = run()
+        except bl.BaselineUnavailable as exc:
+            print(f'FAIL  {title}: {exc}')
+            return False
+        for n in snotes:
+            print(f'NOTE  {n}')
+        if not sok:
+            print(f'FAIL  {title}: {len(sdiffs)} problem(s)')
+            for d in sdiffs:
+                print('        - ' + ' | '.join(f'{x:,.0f}' if isinstance(x, (int, float)) else str(x)
+                                              for x in d))
+            return False
+        print(f'OK    {title} ({len(srows)} check(s))')
+    return True
 
 
 def main(argv=None):
@@ -331,11 +353,12 @@ def main(argv=None):
             print('FAIL  the New-prospect run produced a Utility Bridge')
             return 1
         print('OK    the standard (New-prospect) sample produces no Utility Bridge')
-        for sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
+        existing_paths = None                      # the first Existing run, kept for section 9
+        for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
             existing_dir = os.path.join(workdir, sub)
             os.makedirs(existing_dir, exist_ok=True)
             try:
-                ex_outputs, ex_before, ex_after = run_workflow(sample=sample, workdir=existing_dir)
+                ex_outputs, ex_before, ex_after = run_workflow(sample=ex_sample, workdir=existing_dir)
             except (PartialRun, ProductionTouched) as exc:
                 print(f'FAIL  {type(exc).__name__}\n{exc}')
                 return 1
@@ -343,7 +366,9 @@ def main(argv=None):
                 print('FAIL  production artefacts changed during the Existing-project run')
                 return 1
             ex_paths = locate_outputs(ex_outputs)
-            print(f'OK    both generators completed on {os.path.basename(sample)}')
+            if existing_paths is None:
+                existing_paths = ex_paths
+            print(f'OK    both generators completed on {os.path.basename(ex_sample)}')
             try:
                 check_artifacts(ex_paths)
                 exfe = check_formula_errors(ex_paths)
@@ -364,21 +389,90 @@ def main(argv=None):
                 ('summary reconciliation', lambda: check_summary_reconciles(ex_paths)),
                 ('Required line items', lambda: check_required_line_items(ex_paths)),
             ]
-            for title, run in sections:
-                try:
-                    sok, srows, sdiffs, snotes = run()
-                except bl.BaselineUnavailable as exc:
-                    print(f'FAIL  {title}: {exc}')
-                    return 1
-                for n in snotes:
-                    print(f'NOTE  {n}')
-                if not sok:
-                    print(f'FAIL  {title}: {len(sdiffs)} problem(s)')
-                    for d in sdiffs:
-                        print('        - ' + ' | '.join(f'{x:,.0f}' if isinstance(x, (int, float)) else str(x)
-                                                      for x in d))
-                    return 1
-                print(f'OK    {title} ({len(srows)} check(s))')
+            if not _run_sections(sections):
+                return 1
+
+        # ---- 9. the operating-project path on its own invented sample -----------------------
+        # Change use-operating-project-actuals. Entered rates, the stable switch, recorded parking and
+        # collect-on-behalf pairs, each checked against figures read from the fixture itself; then the
+        # stable switch on the first Existing sample must leave its utility lines untouched (design D3).
+        # Its own baseline (baselines/operating_baseline.json); the standard sample's is not touched.
+        _headline('9. OPERATING-PROJECT PATH')
+        op_dir = os.path.join(workdir, 'operating')
+        os.makedirs(op_dir, exist_ok=True)
+        try:
+            op_outputs, op_before, op_after = run_workflow(sample=op.OPERATING_SAMPLE, workdir=op_dir)
+        except (PartialRun, ProductionTouched) as exc:
+            print(f'FAIL  {type(exc).__name__}\n{exc}')
+            return 1
+        if diff_snapshots(op_before, op_after):
+            print('FAIL  production artefacts changed during the operating-project run')
+            return 1
+        op_paths = locate_outputs(op_outputs)
+        print(f'OK    both generators completed on {os.path.basename(op.OPERATING_SAMPLE)}')
+        try:
+            check_artifacts(op_paths)
+            opfe = check_formula_errors(op_paths)
+            op_out = op.read_outputs(op_paths)
+        except (CorruptionArtifact, FormulaError, bl.BaselineUnavailable) as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        print(f'OK    no corruption artifacts, no Excel errors introduced ({opfe["method"]})')
+        standard_full_year = {lbl: a for lbl, _d, a in rarows}     # section 5b, analysis side
+        if not _run_sections([
+            ('entered rates, stable occupancy, recorded parking, collect-on-behalf pairs',
+             lambda: op.check_operating(op.read_expected(), op_out, standard_full_year)),
+            ('deliverable and analysis agree on revenue at stable occupancy',
+             lambda: check_revenue_agreement(op_paths, stable=True)),
+            ('remark content', lambda: check_remark_content(op_paths)),
+            ('summary reconciliation', lambda: check_summary_reconciles(op_paths)),
+            ('Required line items', lambda: check_required_line_items(op_paths)),
+        ]):
+            return 1
+
+        op_stored = bl.load_baseline(op.OPERATING_BASELINE_PATH)
+        if op_stored is None:
+            print('FAIL  no operating-project baseline recorded — run:')
+            print('        python verification/operating_project.py --record --reason "..."')
+            return 1
+        try:
+            op_figures = bl.extract_figures(op_paths['analysis'])
+        except (bl.BaselineUnavailable, bl.FigureMissing) as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        op_figures.update(op.baseline_figures(op_out))
+        omatched, odiffs, onotes = bl.compare_to_baseline(op_figures, stored=op_stored,
+                                                          sample_path=op.OPERATING_SAMPLE)
+        for n in onotes:
+            print(f'NOTE  {n}')
+        if not omatched:
+            print(f'FAIL  {len(odiffs)} operating-project figure(s) differ from their baseline:')
+            for line in bl.format_differences(odiffs):
+                print(f'        - {line}')
+            print('\nIf intended, re-record: python verification/operating_project.py --record --reason "...".')
+            return 1
+        print(f'OK    all {len(op_figures)} operating-project figures match their own baseline')
+
+        es_sample = op.build_existing_stable(EXISTING_SAMPLE,
+                                             os.path.join(workdir, 'Sample_Existing_Stable_Input.xlsx'))
+        es_dir = os.path.join(workdir, 'existing_stable')
+        os.makedirs(es_dir, exist_ok=True)
+        try:
+            es_outputs, es_before, es_after = run_workflow(sample=es_sample, workdir=es_dir)
+        except (PartialRun, ProductionTouched) as exc:
+            print(f'FAIL  {type(exc).__name__}\n{exc}')
+            return 1
+        if diff_snapshots(es_before, es_after):
+            print('FAIL  production artefacts changed during the Existing + stable run')
+            return 1
+        es_paths = locate_outputs(es_outputs)
+        print(f'OK    both generators completed on {os.path.basename(EXISTING_SAMPLE)} + Stable Operation? = Yes')
+        if not _run_sections([
+            ('EEW.C / EEE.C and their 1. Summary narratives unchanged by the stable switch',
+             lambda: op.compare_existing_stable(op.read_outputs(existing_paths, analysis=False),
+                                                op.read_outputs(es_paths, analysis=False))),
+        ]):
+            return 1
 
         # ---- verdict -------------------------------------------------------------------------
         _headline('RESULT')

@@ -120,6 +120,41 @@ python add_existing_project_sheets.py
 The original stays untouched. The copy is written beside it as `Project_Budget_Input_EXISTING_<date>.xlsx`;
 check it, then replace the original with it yourself.
 
+### 2c. A building already in operation: its actual figures
+
+For a building that is already running, the PM can enter what is known instead of letting the tool estimate it
+(change `use-operating-project-actuals`). Every field is optional: leave them blank and the run is exactly the
+run without them.
+
+| Field on `Project Info` | What it does |
+|---|---|
+| `Stable Operation?` = Yes | 100% occupancy in all 12 months on every occupancy-scaled line, and `RM.0A` (developer top-up) = 0 |
+| `Actual Rate (VND/m²/month)` and `Rate VAT Basis`, two columns beside the `Product` header of Product Mix | The entered rate prices that product in both workbooks, in place of the comparables. `Rate VAT Basis` is `incl. VAT` or `excl. VAT`; a basis other than the deliverable's is stated in the remark, never converted |
+| `Actual Car Parking Revenue (VND/month)`, `Actual Motorbike Parking Revenue (VND/month)` | `RP2` (car) and `RP1` (motorbike) = the figure x 12, not slots x rate x occupancy. 0 is allowed and says so in the remark |
+| `COLLECT ON BEHALF (THU HỘ CHI HỘ)` block: header row `Collect-on-behalf product` / `Water (VND/month)` / `Electricity (VND/month)`, then one row `Thu hộ chi hộ: <product>` per product | Water goes to `RO3.<x>`, electricity to `RO4.<x>`, each x 12, and the same amounts to `EEW.A` / `EEE.A`, so the surplus does not move. They stay out of `2.2 Common area Fund` |
+
+Rules the run enforces, each stopping with a message that names the field:
+- Parking revenue and collect-on-behalf amounts are used only when `Stable Operation?` is Yes.
+- An entered rate needs its VAT basis.
+- Collect-on-behalf rows exist only for Apartment, Officetel, Office, Shopping Mall, Retail and Shophouse.
+  An amount for Villas, Shop Apartment or Nursery stops the run.
+- In Existing-project mode, `EEE.C` and `EEW.C` still come from the prior-year actuals: the switch does not change them.
+
+`run.py` prints an `Operating-project inputs:` block listing every field as filled, blank or "not on the form". A
+misspelt label shows up there as "not on the form" instead of being ignored silently.
+
+A form built before this change has none of these labels. A form built now has them, blank. To add them to an
+older form, copy the labels exactly as above into column A of `Project Info`, below the last used row (the two rate
+columns go in the `Product` header row of Product Mix). `verification/fixtures/build_operating_fixture.py` does the
+same on the test sample and can be used as the model.
+
+Each choice made for this change sits in one named place in `operating_inputs.py` (its docstring lists them):
+- 100% stable occupancy: `fill_curve.STABLE_FILL`;
+- the switch being required: `require_stable()`;
+- which products have collect-on-behalf rows: `COB_SUFFIX`;
+- which expense line pairs with each revenue line: `paired_with` in `Costing_Method_Catalogue.csv`;
+- how a VAT-basis mismatch is shown: `DELIVERABLE_VAT_BASIS` and `vat_mismatch_vi()`.
+
 ### 3. Run the pipeline
 
 **The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then

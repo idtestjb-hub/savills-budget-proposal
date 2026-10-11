@@ -296,6 +296,16 @@ def vat_vi(basis):
     return _VAT_VI[basis]
 
 
+# W3 (user, 2026-10-11, session P16): a line priced from an entered rate already states its own VAT basis,
+# so it ends with this sentence instead of the generic "Chi phí hạng mục này đã bao gồm VAT…", which
+# contradicted an excl.-VAT entry and called a revenue line a cost.
+ENTERED_RATE_YEAR_PREFIX = 'Doanh thu hạng mục này dự ước tại năm'
+
+
+def entered_rate_year_vi(year):
+    return f"{ENTERED_RATE_YEAR_PREFIX} {year}."
+
+
 def vat_mismatch_vi(basis):
     """PM-1 (a): the sentence added when the entered basis differs from the deliverable's; '' otherwise."""
     if basis == DELIVERABLE_VAT_BASIS:
