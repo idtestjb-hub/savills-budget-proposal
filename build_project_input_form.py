@@ -406,6 +406,84 @@ def add_existing_project_fields(ws, row):
     labeled_input(ws, row + 3, es.PRIOR_YEAR_LABEL + ' — the approved budget copied', None, fmt='0')
 
 
+def add_product_rate_columns(ws, header_row, first_row, last_row):
+    """'Actual Rate (VND/m²/month)' and 'Rate VAT Basis' beside the Product Mix block (change
+    use-operating-project-actuals, P1). Read by their header text, so their letters may move."""
+    import operating_inputs as oi
+    for col, header in ((5, oi.RATE_HEADER), (6, oi.VAT_HEADER)):
+        cell = ws.cell(row=header_row, column=col, value=header)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    ws.cell(row=header_row, column=5).comment = Comment(
+        "Optional, for a project that already operates: the management-fee rate it actually charges, in "
+        "VND per m² of chargeable area per month. Blank or 0 = not entered; the rate then comes from "
+        "comparable projects as before. An entered rate is used as entered (no VAT conversion) and is "
+        "not capped against the comparables.", 'Budget Planning Agent')
+    dv = DataValidation(type='list', formula1='"' + ','.join(oi.VAT_BASES) + '"', showErrorMessage=True,
+                        errorTitle='Rate VAT Basis', error='Pick ' + ' or '.join(oi.VAT_BASES))
+    ws.add_data_validation(dv)
+    for r in range(first_row, last_row + 1):
+        for col, fmt in ((5, '#,##0'), (6, None)):
+            c = ws.cell(row=r, column=col)
+            c.fill = INPUT_FILL
+            c.border = BORDER
+            c.alignment = CENTER
+            if fmt:
+                c.number_format = fmt
+        dv.add(ws.cell(row=r, column=6))
+
+
+def add_operating_project_fields(ws, row, products):
+    """The operating-project fields on Project Info from `row` (change use-operating-project-actuals):
+    the stable-operation switch, recorded parking revenue, and the collect-on-behalf block. Every field
+    is optional; the labels are the ones operating_inputs.py looks for."""
+    import operating_inputs as oi
+    section(ws, row, oi.SECTION_TITLE)
+    stable = labeled_input(ws, row + 1, oi.STABLE_LABEL, None)
+    dv = DataValidation(type='list', formula1='"Yes,No"', showErrorMessage=True,
+                        errorTitle='Stable Operation?', error='Pick Yes or No, or leave blank')
+    ws.add_data_validation(dv)
+    dv.add(stable)
+    stable.comment = Comment(
+        "Yes only for a project that already operates at stable occupancy. The budget then uses 100% "
+        "occupancy in every month instead of the new-building fill-up curve, and RM.0A (the developer's "
+        "fee on units not yet handed over) is 0. Blank or No keeps the new-building curve. Required for "
+        "the two parking fields and the collect-on-behalf amounts below.", 'Budget Planning Agent')
+    for offset, label in ((2, oi.PARKING_CAR_LABEL), (3, oi.PARKING_MOTO_LABEL)):
+        c = labeled_input(ws, row + offset, label, None, fmt='#,##0')
+        c.comment = Comment(
+            "Optional, needs 'Stable Operation?' = Yes: the average monthly revenue actually collected from "
+            "monthly parking of this vehicle type, in VND. It replaces bays x default rate x fill. Blank keeps "
+            "the estimate; 0 means no such revenue and is written as 0.", 'Budget Planning Agent')
+
+    top = row + 5
+    section(ws, top, oi.COB_SECTION)
+    for col, header in enumerate((oi.COB_HEADER, oi.COB_WATER_HEADER, oi.COB_ELEC_HEADER), start=1):
+        cell = ws.cell(row=top + 1, column=col, value=header)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    ws.cell(row=top + 1, column=1).comment = Comment(
+        "Optional, needs 'Stable Operation?' = Yes: water and electricity Savills collects from residents and "
+        "pays on their behalf (thu hộ / chi hộ), in VND per month. Each amount is written twice, as revenue "
+        "(RO3 water / RO4 electricity) and as the paired expense line, so the surplus does not move. "
+        "Rows without a confirmed RO3/RO4 line (" + ', '.join(p for p in products if p not in oi.COB_SUFFIX)
+        + ") stop the run if an amount is entered.", 'Budget Planning Agent')
+    for i, product in enumerate(products, start=top + 2):
+        c1 = ws.cell(row=i, column=1, value=oi.COB_ROW_PREFIX + product)
+        c1.border = BORDER
+        c1.alignment = LEFT
+        for col in (2, 3):
+            c = ws.cell(row=i, column=col)
+            c.fill = INPUT_FILL if product in oi.COB_SUFFIX else COMPUTED_FILL
+            c.border = BORDER
+            c.alignment = CENTER
+            c.number_format = '#,##0'
+
+
 def add_prior_year_roster_sheet(wb):
     """The 'Prior-Year Roster' sheet: four labelled blocks plus the reason-code list (design D8-D10)."""
     import existing_staffing as es
@@ -757,6 +835,8 @@ def main(force=False):
             c.fill = INPUT_FILL
             c.border = BORDER
             c.alignment = CENTER
+    # Change use-operating-project-actuals (P1): the actual rate and its VAT basis, columns E/F.
+    add_product_rate_columns(ws1, 21, 22, 21 + len(products))
     APT_NFA_ROW = 22  # Apartment row — read_input() actually finds this by label, not this constant;
                        # kept in sync for any future direct reference, not read anywhere today.
 
@@ -888,7 +968,7 @@ def main(force=False):
         "carries the full lump sum.",
         'Budget Planning Agent')
 
-    for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14}.items():
+    for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 
     add_run_button(ws1)          # green RUN button at F1:G2, hyperlinked to Run Budget Agent.cmd
@@ -1099,6 +1179,8 @@ def main(force=False):
     # Existing-project mode (change carry-forward-staffing): appended after every existing field,
     # same no-row-shift rule as above.
     add_existing_project_fields(ws1, 57)
+    # Change use-operating-project-actuals: appended after every existing field, same no-row-shift rule.
+    add_operating_project_fields(ws1, 62, products)
     add_prior_year_roster_sheet(wb)
     add_prior_year_utilities_sheet(wb)
     add_demand_reason_columns(ws4, 5, last_row)

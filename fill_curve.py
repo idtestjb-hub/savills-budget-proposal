@@ -25,6 +25,11 @@ MONTH_ANCHORS = [(0, 0.0), (12, 0.50), (24, 0.70), (36, 0.90), (48, 1.00)]
 ELECTRICITY_FLOOR = 0.40
 ELECTRICITY_FULL_AT = 0.40
 
+# A project already at stable operation (change use-operating-project-actuals, P3): the intake
+# form's 'Stable Operation?' switch replaces the curve with this fill in every month. 100% is the
+# answer recorded for PM-4 on 2026-10-11; an entered stable occupancy would change only this value.
+STABLE_FILL = 1.0
+
 
 def _fill_at(month):
     """Interpolated fill fraction at an absolute operational month (1-based)."""
@@ -34,33 +39,42 @@ def _fill_at(month):
     return MONTH_ANCHORS[-1][1]
 
 
-def monthly_fill_path():
+def monthly_fill_path(stable=False):
     """48 rows of (absolute month, 'Y<n> M<m>' label, fill fraction) — the multi-year view the
-    internal analysis uses. Moved here verbatim from generate_project_output.py."""
+    internal analysis uses. Moved here verbatim from generate_project_output.py. With `stable`,
+    every month is STABLE_FILL."""
     path = []
     for month in range(1, 49):
-        fill = _fill_at(month)
+        fill = STABLE_FILL if stable else _fill_at(month)
         year_num = (month - 1) // 12 + 1
         month_in_year = (month - 1) % 12 + 1
         path.append((month, f'Y{year_num} M{month_in_year}', fill))
     return path
 
 
-def year1_fills():
+def year1_fills(stable=False):
     """The 12 fill fractions for operational months 1..12 — what the single-year client deliverable
-    ramps its occupancy-scaled lines by. Rises from ~0.042 (month 1) to 0.50 (month 12)."""
+    ramps its occupancy-scaled lines by. Rises from ~0.042 (month 1) to 0.50 (month 12); with
+    `stable`, STABLE_FILL in every month."""
+    if stable:
+        return [STABLE_FILL] * 12
     return [_fill_at(m) for m in range(1, 13)]
 
 
-def year1_electricity_fills():
+def year1_electricity_fills(stable=False):
     """The 12 fractions to apply to full monthly electricity: the fill fraction, floored at
-    ELECTRICITY_FLOOR and clamped to full once occupancy reaches ELECTRICITY_FULL_AT."""
+    ELECTRICITY_FLOOR and clamped to full once occupancy reaches ELECTRICITY_FULL_AT. With `stable`,
+    full load (1.0) in every month."""
+    if stable:
+        return [1.0] * 12
     return [max(ELECTRICITY_FLOOR, min(1.0, f / ELECTRICITY_FULL_AT)) for f in year1_fills()]
 
 
-def parking_fills(bays, units):
+def parking_fills(bays, units, stable=False):
     """The 12 parking fill fractions for a vehicle type. Parking fill tracks resident fill, but
     ~2x faster where the bay count is below the unit count (residents who cannot park on site give
-    up sooner), capped at 100%."""
+    up sooner), capped at 100%. With `stable`, STABLE_FILL in every month."""
+    if stable:
+        return [STABLE_FILL] * 12
     k = 2.0 if (bays and units and bays < units) else 1.0
     return [min(1.0, f * k) for f in year1_fills()]

@@ -123,6 +123,10 @@ projects.
 - `RM.0A` is written as zeros, with *"Dự án đang vận hành, không còn căn chờ bàn giao nên chủ đầu tư
   không đóng phí thay."*
 - The two fill-up sheets show 100% and carry the same reason.
+- **Existing-project mode wins for `EEE.C`/`EEW.C`** (added 2026-10-11, session P14, as the
+  `carry-forward-common-utilities` design's Risks section requires). In Existing mode those two lines
+  already come from actual spend, flat, with no curve and no electricity floor; the switch does not
+  change them or their remarks. It still applies to every other ramped line.
 
 *Alternative:* make the curve's anchors an input (fill % at the end of years 1–4). It is more
 general, but it asks the PM for a curve nobody has. It can follow later (PM-4).
@@ -264,6 +268,23 @@ they did for `new-prospect-paid-holidays`. The user asked that the choices stay 
 | PM-4 | (a) 100% | |
 | PM-5 | Not mapped | Chosen by the session. A Villas collect-on-behalf amount stops the run until the mapping is confirmed |
 | PM-6 | Approved by the user in place of the guideline owner | Departs from the guideline's "not estimated" rule for collect-on-behalf lines |
+
+### Answers recorded 2026-10-11 (session P14)
+
+The user approved, in one round before any remark was written:
+
+| # | Question | Answer |
+|---|---|---|
+| W1 | P3 wording (tasks 3.3): ramped-line note, `RM.0A`, `RP1`/`RP2` note, `EEE.C`/`EEW.C` stable sentences, `1. Summary` points 3/4 and parking line, the fill-up sheets' reason | Approved as drafted (texts in D3 and in the code, `operating_inputs.py`) |
+| W2 | P1, P2 and P4 wording (tasks 4.4, 5.2, 6.4): entered-rate remark, VAT-mismatch sentence, fallback note, `1. Summary` rate text, `Comparison` label; recorded-parking remark, zero remark, `1. Summary` parking line; collect-on-behalf revenue and expense remarks | Approved as drafted |
+| D11 | The template allocates a share of `EEW.A`/`EEE.A` to `2.2 Common area Fund` (`F = XLOOKUP(…AL…) × F8`), `RI1` reads that fund's expense total back as revenue, and `F8`'s denominator is the whole `2. Fund` revenue, `RO3`/`RO4` included. A collect-on-behalf pair would therefore move the `2. Fund` surplus through `RI1` | **Keep collect-on-behalf out of `2.2`.** Only when an amount is entered: the `2.2` rows of the paired expense lines get no allocation (frequency left blank, so the template's own `E` = 0) and a remark saying the line is paid on residents' behalf and not shared; `2.2!F8`'s denominator leaves out the `RO3`/`RO4` revenue rows. Both funds' surpluses then equal the run without the amounts |
+| A1 | Analysis workbook with the switch Yes: the "Fill-up Scenarios" table (50/70/90/100%) and the "Year 1 Strategy" sheet | Keep both as sensitivity tables, each with one English line saying the project is at stable operation, the budget uses 100%, and the table is for reference |
+
+### Answers recorded 2026-10-11 (session P15)
+
+| # | Question | Answer |
+|---|---|---|
+| W1a | With the switch Yes, `check_remark_content` failed on `1. Summary` `EEW`: the W1 water sentence ("…với tỷ lệ lấp đầy 100% …") lacks the required part "lấp đầy cư dân" | **Amend the wording, keep the check.** The sentence now reads "Chi phí hạng mục này dự ước tại năm {năm} với tỷ lệ lấp đầy cư dân 100% (dự án đang vận hành ổn định)." (`operating_inputs.water_stable_vi`) |
 
 
 ## Risks / Trade-offs

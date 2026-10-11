@@ -14,6 +14,11 @@ Every ramped line's remark SHALL then say, in Vietnamese, that the project is bu
 operation with 100% occupancy, chosen on the intake form. It SHALL NOT describe the new-building
 curve. The two fill-up sheets SHALL show 100% in every month and state the same reason.
 
+Existing-project mode wins over this switch for common-area electricity and water. When the project
+mode is Existing, `EEE.C` and `EEW.C` SHALL keep the amounts that mode computes from the project's
+actual spend (requirement "Existing-project common-area utilities are not ramped", added by change
+`carry-forward-common-utilities`), whatever the switch says. The switch still applies to every other line it names.
+
 When the field is No or blank, every figure SHALL be what it was before this requirement. This
 reads the intake workbook only, writes no data file, and moves no recorded baseline: the standard
 synthetic project leaves the field blank.
@@ -49,6 +54,13 @@ synthetic project leaves the field blank.
 - **THEN** no remark SHALL describe a fill-up from 0%
 - **AND** the two fill-up sheets SHALL show 100% for every month and name the intake choice as the
   reason
+
+#### Scenario: Existing-project mode keeps its utility amounts
+
+- **WHEN** the switch is Yes and the project mode is Existing
+- **THEN** `EEE.C` and `EEW.C` SHALL equal the amounts computed from the project's actual spend, as
+  with the switch blank
+- **AND** their remarks SHALL be the Existing-mode remarks
 
 #### Scenario: Blank or No leaves today's budget unchanged
 

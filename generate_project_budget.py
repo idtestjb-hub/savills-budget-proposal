@@ -46,6 +46,7 @@ from estimate_capex_qty import estimate_capex_items
 from input_labels import SheetLabels, normalise
 import existing_staffing
 import existing_utilities
+import operating_inputs
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -133,7 +134,7 @@ COVERAGE_BAND_NORMAL_MAX = 0.15
 COVERAGE_BAND_LABEL = 'shortfall < 0%  ·  thin 0–5%  ·  normal 5–15%  ·  generous > 15%'
 
 
-def _benchmark_fee_clause(derived_rate, comp_apt_rates):
+def _benchmark_fee_clause(derived_rate, comp_apt_rates, entered=False):
     """The fee-vs-comparable-range half of the PROPOSAL BENCHMARK verdict line, in plain language.
     `comp_apt_rates` is the real Apartment rate (VND/m²/month) of each comparable the rate was
     derived from. Kept module-level so each branch is unit-testable (see the change's tasks 2.6)."""
@@ -142,7 +143,8 @@ def _benchmark_fee_clause(derived_rate, comp_apt_rates):
         return (f"No comparable with a verified Apartment rate - the {derived_rate:,.0f} "
                 f"VND/m2/month fee cannot be benchmarked against peers.")
     lo, hi = min(rates), max(rates)
-    head = f"Proposed Apartment fee {derived_rate:,.0f} VND/m2/month"
+    head = (f"Proposed Apartment fee {derived_rate:,.0f} VND/m2/month"
+            + (" (PM-entered actual rate)" if entered else ""))
     if len(rates) < 2:
         d = (derived_rate - lo) / lo * 100
         where = ("matches" if abs(d) < 0.5
@@ -727,6 +729,10 @@ def read_input(path):
     if not project['apartment_nfa']:
         raise ValueError("Project Info!C14:D14 (Apartment GFA/NFA) must be filled in — comparable "
                           "matching is by Apartment NFA.")
+    # Operating-project fields (change use-operating-project-actuals): all optional and validated in
+    # operating_inputs.py. A form without them reads as blank, and the run is the run before that change.
+    project['operating'] = operating_inputs.read_operating_inputs(pi, L, products)
+    project['stable_operation'] = project['operating']['stable']
 
     rs = wb['Roster Setup']
     R = SheetLabels(rs)
@@ -861,6 +867,10 @@ _CATCH_ALL_REASONS = {}
 # not year-1 revenue divided by area or slots, which is a ramp-diluted average (change
 # fix-deliverable-remark-wording). Cleared by build_budget() at the start of every run.
 _UNIT_RATES = {}
+# RM.* code -> VAT basis of a rate the PM entered (change use-operating-project-actuals, P1), so the
+# '1. Summary' fee narrative states the basis the PM gave instead of "(đã gồm VAT)". Cleared with
+# _UNIT_RATES at the start of every run.
+_ENTERED_RATE_VAT = {}
 _VAT_SWITCH_DEFAULT = ('2. Budget-Management Fund', 'F7')
 
 
@@ -1214,17 +1224,21 @@ def _energy_narrative_vi(category, project, yr):
         price_source = ("Đơn giá nước theo ví dụ trong hướng dẫn lập ngân sách của Savills."
                         if 'built-up example' in as_of else
                         "Đơn giá nước lấy theo các dự án chung cư cùng quy mô.")
+        basis = (operating_inputs.water_stable_vi(yr) if project.get('stable_operation') else
+                 f"Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
+                 f"lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư dân'.")
         return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT 5%, "
-                f"PBVMT 30%, VAT bvmt 8% ({tariff:,.0f} {tunit}). {price_source} "
-                f"Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
-                f"lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư dân'.")
+                f"PBVMT 30%, VAT bvmt 8% ({tariff:,.0f} {tunit}). {price_source} " + basis)
     if category == 'Electricity':
+        basis = (f"Dự ước tại năm {yr}. {operating_inputs.ELECTRICITY_STABLE_VI}"
+                 if project.get('stable_operation') else
+                 f"Dự ước tại năm {yr} dựa "
+                 f"trên tỷ lệ lấp đầy cư dân, căn cứ theo trang 'Tỷ lệ lấp đầy cư dân' — mức tối "
+                 f"thiểu khi tỷ lệ lấp đầy bằng 0 là khoảng 40% full chi phí, đạt full chi phí khi "
+                 f"tỷ lệ lấp đầy từ 40% trở lên.")
         return (f"Tổng lượng điện tiêu thụ 1 tháng {qty:,.0f} {unit}. Đơn giá điện đang áp dụng "
                 f"theo mức đơn giá điện dưới 6KV — đơn vị hành chính sự nghiệp ({tariff:,.0f} "
-                f"{tunit}), theo Quyết định 1279/QĐ-BCT ngày 09/05/2025. Dự ước tại năm {yr} dựa "
-                f"trên tỷ lệ lấp đầy cư dân, căn cứ theo trang 'Tỷ lệ lấp đầy cư dân' — mức tối "
-                f"thiểu khi tỷ lệ lấp đầy bằng 0 là khoảng 40% full chi phí, đạt full chi phí khi "
-                f"tỷ lệ lấp đầy từ 40% trở lên.")
+                f"{tunit}), theo Quyết định 1279/QĐ-BCT ngày 09/05/2025. " + basis)
     return (f"Dự ước tiêu thụ {qty:,.0f} {unit}. Mỗi năm chạy test không tải khoảng 12 giờ; "
             f"chạy backup điện có tải do sự cố điện lưới và bảo trì máy biến thế + tủ điện hạ "
             f"thế chính khoảng 8 giờ/năm. Giá dầu DO 0.005S Vùng 1 niêm yết {as_of} là "
@@ -1255,12 +1269,20 @@ def _recipe_narrative(key, wb, project, demand, year, written):
                                  f"rate the line is priced at, not revenue divided by area.")
             rate = _UNIT_RATES[c]
             area_bits.append(f"{nfa:,.0f} m2 ({label})")
-            rate_bits.append(f"{label} là {rate:,.0f} VND/m2/tháng (đã gồm VAT)")
+            rate_bits.append(operating_inputs.summary_entered_rate_vi(label, rate, _ENTERED_RATE_VAT[c])
+                             if c in _ENTERED_RATE_VAT else
+                             f"{label} là {rate:,.0f} VND/m2/tháng (đã gồm VAT)")
         dev = written.get('RM.0A', {}).get('value', 0)
         # Group B (docs/13-remark-case-model.md): real if the PM entered it on the intake form,
         # else describe the mechanism without a month count — never a guessed number.
         prepaid = project.get('handover_prepaid_months')
-        if prepaid:
+        point4 = (f"4/ Dự ước tỷ lệ bàn giao và tỷ lệ nợ xấu theo kinh nghiệm QLVH của Savills tại các dự "
+                  f"án tương đương")
+        if project.get('stable_operation'):
+            # Stable operation (use-operating-project-actuals P3): RM.0A is 0, nothing awaits handover.
+            point3 = operating_inputs.SUMMARY_RM_POINT3_STABLE_VI
+            point4 = operating_inputs.SUMMARY_RM_POINT4_STABLE_VI
+        elif prepaid:
             point3 = (f"3/ Ước tính theo thông tin CĐT cung cấp thu trước {prepaid:g} tháng PQL cư "
                      f"dân khi bàn giao nhà, và CĐT sẽ đóng PQL những căn chưa bàn giao — dự ước "
                      f"{dev:,.0f} VND trong năm, giảm dần theo tỷ lệ lấp đầy cư dân")
@@ -1272,8 +1294,7 @@ def _recipe_narrative(key, wb, project, demand, year, written):
             f"1/ Diện tích thu phí theo thông tin CĐT cung cấp là: {', '.join(area_bits)}\n"
             f"2/ Mức phí quản lý " + '; '.join(rate_bits) + "\n"
             f"{point3}\n"
-            f"4/ Dự ước tỷ lệ bàn giao và tỷ lệ nợ xấu theo kinh nghiệm QLVH của Savills tại các dự "
-            f"án tương đương\n"
+            f"{point4}\n"
             f"=> Chi tiết xem tại trang 'Tỷ lệ lấp đầy cư dân'."
         )
         return vi
@@ -1288,12 +1309,21 @@ def _recipe_narrative(key, wb, project, demand, year, written):
         moto_rate = round(_UNIT_RATES['RP1']) if moto_slots else 0
         car_rate = round(_UNIT_RATES['RP2']) if car_slots else 0
         lines = []
-        if moto_slots:
-            lines.append(f"Dự ước theo tỷ lệ lấp đầy cư dân tại trang 'Tiến độ lấp đầy bãi xe'. "
+        # P2: a recorded monthly figure is quoted as the PM's recorded average, never as a per-bay rate.
+        recorded = ((project.get('operating') or {}).get('parking')) or {}
+        if recorded.get('moto') is not None:
+            lines.append(operating_inputs.summary_parking_recorded_vi('moto', recorded['moto'], yr))
+        elif moto_slots:
+            basis = (operating_inputs.SUMMARY_PARKING_STABLE_VI + " "
+                     if project.get('stable_operation') else
+                     "Dự ước theo tỷ lệ lấp đầy cư dân tại trang 'Tiến độ lấp đầy bãi xe'. ")
+            lines.append(basis +
                         f"Giả định trung bình mỗi căn hộ có 02 xe máy ({moto_slots:,.0f} chỗ), với "
                         f"đơn giá gửi tháng khoảng {moto_rate:,.0f} VND/xe/tháng — dự ước "
                         f"{moto:,.0f} VND năm {yr}")
-        if car_slots:
+        if recorded.get('car') is not None:
+            lines.append(operating_inputs.summary_parking_recorded_vi('car', recorded['car'], yr))
+        elif car_slots:
             lines.append(f"Bãi xe ô tô ({car_slots:,.0f} chỗ), đơn giá gửi tháng khoảng "
                         f"{car_rate:,.0f} VND/xe/tháng — dự ước {car:,.0f} VND năm {yr}")
         vi = ("Dự toán hạng mục doanh thu này bao gồm:\n" + _vi_list(lines) +
@@ -1477,7 +1507,7 @@ def _write_year1_lump_row(ws, row, annual_amount, remark=None):
 
 
 def _populate_fillup_sheets(wb, apt_units, shop_units, car_bays, moto_bays,
-                            resident_fills, car_fills, moto_fills, car_rate, moto_rate):
+                            resident_fills, car_fills, moto_fills, car_rate, moto_rate, stable=False):
     """Show, on the deliverable's two fill-up sheets, the exact monthly curves the occupancy-scaled
     budget lines were distributed by (spec: a reader can trace a ramped figure to its curve).
 
@@ -1515,6 +1545,10 @@ def _populate_fillup_sheets(wb, apt_units, shop_units, car_bays, moto_bays,
         pk.cell(row=9, column=6 + i, value=cf)        # car fill %
         pk.cell(row=11, column=6 + i, value=mf)       # motorbike fill %
         pk.cell(row=12, column=6 + i, value=0)        # bicycle — pipeline does not budget RP3
+    if stable:
+        # 'Stable Operation?' = Yes: the curves above are 100% flat; say why beside each title.
+        res['G2'] = operating_inputs.FILL_SHEET_REASON_VI
+        pk['F2'] = operating_inputs.FILL_SHEET_REASON_VI
 
 
 def _write_ramped_row(ws, row, monthly_values, remark=None):
@@ -2236,7 +2270,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # month by month with the resident fill-up curve (fill_curve.year1_fills — 0% -> 50% over year 1,
     # the same curve the internal analysis uses). RM.0A below is the mirror: the developer pays the
     # fee on units not yet handed over, so collected + developer = the full fee every month.
-    fills = year1_fills()
+    stable = bool(project.get('stable_operation'))
+    fills = year1_fills(stable)
     # Vietnamese, matching '1. Summary'!K's own composed-narrative wording conventions (change
     # localize-line-level-remarks, 2026-09-15 — was English; see design.md D1 for the pattern this
     # follows). {pct} is pre-formatted (e.g. "50%") so the same note serves both the product-revenue
@@ -2246,7 +2281,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                 f"dân' — một giả định đã công bố (0% khi bàn giao, tăng tuyến tính đến {pct:.0%} vào "
                 f"cuối năm vận hành thứ nhất), không phải số liệu thực tế riêng của dự án này. Giả "
                 f"định ngân sách này tính cho các tháng vận hành 1-12.")
-    _anchor_note = _anchor_note_vi(FILL_ANCHORS[1][1])
+    _anchor_note = (operating_inputs.STABLE_NOTE_VI if stable    # 'Stable Operation?' = Yes
+                    else _anchor_note_vi(FILL_ANCHORS[1][1]))
     mgmt_fee_annual = 0.0        # full-occupancy annual — drives EMH1's %; unchanged by the ramp
     total_full_monthly = 0.0     # sum of (rate x NFA) over products — the base for RM.0A
     for product, row in PRODUCT_REVENUE_ROWS.items():
@@ -2263,10 +2299,22 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         mgmt_fee_annual += annual
         total_full_monthly += full_monthly
         product_vi = _PRODUCT_VI_LABEL.get(product, product)
+        if _p_rate['source'] == 'entered':
+            # P1: the PM's actual rate, applied as entered (PM-1: a different VAT basis is disclosed, not
+            # converted); no comparable is named as its source.
+            _ENTERED_RATE_VAT[PRODUCT_REVENUE_EXPECTED_CODE[product]] = _p_rate['vat']
+            _mismatch = operating_inputs.vat_mismatch_vi(_p_rate['vat'])
+            _write_ramped_row(ws, row, [full_monthly * f for f in fills], (
+                operating_inputs.entered_rate_remark_vi(product_vi, rate, _p_rate['vat'], nfa,
+                                                        full_monthly, annual)
+                + f" {_anchor_note}" + (f" {_mismatch}" if _mismatch else '')))
+            continue
+        _apt_entered = (operating_inputs.FALLBACK_ENTERED_APARTMENT_VI
+                        if rates.get('apartment_entered') else '')
         basis = (f"Nguồn đơn giá: {len(used)} dự án tham chiếu thực tế — " + ', '.join(c['name'] for c in used)
                  if used else
                  f"DỰ PHÒNG — không có dự án tham chiếu nào trong danh sách chính có đơn giá thực tế "
-                 f"cho {product_vi}, nên đơn giá Apartment của dự án này được dùng thay thế. Đây "
+                 f"cho {product_vi}, nên đơn giá Apartment của dự án này{_apt_entered} được dùng thay thế. Đây "
                  f"KHÔNG phải đơn giá riêng cho {product_vi}.")
         _write_ramped_row(ws, row, [full_monthly * f for f in fills], (
             f"= Đơn giá {product_vi} ({rate:,.0f} VND/m²/tháng) x Diện tích tính phí {product_vi} "
@@ -2277,9 +2325,13 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
 
     # RM.0A — the developer's management fee on units not yet handed over. Mirror of the curve:
     # (full monthly fee for ALL units) x (1 - fill) each month, so RM + RM.0A = the full fee monthly.
-    developer_monthly = [total_full_monthly * (1 - f) for f in fills]
+    # At stable operation no unit awaits handover, so the developer pays nothing in any month, whatever
+    # the stable fill is (fill_curve.STABLE_FILL).
+    developer_monthly = ([0.0] * 12 if stable else
+                         [total_full_monthly * (1 - f) for f in fills])
     assert_row_code('mgmt_fee_developer', 'RM.0A')
-    _write_ramped_row(ws, MGMT_FUND_ROWS['mgmt_fee_developer'], developer_monthly, (
+    _write_ramped_row(ws, MGMT_FUND_ROWS['mgmt_fee_developer'], developer_monthly,
+                      operating_inputs.RM0A_STABLE_VI if stable else (
         f"= Tổng phí quản lý đầy đủ cho toàn bộ căn ({total_full_monthly:,.0f} VND/tháng) x (100% - "
         f"tỷ lệ lấp đầy%) mỗi tháng — chủ đầu tư chi trả phần phí cho các căn chưa bàn giao. Giảm về "
         f"0 khi tòa nhà lấp đầy dần. {_anchor_note} "
@@ -2323,25 +2375,41 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     car_full_monthly = PARKING_FEE_CAR_MONTHLY * car_slots
     _UNIT_RATES['RP1'] = PARKING_FEE_MOTO_MONTHLY
     _UNIT_RATES['RP2'] = PARKING_FEE_CAR_MONTHLY
-    moto_fills = parking_fills(moto_slots, units_for_parking)
-    car_fills = parking_fills(car_slots, units_for_parking)
+    moto_fills = parking_fills(moto_slots, units_for_parking, stable)
+    car_fills = parking_fills(car_slots, units_for_parking, stable)
 
     def _parking_note(slots, units, ramp_faster):
+        if stable:
+            return operating_inputs.PARKING_STABLE_VI
         base = ("phân bổ theo đường cong lấp đầy bãi xe tại trang 'Tiến độ lấp đầy bãi xe' (bám "
                 "theo đường cong cư dân, 0% -> khoảng 50% trong năm vận hành thứ nhất)")
         return base + (" — nhanh gấp khoảng 2 lần tốc độ lấp đầy cư dân do số chỗ đậu ít hơn số căn hộ"
                        if ramp_faster else "") + "."
+    # "= X VND/tháng khi lấp đầy 100%. <curve>" for a new building; "= X VND/tháng, tính lấp đầy bãi xe
+    # 100% ..." at stable operation (approved wording, design.md W1).
+    _full_clause = "," if stable else " khi lấp đầy 100%."
+    # P2 (use-operating-project-actuals): a recorded monthly figure, entered by the PM for a project at
+    # stable operation, replaces bays x default rate x fill for that vehicle type, flat over 12 months.
+    # _UNIT_RATES then holds the monthly figure, so the RPa narrative quotes it, not a per-bay rate.
+    _recorded = ((project.get('operating') or {}).get('parking')) or {}
+    for _key, _code, _vehicle in (('moto', 'RP1', 'parking_moto'), ('car', 'RP2', 'parking_car')):
+        if _recorded.get(_key) is not None:
+            _UNIT_RATES[_code] = _recorded[_key]
+            _write_ramped_row(ws, MGMT_FUND_ROWS[_vehicle], [_recorded[_key]] * 12,
+                              operating_inputs.parking_recorded_remark_vi(_key, _recorded[_key]))
 
-    _write_ramped_row(ws, MGMT_FUND_ROWS['parking_moto'], [moto_full_monthly * f for f in moto_fills], (
-        f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
-        f"Tower) x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
-        f"VND/tháng khi lấp đầy 100%. {_parking_note(moto_slots, units_for_parking, bool(moto_slots and units_for_parking and moto_slots < units_for_parking))} "
-        f"Tổng năm 1: {sum(moto_full_monthly * f for f in moto_fills):,.0f} VND."))
-    _write_ramped_row(ws, MGMT_FUND_ROWS['parking_car'], [car_full_monthly * f for f in car_fills], (
-        f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
-        f"Tower) x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng "
-        f"khi lấp đầy 100%. {_parking_note(car_slots, units_for_parking, bool(car_slots and units_for_parking and car_slots < units_for_parking))} "
-        f"Tổng năm 1: {sum(car_full_monthly * f for f in car_fills):,.0f} VND."))
+    if _recorded.get('moto') is None:
+        _write_ramped_row(ws, MGMT_FUND_ROWS['parking_moto'], [moto_full_monthly * f for f in moto_fills], (
+            f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
+            f"Tower) x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
+            f"VND/tháng{_full_clause} {_parking_note(moto_slots, units_for_parking, bool(moto_slots and units_for_parking and moto_slots < units_for_parking))} "
+            f"Tổng năm 1: {sum(moto_full_monthly * f for f in moto_fills):,.0f} VND."))
+    if _recorded.get('car') is None:
+        _write_ramped_row(ws, MGMT_FUND_ROWS['parking_car'], [car_full_monthly * f for f in car_fills], (
+            f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
+            f"Tower) x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng"
+            f"{_full_clause} {_parking_note(car_slots, units_for_parking, bool(car_slots and units_for_parking and car_slots < units_for_parking))} "
+            f"Tổng năm 1: {sum(car_full_monthly * f for f in car_fills):,.0f} VND."))
 
     # ---- Parking allocation weights (BM11/BN11) — change fix-parking-allocation-divide-by-zero.
     # 351 rows on this sheet carry '=IF(BK>0, BK*BM11/SUM(BM11:BN11), 0)'-shaped formulas (monthly
@@ -2361,7 +2429,12 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # weights (however they got there) is never overwritten.
     _bm11, _bn11 = ws['BM11'], ws['BN11']
     if _bm11.value in (None, '') and _bn11.value in (None, ''):
-        _bm11.value = moto_full_monthly + car_full_monthly
+        # P2 (design D4): a recorded monthly figure is the weight for its vehicle type. Only the ratio
+        # matters (BN11 = 0, so the split stays 100/0); when both recorded figures are 0 the weight falls
+        # back to bays x default rate so the divisor stays defined.
+        _weight = sum(_recorded[k] if _recorded.get(k) is not None else full
+                      for k, full in (('moto', moto_full_monthly), ('car', car_full_monthly)))
+        _bm11.value = _weight or (moto_full_monthly + car_full_monthly)
         _bn11.value = 0
         _bm11.comment = Comment(
             "Monthly-parking allocation weight — RP1 (motorbike) + RP2 (car) monthly parking revenue, "
@@ -2535,7 +2608,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         shop_units=(project['products'].get('Shophouse') or {}).get('units'),
         car_bays=car_slots, moto_bays=moto_slots,
         resident_fills=fills, car_fills=car_fills, moto_fills=moto_fills,
-        car_rate=PARKING_FEE_CAR_MONTHLY, moto_rate=PARKING_FEE_MOTO_MONTHLY)
+        car_rate=PARKING_FEE_CAR_MONTHLY, moto_rate=PARKING_FEE_MOTO_MONTHLY, stable=stable)
 
     # ---- RO2a "Bank Interest on Savills account" — a fund leaf where the template's own default
     # makes G (F x occurrences) disagree with AK (the month-by-month total '1. Summary' actually
@@ -2631,11 +2704,11 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                 existing_utilities.narrative_vi(_ur, _line)
                 + existing_utilities.adjustment_sentence(_ur, _line)))
     else:
+        _full_note = "." if stable else (f" (nếu lấp đầy 100%: {water_full_monthly * 12:,.0f} VND/năm).")
         _write_ramped_row(ws, MGMT_FUND_ROWS['water'], [water_full_monthly * f for f in fills], (
             _opex_remark('Water') + " " + _anchor_note
-            + f" Tổng năm 1: {sum(water_full_monthly * f for f in fills):,.0f} VND (nếu lấp đầy 100%: "
-            f"{water_full_monthly * 12:,.0f} VND/năm)."))
-        _elec_fills = year1_electricity_fills()
+            + f" Tổng năm 1: {sum(water_full_monthly * f for f in fills):,.0f} VND" + _full_note))
+        _elec_fills = year1_electricity_fills(stable)
         # The floor-at-40%/reaches-full-by-~40%-occupancy mechanism is already stated in Vietnamese by
         # _energy_narrative_vi() above (change localize-line-level-remarks, 2026-09-15) — this used to
         # restate it in English before that helper existed; corrected 2026-09-21 (found reading this
@@ -2643,10 +2716,12 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         # not repeat the mechanism a second time.
         _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], [elec_full_monthly * f for f in _elec_fills], (
             _opex_remark('Electricity')
-            + f" Tổng năm 1: {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND (nếu lấp đầy 100%: "
-            f"{elec_full_monthly * 12:,.0f} VND/năm)."))
+            + f" Tổng năm 1: {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND"
+            + ("." if stable else f" (nếu lấp đầy 100%: {elec_full_monthly * 12:,.0f} VND/năm).")))
     write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
                         remark=_opex_remark('Diesel (Generator Fuel)'))
+    # P4 (use-operating-project-actuals): collect-on-behalf (thu hộ / chi hộ) pairs, only where entered.
+    _write_collect_on_behalf(ws, project)
 
     # The other two categories estimate_opex() computes. Until 2026-09-09 both were calculated on
     # every run, written into the analysis workbook, counted in its Cost Priority ranking — and
@@ -3162,7 +3237,7 @@ COMMON_AREA_FUND_ROWS = {
 COMMON_AREA_FUND_EXPECTED_CODE = {'lcd_ad': 'RA1.A', 'lift_ad': 'RA2'}
 
 
-def _activate_common_area_passthrough_rows(ws):
+def _activate_common_area_passthrough_rows(ws, skip_codes=()):
     """'2.2 Common area Fund' ships 200+ expense leaf rows whose F column is a template-native
     XLOOKUP pulling a revenue-proportional share of the matching '2. Budget-Management Fund' leaf
     (F{row} = XLOOKUP(code, '2.Fund'!Y, '2.Fund'!AL) * $F$8) — the template's own already-correct
@@ -3179,7 +3254,7 @@ def _activate_common_area_passthrough_rows(ws):
     activated = []
     for row in range(1, ws.max_row + 1):
         code = ws.cell(row=row, column=25).value  # Y
-        if not code:
+        if not code or str(code).strip() in skip_codes:   # skip: collect-on-behalf lines (decision D11)
             continue
         c_cell = ws.cell(row=row, column=3)
         if c_cell.value not in (None, ''):
@@ -3258,6 +3333,85 @@ def _write_common_area_rp5_reason(ws):
     return None
 
 
+def _code_rows(ws, codes, sheet_label):
+    """{code: row} for each code in `codes`, found in column Y. Fails naming any code not found."""
+    rows = {}
+    for r in range(1, (ws.max_row or 1) + 1):
+        c = ws.cell(row=r, column=_CODE_COL).value
+        if isinstance(c, str) and c.strip() in codes:
+            rows[c.strip()] = r
+    missing = sorted(set(codes) - set(rows))
+    if missing:
+        raise ValueError(f"{sheet_label} has no row for {', '.join(missing)} (column Y).")
+    return rows
+
+
+def _collect_on_behalf_lines(project):
+    """The entered collect-on-behalf amounts as revenue/expense pairs (operating_inputs.cob_lines), each
+    monthly amount rounded to the VND once so the two sides of every pair add up exactly; [] when none."""
+    ops = project.get('operating') or {}
+    if not ops.get('cob'):
+        return []
+    lines = operating_inputs.cob_lines(ops, operating_inputs.cob_pairing(CATALOGUE_PATH))
+    for line in lines:
+        line['monthly'] = round(line['monthly'])
+    return lines
+
+
+def _write_collect_on_behalf(ws, project):
+    """P4 (use-operating-project-actuals): each entered amount on its RO3 (water) / RO4 (electricity)
+    revenue row and on the expense line the catalogue pairs it with (PM-2), flat over 12 months, so
+    revenue and expense rise by the same amount and the surplus does not move. Several revenue rows
+    paired with one expense line add up on it. Nothing is written when no amount is entered: the
+    guideline's "not estimated" stands. Returns the lines written."""
+    lines = _collect_on_behalf_lines(project)
+    if not lines:
+        return []
+    rows = _code_rows(ws, {l['revenue_code'] for l in lines} | {l['expense_code'] for l in lines},
+                      "'2. Budget-Management Fund'")
+    by_expense = {}
+    for line in lines:
+        product_vi = _PRODUCT_VI_LABEL.get(line['product'], line['product'])
+        _write_ramped_row(ws, rows[line['revenue_code']], [line['monthly']] * 12,
+                          operating_inputs.cob_revenue_remark_vi(line['utility'], product_vi, line['monthly'],
+                                                                 line['expense_code']))
+        by_expense.setdefault(line['expense_code'], []).append(line)
+    for code, paired in by_expense.items():
+        utilities = {l['utility'] for l in paired}
+        if len(utilities) != 1:
+            raise ValueError(f"{code} is paired with both water and electricity lines in the catalogue; "
+                             f"one expense line can carry only one utility.")
+        monthly = sum(l['monthly'] for l in paired)
+        _write_ramped_row(ws, rows[code], [monthly] * 12,
+                          operating_inputs.cob_expense_remark_vi(paired[0]['utility'], monthly,
+                                                                 [l['revenue_code'] for l in paired]))
+    return lines
+
+
+def _keep_collect_on_behalf_out_of_common_area(wb, ws, expense_codes):
+    """Decision D11 (2026-10-11): collect-on-behalf pairs stay out of '2.2 Common area Fund'. The paired
+    expense lines get no share there (their frequency stays blank, so the template's own E is 0) and say
+    why, and F8's revenue base leaves out the RO3/RO4 revenue rows, so every other line's share - and RI1,
+    which reads this sheet's expense total back as revenue - is what it would be without the amounts."""
+    rows = _code_rows(ws, set(expense_codes), "'2.2 Common area Fund'")
+    for code, row in rows.items():
+        ws.cell(row=row, column=3, value=None)
+        _write_remark(ws, row, operating_inputs.COB_COMMON_AREA_VI)
+    fund = wb['2. Budget-Management Fund']
+    ranges = []
+    for prefix in ('RO3.', 'RO4.'):
+        rs = [r for r in range(1, (fund.max_row or 1) + 1)
+              if str(fund.cell(row=r, column=_CODE_COL).value or '').startswith(prefix)]
+        if rs:
+            ranges.append(f"'2. Budget-Management Fund'!$AL${min(rs)}:$AL${max(rs)}")
+    base = "SUBTOTAL(9,'2. Budget-Management Fund'!$AL$13:$AL$76)"
+    f8 = str(ws['F8'].value or '')
+    if base not in f8:
+        raise ValueError(f"'2.2 Common area Fund'!F8 is {f8!r}, not the template's revenue-share formula; "
+                         f"cannot leave the collect-on-behalf revenue out of its base.")
+    ws['F8'] = f8.replace(base, f"({base}-SUBTOTAL(9,{','.join(ranges)}))")
+
+
 def fill_common_area_fund_sheet(wb, project):
     """Elevator/lobby advertising revenue — real per-device rates (Fact_MasterRateCard.csv) already
     computed by generate_project_output.py's build_additional_revenue_sheet (ELEVATOR_AD_ITEMS),
@@ -3273,9 +3427,12 @@ def fill_common_area_fund_sheet(wb, project):
     from generate_project_output import ELEVATOR_AD_ITEMS, _real_ad_frame_qty, _real_basement_lcd_qty
     ws = wb['2.2 Common area Fund']
     _assert_leaf_rows(ws, '2.2 Common area Fund', COMMON_AREA_FUND_ROWS, COMMON_AREA_FUND_EXPECTED_CODE)
-    _activate_common_area_passthrough_rows(ws)
+    _cob_expense_codes = sorted({l['expense_code'] for l in _collect_on_behalf_lines(project)})
+    _activate_common_area_passthrough_rows(ws, skip_codes=_cob_expense_codes)
     _write_common_area_zero_reasons(ws)
     _write_common_area_rp5_reason(ws)
+    if _cob_expense_codes:
+        _keep_collect_on_behalf_out_of_common_area(wb, ws, _cob_expense_codes)
 
     # Vietnamese display name and assumption text per item, kept SEPARATE from ELEVATOR_AD_ITEMS'
     # own `item`/`assumption` fields (change localize-line-level-remarks, 2026-09-15) rather than
@@ -3489,6 +3646,10 @@ def build_budget(project, demand, year):
     # no comparable carries an Apartment rate at all (see the resolver's docstring).
     rates = resolve_product_rates(project)
     derived_rate, top2, rate_note = rates['apartment_rate'], rates['comparables'], rates['rate_note']
+    # Which operating-project fields this run found, and the entered-vs-comparable rates (design D6).
+    for line in operating_inputs.report_lines(
+            project.get('operating') or operating_inputs.blank_inputs(), rates):
+        print(line)
 
     own_real = next((c for c in MASTER_COMPARABLES
                       if c['name'].strip().lower() in project['name'].strip().lower()
@@ -3654,6 +3815,7 @@ def build_budget(project, demand, year):
     _ZERO_REASONS.clear()
     _CATCH_ALL_REASONS.clear()
     _UNIT_RATES.clear()
+    _ENTERED_RATE_VAT.clear()
     # Existing-project mode (change carry-forward-staffing): computed once here, before the fund
     # sheet, because EMH2's formula needs to know how many A1 rows go below the table.
     existing = existing_result(project, demand, _budget_year(wb, year))
@@ -3723,7 +3885,7 @@ def build_budget(project, demand, year):
     wb.save(local_out)
     print('Saved locally:', local_out)
 
-    add_comparison_sheet(local_out, project, top2, derived_rate, rate_note, own_real)
+    add_comparison_sheet(local_out, project, top2, derived_rate, rate_note, own_real, rates=rates)
 
     os.makedirs(BUDGET_OUT_DIR, exist_ok=True)
     out_path = os.path.join(BUDGET_OUT_DIR, out_filename)
@@ -3743,7 +3905,7 @@ def build_budget(project, demand, year):
     return out_path
 
 
-def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, own_real):
+def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, own_real, rates=None):
     wb = openpyxl.load_workbook(path, data_only=False)
 
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
@@ -3863,7 +4025,16 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
                  ['—'] + [f"{(c['rates'].get('Apartment') or c['mgmt_rate']):,} ({c['mgmt_rate_vat']})"
                           if (c['rates'].get('Apartment') or c['mgmt_rate']) else 'BLANK (no real rate)'
                           for c in comparables])
-    r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=reality_fill)
+    _entered = (rates or {}).get('apartment_entered')
+    if _entered:
+        # P1: the comparables and the rate they give stay for reference; the applied rate is the PM's.
+        _model = rates.get('apartment_comparable_rate')
+        r = data_row(r, 'MODEL-DERIVED Apartment rate (this project, reference only)',
+                     [f'{_model:,}' if _model else 'none (no comparable rate)', '', ''])
+        r = data_row(r, f"APPLIED Apartment rate — PM-entered actual rate ({_entered['vat']})",
+                     [f'{derived_rate:,}', '', ''], fill=reality_fill)
+    else:
+        r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=reality_fill)
     if rate_note:
         r = data_row(r, 'Derivation note', [rate_note, '', ''])
     if own_real:
@@ -3965,7 +4136,7 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
                  fill=reality_fill)
 
     # -- Verdict: one line. Fee-vs-range is known now; the balance clause is a live IF on H46. --
-    fee_clause = _benchmark_fee_clause(derived_rate, comp_apt_rates)
+    fee_clause = _benchmark_fee_clause(derived_rate, comp_apt_rates, entered=bool(_entered))
     verdict = (f'="{fee_clause}"'
                f'&IF({_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}<0,'
                f'" The operating budget does NOT balance before Savills’ fee.",'

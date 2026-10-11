@@ -155,7 +155,7 @@ _RM_PRODUCT_ROWS = {
 _RM_DEVELOPER_ROW = 23  # RM.0A — developer top-up on unsold units (info only here)
 
 
-def check_revenue_agreement(paths):
+def check_revenue_agreement(paths, stable=False):
     """Run the client deliverable and the internal analysis side by side and confirm they price
     management-fee revenue the same way — same full-year total, same figure per product.
 
@@ -176,7 +176,8 @@ def check_revenue_agreement(paths):
     from verification.baseline import BaselineUnavailable
     from fill_curve import year1_fills
 
-    sum_fills = sum(year1_fills())
+    # A project declared at stable operation is flat at the stable fill (use-operating-project-actuals P3).
+    sum_fills = sum(year1_fills(stable))
 
     try:
         import pythoncom
@@ -1719,12 +1720,15 @@ def check_method_coverage(paths):
             raise BaselineUnavailable("'2. Budget-Management Fund' not found on the deliverable.")
 
         written_codes = mc.write_site_codes()
+        # Codes written only when the PM enters them (collect-on-behalf pairs) carry their verdict in
+        # the catalogue (approved departures); they count only when this run wrote a figure on them.
+        departure_codes = set(mc.departure_verdicts())
         for r in range(1, 495):
             code = fund_ws.Cells(r, 25).Value2  # Y — cost code
             if not (isinstance(code, str) and code.strip()):
                 continue
             code = code.strip()
-            if code not in written_codes:
+            if code not in written_codes and code not in departure_codes:
                 continue
             g = fund_ws.Cells(r, 7).Value2  # G — Total Price
             if isinstance(g, (int, float)) and g:

@@ -33,6 +33,7 @@ from generate_project_budget import (read_input, INPUT_PATH, PRODUCT_ROWS, exist
                                      template_budget_year, utilities_result, template_vat_inclusive)
 import existing_utilities
 import existing_staffing
+import operating_inputs
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
     RATE_CARD_SOURCE, resolve_product_rates,
@@ -44,7 +45,8 @@ import labor_law_params
 # The month-by-month fill-up ramp now lives in fill_curve.py, shared with generate_project_budget.py
 # so the client deliverable and this analysis ramp identically. Same curve as before — moved, not
 # changed (0% at month 0, linear to 0.50/0.70/0.90/1.00 at each year end).
-from fill_curve import MONTH_ANCHORS as _MONTH_ANCHORS, monthly_fill_path as _monthly_fill_path
+from fill_curve import (MONTH_ANCHORS as _MONTH_ANCHORS, monthly_fill_path as _monthly_fill_path,
+                        STABLE_FILL as _STABLE_FILL)
 
 SOURCE_DIR = os.path.dirname(__file__)
 BUDGET_AGENT = os.path.abspath(os.path.join(SOURCE_DIR, '..'))
@@ -252,6 +254,10 @@ def build_management_fee_sheet(wb, project):
     # deliverable had.
     rates = resolve_product_rates(project)
     apt_rate, apt_note = rates['apartment_rate'], rates['rate_note']
+    # Which operating-project fields this run found, and the entered-vs-comparable rates (design D6).
+    for line in operating_inputs.report_lines(
+            project.get('operating') or operating_inputs.blank_inputs(), rates):
+        print(line)
     own_real = next((c for c in MASTER_COMPARABLES
                       if c['name'].strip().lower() in project['name'].strip().lower() and c['rates'].get('Apartment')), None)
 
@@ -270,12 +276,20 @@ def build_management_fee_sheet(wb, project):
     r += 2
 
     section(ws, r, 'DERIVED APARTMENT RATE (also the fallback for products with no real rate of their own)', ncols=5); r += 1
-    ws.cell(row=r, column=1, value='Derived Apartment rate (VND/m²/month)').font = Font(bold=True)
+    apt_entered = rates.get('apartment_entered')     # P1: the PM's actual Apartment rate, when entered
+    ws.cell(row=r, column=1, value=(f"Applied Apartment rate — PM-entered actual rate ({apt_entered['vat']}) "
+                                    f"(VND/m²/month)" if apt_entered else
+                                    'Derived Apartment rate (VND/m²/month)')).font = Font(bold=True)
     rate_cell = ws.cell(row=r, column=2, value=apt_rate)
     rate_cell.fill = HIGHLIGHT_FILL
     rate_cell.number_format = MONEY_FMT
     rate_cell.border = BORDER
     r += 1
+    if apt_entered:
+        ws.cell(row=r, column=1, value='Comparable-derived Apartment rate (reference only)').font = Font(italic=True, size=9)
+        c = ws.cell(row=r, column=2, value=rates.get('apartment_comparable_rate'))
+        c.number_format = MONEY_FMT
+        r += 1
     if apt_note:
         ws.cell(row=r, column=1, value='Note').font = Font(italic=True, size=9)
         ws.cell(row=r, column=2, value=apt_note).alignment = LEFT
@@ -313,7 +327,14 @@ def build_management_fee_sheet(wb, project):
         _p_rate = rates['products'][product]
         rate, used, note, is_fallback = _p_rate['rate'], _p_rate['used'], _p_rate['note'], _p_rate['is_fallback']
         if is_fallback:
-            note = f"No comparable has a real {product} rate — using this project's derived Apartment rate ({apt_rate:,}) as the best available proxy."
+            note = (f"No comparable has a real {product} rate — using this project's "
+                    + ("applied Apartment rate, the PM-entered actual rate" if apt_entered else "derived Apartment rate")
+                    + f" ({apt_rate:,}) as the best available proxy.")
+        if _p_rate['source'] == 'entered':
+            _cmp = _p_rate.get('comparable_rate')
+            note = (f"PM-entered actual rate ({_p_rate['vat']}), applied as entered with no VAT conversion; "
+                    + (f"comparables give {_cmp:,.0f} ({(rate - _cmp) / _cmp * 100:+.1f}%)." if _cmp
+                       else "no comparable has a rate for it."))
         ws.cell(row=r, column=1, value=product).border = BORDER
         c2 = ws.cell(row=r, column=2, value=nfa)
         c2.border = BORDER
@@ -323,7 +344,9 @@ def build_management_fee_sheet(wb, project):
         c3.number_format = MONEY_FMT
         if is_fallback:
             c3.font = Font(italic=True, color='C00000')
-        source_label = (f"{len(used)} real comparable(s): " + ', '.join(c['name'] for c in used)) if used else 'Apartment rate (fallback — no product-specific comparable)'
+        source_label = (f"PM-entered actual rate ({_p_rate['vat']})" if _p_rate['source'] == 'entered' else
+                        (f"{len(used)} real comparable(s): " + ', '.join(c['name'] for c in used)) if used else
+                        'Apartment rate (fallback — no product-specific comparable)')
         c4 = ws.cell(row=r, column=4, value=source_label)
         c4.border = BORDER
         c4.alignment = LEFT
@@ -360,7 +383,9 @@ def build_management_fee_sheet(wb, project):
         ws.column_dimensions[col].width = w
 
     return dict(monthly_revenue_cell=MONTHLY_REVENUE_CELL, annual_revenue_cell=ANNUAL_REVENUE_CELL,
-                derived_rate=apt_rate, top2=rates['comparables'], rate_note=apt_note, own_real=own_real)
+                derived_rate=apt_rate, top2=rates['comparables'], rate_note=apt_note, own_real=own_real,
+                apartment_entered=rates.get('apartment_entered'),
+                apartment_comparable_rate=rates.get('apartment_comparable_rate'))
 
 
 # ============================================================================================
@@ -411,7 +436,16 @@ def build_comparison_sheet(wb, project, mgmt):
     section(ws, r, 'APARTMENT MANAGEMENT FEE RATE', ncols=4); r += 1
     r = data_row(r, 'Real Apartment rate per comparable (VND/m²/month)',
                  ['—'] + [f"{c['rates']['Apartment']:,} ({c['mgmt_rate_vat']})" for c in top2])
-    r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
+    _entered = mgmt.get('apartment_entered')
+    if _entered:
+        # P1: the comparables and the rate they give stay for reference; the applied rate is the PM's.
+        _model = mgmt.get('apartment_comparable_rate')
+        r = data_row(r, 'MODEL-DERIVED Apartment rate (this project, reference only)',
+                     [f'{_model:,}' if _model else 'none (no comparable rate)', '', ''])
+        r = data_row(r, f"APPLIED Apartment rate — PM-entered actual rate ({_entered['vat']})",
+                     [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
+    else:
+        r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
     if rate_note:
         r = data_row(r, 'Derivation note', [rate_note, '', ''])
     if own_real:
@@ -1369,6 +1403,39 @@ def _real_basement_lcd_qty(project):
     return round(real_basements)
 
 
+def _collect_on_behalf_table(ws, r, project):
+    """P4 (use-operating-project-actuals): the collect-on-behalf pairs the deliverable writes, each amount
+    twice - on its RO3/RO4 revenue line and on the paired expense line - from the same entered figures.
+    Pass-through money: not added to any profit or revenue total here, so this workbook's figures do not
+    move. Nothing is shown when no amount is entered."""
+    from generate_project_budget import _collect_on_behalf_lines
+    lines = _collect_on_behalf_lines(project)
+    if not lines:
+        return r
+    section(ws, r, 'COLLECT ON BEHALF (THU HỘ / CHI HỘ) — pass-through pairs, net 0, not in any total', ncols=6)
+    r += 1
+    headers = ['Product / utility', 'Revenue line', 'Revenue (VND/year)', 'Paired expense line',
+               'Expense (VND/year)', 'Source']
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+    for line in lines:
+        values = [f"{line['product']} {line['utility']}", line['revenue_code'], line['monthly'] * 12,
+                  line['expense_code'], line['monthly'] * 12,
+                  'Entered by the PM on Project Info (VND/month x 12); paid out on residents\' behalf.']
+        for c, v in enumerate(values, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = BORDER
+            if c in (3, 5):
+                cell.number_format = MONEY_FMT
+        r += 1
+    return r
+
+
 def build_additional_revenue_sheet(wb, project):
     """Extra Revenue beyond the management fee — Parking Fee and Elevator Advertising. New
     category: A&K Tower's own real budget structure ("A1. Tổng hợp" sheet) explicitly separates
@@ -1410,22 +1477,28 @@ def build_additional_revenue_sheet(wb, project):
         cell.border = BORDER
     r += 1
     parking_first_row = r
-    for label, rate, slots in [('Car', PARKING_FEE_CAR_MONTHLY, project.get('car_slots') or 0),
-                                ('Motorbike', PARKING_FEE_MOTO_MONTHLY, project.get('moto_slots') or 0)]:
+    # P2 (use-operating-project-actuals): a recorded monthly figure the PM entered replaces rate x slots,
+    # the same figure the deliverable writes on RP1/RP2.
+    recorded = ((project.get('operating') or {}).get('parking')) or {}
+    for label, key, rate, slots in [('Car', 'car', PARKING_FEE_CAR_MONTHLY, project.get('car_slots') or 0),
+                                     ('Motorbike', 'moto', PARKING_FEE_MOTO_MONTHLY, project.get('moto_slots') or 0)]:
+        monthly = recorded.get(key)
         ws.cell(row=r, column=1, value=label).border = BORDER
-        c2 = ws.cell(row=r, column=2, value=rate)
+        c2 = ws.cell(row=r, column=2, value=rate if monthly is None else None)
         c2.number_format = MONEY_FMT
         c2.border = BORDER
         c3 = ws.cell(row=r, column=3, value=slots)
         c3.border = BORDER
         c3.alignment = CENTER
-        c4 = ws.cell(row=r, column=4, value=f'=B{r}*C{r}')
+        c4 = ws.cell(row=r, column=4, value=f'=B{r}*C{r}' if monthly is None else monthly)
         c4.number_format = MONEY_FMT
         c4.border = BORDER
         c5 = ws.cell(row=r, column=5, value=f'=D{r}*12')
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        c6 = ws.cell(row=r, column=6, value=PARKING_FEE_SOURCE)
+        c6 = ws.cell(row=r, column=6, value=PARKING_FEE_SOURCE if monthly is None else (
+            'Recorded average monthly revenue entered by the PM (Project Info, project at stable operation); '
+            'not slots x rate.'))
         c6.border = BORDER
         c6.alignment = LEFT
         r += 1
@@ -1575,6 +1648,8 @@ def build_additional_revenue_sheet(wb, project):
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:F{r}')
     ws.row_dimensions[r].height = 40
+    r += 1
+    _collect_on_behalf_table(ws, r + 1, project)
 
     for col, w in {'A': 40, 'B': 22, 'C': 20, 'D': 20, 'E': 20, 'F': 60}.items():
         ws.column_dimensions[col].width = w
@@ -2174,6 +2249,7 @@ def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
     reduces to a cell in THIS project's real source data the way Levers 1-4 do."""
     ws = wb.create_sheet('Year 1 Strategy')
     title_block(ws, 'Year 1 Strategy — Avoiding Negative Profit Before Full Occupancy',
+                _stable_prefix(project, SENSITIVITY_STABLE_NOTE_EN) +
                 'Real projects rarely open at 90%+ fill. This sheet lays out how to still clear Year 1 while '
                 'ramping up — Levers 1-4 are live formulas reading numbers already built into this workbook; '
                 'Lever 5 is real-world practice this workbook doesn\'t model with a cell. See NOTES at the bottom.',
@@ -2489,7 +2565,8 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     )
     section(ws, r, 'FILL-UP SCENARIOS — revenue ramps with fill %, costs (per toggle above) assumed at full regardless', ncols=6); r += 1
     ws.cell(row=r, column=1,
-            value=('Simplifying assumption, not derived from real data: Mgmt Fee Revenue (3) scales with fill % (fewer '
+            value=(_stable_prefix(project, SENSITIVITY_STABLE_NOTE_EN) +
+                   'Simplifying assumption, not derived from real data: Mgmt Fee Revenue (3) scales with fill % (fewer '
                    'paying units at lower fill); Staff (4)/OPEX (7)/Capex (6) — per the Cost Basis toggle above — are '
                    'held at full regardless of fill % (the building still needs full staffing and utilities even '
                    'during ramp-up, at whichever service tier the toggle selects). Total Profit Value here uses the '
@@ -2588,6 +2665,27 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
 
 
 YEAR_FILL_PATH = [('Year 1', 0.50), ('Year 2', 0.70), ('Year 3', 0.90), ('Year 4', 1.00)]
+
+# 'Stable Operation?' = Yes on the intake form (change use-operating-project-actuals, P3): the yearly and
+# monthly views run at fill_curve.STABLE_FILL in every period, and the notes say so. The two what-if
+# tables (Summary 'Fill-up Scenarios', 'Year 1 Strategy') stay as sensitivities with one line saying the
+# budget itself uses 100% (answer A1, 2026-10-11).
+STABLE_NOTE_EN = ("STABLE OPERATION: the intake form declares this project at stable operation (Stable "
+                  "Operation? = Yes), so every year and month on this sheet is at 100% fill; the new-building "
+                  "50/70/90/100% path described here is not applied. ")
+SENSITIVITY_STABLE_NOTE_EN = ("STABLE OPERATION: the budget uses 100% fill (intake 'Stable Operation?' = Yes); "
+                              "this table is a sensitivity for reference only. ")
+
+
+def _year_fill_path(project):
+    """YEAR_FILL_PATH, or every year at the stable fill when the project is declared at stable operation."""
+    if project.get('stable_operation'):
+        return [(label, _STABLE_FILL) for label, _pct in YEAR_FILL_PATH]
+    return YEAR_FILL_PATH
+
+
+def _stable_prefix(project, note=STABLE_NOTE_EN):
+    return note if project.get('stable_operation') else ''
 
 # Disclosed assumption, NOT real data: Capex on the rollover sheets follows a sinking-fund
 # pattern — Year 1 always carries the full initial fit-out lump sum (matches the Summary/Cost
@@ -2698,7 +2796,8 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     r = 4
     section(ws, r, 'YEAR-BY-YEAR OPERATING POSITION', ncols=6); r += 1
     ws.cell(row=r, column=1,
-            value=(f'Simplifying assumption, not derived from a real ramp-up schedule: treats the same 50/70/90/100% '
+            value=(_stable_prefix(project) +
+                   f'Simplifying assumption, not derived from a real ramp-up schedule: treats the same 50/70/90/100% '
                    f'fill path used elsewhere in this workbook as 4 sequential years, one stage per year. Staff/OPEX '
                    f'are held at full each year (per the Cost Basis toggle). Capex follows a sinking-fund pattern: '
                    f'Year 1 carries the full initial lump sum (matching the Summary/Cost Priority sheets exactly), '
@@ -2722,7 +2821,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     r += 1
     year_first_row = r
     prev_cum_cell = None
-    for i, (year_label, pct) in enumerate(YEAR_FILL_PATH):
+    for i, (year_label, pct) in enumerate(_year_fill_path(project)):
         ws.cell(row=r, column=1, value=year_label).border = BORDER
         ws.cell(row=r, column=1).alignment = CENTER
         ws.cell(row=r, column=2, value=pct).number_format = '0%'
@@ -2768,7 +2867,8 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
 
     section(ws, r, 'MONTHLY BREAKDOWN (48 months, smooth ramp — see NOTES for the interpolation assumption)', ncols=8); r += 1
     ws.cell(row=r, column=1,
-            value=(f'Fill % ramps smoothly month to month toward the SAME 50/70/90/100% year-end anchors used above '
+            value=(_stable_prefix(project) +
+                   f'Fill % ramps smoothly month to month toward the SAME 50/70/90/100% year-end anchors used above '
                    f'— starting near 0%, not flat for all 12 months of Year 1. This shows worse early-month numbers '
                    f'than the flat yearly average above, on purpose: a real building doesn\'t open at 50% fill on '
                    f'day 1. Capex follows the same sinking-fund pattern as the yearly table: a full lump sum hits '
@@ -2792,7 +2892,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     r += 1
     month_first_row = r
     prev_cum_cell = None
-    for month_num, month_label, fill in _monthly_fill_path():
+    for month_num, month_label, fill in _monthly_fill_path(bool(project.get('stable_operation'))):
         ws.cell(row=r, column=1, value=month_label).border = BORDER
         ws.cell(row=r, column=1).alignment = CENTER
         c2 = ws.cell(row=r, column=2, value=fill)
@@ -2934,7 +3034,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         cell.border = BORDER
     r += 1
     prev_cum_cell = None
-    for year_label, pct in YEAR_FILL_PATH:
+    for year_label, pct in _year_fill_path(project):
         ws.cell(row=r, column=1, value=year_label).border = BORDER
         ws.cell(row=r, column=1).alignment = CENTER
         ws.cell(row=r, column=2, value=pct).number_format = '0%'
@@ -3030,7 +3130,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         cell.border = BORDER
     r += 1
     prev_cum_cell = None
-    for i, (year_label, pct) in enumerate(YEAR_FILL_PATH):
+    for i, (year_label, pct) in enumerate(_year_fill_path(project)):
         ws.cell(row=r, column=1, value=year_label).border = BORDER
         ws.cell(row=r, column=1).alignment = CENTER
         ws.cell(row=r, column=2, value=pct).number_format = '0%'
@@ -3062,7 +3162,8 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
 
     section(ws, r, 'MONTHLY BREAKDOWN — the rollover receivable (48 months, smooth ramp — see NOTES)', ncols=7); r += 1
     ws.cell(row=r, column=1,
-            value=(f'Same smooth month-by-month fill % ramp used on the Owner Operating Position sheet, applied to '
+            value=(_stable_prefix(project) +
+                   f'Same smooth month-by-month fill % ramp used on the Owner Operating Position sheet, applied to '
                    f'the receivable above. Staff/OPEX/Profit portion is held flat per month; Capex follows the same '
                    f'sinking-fund pattern as the yearly table — a full lump sum in the first month of every year '
                    f'before {DROP_YEAR_NOTE}, then a {CAPEX_RESERVE_RATE:.1%} reserve contribution spread evenly '
@@ -3082,7 +3183,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
         cell.border = BORDER
     r += 1
     prev_cum_cell = None
-    for month_num, month_label, fill in _monthly_fill_path():
+    for month_num, month_label, fill in _monthly_fill_path(bool(project.get('stable_operation'))):
         ws.cell(row=r, column=1, value=month_label).border = BORDER
         ws.cell(row=r, column=1).alignment = CENTER
         c2 = ws.cell(row=r, column=2, value=fill)

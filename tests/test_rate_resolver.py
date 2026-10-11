@@ -146,3 +146,52 @@ def test_project_location_and_size_reach_the_capped_call(mc, monkeypatch):
     assert seen == dict(project_nfa=41_000, exclude_name='ZZ Invented Tower', product='Apartment',
                         input_district='Quan Alpha', input_city='Thanh pho X',
                         input_lat=10.5, input_lon=106.5)
+
+
+# ---------------------------------------------------------------- P1: an entered rate wins
+
+def entered(p, **rates):
+    """Attach entered rates as read_input() does (project['operating']['rates'])."""
+    p['operating'] = dict(rates={k.replace('_', ' '): dict(rate=v[0], vat=v[1]) for k, v in rates.items()})
+    return p
+
+
+def test_entered_apartment_rate_is_applied_uncapped(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    plain = mc.resolve_product_rates(project({'Apartment': 50_000}))
+    res = mc.resolve_product_rates(entered(project({'Apartment': 50_000}), Apartment=(40_000, 'excl. VAT')))
+    # far outside any swing cap around the comparable-derived 16,000: applied unchanged
+    assert res['apartment_rate'] == 40_000 and res['apartment_source'] == 'entered'
+    apt = res['products']['Apartment']
+    assert (apt['rate'], apt['source'], apt['vat'], apt['used']) == (40_000, 'entered', 'excl. VAT', [])
+    assert apt['comparable_rate'] == res['apartment_comparable_rate'] == plain['apartment_rate']
+    assert res['comparables'] == plain['comparables']          # the Comparison sheet keeps them
+    assert res['apartment_entered'] == dict(rate=40_000, vat='excl. VAT')
+
+
+def test_fallback_product_follows_the_entered_apartment_rate(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    res = mc.resolve_product_rates(entered(project({'Apartment': 50_000, 'Villas': 2_000}),
+                                           Apartment=(21_000, 'incl. VAT')))
+    villas = res['products']['Villas']
+    assert (villas['rate'], villas['source'], villas['is_fallback']) == (21_000, 'apartment-fallback', True)
+
+
+def test_product_with_its_own_comparable_is_unchanged_by_another_entered_rate(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    plain = mc.resolve_product_rates(project({'Apartment': 50_000, 'Shophouse': 1_000}))
+    res = mc.resolve_product_rates(entered(project({'Apartment': 50_000, 'Shophouse': 1_000}),
+                                           Apartment=(21_000, 'incl. VAT')))
+    assert res['products']['Shophouse']['rate'] == plain['products']['Shophouse']['rate']
+    assert res['products']['Shophouse']['source'] == 'comparable'
+
+
+def test_entered_non_apartment_rate_keeps_its_comparable_for_reference(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    plain = mc.resolve_product_rates(project({'Apartment': 50_000, 'Shophouse': 1_000}))
+    res = mc.resolve_product_rates(entered(project({'Apartment': 50_000, 'Shophouse': 1_000}),
+                                           Shophouse=(99_000, 'incl. VAT')))
+    sh = res['products']['Shophouse']
+    assert (sh['rate'], sh['source'], sh['comparable_rate']) == (99_000, 'entered',
+                                                                  plain['products']['Shophouse']['rate'])
+    assert res['apartment_rate'] == plain['apartment_rate'] and res['apartment_entered'] is None

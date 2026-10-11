@@ -415,6 +415,35 @@ METHOD_VERDICTS = {
 }
 
 
+def departure_verdicts(catalogue_path=None):
+    """Verdicts for codes whose catalogue entry departs from the AI Guideline (spec costing-method-catalogue,
+    requirement "A method that departs from the AI Guideline records who approved it"; change
+    use-operating-project-actuals). Read from the catalogue's own record in `precedence_note`, never
+    hand-kept here: an approved departure (approver, date and decision record all present) is the expected
+    method, 'matches'; a departure without that record is a 'mismatch'.
+
+    These codes are written only when the PM enters an amount, so they are not in write_site_codes() and
+    leave the verdict cross-check and the coverage figures unchanged; compute_fidelity() and the coverage
+    check read a written one through here."""
+    import operating_inputs as oi
+    out = {}
+    for row in oi._catalogue_rows(catalogue_path):
+        rec = oi.parse_departure(row.get('precedence_note'))
+        if rec.get('departs_from_guideline') != 'yes':
+            continue
+        approved = all(rec.get(k) for k in ('approved_by', 'approved_on', 'decision_record'))
+        out[row['code'].strip()] = dict(
+            spec_method=row.get('method'),
+            actual_method=row.get('method_detail'),
+            verdict='matches' if approved else 'mismatch',
+            reasoning=(f"Approved departure from the AI Guideline ({rec.get('guideline_says', '')}); approved by "
+                       f"{rec.get('approved_by')} on {rec.get('approved_on')}, {rec.get('decision_record')}."
+                       if approved else
+                       f"Departs from the AI Guideline ({rec.get('guideline_says', '')}) with no approval record."),
+        )
+    return out
+
+
 def check_method_verdicts():
     """Cross-check the recorded verdicts against the pipeline's actual write sites (design.md D2).
 
@@ -430,7 +459,7 @@ def check_method_verdicts():
     return (not missing and not orphaned), missing, orphaned
 
 
-def compute_fidelity(code_to_value):
+def compute_fidelity(code_to_value, catalogue_path=None):
     """Share of written cost that matches, partially matches, and does not match the spec's stated
     method (task 4.3), plus which codes make up each share (task 4.4).
 
@@ -449,8 +478,9 @@ def compute_fidelity(code_to_value):
             f"{missing}, orphaned verdicts for {orphaned}. Fix the registry or the write sites first.")
 
     buckets = {'matches': [], 'partial': [], 'mismatch': []}
+    departures = departure_verdicts(catalogue_path)
     for code, value in code_to_value.items():
-        verdict = METHOD_VERDICTS[code]['verdict']
+        verdict = (METHOD_VERDICTS.get(code) or departures[code])['verdict']
         buckets[verdict].append((code, value))
 
     total_value = sum(v for _c, v in code_to_value.items())

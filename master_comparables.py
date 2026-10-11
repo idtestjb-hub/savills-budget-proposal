@@ -633,6 +633,11 @@ def resolve_product_rates(project):
                  had this step.
       others     derive_product_rate() over the same coordinate-aware ranking, uncapped; when no
                  comparable carries that product's rate, the project's applied Apartment rate.
+      entered    (P1) a rate the PM entered on the Product Mix row, read into
+                 project['operating']['rates'], ranks ahead of both and is not capped. An entered
+                 Apartment rate is then also the applied Apartment rate the fallback uses. The
+                 comparable-derived rate is still computed and kept as `comparable_rate` for the
+                 Comparison sheets and the printout.
 
     `project` is read_input()'s dict (name, total_nfa, district, city, lat, lon, products).
     Returns a dict:
@@ -642,9 +647,13 @@ def resolve_product_rates(project):
                    comparables on the blended fallback
       rate_note    the note the Comparison sheets show (apartment_note, plus BLENDED_FALLBACK_NOTE)
       all_ranked   the coordinate-aware full ranking
-      products     {product: dict(rate, used, note, source, is_fallback)} for every product with
-                   area, in the order of project['products']; source is 'comparable',
-                   'apartment-fallback' or (Apartment only) 'blended-fallback'
+      products     {product: dict(rate, used, note, source, is_fallback, vat, comparable_rate)} for
+                   every product with area, in the order of project['products']; source is
+                   'entered', 'comparable', 'apartment-fallback' or (Apartment only)
+                   'blended-fallback'; vat is the entered VAT basis (None otherwise); comparable_rate
+                   is the comparable-derived rate (None when no comparable has one)
+      apartment_comparable_rate  the Apartment rate the comparables give, whether or not one was entered
+      apartment_entered          dict(rate, vat) when the PM entered the Apartment rate, else None
     Raises ValueError when no comparable has any management-fee rate."""
     loc = dict(input_district=project.get('district'), input_city=project.get('city'))
     apt_rate, apt_used, apt_note, all_ranked = derive_product_rate_capped(
@@ -658,6 +667,11 @@ def resolve_product_rates(project):
         apt_rate, blended_note = derive_mgmt_rate(comparables, all_ranked=all_ranked)
         rate_note = ((blended_note + '  ') if blended_note else '') + BLENDED_FALLBACK_NOTE
         apt_source = 'blended-fallback'
+    entered = ((project.get('operating') or {}).get('rates')) or {}
+    apt_comparable_rate = apt_rate
+    apt_entered = entered.get('Apartment')
+    if apt_entered:
+        apt_rate, apt_source = apt_entered['rate'], 'entered'
     if apt_rate is None:
         raise ValueError("Could not derive a management-fee rate — no comparable in the master table has one.")
 
@@ -666,16 +680,22 @@ def resolve_product_rates(project):
         if not (info or {}).get('nfa'):
             continue
         if product == 'Apartment':
-            products[product] = dict(rate=apt_rate, used=apt_used, note=apt_note, source=apt_source,
-                                     is_fallback=False)
+            products[product] = dict(rate=apt_rate, used=[] if apt_entered else apt_used, note=apt_note,
+                                     source=apt_source, is_fallback=False,
+                                     vat=apt_entered['vat'] if apt_entered else None,
+                                     comparable_rate=apt_comparable_rate)
             continue
         rate, used, note = derive_product_rate(all_ranked, product, n=2)
-        if rate is None:
+        if product in entered:
+            products[product] = dict(rate=entered[product]['rate'], used=[], note=note, source='entered',
+                                     is_fallback=False, vat=entered[product]['vat'], comparable_rate=rate)
+        elif rate is None:
             products[product] = dict(rate=apt_rate, used=[], note=note, source='apartment-fallback',
-                                     is_fallback=True)
+                                     is_fallback=True, vat=None, comparable_rate=None)
         else:
             products[product] = dict(rate=rate, used=used, note=note, source='comparable',
-                                     is_fallback=False)
+                                     is_fallback=False, vat=None, comparable_rate=rate)
     return dict(apartment_rate=apt_rate, apartment_used=apt_used, apartment_note=apt_note,
                 apartment_source=apt_source, comparables=comparables, rate_note=rate_note,
-                all_ranked=all_ranked, products=products)
+                all_ranked=all_ranked, products=products, apartment_comparable_rate=apt_comparable_rate,
+                apartment_entered=apt_entered)

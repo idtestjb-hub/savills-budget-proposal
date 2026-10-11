@@ -27,6 +27,19 @@ amount is collected and paid on behalf of residents, and SHALL name the other li
 
 A blank amount SHALL write nothing, and the line SHALL keep its current "not estimated" treatment.
 
+The pairs SHALL stay out of `2.2 Common area Fund`. When any amount is entered, that sheet SHALL
+allocate no share of a paired expense line, and its line SHALL say in Vietnamese that the amount is
+paid on residents' behalf and not shared with the common-area fund. The revenue base that sheet uses
+to share every other line SHALL leave out the collect-on-behalf revenue lines, so each other line's
+share is what it would be without the amounts.
+
+#### Scenario: The common-area fund is not affected
+
+- **WHEN** collect-on-behalf amounts are entered
+- **THEN** every figure on `2.2 Common area Fund`, and `RI1` on `2. Budget-Management Fund`, SHALL
+  equal the same run with those amounts left blank, within 1 VND
+- **AND** the `2.2` lines of the paired expense lines SHALL carry no amount and SHALL say why
+
 #### Scenario: A pair is written for an entered amount
 
 - **WHEN** the project is at stable operation and a water amount is entered for apartments
