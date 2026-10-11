@@ -20,7 +20,7 @@
 ## 4. Calendar and law checks
 
 - [x] 4.1 Check `vn_holidays.py` against the law for 24 November as a paid public holiday from the year it applies, and cite the legal basis in the file and in `docs/05-decisions.md`. Verify: a test counts the paid holidays of the budget year and agrees with the number in `docs/project-status.md` (12 for 2027) or the discrepancy is written to the decision log.
-- [ ] 4.2 Confirm with the Head of PM whether a regulation for 2027 exists that is not in the table; if so add its row. Verify: the table row exists with its source, or the Staff bridge states that no newer rule was available.
+- [x] 4.2 Confirm with the Head of PM whether a regulation for 2027 exists that is not in the table; if so add its row. Verify: the table row exists with its source, or the Staff bridge states that no newer rule was available. *(2026-10-11: the user reported the Head of PM's approval. No 2027 rule is added beyond the table, and the Staff Bridge's note (`labor_law_params.YearParams.note`) states that no newer rule was available. Recorded in `docs/05-decisions.md` 2026-10-11.)*
 
 ## 5. Reasons and remarks
 
@@ -41,7 +41,7 @@
 - [x] 8.1 Regression: run the standard sample in New-prospect mode before and after the change. Verify: zero formula or number differences, recorded in `docs/project-status.md`.
 - [x] 8.2 Acceptance on project X in a clone outside SharePoint: feed the approved 2026 line amounts and holiday-duty counts (project X has no roster, design D8), compare EMH2 and EMH3 for 2027 with the real 2027 file, and report both figures, the Staff bridge and the gap, with and without the PM's +5% override. Verify: EMH2 within the agreed tolerance (proposed plus or minus 5%), EMH3 includes the added holiday with its reason, every changed line has a reason; results are kept in `Savills-local` and not committed.
 - [x] 8.3 Invented second case (multi-region wage floor plus a headcount change) in the test suite. Verify: the case passes and its fixture contains no real name or payroll.
-- [ ] 8.4 Sign-off: the Head of PM approves the reason-code list and the 8.2 result before the change is archived. Verify: the approval is recorded in `docs/05-decisions.md` with the date.
+- [x] 8.4 Sign-off: the Head of PM approves the reason-code list and the 8.2 result before the change is archived. Verify: the approval is recorded in `docs/05-decisions.md` with the date. *(2026-10-11: approved, as reported by the user after the PM meeting; recorded in `docs/05-decisions.md` "Head-of-PM decisions on the docs/22 question list".)*
 
 ## 9. Detail sheets tie to the staffing lines (design D15, added 2026-10-10)
 

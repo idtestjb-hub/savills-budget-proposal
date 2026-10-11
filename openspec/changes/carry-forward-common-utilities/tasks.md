@@ -101,4 +101,6 @@
   in `docs/05-decisions.md`.
 - [ ] 7.3 Sign-off: the Head of PM approves the six utility reason codes, the default tariff categories and the 7.2
   result before the change is archived, after `carry-forward-staffing` is archived. Verify: the approval is recorded
-  in `docs/05-decisions.md` with the date.
+  in `docs/05-decisions.md` with the date. *(2026-10-11: the six reason codes and the default tariff categories are
+  approved, as reported by the user after the PM meeting (`docs/05-decisions.md`). Still open: the 7.2 result,
+  because the back-test has not run.)*
