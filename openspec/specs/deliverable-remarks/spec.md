@@ -13,6 +13,8 @@ unaffected. No budgeted figure changes; remarks are text.
 
 ## Requirements
 
+
+
 ### Requirement: The grand-total sheet composes a narrative for every section total it reports
 
 For every PART-1 total on `1. Summary` that carries a non-zero figure, the deliverable SHALL write a
@@ -96,6 +98,11 @@ was estimated for. When the switch is set to the exclusive-of-VAT option (`KHOÁ
 SHALL NOT be added. A single shared helper SHALL produce this sentence for both the line-level and
 the composed remarks, keyed on the same switch.
 
+One exception (decision W3, 2026-10-11): a management-fee line priced from a rate the PM entered
+already states that rate's own VAT basis. Its line-level remark SHALL end with the sentence
+"Doanh thu hạng mục này dự ước tại năm <budget year>." and SHALL NOT carry the generic VAT-treatment
+sentence, which would contradict an entry made excluding VAT.
+
 #### Scenario: Inclusive-of-VAT run
 
 - **WHEN** `2. Budget-Management Fund!F7` selects an inclusive-of-VAT treatment (`KHÔNG KHOÁN` or
@@ -106,6 +113,13 @@ the composed remarks, keyed on the same switch.
 
 - **WHEN** `2. Budget-Management Fund!F7` selects the exclusive-of-VAT treatment (`KHOÁN`)
 - **THEN** no remark SHALL carry the VAT-treatment sentence
+
+#### Scenario: A line priced from an entered rate
+
+- **WHEN** a management-fee line (`RM.*`) is priced from a rate the PM entered, in any VAT treatment
+- **THEN** its line-level remark SHALL state the entered rate's VAT basis
+- **AND** SHALL end with "Doanh thu hạng mục này dự ước tại năm <budget year>."
+- **AND** SHALL NOT contain the generic VAT-treatment sentence
 
 ### Requirement: `0. Info` states each priced product's area basis
 
@@ -344,3 +358,35 @@ list of forbidden words and the list of exempt template cells SHALL each be kept
 
 - **WHEN** a forbidden word appears in a cell that is not on the exempt list
 - **THEN** verification fails and names the cell
+
+### Requirement: A changed staffing line states its adjustment after the original remark
+
+In Existing-project mode, on every staffing line whose figure differs from the baseline (rows of `A1. Staff cost`,
+EMH2, EMH3, EMH4), the remark SHALL keep the guideline's original remark first and SHALL append one Vietnamese
+sentence beginning "Điều chỉnh so với NS <năm>:" that gives the previous figure, the new figure, the difference
+in VND, and the reason (the generated reason or the PM's code and note). A line that did not change SHALL keep its
+original remark only. The sentence SHALL use no internal wording and SHALL follow the existing rules on Vietnamese
+text, unit labels and VAT sentences.
+
+Data files read: none beyond the baseline roster. The change moves remark text only.
+
+#### Scenario: A line changed by law
+
+- **WHEN** EMH2 rises because the regional minimum wage rose
+- **THEN** its remark SHALL read the original guideline remark, then "Điều chỉnh so với NS 2026:" with the old and
+  new amount, the VND difference and the reason "điều chỉnh theo lương tối thiểu vùng"
+
+#### Scenario: A line changed by the calendar
+
+- **WHEN** EMH3 rises because the budget year has one more paid public holiday
+- **THEN** its remark SHALL end with "Điều chỉnh so với NS <năm>:" and a reason naming the added holiday
+
+#### Scenario: A line that did not change
+
+- **WHEN** a staffing line equals its baseline
+- **THEN** its remark SHALL be the original guideline remark, with no adjustment sentence
+
+#### Scenario: The sentence is Vietnamese and clean
+
+- **WHEN** the remark content check runs on the client deliverable
+- **THEN** the adjustment sentence SHALL pass the same Vietnamese-only and no-internal-wording checks as every other remark
