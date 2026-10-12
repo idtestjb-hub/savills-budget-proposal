@@ -1,0 +1,74 @@
+Sign-off for every measured movement: the user, standing in for the Head of PM. Measurements run on the standard
+sample and on the Existing-project regression clone in `Savills-local\budget-test\`. Scripts and logs go under
+`Savills-local\budget-test\<date>-<session>-real-budget-ranges\`. Real project names stay in `Savills-local`; the
+repository and `docs/` carry anonymous ids only.
+
+## 0. Before
+
+- [ ] 0.1 Precondition (design D7): `apply-head-of-pm-decisions-2026-10` is archived, or the user says to start
+  before it. Then record the "before" outputs of the standard sample and the clone, and the unit-test count. Verify
+  that the files exist and that `verify.py` passes on them.
+- [ ] 0.2 Confirm the store still matches its sources: re-check every source file's modified time against
+  `dim_file.modified`, and list any new file in `input/budget_planning/`. Verify: 0 changed, 0 new. If not, rerun the
+  scan (`scan-2026-10-07\README.md`, "Bản v2") before the build.
+
+## 1. Reference data
+
+- [ ] 1.1 Write `build_real_budget_ranges.py` (design D3, D6) and its unit tests on an invented mini-store (SQLite
+  fixture, no real names). It covers: main sheet and high confidence only, no PDF/xlsb/duplicate, latest year per
+  project, an unnamed file as its own project, zero/blank counted not valued, `name_key` and `nfa_m2`, and the refusal
+  when a name would be written. Verify with the unit tests.
+- [ ] 1.2 Build `Ref_CPI_VN.csv` (design D4): 2021–2025 published averages read from Cục Thống kê's year-end
+  releases, and the user-approved stand-in for 2026 and 2027 marked `stand-in`, each with its source and check date.
+  Verify with a unit test of the factor for 2021, 2025, 2026, 2027 and 2028.
+- [ ] 1.3 Run the build on the real store into `Budget_Agent/data/real_budget_ranges/`, with the id map kept in the
+  store folder. Verify:
+  - the name scan passes (no store project or file name in the output);
+  - the per-code counts of projects with a value match an independent SQL count on the store, written separately
+    with the same rules;
+  - the file is in the outer repository, not under `source_code/`, and tracked there (`git add -f` if a
+    `.gitignore` rule hides `data/`, as with `Ref_UtilityTariffs.csv`);
+  - the count of projects per code after the latest-file rule, IQR and leave-one-out is at least 10. On 2026-10-12 it
+    was 14 (`ESS23`) to 35 (`ESS12`, `ESC1`).
+
+## 2. Ranges in the tool
+
+- [ ] 2.1 Write `real_budget_ranges.py` (design D1–D5, D8): load, leave-one-out by `name_key` or NFA within 0.5%,
+  IQR outliers, 10-project floor, `PERCENTILE.INC` percentiles, CPI factor, VAT, the figure, and the reason when not
+  usable. Verify with unit tests on invented values: the project left out, an outlier dropped, 9 projects, a 2025 value
+  with its factor, both VAT bases, no pool, no tower.
+- [ ] 2.2 Write the Vietnamese remark sentences: the priced line, the stand-in note for `ESC1`/`ESC2`, and the zero
+  reasons (fewer than 10 projects, no pool, no tower). Verify with unit tests, and that `check_remark_content`'s
+  internal-wording scan passes on them.
+- [ ] 2.3 Wire the figures into `generate_project_budget.py` for the codes in scope that have no other figure, and
+  drop a code from `_FLAGGED_NO_METHOD` only when its range is usable. `2.2 Common area Fund` follows its existing
+  allocation. Verify:
+  - the standard sample shows the codes non-zero on their own leaf rows;
+  - `ESI1`, `EMH1` and `EMH3` are unchanged;
+  - `1. Summary` still ties to its detail sheets.
+- [ ] 2.4 Add the `Real-Budget Ranges` sheet to the analysis workbook (`generate_project_output.py`), cross-checks
+  for `ESI1`, `EMH1` and `EMH3` included. Verify that a COM read-back shows each priced figure equal to the
+  deliverable's line.
+
+## 3. Verification
+
+- [ ] 3.1 Add `check_real_budget_ranges` to `verification/checks.py` and a section to `verify.py` (spec
+  `budget-workflow-verification`). Fixtures: an invented values file, a project that matches one entry, and a list of
+  invented names. Verify that the check fails on a deliverable with `ESS12` typed 1,000 VND off and passes on the good
+  one.
+- [ ] 3.2 Update `openspec/config.yaml` (the "8 detailed project budgets only" line), `RUNNING.md` (how to rebuild the
+  data file) and `README.md`'s module map. Verify by reading them back; the config validates (`openspec validate
+  --strict`).
+
+## 4. Measurement and sign-off
+
+- [ ] 4.1 A/B on the standard sample and on the clone: each moved line, the total expense, the surplus. Each line comes
+  with its median, range and project count. Verify that every changed cell is one of the codes in scope or a total that
+  contains them. Record it in `docs/project-status.md`.
+- [ ] 4.2 Back-test on the clone: the tool's figures for the codes in scope against the real project's own budget lines,
+  with the project left out of its own range. Report the gap per code in `Savills-local`, summarised without names in
+  `docs/05-decisions.md`. Verify that the summary names no project.
+- [ ] 4.3 Sign-off: the user (for the Head of PM) approves the 4.1 movements and the 4.2 result. Verify that the approval
+  is recorded in `docs/05-decisions.md` with the date.
+- [ ] 4.4 Re-record the baseline once, with the user's approval, then run `python verification/verify.py` from
+  `Budget_Agent/source_code/`. Verify: all sections pass.

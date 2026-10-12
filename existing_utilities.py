@@ -237,6 +237,12 @@ def _ym_text(ym):
     return f'{ym[1]:02d}/{ym[0]}'
 
 
+def _used_range(months):
+    """'01/2026–08/2026': first to last month the average actually used. The 12-month window can start
+    earlier when months are missing, so remarks name the months used, not the window (7.2 back-test)."""
+    return f'{_ym_text((months[0].year, months[0].month))}–{_ym_text((months[-1].year, months[-1].month))}'
+
+
 @dataclass
 class MonthUsed:
     year: int
@@ -434,7 +440,7 @@ def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
         how = (', lượng suy ra từ số tiền trên hóa đơn' if derived == n else
                f', {derived} tháng suy ra từ số tiền' if derived else ', theo lượng trên hóa đơn')
         reasons.append(es.tool_reason(
-            f'thực chi bình quân {n} tháng {_ym_text(window[0])}–{_ym_text(window[1])}: '
+            f'thực chi bình quân {n} tháng {_used_range(months)}: '
             f'{q_bar:,.0f} {unit}/tháng{how}'))
     else:
         reasons.append(es.tool_reason(
@@ -493,7 +499,7 @@ def narrative_vi(result, line):
             f'x 12 tháng.')
     if lr.basis == 'actual':
         text += (f' {what} lấy theo thực chi bình quân {len(lr.months)} tháng '
-                 f'({_ym_text(lr.window[0])}–{_ym_text(lr.window[1])}) của dự án.')
+                 f'({_used_range(lr.months)}) của dự án.')
     else:
         text += (f' Dự án chưa đủ số liệu thực chi nên {what.lower()} suy ra từ số NS {result.prior_year} đã duyệt '
                  f'({lr.approved:,.0f} VND/năm).')
@@ -525,7 +531,13 @@ def adjustment_sentence(result, line):
         return (f' Điều chỉnh so với NS {result.prior_year}: không có số NS đã duyệt để so sánh; cơ sở: '
                 f'{"; ".join(texts)}{flags}.')
     diff = lr.annual - lr.approved_on_basis
-    return (f' Điều chỉnh so với NS {result.prior_year}: {lr.approved_on_basis:,.0f} → {lr.annual:,.0f} VND/năm '
+    approved = f'{lr.approved_on_basis:,.0f}'
+    if lr.approved_incl_vat != result.incl_vat:
+        # The client knows the approved amount as it was approved: quote it on its own VAT basis first, then
+        # the equivalent on the deliverable's basis that the difference is measured from (7.2 back-test).
+        approved = (f'NS đã duyệt {lr.approved:,.0f} VND/năm ({"gồm" if lr.approved_incl_vat else "chưa gồm"} VAT), '
+                    f'tương đương {lr.approved_on_basis:,.0f} VND/năm {"gồm" if result.incl_vat else "chưa gồm"} VAT')
+    return (f' Điều chỉnh so với NS {result.prior_year}: {approved} → {lr.annual:,.0f} VND/năm '
             f'({diff:+,.0f} VND); nguyên nhân: {"; ".join(texts)}{flags}.')
 
 

@@ -299,3 +299,25 @@ def test_remark_sentences(rows):
     water = eu.narrative_vi(res, 'EEW.C') + eu.adjustment_sentence(res, 'EEW.C')
     assert 'không có số NS đã duyệt để so sánh' in water and '02/2026: số tiền bằng 0' in water
     assert 'thoát nước và xử lý nước thải 30%' in water
+
+
+def test_remarks_name_the_months_used_not_the_window(rows):
+    # 7.2 back-test: 8 months 01-08/2026 sit in the window 09/2025-08/2026; the remark must not read as if
+    # the 8 months ran from 09/2025.
+    res = _compute(_form(actuals=_both(n=8, start=(2026, 1))), rows)
+    text = eu.narrative_vi(res, 'EEE.C') + eu.adjustment_sentence(res, 'EEE.C')
+    assert 'bình quân 8 tháng (01/2026–08/2026)' in text and 'bình quân 8 tháng 01/2026–08/2026:' in text
+    assert '8 tháng (09/2025–08/2026)' not in text
+    assert 'chỉ có 8/12 tháng thực chi trong kỳ 09/2025–08/2026' in text
+
+
+def test_an_approved_amount_on_another_vat_basis_is_quoted_as_approved(rows):
+    # 7.2 back-test: the client knows the approved amount as approved (excl. VAT); the deliverable is incl.
+    # VAT, so the sentence quotes both. 2026 electricity VAT is 8% all year: 300,000,000 -> 324,000,000.
+    lines = {'EEE.C': ('', None, '', 300_000_000, 'No')}
+    res = _compute(_form(actuals=_both(), lines=lines), rows)
+    text = eu.adjustment_sentence(res, 'EEE.C')
+    assert ('Điều chỉnh so với NS 2026: NS đã duyệt 300,000,000 VND/năm (chưa gồm VAT), '
+            'tương đương 324,000,000 VND/năm gồm VAT →') in text
+    same = eu.adjustment_sentence(_compute(_form(actuals=_both(), lines=lines), rows, incl_vat=False), 'EEE.C')
+    assert 'Điều chỉnh so với NS 2026: 300,000,000 →' in same and 'tương đương' not in same

@@ -1,0 +1,140 @@
+## Purpose
+
+Prices budget lines the tool has no other source for from what Savills projects actually budget. It turns the
+real-budget scan store into an anonymous range per code, and keeps the project being budgeted out of its own range.
+
+## ADDED Requirements
+
+### Requirement: The scan store becomes one anonymous per-project data file
+
+A build step SHALL read the real-budget scan store and write one data file with one row per project and code. Each
+row SHALL hold:
+- an anonymous project id;
+- the budget year the value came from;
+- the value in VND per m² of fee-paying NFA per month, excluding VAT, before and after bringing it to 2027 prices;
+- the CPI factor used.
+
+The store SHALL be read under these rules:
+- only each file's main operating-fund sheet, read directly from Excel, and only when its leaf lines tie to the
+  sheet's total rows;
+- no scanned PDF, no converted xlsb, no file whose content duplicates another;
+- one file per project, the one with the latest budget year;
+- a file with no project name counts as its own project and is flagged;
+- the amount is divided by the period's real number of months and by the file's fee-paying NFA, and VAT is taken out
+  at each code's own rate.
+
+A zero or blank amount SHALL NOT be written as a value. The file SHALL instead record, per code, how many projects
+carry the line and how many show it as 0 or blank.
+
+The data file SHALL carry no project name, file name, address or other identifying text. It SHALL be written under
+`Budget_Agent/data/`, outside the code folder that is pushed to GitHub. The store and the name-to-id map SHALL stay
+in `Savills-local`.
+
+Data files read: the scan store in `Savills-local` (build step only). Data files written:
+`Budget_Agent/data/real_budget_ranges/Ref_RealBudgetValues.csv`.
+
+#### Scenario: A project with two budget years
+
+- **WHEN** the store holds a project's 2025 and 2026 budgets
+- **THEN** only the 2026 file SHALL give that project's values
+
+#### Scenario: A line budgeted at zero
+
+- **WHEN** a project's main sheet carries `ESS7` at 0
+- **THEN** no `ESS7` value SHALL be written for it, and the count of projects showing `ESS7` as 0 or blank SHALL
+  include it
+
+#### Scenario: The data file is anonymous
+
+- **WHEN** the data file is written
+- **THEN** none of the store's project names or file names SHALL appear in it
+
+### Requirement: Older budgets are brought to 2027 prices with a sourced CPI
+
+Each value SHALL be multiplied by the product of the annual average CPI changes from its budget year up to 2027.
+Each year's rate SHALL be read from a table that names its source: Cục Thống kê's published annual average, or for a
+year not yet published, the stand-in the user approved, marked as such.
+
+Data files read: `Budget_Agent/data/generation_B_verified/Ref_CPI_VN.csv`.
+
+#### Scenario: A 2025 budget
+
+- **WHEN** a value comes from a 2025 budget
+- **THEN** it SHALL be multiplied by (1 + the 2026 rate) × (1 + the 2027 rate), and both rates and their sources
+  SHALL be shown on the internal `Real-Budget Ranges` sheet
+
+#### Scenario: A 2027 budget
+
+- **WHEN** a value comes from a 2027 budget
+- **THEN** its factor SHALL be 1
+
+### Requirement: A range leaves out the project itself and its outliers, and needs 10 projects
+
+For each code it prices, the tool SHALL form the range from the data file:
+1. Leave out the project being budgeted, when its name or its fee-paying NFA matches a project in the file.
+2. Leave out values below P25 − 1.5 × (P75 − P25) or above P75 + 1.5 × (P75 − P25).
+3. Use the range only when at least 10 projects remain.
+
+P25, the median and P75 SHALL be computed from the projects that remain. The ids left out, and why, SHALL be listed
+on the internal sheet.
+
+#### Scenario: The project is in the store
+
+- **WHEN** an Existing project whose own budget is in the store is run
+- **THEN** its value SHALL NOT be part of any range, and the internal sheet SHALL say it was left out as the project
+  itself
+
+#### Scenario: Too few projects
+
+- **WHEN** fewer than 10 projects remain for a code after the exclusions
+- **THEN** that line SHALL stay at 0, and its reason SHALL say that fewer than 10 real budgets carry it
+
+### Requirement: Which codes are priced from the range
+
+The range SHALL price these codes on `2. Budget-Management Fund`, in both project modes:
+- `EMB4` (operation audit), `ESS12` (pest control), `ESC5` (Tết decoration);
+- `ESS7` (façade cleaning), only when the input has at least one tower ("Tower Count" ≥ 1);
+- `ESS23` (outsourced pool staff), only when the input says the project has a swimming pool;
+- `ESC1` (events) and `ESC2` (fire drill), as a flagged stand-in for the guideline's count × price per event.
+
+The figure SHALL be: median (VND per m² per month, 2027 prices, excluding VAT) × the project's fee-paying NFA × 12
+months, with the budget-year VAT added when the deliverable is on an inclusive basis. `2.2 Common area Fund` SHALL
+follow its existing allocation of these lines.
+
+`ESI1`, `EMH1` and `EMH3` SHALL NOT be priced from the range. The internal sheet SHALL show their range next to the
+tool's figure as a cross-check.
+
+A figure the tool already gets from the input or another source SHALL NOT be replaced by the range.
+
+#### Scenario: A project without a pool
+
+- **WHEN** the input says "Has Swimming Pool? = No"
+- **THEN** `ESS23` SHALL stay at 0 with its existing reason
+
+#### Scenario: A low-rise project
+
+- **WHEN** the input's "Tower Count" is 0
+- **THEN** `ESS7` SHALL stay at 0, and its reason SHALL say the project has no tower
+
+#### Scenario: Events
+
+- **WHEN** `ESC1` is priced from the range
+- **THEN** the analysis SHALL flag it as a stand-in until the PM enters the number and price of events
+
+### Requirement: The analysis shows every range it used
+
+The internal analysis workbook SHALL carry a `Real-Budget Ranges` sheet. For each code priced or cross-checked it
+SHALL list:
+- the projects used (anonymous ids) and their values;
+- those left out and why;
+- P25, the median and P75;
+- the CPI factors and their sources;
+- the VAT rate;
+- the figure written to the deliverable, or the tool's own figure for a cross-check.
+
+The sheet is internal and SHALL NOT be part of the client deliverable.
+
+#### Scenario: The sheet ties to the deliverable
+
+- **WHEN** a code is priced from the range
+- **THEN** the figure on the sheet SHALL equal the code's line on `2. Budget-Management Fund`

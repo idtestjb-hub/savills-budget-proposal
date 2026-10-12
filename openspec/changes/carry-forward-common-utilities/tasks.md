@@ -91,16 +91,20 @@
 
 - [x] 7.1 Regression: run the standard sample in New-prospect mode before and after the change. Verify: zero formula
   or number differences, recorded in `docs/project-status.md`.
-- [ ] 7.2 Back-test on the project X clone in `Savills-local`:
+- [x] 7.2 Back-test on the project X clone in `Savills-local`:
   - fill in its utility actuals from the real file's monthly actual columns;
   - compare `EEE.C` and `EEW.C` for 2027 with the real 2027 file;
   - report both figures, the bridge and the gap, explaining it by cause (for example, the real file kept the 2026
     approved electricity amount).
 
   Verify: every changed line has a reason; the results stay in `Savills-local` and are summarised without real names
-  in `docs/05-decisions.md`.
+  in `docs/05-decisions.md`. *(2026-10-12, session P18: done. The result and its figures are in
+  `docs/05-decisions.md` (2026-10-12) and in `Savills-local`. Two remark fixes were approved by the user and built:
+  the months used, and the approved amount quoted on its own VAT basis (delta spec `deliverable-remarks`, 2 unit
+  tests).)*
 - [ ] 7.3 Sign-off: the Head of PM approves the six utility reason codes, the default tariff categories and the 7.2
   result before the change is archived, after `carry-forward-staffing` is archived. Verify: the approval is recorded
   in `docs/05-decisions.md` with the date. *(2026-10-11: the six reason codes and the default tariff categories are
   approved, as reported by the user after the PM meeting (`docs/05-decisions.md`). Still open: the 7.2 result,
-  because the back-test has not run.)*
+  because the back-test has not run.)* *(2026-10-12: 7.2 has run; waiting for the Head of PM's approval of its
+  result.)*
