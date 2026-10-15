@@ -136,9 +136,31 @@ def main():
               'be the most recent one in sample_output.')
         return 1
     print('  -> both outputs describe the same project.')
+    _write_run_log(gpb, gpo, newest)
     rc = _report_staffing_reasons(gpo.OUTPUT_PATH)
     _report_utility_flags(gpo.OUTPUT_PATH)
     return rc
+
+
+def _write_run_log(gpb, gpo, deliverable):
+    """One record per complete run (change add-budget-run-log). It must never change the run: run_log.write already
+    turns its own failures into a 'Run log:' line, and this guard covers anything it did not foresee."""
+    try:
+        import run_log
+        csv_path = os.path.join(gpb.BUDGET_AGENT, 'data', 'master_list_verified',
+                                'AI_Guideline_Required_Classification.csv')
+        print('\n  Run log: measuring the finished workbooks in Excel (about 15 to 40 seconds) ...')
+        path, rec = run_log.write(deliverable, gpo.OUTPUT_PATH, gpb.INPUT_PATH, csv_path)
+        if path and rec and rec.get('status') == 'ok':
+            pct = rec['required_pct']
+            profit = rec['savills_profit_vnd']
+            print(f"  Run log: {os.path.basename(path)}  |  Required lines complete "
+                  f"{pct:.0%} ({rec['required_filled']}/{rec['required_total']})  |  "
+                  f"fund surplus {rec['fund_surplus_vnd']:,.0f}  |  Savills profit {profit:,.0f} VND")
+        elif path:
+            print(f'  Run log: {os.path.basename(path)} (some figures blank)')
+    except Exception as exc:
+        print(f'  Run log: not written ({type(exc).__name__}: {exc}).')
 
 
 def _report_utility_flags(analysis_path):

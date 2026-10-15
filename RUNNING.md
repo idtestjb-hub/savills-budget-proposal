@@ -211,6 +211,27 @@ why `run.py` exists.
 | `generate_project_budget.py` | `sample_output/{Project} - Sample Consulting Budget.xlsx` — the 25-sheet client deliverable (the form's 24 sheets plus `Comparison`), in Savills' own template<br>`reports/Roster_Demand_Model.xlsx` — the 5-sheet shift roster |
 | `generate_project_output.py` | `reports/Project_Budget_Output.xlsx` — the 14-sheet internal analysis showing the reasoning behind every figure |
 
+### The run log (change `add-budget-run-log`)
+
+At the end of every complete `python run.py`, the tool writes **one small file per run** into
+`Budget_Agent/reports/run_log/` (named `<yyyymmdd-hhmmss>_<project>.json`; a file is never edited afterwards, so
+several PCs never write to the same file). It takes about 15 to 40 seconds: Excel opens a read-only copy of the deliverable
+and of the analysis, recalculates, and reads the figures. The output workbooks themselves are not opened or changed.
+
+What a record holds (fields in `run_log.py`, rules in spec `budget-run-log`):
+- the project name, run time, mode, budget year, deliverable file name and VAT basis;
+- **completeness:** the Required lines of the AI Guideline on `2. Budget-Management Fund` and `2.2 Common area Fund`
+  (118 lines on the standard form, a code on both sheets counts once per sheet): how many carry a figure above 0, how
+  many are zero with a stated reason (not complete), how many are zero with no reason, and `required_pct` = filled / total;
+- the Management Fund's revenue, expense and surplus (VND per year, in the deliverable's VAT basis);
+- the Savills profit: the analysis workbook's *Total Profit Value* with the cost basis the PM selected and the
+  management fee revenue it is measured on. It is a separate number from the fund surplus;
+- `error_cells` (formula errors on the deliverable) and `status`.
+
+A blank (`null`) figure means "could not be read", never zero; `status` says why (`excel_unavailable`,
+`missing_label:...`, `missing_row:...`). A problem with the log prints one `Run log:` line and never changes the run.
+`verify.py` checks the log on the synthetic project in a temporary folder.
+
 ## If you run only one generator
 
 **The two outputs will describe different projects.**

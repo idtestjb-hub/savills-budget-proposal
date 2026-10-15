@@ -2229,6 +2229,158 @@ def check_existing_detail_ties(paths):
         shutil.rmtree(os.path.dirname(work), ignore_errors=True)
 
 
+def check_run_log(paths, input_path, required_rows):
+    """The run log (change add-budget-run-log, spec budget-run-log), exercised on the synthetic project.
+
+    Writes a record into a TEMPORARY folder (never the live reports/run_log/) and asserts:
+      - the record exists, parses, and its three Required-line counts add up to its total;
+      - surplus equals revenue minus expense;
+      - its Required counts equal the independent reading `required_rows` (the rows check_required_line_items
+        returned for the same deliverable), and its revenue / expense equal G of the R and E rows read straight
+        through Excel;
+      - a log folder that cannot be created gives a warning and no exception;
+      - a PC without Excel gives a record with blank figures and status excel_unavailable;
+      - the live reports/run_log/ folder is exactly as it was.
+
+    Returns (ok, rows, differences, notes); rows are (label, 'ok' | 'FAIL — ...').
+    """
+    import contextlib
+    import io
+    import json
+    import shutil
+    import sys
+    import tempfile
+
+    from verification.baseline import BaselineUnavailable
+
+    _src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
+    import run_log
+
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The run-log check requires Excel ({exc}).') from exc
+
+    live_dir = os.path.join(os.path.dirname(_src), 'reports', 'run_log')
+    live_before = sorted(os.listdir(live_dir)) if os.path.isdir(live_dir) else None
+    csv_path = os.path.join(os.path.dirname(_src), 'data', 'master_list_verified',
+                            'AI_Guideline_Required_Classification.csv')
+    rows, differences, notes = [], [], []
+
+    def check(label, ok, msg=''):
+        rows.append((label, 'ok' if ok else f'FAIL — {msg}'))
+        if not ok:
+            differences.append((label, msg))
+
+    tmp = tempfile.mkdtemp(prefix='run_log_check_')
+    try:
+        log_dir = os.path.join(tmp, 'run_log')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            path, rec = run_log.write(paths['deliverable'], paths['analysis'], input_path, csv_path, log_dir=log_dir)
+        check('a record is written', bool(path) and os.path.exists(path or ''), 'no file was written')
+        if not path:
+            return False, rows, differences, notes
+        rec_file = json.load(open(path, encoding='utf-8'))
+        check('the record parses back unchanged', rec_file == rec, 'the file differs from the record in memory')
+        check('the status is ok', rec['status'] == 'ok', f"status is {rec['status']!r}")
+        total = rec['required_total']
+        parts = (rec['required_filled'], rec['required_zero_with_reason'], rec['required_zero_no_reason'])
+        check('Required counts add up to the total', total is not None and sum(parts) == total,
+              f'{parts} do not add up to {total}')
+        if None not in (rec['revenue_vnd'], rec['expense_vnd'], rec['fund_surplus_vnd']):
+            check('surplus equals revenue minus expense',
+                  abs(rec['fund_surplus_vnd'] - (rec['revenue_vnd'] - rec['expense_vnd'])) < 0.5,
+                  f"{rec['fund_surplus_vnd']} vs {rec['revenue_vnd']} - {rec['expense_vnd']}")
+        else:
+            check('surplus equals revenue minus expense', False, 'a money figure is blank')
+
+        # independent reading 1: the rows of check_required_line_items
+        f_n = sum(1 for _l, s in required_rows if s == 'ok — non-zero')
+        r_n = sum(1 for _l, s in required_rows if s.startswith('ok — zero'))
+        z_n = sum(1 for _l, s in required_rows if s.startswith('FAIL'))
+        check('Required counts equal the independent reading (check_required_line_items)',
+              parts == (f_n, r_n, z_n), f'run log {parts} vs independent {(f_n, r_n, z_n)}')
+
+        # independent reading 2: G of the R and E rows straight through Excel
+        pythoncom.CoInitialize()
+        xl = wb = None
+        try:
+            xl = win32com.client.DispatchEx('Excel.Application')
+            xl.Visible = False
+            xl.DisplayAlerts = False
+            work = os.path.join(tmp, 'deliverable_copy.xlsx')
+            shutil.copy(paths['deliverable'], work)
+            wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+            xl.CalculateFullRebuild()
+            ws = next(w for w in wb.Worksheets if _nfc(w.Name) == _nfc('2. Budget-Management Fund'))
+            direct = {}
+            for r in range(1, ws.UsedRange.Row + ws.UsedRange.Rows.Count):
+                c = ws.Cells(r, 25).Value2
+                if isinstance(c, str) and c.strip() in ('R', 'E') and c.strip() not in direct:
+                    direct[c.strip()] = ws.Cells(r, 7).Value2
+        finally:
+            for obj in (wb,):
+                try:
+                    if obj is not None:
+                        obj.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            try:
+                if xl is not None:
+                    xl.Quit()
+            except Exception:
+                pass
+            pythoncom.CoUninitialize()
+        check('revenue and expense equal G of the R and E rows read through Excel',
+              abs((direct.get('R') or 0) - (rec['revenue_vnd'] or -1)) < 0.5
+              and abs((direct.get('E') or 0) - (rec['expense_vnd'] or -1)) < 0.5,
+              f"run log {rec['revenue_vnd']} / {rec['expense_vnd']} vs Excel {direct}")
+
+        # a log folder that cannot be created: a warning, never an exception
+        blocker = os.path.join(tmp, 'a_file')
+        open(blocker, 'w').close()
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                bad_path, _bad_rec = run_log.write(paths['deliverable'], paths['analysis'], input_path, csv_path,
+                                                   log_dir=os.path.join(blocker, 'run_log'))
+            check('an unwritable log folder gives a warning and no exception',
+                  bad_path is None and 'Run log:' in out.getvalue(), 'no warning, or a record was claimed')
+        except Exception as exc:
+            check('an unwritable log folder gives a warning and no exception', False,
+                  f'raised {type(exc).__name__}: {exc}')
+
+        # a PC without Excel: blank figures, a named status
+        real_measure = run_log._excel_measure
+
+        def _no_excel(*_a, **_k):
+            raise run_log.ExcelUnavailable('simulated')
+        run_log._excel_measure = _no_excel
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                p2, r2 = run_log.write(paths['deliverable'], paths['analysis'], input_path, csv_path,
+                                       log_dir=os.path.join(tmp, 'run_log_noexcel'))
+        finally:
+            run_log._excel_measure = real_measure
+        check('without Excel the record has blank figures and status excel_unavailable',
+              bool(p2) and r2['status'] == 'excel_unavailable' and r2['revenue_vnd'] is None
+              and r2['required_total'] is None and r2['project_name'], f'record: {r2}')
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    live_after = sorted(os.listdir(live_dir)) if os.path.isdir(live_dir) else None
+    check('the live run log folder is exactly as it was', live_before == live_after,
+          f'before {live_before}, after {live_after}')
+    notes.append(f"run log: {sum(1 for _l, s in rows if s == 'ok')} of {len(rows)} assertions passed "
+                 f"(synthetic project, temporary folder only).")
+    return (len(differences) == 0), rows, differences, notes
+
+
 def _main():
     import sys
     import tempfile

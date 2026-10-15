@@ -291,6 +291,24 @@ def main(argv=None):
         print(f'OK    all {sum(1 for _l, s in rlrows if s.startswith("ok"))} Required-line-item '
               f'check(s) passed on \'2. Budget-Management Fund\' and \'2.2 Common area Fund\'')
 
+        # ---- 5g. the run log (change add-budget-run-log) --------------------------------------
+        try:
+            rgok, rgrows, rgdiffs, rgnotes = checks.check_run_log(paths, DEFAULT_SAMPLE, rlrows)
+        except bl.BaselineUnavailable as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        for n in rgnotes:
+            print(f'NOTE  {n}')
+        if not rgok:
+            print(f'FAIL  {len(rgdiffs)} run-log problem(s):')
+            for label, msg in rgdiffs:
+                print(f'        - {label}: {msg}')
+            print('\nThe run log must write one record per run whose figures equal an independent reading of '
+                  'the same workbooks, must never change a run, and must never touch the live '
+                  'reports/run_log/ folder while verifying (change add-budget-run-log).')
+            return 1
+        print(f'OK    the run log holds ({len(rgrows)} assertion(s), temporary folder only)')
+
         # ---- 6. coverage & method fidelity (never a pass/fail on the score itself) -----------
         _headline('6. COVERAGE & METHOD FIDELITY')
         try:

@@ -6,8 +6,6 @@ Provides a repeatable way to confirm that the core budget-generation workflow st
 
 ## Requirements
 
-
-
 ### Requirement: Verification never touches production data
 
 Verification SHALL operate entirely on synthetic sample data. It MUST NOT read, overwrite, or otherwise modify the live project input workbook, the generated analysis workbook, or any client deliverable.
@@ -372,3 +370,42 @@ approved amounts, a PM override with a reason, and an approved EMH4 of zero.
 
 - **WHEN** EMH2 on the fund sheet is a number instead of a formula
 - **THEN** verification fails and names the line
+
+### Requirement: Verification exercises Existing-project utilities
+
+`verify.py` SHALL run invented Existing-project samples that carry utility actuals and check the following:
+- `EEE.C` and `EEW.C` on the client deliverable equal the Utility Bridge's budget-year figures;
+- the twelve months of each line sum to its annual figure;
+- the New-prospect standard sample has no Utility Bridge, and its figures equal the recorded baselines.
+
+Unit tests SHALL cover the cases that stop a run: a missing reason, a duplicated month, a month in the budget year,
+a missing tariff row, and too few months without an approved amount. The samples SHALL use invented figures only.
+
+Data files read: the invented samples under `verification/fixtures/`, the tariff table. No recorded baseline figure
+moves.
+
+#### Scenario: The bridge does not tie
+
+- **WHEN** the Utility Bridge's budget-year figure for `EEW.C` differs from `EEW.C`'s annual total on the deliverable by
+  more than 1 VND
+- **THEN** verification SHALL fail and name the line and both figures
+
+#### Scenario: A New-prospect run shows a Utility Bridge
+
+- **WHEN** the standard sample's analysis workbook contains a Utility Bridge sheet
+- **THEN** verification SHALL fail
+
+### Requirement: Verification exercises the run log
+Verification SHALL run the run-log measurement on the synthetic project with its paths redirected, and SHALL fail when
+the record is missing, when its Required-line counts do not add up to the total, when its surplus differs from revenue
+minus expense, or when its figures differ from the same cells read directly through Excel. It SHALL also confirm that
+a read-only run log folder produces a warning and not a failure. Verification SHALL NOT write to the live
+`Budget_Agent/reports/run_log/` folder.
+
+#### Scenario: Counts do not add up
+- **WHEN** the synthetic record says 40 filled, 10 zero with a reason, 5 zero with no reason and a total of 60
+- **THEN** verification fails and names the counts
+
+#### Scenario: Production folder untouched
+- **WHEN** verification finishes
+- **THEN** the live run log folder holds the same files as before it started

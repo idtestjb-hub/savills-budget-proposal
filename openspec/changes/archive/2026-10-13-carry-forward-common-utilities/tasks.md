@@ -102,9 +102,9 @@
   `docs/05-decisions.md` (2026-10-12) and in `Savills-local`. Two remark fixes were approved by the user and built:
   the months used, and the approved amount quoted on its own VAT basis (delta spec `deliverable-remarks`, 2 unit
   tests).)*
-- [ ] 7.3 Sign-off: the Head of PM approves the six utility reason codes, the default tariff categories and the 7.2
+- [x] 7.3 Sign-off: the Head of PM approves the six utility reason codes, the default tariff categories and the 7.2
   result before the change is archived, after `carry-forward-staffing` is archived. Verify: the approval is recorded
   in `docs/05-decisions.md` with the date. *(2026-10-11: the six reason codes and the default tariff categories are
   approved, as reported by the user after the PM meeting (`docs/05-decisions.md`). Still open: the 7.2 result,
   because the back-test has not run.)* *(2026-10-12: 7.2 has run; waiting for the Head of PM's approval of its
-  result.)*
+  result.)* *(2026-10-13: the Head of PM approved the 7.2 result; recorded in `docs/05-decisions.md`.)*
