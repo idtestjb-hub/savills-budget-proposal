@@ -663,6 +663,9 @@ def read_input(path):
         # absent means the business group. A new prospect's water is priced by it from the dated tariff file.
         water_group=(L.value(utility_tariffs.WATER_GROUP_LABEL) if L.has(utility_tariffs.WATER_GROUP_LABEL)
                      else None),
+        # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 3).
+        esi2_premium_usd=(L.value(ESI2_PREMIUM_LABEL) if L.has(ESI2_PREMIUM_LABEL) else None),
+        usd_rate=(L.value(USD_RATE_LABEL) if L.has(USD_RATE_LABEL) else None),
         # Optional: absent on workbooks created before this field was added (change
         # rank-comparables-by-location, task 2.4, 2026-09-16). Refines ORDER within whatever tier
         # District/City above already placed a candidate in — never changes tiers. A lone value on
@@ -697,6 +700,7 @@ def read_input(path):
     # means January 2027. Anything that is not a month stops the run (budget_period.BudgetPeriodError).
     project['budget_period'] = budget_period.from_value(
         L.value(budget_period.LABEL) if L.has(budget_period.LABEL) else None)
+    project['esi2'] = _resolve_esi2(project['esi2_premium_usd'], project['usd_rate'])
     project['pool_count'], project['pool_count_stated'] = _resolve_pool_count(
         project['pool_count'], project['has_pool'])
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
@@ -1221,19 +1225,55 @@ def _opex_kwargs(project):
                 period_months=bp.months, water_group=project.get('water_group'))
 
 
-def _general_vat_months(project):
-    """The general VAT rate (percent) in force in each of the twelve budget months, from the dated tariff file."""
+def _general_vat_months(project, kind=utility_tariffs.VAT_GENERAL):
+    """The VAT rate (percent) in force in each of the twelve budget months, from the dated tariff file: the
+    general rate, or kind=VAT_INSURANCE (10% in every month, outside the reduction)."""
     bp = project.get('budget_period') or budget_period.default()
     rows = utility_tariffs.load_rows()
-    return [utility_tariffs.vat_rate(y, m, rows=rows) for y, m in bp.months]
+    return [utility_tariffs.vat_rate(y, m, kind, rows=rows) for y, m in bp.months]
 
 
-def _vat_factors(project):
+def _vat_factors(project, kind=utility_tariffs.VAT_GENERAL):
     """(1 + that month's VAT) for each budget month when the run includes VAT; 1.0 each when the financial
     model excludes it (KHOÁN). Applied only to amounts the tool prices excluding VAT (design D9a)."""
     if not _ACTIVE_VAT_SENTENCE:
         return [1.0] * 12
-    return [1 + r / 100 for r in _general_vat_months(project)]
+    return [1 + r / 100 for r in _general_vat_months(project, kind)]
+
+
+# ESI2, building insurance quoted in USD (change apply-head-of-pm-decisions-2026-10, group 3, design D10).
+ESI2_DEFAULT_PREMIUM_USD = 1000        # the costing logic file's example for a 1,000,000 USD liability limit
+ESI2_LIABILITY_LIMIT_USD = 1_000_000
+USD_RATE_DEFAULT = 26190               # Vietcombank selling rate, 05/10/2026
+USD_RATE_DATE = '05/10/2026'
+ESI2_PREMIUM_LABEL = 'ESI2 Annual Premium (USD)'
+USD_RATE_LABEL = 'USD Exchange Rate (VND per USD)'
+
+
+def _resolve_esi2(premium_raw, rate_raw):
+    """The ESI2 inputs with their defaults. Blank premium = 1,000 USD (flagged as default); a 0 premium is the PM's
+    choice to price nothing (the line stays 0 with a reason); blank rate = 26,190. Text, a negative number or a zero
+    rate stop the run and name the field."""
+    def number(raw, label, allow_zero):
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return None
+        try:
+            if isinstance(raw, bool):
+                raise ValueError
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Project Info '{label}' is {raw!r}, which is not a number. Enter a number, or clear "
+                             f"the cell to use the default.") from None
+        if value < 0 or (value == 0 and not allow_zero):
+            raise ValueError(f"Project Info '{label}' is {raw!r}. It must be "
+                             f"{'zero or more' if allow_zero else 'more than zero'}. Enter a valid number, or "
+                             f"clear the cell to use the default.")
+        return value
+    premium = number(premium_raw, ESI2_PREMIUM_LABEL, True)
+    rate = number(rate_raw, USD_RATE_LABEL, False)
+    return dict(premium_usd=ESI2_DEFAULT_PREMIUM_USD if premium is None else premium,
+                premium_is_default=premium is None,
+                rate=USD_RATE_DEFAULT if rate is None else rate, rate_is_default=rate is None)
 
 
 def _rate_phrase(months, rates):
@@ -1645,9 +1685,8 @@ def _write_ramped_row(ws, row, monthly_values, remark=None):
 # Sheet2 (a "COST NATURE DESCRIPTION" column added alongside a second real capex catalog file —
 # both re-scanned per the PM's request). Each cites a real regulation, vendor quote, or lab price
 # in the source cell; see the write_even_monthly() calls below for the exact figure and citation.
-# Public liability insurance (ESI2, real: ~1,000 USD/year premium, real: 1M USD liability cap) is
-# NOT included — no real USD/VND conversion rate exists anywhere in this codebase, and guessing one
-# would be exactly the kind of fabrication this pipeline has avoided everywhere else.
+# Public liability insurance (ESI2, ~1,000 USD/year premium for a 1M USD liability cap) is priced since change
+# apply-head-of-pm-decisions-2026-10 (group 3) from an editable USD premium and exchange rate; see _resolve_esi2.
 ENV_REPORT_ANNUAL = 25_000_000            # ESM2 — Decree 40/2019/NĐ-CP Article 47; real service quote
 WATER_TEST_SAMPLE_PRICE = 1_352_000       # ESM3 — Pasteur Institute HCMC quote, per QCVN 01-2024/BYT
 WATER_TEST_SAMPLES_PER_ROUND = 3          # rooftop tank + basement + 1 random tap, 2 rounds/year
@@ -1752,6 +1791,7 @@ MGMT_FUND_ROWS = {
     # streams the guideline's B2.6 sheet does not price at all — left alone. ESS19 (row 163, garbage
     # bags) is a real waste-adjacent consumable with no unit price anywhere — left alone.
     'waste_collection': 153,    # ESS9   Normal domestic garbage collection (QĐ 65/2026)
+    'esi2': 190,                # ESI2   Public liability insurance, USD premium x rate x 1.10
 }
 
 # Cost code each MGMT_FUND_ROWS key must land on — the guard below checks every row on every run
@@ -1767,7 +1807,7 @@ MGMT_FUND_EXPECTED_CODE = {
     'pool_testing': 'ESM5', 'fire_dept_connect': 'ESM8',
     'pccc_allowance': 'EMH4', 'drinking_water': 'EMA7', 'env_incident_plan': 'ESC12',
     'wastewater_crosscheck': 'ESM25', 'asset_insurance': 'ESI1',
-    'waste_collection': 'ESS9',
+    'waste_collection': 'ESS9', 'esi2': 'ESI2',
 }
 
 
@@ -2904,10 +2944,10 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # ---- Added 2026-09-14, change fill-guideline-required-line-items: Required codes that were
     # left at the template's blank default with no basis stated, but that DO have a real, findable
     # pricing method (Costing_Method_Catalogue.csv) — see that change's docs/14. ----
-    def write_vat_monthly(key, annual_excl, remark):
+    def write_vat_monthly(key, annual_excl, remark, kind=utility_tariffs.VAT_GENERAL):
         """A line the tool prices excluding VAT, spread evenly over the year, with each month's VAT added
         (design D4): one value when every month carries the same rate, otherwise one value per month."""
-        vf = _vat_factors(project)
+        vf = _vat_factors(project, kind)
         if len(set(vf)) == 1:
             write_even_monthly(key, annual_excl * vf[0], remark=remark)
         else:
@@ -2977,6 +3017,29 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                "30 ngày = 3.945 kg/căn/ngày), khác với ghi chú bằng chữ trên cùng trang nguồn "
                "(khoảng 3.41kg) — hai số liệu này mâu thuẫn nhau trong tài liệu gốc, đã chọn theo "
                "công thức." if _waste_shop_units else "")))
+
+    # ESI2 public liability insurance (group 3): USD premium x exchange rate, then insurance VAT (10% in every month,
+    # outside the VAT reduction), spread evenly. Blank premium = the 1,000 USD default; 0 = the PM prices nothing.
+    _esi2 = project['esi2']
+    if _esi2['premium_usd'] > 0:
+        _esi2_excl = _esi2['premium_usd'] * _esi2['rate']
+        _esi2_total = sum(_esi2_excl / 12 * v for v in _vat_factors(project, utility_tariffs.VAT_INSURANCE))
+        _esi2_vat = (f"cộng VAT {_rate_phrase(_vat_bp.months, _general_vat_months(project, utility_tariffs.VAT_INSURANCE))}"
+                     f" (bảo hiểm không thuộc diện giảm VAT xuống 8%)" if _ACTIVE_VAT_SENTENCE
+                     else "chưa cộng VAT theo mô hình tài chính đã chọn")
+        write_vat_monthly('esi2', _esi2_excl, kind=utility_tariffs.VAT_INSURANCE, remark=(
+            f"= {_esi2['premium_usd']:,.0f} USD/năm"
+            + (f" (mặc định theo ví dụ của tiêu chuẩn định giá Savills cho hạn mức trách nhiệm "
+               f"{ESI2_LIABILITY_LIMIT_USD:,.0f} USD; PM nhập phí báo giá thực tế tại ô '{ESI2_PREMIUM_LABEL}')"
+               if _esi2['premium_is_default'] else " (phí do PM nhập)")
+            + f" x tỷ giá {_esi2['rate']:,.0f} VND/USD"
+            + (f" (giá bán Vietcombank ngày {USD_RATE_DATE}; PM sửa được tại ô '{USD_RATE_LABEL}')"
+               if _esi2['rate_is_default'] else " (do PM nhập)")
+            + f" = {_esi2_excl:,.0f} VND/năm trước VAT, {_esi2_vat} = {_esi2_total:,.0f} VND/năm."))
+    else:
+        _write_zero_reason(ws, MGMT_FUND_ROWS['esi2'], 'ESI2', (
+            f"PM nhập phí bảo hiểm trách nhiệm công cộng bằng 0 USD tại ô '{ESI2_PREMIUM_LABEL}', nên không tính "
+            f"khoản này. Để trống ô đó để dùng mức mặc định {ESI2_DEFAULT_PREMIUM_USD:,.0f} USD/năm."))
 
     # EMH4 PCCC training/allowance — 'A5. Trợ cấp PCCC' is a template sheet with its own real,
     # already-computed total (1 team leader + 2 deputies + 17 members trained 4x/year, 2 days/
@@ -3088,9 +3151,6 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                         "— it has no unit price for bags themselves, and no other source in this "
                         "pipeline does either."),
         167: ('ESS23', "No pricing method recorded in Costing_Method_Catalogue.csv."),
-        190: ('ESI2',  "Guideline column blank; the only stated method is 'annual quotation', and "
-                        "no real quotation or coverage limit exists anywhere in this pipeline's "
-                        "inputs."),
         198: ('ESM6',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
         199: ('ESM7',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
         201: ('ESM9',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
@@ -3143,8 +3203,6 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                  "65/2026 tại ESS9 chỉ định giá DỊCH VỤ thu gom/vận chuyển/xử lý — không có đơn giá "
                  "cho bản thân túi rác, và không có nguồn nào khác trong hệ thống có đơn giá này.",
         'ESS23': "Chưa có phương pháp định giá được ghi nhận.",
-        'ESI2':  "Cột hướng dẫn để trống; phương pháp duy nhất được nêu là 'báo giá hàng năm', "
-                 "nhưng chưa có báo giá thực tế hay hạn mức bảo hiểm nào trong dữ liệu đầu vào.",
         'ESM6':  "Chưa có phương pháp định giá được ghi nhận.",
         'ESM7':  "Chưa có phương pháp định giá được ghi nhận.",
         'ESM9':  "Chưa có phương pháp định giá được ghi nhận.",

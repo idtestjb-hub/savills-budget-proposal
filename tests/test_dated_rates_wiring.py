@@ -123,3 +123,57 @@ def test_analysis_electricity_is_unchanged_when_the_model_excludes_vat(tmp_path,
     ws = wb['OPEX']
     row = next(r for r in range(1, 30) if ws.cell(r, 1).value == 'Electricity')
     assert ws.cell(row, 2).value == excl
+
+
+# ---------------------------------------------------- group 3: ESI2, USD premium x rate x insurance VAT
+def test_esi2_defaults_when_both_inputs_are_blank():
+    r = gpb._resolve_esi2(None, '')
+    assert (r['premium_usd'], r['rate'], r['premium_is_default'], r['rate_is_default']) == (1000, 26190, True, True)
+    assert 1000 * 26190 * 1.10 == pytest.approx(28_809_000)
+
+
+def test_esi2_takes_the_pms_quote_and_rate():
+    r = gpb._resolve_esi2(1500, 26300)
+    assert (r['premium_usd'], r['rate'], r['premium_is_default'], r['rate_is_default']) == (1500, 26300, False, False)
+    assert r['premium_usd'] * r['rate'] * 1.10 == pytest.approx(1500 * 26300 * 1.10)
+
+
+def test_esi2_zero_premium_is_an_entered_zero_not_a_blank():
+    r = gpb._resolve_esi2(0, None)
+    assert r['premium_usd'] == 0 and not r['premium_is_default']
+
+
+@pytest.mark.parametrize('premium, rate, label', [
+    ('abc', None, gpb.ESI2_PREMIUM_LABEL), (-5, None, gpb.ESI2_PREMIUM_LABEL),
+    (None, 0, gpb.USD_RATE_LABEL), (None, 'x', gpb.USD_RATE_LABEL), (None, -1, gpb.USD_RATE_LABEL),
+])
+def test_esi2_invalid_inputs_stop_and_name_the_field(premium, rate, label):
+    with pytest.raises(ValueError, match=label.replace('(', r'\(').replace(')', r'\)')):
+        gpb._resolve_esi2(premium, rate)
+
+
+def test_a_form_without_the_esi2_fields_reads_the_defaults(tmp_path):
+    wb = openpyxl.load_workbook(FIXTURE)
+    path = tmp_path / 'input.xlsx'
+    wb.save(path)
+    project = gpb.read_input(str(path))[0]
+    assert project['esi2']['premium_is_default'] and project['esi2']['rate'] == 26190
+
+
+def test_the_esi2_fields_are_read_by_label(tmp_path):
+    wb = openpyxl.load_workbook(FIXTURE)
+    pi = wb['Project Info']
+    r = pi.max_row + 2
+    for label, value in ((gpb.ESI2_PREMIUM_LABEL, 1500), (gpb.USD_RATE_LABEL, 26300)):
+        pi.cell(row=r, column=1, value=label)
+        pi.cell(row=r, column=2, value=value)
+        r += 1
+    path = tmp_path / 'input.xlsx'
+    wb.save(path)
+    assert gpb.read_input(str(path))[0]['esi2']['premium_usd'] == 1500
+
+
+def test_insurance_vat_is_10_percent_in_every_month_including_2026(tmp_path):
+    project = _project(tmp_path, start='10/2026')
+    assert gpb._general_vat_months(project, ut.VAT_INSURANCE) == [10.0] * 12
+    assert gpb._general_vat_months(project)[:3] == [8.0, 8.0, 8.0]

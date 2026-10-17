@@ -286,3 +286,30 @@ Garden clone; `ab\` = the Existing and operating fixtures before and after, each
   139 remark assertions, 506 summary reconciliations, 118 Required lines and the Existing and operating samples. With the
   gates closed, it fails only on the 7 OPEX figures above (each equals the A/B).
 - **Sign-off (group 2):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.
+
+### Group 3: building insurance `ESI2` (2026-10-18, session P21)
+
+Runs under `Savills-local\budget-test\2026-10-18-p21-g3\` (`r1` = standard sample and City Garden clone; `clone_log` =
+City Garden with the run log). Both inputs blank (the defaults).
+
+- **`ESI2` on both samples:** 0 → 28,809,000 VND a year (1,000 USD × 26,190 × 1.10; 2,400,750 VND a month). No other
+  line of the deliverable moves between group 2 and group 3 (line-by-line comparison, one changed line).
+- **Year-1 surplus:** standard sample 4,419,504,195 → 4,390,855,832 (−28.6M); City Garden 6,401,868,441 →
+  6,373,246,455 (−28.6M). The surplus falls by a little less than 28.8M because the common-area charge-back follows the
+  cost. The analysis workbook carries no insurance line, so its OPEX and total profit value do not move.
+- **City Garden completeness against the real budget:** 42% (50/118) → 44% (52/118): `ESI2` now has a figure on both
+  fund sheets.
+- **Remark** (read from the output): names the 1,000 USD premium and says it is the default for a 1,000,000 USD
+  liability limit, the 26,190 VND/USD rate and its date 05/10/2026 (Vietcombank selling rate), the amount before VAT, the
+  10% insurance VAT (outside the reduction to 8%) and the total.
+- **Rules built:** a blank premium takes 1,000 USD and says so; an entered 0 leaves the line at 0 with a reason that
+  names the field (the user's choice, 2026-10-18); text, a negative premium or a zero or negative rate stop the run and
+  name the field. Insurance VAT is read from the dated file (10% in every month, also in 2026). Under the KHOÁN model
+  (VAT excluded) the line is the amount before VAT, like the other lines.
+- **Method records:** `ESI2` leaves the flagged no-method list; a verdict ("matches") is added to the method registry and
+  the catalogue row says it is priced.
+- **Not measured:** the Existing and operating samples take `ESI2` too (the line is priced in both modes); their
+  `verify.py` sections pass, but no separate before/after table was made for them.
+- **Checks:** 715 unit tests pass (1 xfail as before). `verify.py` with the two baseline gates opened: every other check
+  passes on all sections (139 remark assertions, 506 summary reconciliations, 118 Required lines, method verdicts).
+- **Sign-off (group 3):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.

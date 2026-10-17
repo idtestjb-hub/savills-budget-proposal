@@ -993,10 +993,22 @@ def main(force=False):
         "Used for a new prospect; an Existing project chooses its water category on the 'Prior-Year Utilities' sheet.",
         'Budget Planning Agent')
 
+    # Appended (rows 58-59 were free), read by label. Change apply-head-of-pm-decisions-2026-10, group 3.
+    c_esi2 = labeled_input(ws1, 58, 'ESI2 Annual Premium (USD)', None, fmt='#,##0')
+    c_esi2.comment = Comment(
+        "The annual premium of the public liability insurance (ESI2) in US dollars, before VAT, from the insurer's "
+        "quotation. Leave blank to use 1,000 USD, the costing logic's example for a 1,000,000 USD liability limit; the "
+        "remark says the default was used. Enter 0 to price nothing. The tool adds VAT of 10% (insurance is outside "
+        "the VAT reduction).", 'Budget Planning Agent')
+    c_usd = labeled_input(ws1, 59, 'USD Exchange Rate (VND per USD)', None, fmt='#,##0')
+    c_usd.comment = Comment(
+        "VND per US dollar used to convert the ESI2 premium. Leave blank for 26,190, the Vietcombank selling rate on "
+        "05/10/2026; the remark names the rate and its date.", 'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 
-    add_run_button(ws1)         # green RUN button at F1:G2, hyperlinked to Run Budget Agent.cmd
+    add_run_button(ws1)        # green RUN button at F1:G2, hyperlinked to Run Budget Agent.cmd
 
     # ================= Sheet 2: Roster Setup =================
     ws2 = wb.create_sheet('Roster Setup')

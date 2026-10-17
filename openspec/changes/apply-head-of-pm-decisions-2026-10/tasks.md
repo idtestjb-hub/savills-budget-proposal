@@ -52,10 +52,10 @@ A/B movements (design D16).
 
 ## 3. Building insurance (B5)
 
-- [ ] 3.1 Add the ESI2 premium (USD) and USD rate inputs (defaults 1,000 and 26,190), price `ESI2` as USD × rate ×
+- [x] 3.1 Add the ESI2 premium (USD) and USD rate inputs (defaults 1,000 and 26,190), price `ESI2` as USD × rate ×
   1.10, and write its remark. Update `_FLAGGED_NO_METHOD`, `METHOD_VERDICTS` and the catalogue. Verify that the
   default run gives 28,809,000 VND/year and that the method-verdict check passes.
-- [ ] 3.2 Record the A/B on both samples and get the user's sign-off.
+- [x] 3.2 Record the A/B on both samples and get the user's sign-off.
 
 ## 4. Comparables (B12, then D8)
 

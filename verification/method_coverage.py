@@ -403,6 +403,14 @@ METHOD_VERDICTS = {
                                               'guideline\'s formula-instruction basis (3.945 kg/unit/'
                                               'day) over its own inconsistent note text (~3.41), '
                                               'disclosed in the written remark, not a method mismatch.'),
+    # Added 2026-10-18, change apply-head-of-pm-decisions-2026-10 (group 3) - ESI2 priced for the first time.
+    'ESI2': dict(spec_method='annual-quotation',
+                 actual_method='Annual premium in USD (input; 1,000 USD default for a 1,000,000 USD liability '
+                               'limit) x USD exchange rate (input; 26,190 VND/USD default, Vietcombank selling '
+                               'rate 05/10/2026) x 1.10 insurance VAT, spread evenly over the twelve months.',
+                 verdict='matches', reasoning='The spec method is an annual quotation, which the PM enters as the '
+                                              'USD premium; with no quotation the logic file\'s example premium is '
+                                              'used and the remark says so.'),
     'ESI1': dict(spec_method='asset-value-x-premium-rate',
                  actual_method='No figure written — no insured-asset-value input exists on the intake '
                                 'form, so the pipeline correctly leaves this at 0 rather than guess an '
