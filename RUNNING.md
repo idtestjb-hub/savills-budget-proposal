@@ -72,6 +72,8 @@ overwriting the formulas.
 `Project Info!B34`/`B35` (Savills' own fee) are deliberately blank. Leave them blank until a real
 contract term exists — see `docs/05-decisions.md`, D1.
 
+**`Budget Start Month`** (`BUDGET HORIZON` section, MM/YYYY) is the first of the twelve months the budget covers. Blank, or a form without the field, means January 2027. Both fund sheets and the summary show the period, and the date-dependent rules (Existing-mode tariffs and paid holidays) use the month they are applied to. Text that is not a month stops the run and names the field. The occupancy fill-up is not dated: its month 1 is the first month of the period.
+
 **`Capex Drop-to-Reserve Year`** (`BUDGET HORIZON` section, near the bottom) controls the two
 internal analysis sheets' (`Owner Operating Position`, `Savills Fee Position`) 4-year Capex
 projection — nothing on the client deliverable. Left blank, it defaults to Year 2: every year before

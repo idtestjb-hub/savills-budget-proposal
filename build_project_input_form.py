@@ -968,6 +968,16 @@ def main(force=False):
         "carries the full lump sum.",
         'Budget Planning Agent')
 
+    # Appended, not inserted (row 56 was free) — same no-row-shift-risk reason as every field above
+    # (change apply-head-of-pm-decisions-2026-10, group 1). Read by label in generate_project_budget.read_input.
+    c_start = labeled_input(ws1, 56, 'Budget Start Month', datetime.datetime(2027, 1, 1), fmt='mm/yyyy')
+    c_start.comment = Comment(
+        "The first month of the twelve the budget covers, as MM/YYYY (07/2027 gives July 2027 to June 2028). "
+        "Leave blank for January 2027. The two fund sheets and the summary show this period, and every rule that "
+        "depends on the date (VAT rate, tariff, paid holidays) uses the month it is applied to. Text that is not a "
+        "month stops the run. The occupancy fill-up still counts operational months: month 1 is this month.",
+        'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 

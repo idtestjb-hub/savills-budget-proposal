@@ -30,7 +30,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 
 from generate_project_budget import (read_input, INPUT_PATH, PRODUCT_ROWS, existing_result,
-                                     template_budget_year, utilities_result, template_vat_inclusive)
+                                     utilities_result, template_vat_inclusive)
 import existing_utilities
 import existing_staffing
 import operating_inputs
@@ -3545,7 +3545,7 @@ def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
     if project.get('utilities') is not None:
         # Existing-project EEE.C / EEW.C, on the same budget year and VAT basis as the deliverable.
-        project['utilities_result'] = utilities_result(project, template_budget_year(), template_vat_inclusive())
+        project['utilities_result'] = utilities_result(project, project['budget_period'].start_year, template_vat_inclusive())
 
     wb = openpyxl.Workbook()
     ws_summary = wb.active
@@ -3566,7 +3566,7 @@ def main():
     build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy)
     build_savills_fee_position_sheet(wb, project, mgmt, summary)
     if project.get('existing') is not None:
-        build_staff_bridge_sheet(wb, existing_result(project, demand, template_budget_year()))
+        build_staff_bridge_sheet(wb, existing_result(project, demand, project['budget_period'].start_year))
     if project.get('utilities_result') is not None:
         build_utility_bridge_sheet(wb, project['utilities_result'])
 

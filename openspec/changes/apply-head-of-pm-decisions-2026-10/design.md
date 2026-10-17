@@ -216,4 +216,24 @@ entry, `METHOD_VERDICTS` entry and catalogue entry are updated.
 
 ## Measured
 
-(Filled in per task group during implementation.)
+### Group 1: budget period (2026-10-15, session P20)
+
+Runs under `Savills-local\budget-test\2026-10-15-p17-before\` (default period against the "before" record) and
+`...-p17-g1-period\` (July 2027 against the default). Excel-recalculated, cell by cell.
+
+- **Default start (blank, January 2027):** all 32 baseline figures of the standard sample and of the City Garden clone
+  are unchanged (0 VND). The only cells that differ in the three workbooks are `2. Budget-Management Fund!AH6/AL6`,
+  which now say 01/01/2027 and 31/12/2027 instead of the template's 01/09/2026 and 31/08/2027. Through them the fund
+  sheet's twelve month headers read 01/27 to 12/27 (they read 09/26 to 08/27 before), `2.2 Common area Fund` follows,
+  and the two summary dates already said the same. A value-preserving fix, but a visible one.
+- **July 2027 start, new-prospect sample:** only the dates move (period cells, month headers, the K37 date). No figure
+  moves: a new prospect has no date-dependent line in this change's scope yet (VAT by month is group 2, working days
+  group 5).
+- **July 2027 start, Existing sample:** period cells read Jul/2027 to Jun/2028 on the fund sheet, `2.2` and the summary.
+  Two figures move, both through the paid-holiday calendar (366 days and a different holiday set in the 12 months):
+  `EMH3` +108,000 VND a year, and `RI1` (the common-area share charged back) +602 VND, so the surplus falls by
+  107,398 VND. Electricity and water do not move: the tariff table has one price and one VAT rate from 01/2027.
+- **Not covered by the period (stated, not hidden):** the labour-law parameters of Existing mode are still taken for the
+  period's first calendar year, so a period that straddles a change in the law uses the first year's values.
+- **Sign-off (group 1):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.
+

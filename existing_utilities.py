@@ -320,7 +320,7 @@ def _vat_change(p0, pb, utility):
     return '; '.join(parts)
 
 
-def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
+def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows, months_of_budget=None):
     utility = LINE_UTILITY[line]
     unit = ut.UNITS[utility]
     s = inp.settings.get(line) or LineSetting(line)
@@ -336,11 +336,17 @@ def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
         except ut.TariffError as e:
             raise ValueError(f'{line}: {e}') from None
 
+    # The twelve (year, month) pairs priced for the budget: the budget period (change
+    # apply-head-of-pm-decisions-2026-10, group 1), or calendar months 1-12 of the budget year.
+    budget_months = list(months_of_budget) if months_of_budget else [(budget_year, m) for m in range(1, 13)]
+    prior_months = [(y - budget_year + prior_year, m) for y, m in budget_months]
     entries = inp.entries.get(line, [])
     for e in entries:
-        if (e.year, e.month) >= (budget_year, 1):
+        if (e.year, e.month) >= budget_months[0]:
+            where = (f'the budget year {budget_year}' if budget_months[0] == (budget_year, 1)
+                     else f'the budget period starting {_ym_text(budget_months[0])}')
             raise ValueError(f"{line}: '{SHEET}' row {e.row} is for {_ym_text((e.year, e.month))}, which is in or after "
-                             f"the budget year {budget_year}. Enter only months before the budget year.")
+                             f"{where}. Enter only months before the budget {'year' if budget_months[0] == (budget_year, 1) else 'period'}.")
     with_amount = [e for e in entries if e.amount is not None]
     flags, months, missing, ignored, window = [], [], [], 0, None
     if with_amount:
@@ -385,7 +391,7 @@ def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
                 f"'Prior-Year Approved' amount in block {SEC_LINES!r}. Enter the monthly amounts in block "
                 f"{SEC_ACTUALS!r}, or the approved prior-year amount (VND/year) and whether it includes VAT.")
         basis = 'approved'
-        ref = [price_of(prior_year, m) for m in range(1, 13)]
+        ref = [price_of(y, m) for y, m in prior_months]
         q_bar = s.approved / sum(p.price(s.approved_incl_vat) for p in ref)
         flags.insert(0, f'chỉ có {n} tháng thực chi; dùng số NS {prior_year} đã duyệt làm mốc')
     if ignored:
@@ -402,7 +408,7 @@ def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
         q_budget = s.override
         pm.append(reason)
 
-    budget = [price_of(budget_year, m) for m in range(1, 13)]
+    budget = [price_of(y, m) for y, m in budget_months]
     amounts = [round(q_budget * p.price(incl_vat)) for p in budget]
     annual = float(sum(amounts))
 
@@ -418,7 +424,7 @@ def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
         if s.approved_incl_vat == incl_vat:
             approved_on_basis = s.approved
         else:
-            py = [price_of(prior_year, m) for m in range(1, 13)]
+            py = [price_of(y, m) for y, m in prior_months]
             approved_on_basis = (s.approved * sum(p.price(incl_vat) for p in py)
                                  / sum(p.price(s.approved_incl_vat) for p in py))
     bridge = {
@@ -458,7 +464,7 @@ def _compute_line(line, inp, budget_year, prior_year, incl_vat, rows):
                       approved_on_basis, bridge, reasons, flags, tariff.year_note(budget_year))
 
 
-def compute(inp, budget_year, incl_vat, rows=None):
+def compute(inp, budget_year, incl_vat, rows=None, months=None):
     """UtilitiesResult for both lines. `incl_vat` is the deliverable's basis: True unless the form's VAT
     switch ('2. Budget-Management Fund'!F7) reads KHOÁN. Raises ValueError on any stop of design D8."""
     budget_year = int(budget_year)
@@ -466,7 +472,7 @@ def compute(inp, budget_year, incl_vat, rows=None):
     rows = ut.load_rows() if rows is None else rows
     result = UtilitiesResult(prior_year, budget_year, bool(incl_vat), inp.region)
     for line in LINES:
-        result.lines[line] = _compute_line(line, inp, budget_year, prior_year, bool(incl_vat), rows)
+        result.lines[line] = _compute_line(line, inp, budget_year, prior_year, bool(incl_vat), rows, months)
     return result
 
 

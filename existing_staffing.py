@@ -26,6 +26,7 @@ import calendar
 import math
 from dataclasses import dataclass, field
 
+import budget_period
 import labor_law_params
 import vn_holidays
 from input_labels import LabelNotFound, normalise
@@ -408,10 +409,18 @@ def year_days(year):
     return 366 if calendar.isleap(year) else 365
 
 
+def period_days(year_or_period):
+    """Days in a calendar year, or in a budget period (twelve calendar months from its first day)."""
+    if isinstance(year_or_period, budget_period.BudgetPeriod):
+        return (year_or_period.last_day - year_or_period.first_day).days + 1
+    return year_days(year_or_period)
+
+
 def a11_monthly(duty, year, gross_of=lambda d: d.gross):
-    """A1.1!S13 — the monthly night/holiday allowance for the duty rows in `year`'s calendar."""
+    """A1.1!S13 — the monthly night/holiday allowance for the duty rows in `year`'s calendar. `year` may also be a
+    BudgetPeriod, which counts its own days and the paid holidays inside it."""
     n = len(vh_paid(year))
-    h6, l6, p6 = year_days(year) - n, n, n
+    h6, l6, p6 = period_days(year) - n, n, n
     j = nn = rr = 0.0
     for d in duty:
         f = gross_of(d) / A11_WORKDAYS
@@ -425,8 +434,10 @@ def a11_monthly(duty, year, gross_of=lambda d: d.gross):
     return excel_round(s12 / A1_CONTRACT_MONTHS)
 
 
-def vh_paid(year):
-    return vn_holidays.paid_holidays(year)
+def vh_paid(year_or_period):
+    if isinstance(year_or_period, budget_period.BudgetPeriod):
+        return vn_holidays.paid_holidays_in_period(year_or_period.first_day, year_or_period.last_day)
+    return vn_holidays.paid_holidays(year_or_period)
 
 
 def holiday_change(prior_year, budget_year):
@@ -525,7 +536,7 @@ def a5_template_annual():
 
 
 def compute(ex, demand, budget_year, code_of, is_outsourced, unplaced_code_of,
-            eff_headcount, monthly_gross_of):
+            eff_headcount, monthly_gross_of, period=None):
     """Everything Existing-project mode writes. Pure: no workbook is opened.
 
     code_of(position) -> placement group ('PM', 'TN', 'AA_POOL', ...) or None;
@@ -647,16 +658,19 @@ def compute(ex, demand, budget_year, code_of, is_outsourced, unplaced_code_of,
     emh3_line = ex.lines.get('EMH3') or LineRow('EMH3')
     duty_budget = [DutyRow(d.code, d.night_normal, d.night_holiday, d.day_holiday,
                            gross=max(d.gross, floor), note=d.note, row=d.row) for d in ex.duty]
-    n1 = len(vh_paid(budget_year))
-    a11_days = (year_days(budget_year) - n1, n1, n1)
+    # The calendar the budget's holidays and days are counted in: the budget period when one is given (change
+    # apply-head-of-pm-decisions-2026-10, group 1), else the budget year as before.
+    budget_cal = period if period is not None else budget_year
+    n1 = len(vh_paid(budget_cal))
+    a11_days = (period_days(budget_cal) - n1, n1, n1)
     if ex.duty:
         b3 = 12 * a11_monthly(ex.duty, ex.prior_year)
-        h3 = 12 * a11_monthly(ex.duty, budget_year)
-        c3 = 12 * a11_monthly(duty_budget, budget_year)
+        h3 = 12 * a11_monthly(ex.duty, budget_cal)
+        c3 = 12 * a11_monthly(duty_budget, budget_cal)
         emh3 = LineResult('EMH3', baseline=b3, budget=c3, computed=c3, allowance=c3 - b3, kind='duty',
                           approved=emh3_line.approved)
         if abs(h3 - b3) >= 1:
-            reason = tool_reason(holiday_reason(ex.prior_year, budget_year))
+            reason = tool_reason(holiday_reason(ex.prior_year, budget_cal))
             emh3.reasons.append(reason)
             add_reason('EMH3', 'Số ngày lễ', str(len(vh_paid(ex.prior_year))), str(n1), h3 - b3, reason)
         if abs(c3 - h3) >= 1:

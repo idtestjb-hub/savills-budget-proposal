@@ -29,6 +29,7 @@ import shutil
 import tempfile
 import unicodedata
 import calendar as cal
+import datetime
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -44,6 +45,7 @@ from master_comparables import (
 from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
 from input_labels import SheetLabels, normalise
+import budget_period
 import existing_staffing
 import existing_utilities
 import operating_inputs
@@ -686,6 +688,10 @@ def read_input(path):
     project['operating_years'] = _resolve_operating_years(project['operating_years'])
     project['capex_drop_year'], project['capex_drop_year_is_default'] = _resolve_capex_drop_year(
         project['capex_drop_year'])
+    # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 1). Blank or absent
+    # means January 2027. Anything that is not a month stops the run (budget_period.BudgetPeriodError).
+    project['budget_period'] = budget_period.from_value(
+        L.value(budget_period.LABEL) if L.has(budget_period.LABEL) else None)
     project['pool_count'], project['pool_count_stated'] = _resolve_pool_count(
         project['pool_count'], project['has_pool'])
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
@@ -749,8 +755,13 @@ def read_input(path):
             R.value('Landscape: m² Garden per Gardener'), 'sqm_per_gardener'),
     )
     month, year = R.value('Month'), R.value('Year')
+    if not month and not year:
+        # Both blank: the sample month is the budget's first month (change apply-head-of-pm-decisions-2026-10,
+        # group 1). One blank and one filled is still a form mistake.
+        year, month = project['budget_period'].start_year, project['budget_period'].start_month
     if not month or not year:
-        raise ValueError("Roster Setup's Month and Year must both be filled in.")
+        raise ValueError("Roster Setup's Month and Year must both be filled in (or both left blank to use the "
+                         "budget's first month).")
     month, year = int(month), int(year)
 
     # Holidays sit under their own section header, one date per row. Found by the header rather
@@ -1828,7 +1839,8 @@ def existing_result(project, demand, budget_year):
     if ex is None:
         return None
     return existing_staffing.compute(ex, demand, int(budget_year), _a1_group_of, _is_outsourced,
-                                     _unplaced_code_of, _eff_headcount, _monthly_gross_of)
+                                     _unplaced_code_of, _eff_headcount, _monthly_gross_of,
+                                     period=project.get('budget_period'))
 
 
 def utilities_result(project, budget_year, incl_vat):
@@ -1837,7 +1849,9 @@ def utilities_result(project, budget_year, incl_vat):
     inp = project.get('utilities')
     if inp is None:
         return None
-    return existing_utilities.compute(inp, int(budget_year), incl_vat)
+    period = project.get('budget_period')
+    return existing_utilities.compute(inp, int(budget_year), incl_vat,
+                                      months=period.months if period is not None else None)
 
 
 def template_vat_inclusive():
@@ -3672,6 +3686,18 @@ def build_budget(project, demand, year):
     shutil.copyfile(TEMPLATE_PATH, local_template)
     repaired = repair_workbook(local_template)
     wb = openpyxl.load_workbook(repaired, data_only=False)
+
+    # The budget period (change apply-head-of-pm-decisions-2026-10, group 1): the fund sheet's twelve month columns
+    # start from AH6 (its month headers and the ramp sheets all read it), so the template's own 01/09/2026-31/08/2027
+    # was being shown beside a summary that said calendar 2027. One period, written to every place that shows it,
+    # and AL5 (the budget year the narratives quote) is the period's first year.
+    _period = project['budget_period']
+    _fund = wb['2. Budget-Management Fund']
+    _fund['AH6'] = datetime.datetime.combine(_period.first_day, datetime.time())
+    _fund['AL6'] = datetime.datetime.combine(_period.last_day, datetime.time())
+    _fund['AL5'] = _period.start_year
+    wb['1. Summary']['H4'] = datetime.datetime.combine(_period.first_day, datetime.time())
+    wb['1. Summary']['H5'] = datetime.datetime.combine(_period.last_day, datetime.time())
 
     # The AI Guideline's universal VAT-treatment sentence for this run — appended to every line-level
     # remark (via _write_remark -> _append_vat) and to every composed `1. Summary` narrative, or ''

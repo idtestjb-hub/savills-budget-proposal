@@ -6,20 +6,20 @@ A/B movements (design D16).
 
 ## 0. Before
 
-- [ ] 0.1 Record the "before" outputs: both workbooks for the standard sample and for the clone, plus the
+- [x] 0.1 Record the "before" outputs: both workbooks for the standard sample and for the clone, plus the
   unit-test count. Verify that the files exist under `...-p17-before\` and that `verify.py` passes on them.
-- [ ] 0.2 Write a diff script (kept in `Savills-local`) that reads the "before" outputs and the current outputs, and
+- [x] 0.2 Write a diff script (kept in `Savills-local`) that reads the "before" outputs and the current outputs, and
   reports each baseline figure's change in VND next to the task group expected to explain it. Any change with no group
   is printed as unexplained. Verify that on the unchanged code it reports 0 changes, and that a planted change is
   reported as unexplained.
 
 ## 1. Budget period (G1)
 
-- [ ] 1.1 Add the budget start month to the input form builder and to label reading, with a default of 01/2027 and
+- [x] 1.1 Add the budget start month to the input form builder and to label reading, with a default of 01/2027 and
   a loud failure on an invalid value. Verify with unit tests for blank, a valid month and an invalid value.
-- [ ] 1.2 Add the period helper and make GPB write `2. Budget-Management Fund!AH6/AL6` and `1. Summary!H4/H5` from it.
+- [x] 1.2 Add the period helper and make GPB write `2. Budget-Management Fund!AH6/AL6` and `1. Summary!H4/H5` from it.
   Verify that a January 2027 run shows 01/01/2027–31/12/2027 on both sheets (unit test plus a COM read-back).
-- [ ] 1.3 Route every month-dated lookup through the period: the fill-up curve's month 1, holidays and the roster.
+- [x] 1.3 Route every month-dated lookup through the period: the fill-up curve's month 1, holidays and the roster.
   Verify with a July 2027 start test and a full A/B; figures move only through date-dependent lines, and the movement
   is recorded.
 

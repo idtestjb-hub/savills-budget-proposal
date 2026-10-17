@@ -201,6 +201,16 @@ def paid_days_of_year(year):
     return paid_holidays(year, as_of=datetime.date(year, 12, 31))
 
 
+def paid_holidays_in_period(first_day, last_day):
+    """Paid public holidays that fall in [first_day, last_day], as [(date, name)] sorted by date, under the law in
+    force on `first_day` (the same "law when the budget was approved" convention as `paid_holidays`). For a
+    calendar year it equals `paid_holidays(year)`; for a period that straddles two years it joins the two calendars."""
+    out = []
+    for y in range(first_day.year, last_day.year + 1):
+        out += [(d, n) for d, n in paid_holidays(y, as_of=first_day) if first_day <= d <= last_day]
+    return sorted(out)
+
+
 def holidays_in_month(year, month):
     """Day-of-month numbers that are paid holidays — the shape Roster Setup wants."""
     return sorted(d.day for d, _ in paid_days_of_year(year) if d.year == year and d.month == month)
