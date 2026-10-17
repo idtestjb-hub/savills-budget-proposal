@@ -88,11 +88,11 @@ Values revised on 2026-10-18 (security upper cut-off 3.0, sanity bounds, form-on
   sheet and the deliverable equal to the recorded baseline; name scan of both data tables against the list kept
   outside the repository. Verify by a deliberate break of each (wrong headcount, a changed cut-off, an inferred row
   counted, a duplicated NFA row, a name inserted) failing the check.
-- [ ] 3.2 Run `python verification/verify.py` from `Budget_Agent/source_code/`. Verify: passes, and no baseline was
-  re-recorded. 2026-10-18: on the live checkout section 4 fails on 7 OPEX figures that belong to another session's
-  uncommitted group-2 edits, so the run was repeated on a clean copy (HEAD + this change): sections 1–5h pass
-  (`verify_after.log`); the full run with the two reference budgets copied in is `verify_after2.log` in the session
-  folder (tick this task when it ends with `VERIFY rc=0`). No baseline re-recorded.
+- [x] 3.2 Run `python verification/verify.py` from `Budget_Agent/source_code/`. Verify: passes, and no baseline was
+  re-recorded. Done 2026-10-18 on a clean copy (HEAD + this change, with the two reference budgets and the HEAD
+  tariff table): PASS, all 9 sections, 63 OK lines (`verify_after3.log` in the session folder). On the live checkout
+  the run fails section 4 on 7 OPEX figures and section 8 on a new `vat` tariff row, both from another session's
+  uncommitted group-2 edits, not from this change. No baseline re-recorded.
 
 ## 4. Measure and sign-off
 
