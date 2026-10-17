@@ -68,6 +68,9 @@ import csv
 import math
 import unicodedata
 
+import budget_period
+import utility_tariffs
+
 BUDGET_AGENT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 MASTER_LIST_CSV = os.path.join(BUDGET_AGENT, 'data', 'master_list_verified', 'Dim_Property_Residential.csv')
 
@@ -347,16 +350,14 @@ MAX_DISTANCE_RATE_SWING = 0.20  # cap on how far a within-DISTANCE_TIER_KM match
 SIZE_SIMILARITY_BAND = 0.50   # a same-tier candidate within ±50% of the input's Total NFA is
                                # preferred over one outside it, even if the latter is hand-verified
 
-# Task 8.6, 2026-09-17 — your instruction: disable real-distance comparison for now, revisit later
-# ("we do that later"). Set True to re-enable task 2.4/2.5's coordinate-distance tie-break exactly as
-# it was — nothing else about it changes, this is the one switch. While False, nearest_comparables()
-# never reads lat/lon at all (falls straight to district/city tier, then verified-status, then
-# NFA-delta) and comparable_match_basis() never claims a "closest by real distance" label — both
-# checked below, not just the sort key, so the reader-facing disclosure never overstates what actually
-# decided the ranking. derive_product_rate_capped()'s ±20% swing cap needs no separate change: with
-# distance disabled, its coordinate-aware and "basic information as is" runs always agree, so the cap
-# naturally never has anything to clamp.
-DISTANCE_COMPARISON_ENABLED = False
+# Task 8.6, 2026-09-17 switched real-distance comparison off ("we do that later"). Change
+# apply-head-of-pm-decisions-2026-10 (group 4, task 4.1, decision B12, signed off 2026-10-11) turns it back on,
+# with the ±20% swing cap on EVERY product's rate and on the blended fallback rate (see
+# derive_product_rate_capped() and derive_mgmt_rate_capped()). The flag stays the one switch: while False,
+# nearest_comparables() never reads lat/lon at all (district/city tier, then size band, then verified status,
+# then NFA delta) and comparable_match_basis() never claims a "closest by real distance" label. A project with
+# no coordinates gives the same ranking and the same rates either way.
+DISTANCE_COMPARISON_ENABLED = True
 
 
 def _haversine_km(lat1, lon1, lat2, lon2):
@@ -530,7 +531,68 @@ def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, 
     return ranked[:n]
 
 
-def derive_mgmt_rate(comparables, all_ranked=None):
+COMPARABLE_VAT_BASIS_CSV = os.path.join(BUDGET_AGENT, 'data', 'master_list_verified', 'Ref_ComparableVATBasis.csv')
+VAT_BASES = ('incl', 'excl')
+
+
+class VatBasisError(ValueError):
+    """Ref_ComparableVATBasis.csv is malformed. The message names the row."""
+
+
+def load_vat_basis(path=None):
+    """{(project name casefolded, product): 'incl' | 'excl'} from the hand-checked table (change
+    apply-head-of-pm-decisions-2026-10, group 4, decision D8/M2-a). A missing file gives an empty table, so every
+    comparable is then treated as including VAT and flagged. A row with an unknown basis or no source stops."""
+    path = path or COMPARABLE_VAT_BASIS_CSV
+    if not os.path.exists(path):
+        return {}
+    table = {}
+    with open(path, encoding='utf-8-sig', newline='') as f:
+        reader = csv.DictReader(f)
+        need = ['project_key', 'product', 'basis', 'source_text', 'checked_on']
+        missing = [c for c in need if c not in (reader.fieldnames or [])]
+        if missing:
+            raise VatBasisError(f'Ref_ComparableVATBasis.csv is missing columns: {", ".join(missing)}.')
+        for row_no, r in enumerate(reader, start=2):
+            key, product, basis = (r['project_key'] or '').strip(), (r['product'] or '').strip(), (r['basis'] or '').strip()
+            if not key or not product:
+                raise VatBasisError(f'Ref_ComparableVATBasis.csv row {row_no}: project_key and product are required.')
+            if basis not in VAT_BASES:
+                raise VatBasisError(f'Ref_ComparableVATBasis.csv row {row_no} ({key}, {product}): basis "{basis}" '
+                                    f'must be incl or excl.')
+            if not (r['source_text'] or '').strip():
+                raise VatBasisError(f'Ref_ComparableVATBasis.csv row {row_no} ({key}, {product}): source_text is blank. '
+                                    f'Every entry needs its source.')
+            table[(key.casefold(), product)] = basis
+    return table
+
+
+def vat_basis_of(vat, comparable, product):
+    """'incl', 'excl' or None (not in the table) for a comparable and product. `vat` is dict(pct=..., table=...)."""
+    return (vat or {}).get('table', {}).get((comparable['name'].strip().casefold(), product))
+
+
+def _on_incl_vat(vat, comparable, product, rate):
+    """The rate on an including-VAT basis: an excl. rate times (1 + VAT of the budget period's first month); an
+    incl. or unknown rate as it is. Without `vat` (older callers and tests) nothing is converted."""
+    if vat and vat_basis_of(vat, comparable, product) == 'excl':
+        return rate * (1 + vat['pct'] / 100)
+    return rate
+
+
+def vat_flags_for(vat, used_by_product):
+    """{product: [comparable names used in that product's average that are not in the VAT table]}, for the analysis."""
+    if not vat:
+        return {}
+    out = {}
+    for product, used in used_by_product.items():
+        names = [c['name'] for c in used if vat_basis_of(vat, c, product) is None]
+        if names:
+            out[product] = names
+    return out
+
+
+def derive_mgmt_rate(comparables, all_ranked=None, vat=None):
     """Average the real rates among `comparables` that aren't None. If none of them have a rate,
     fall back to the next-nearest ranked candidates that do, and say so explicitly (never silently
     substitute)."""
@@ -544,14 +606,43 @@ def derive_mgmt_rate(comparables, all_ranked=None):
                 break
     if not rated:
         return None, 'No comparable in the master table has a verified management-fee rate.'
-    rate = round(sum(c['mgmt_rate'] for c in rated) / len(rated))
+    rate = round(sum(_on_incl_vat(vat, c, 'Apartment', c['mgmt_rate']) for c in rated) / len(rated))
     vats = {c['mgmt_rate_vat'] for c in rated}
     if len(vats) > 1:
         note = (note + ' ' if note else '') + f"Averaged across mixed VAT conventions ({', '.join(sorted(v for v in vats if v))}) — see module docstring."
     return rate, note
 
 
-def derive_product_rate(all_ranked, product, n=2):
+def derive_mgmt_rate_capped(project_nfa, exclude_name, input_district=None, input_city=None,
+                            input_lat=None, input_lon=None, n=2, vat=None):
+    """The blended whole-property rate over the n nearest comparables, with the same ±20% swing cap as
+    derive_product_rate_capped(): when the within-1km distance tie-break changed which comparables are used, the
+    rate is clamped to ±MAX_DISTANCE_RATE_SWING of what the basic-information ranking (no coordinates) gives.
+    Returns (rate, comparables, note, all_ranked) like derive_mgmt_rate(), with all_ranked the coordinate-aware
+    full ranking."""
+    n_full = len(MASTER_COMPARABLES)
+    loc = dict(input_district=input_district, input_city=input_city)
+    all_ranked = nearest_comparables(project_nfa, exclude_name=exclude_name, n=n_full,
+                                     input_lat=input_lat, input_lon=input_lon, **loc)
+    used = all_ranked[:n]
+    rate, note = derive_mgmt_rate(used, all_ranked=all_ranked, vat=vat)
+    if rate is None or input_lat is None or input_lon is None:
+        return rate, used, note, all_ranked
+    basic_ranked = nearest_comparables(project_nfa, exclude_name=exclude_name, n=n_full, **loc)
+    basic_rate, _basic_note = derive_mgmt_rate(basic_ranked[:n], all_ranked=basic_ranked, vat=vat)
+    if basic_rate is None or {c['name'] for c in used} == {c['name'] for c in basic_ranked[:n]}:
+        return rate, used, note, all_ranked
+    lo, hi = basic_rate * (1 - MAX_DISTANCE_RATE_SWING), basic_rate * (1 + MAX_DISTANCE_RATE_SWING)
+    if lo <= rate <= hi:
+        return rate, used, note, all_ranked
+    clamped = round(hi if rate > hi else lo)
+    clamp_note = (f"A within-{DISTANCE_TIER_KM:g}km real comparable would have implied a blended {rate:,.0f} "
+                  f"VND/m²/month — clamped to {clamped:,.0f} (±{MAX_DISTANCE_RATE_SWING:.0%} of the "
+                  f"{basic_rate:,.0f} 'basic information as is' figure).")
+    return clamped, used, ((note + ' ') if note else '') + clamp_note, all_ranked
+
+
+def derive_product_rate(all_ranked, product, n=2, vat=None):
     """Same idea as derive_mgmt_rate, but scoped to ONE product's own real rate (c['rates'][product])
     instead of the whole-property mgmt_rate — for products other than Apartment, most comparables
     simply don't have this (see PRODUCT_RATE_COLUMNS), so this averages the n nearest (by the same
@@ -564,7 +655,7 @@ def derive_product_rate(all_ranked, product, n=2):
     if not have_rate:
         return None, [], f'No comparable in the master table has a verified {product} rate.'
     used = have_rate[:n]
-    rate = round(sum(c['rates'][product] for c in used) / len(used))
+    rate = round(sum(_on_incl_vat(vat, c, product, c['rates'][product]) for c in used) / len(used))
     note = None
     if len(have_rate) < n:
         note = f'Only {len(have_rate)} comparable(s) in the whole {len(all_ranked)}-project table have a real {product} rate — averaged across all of them, not just the nearest {n}.'
@@ -572,7 +663,7 @@ def derive_product_rate(all_ranked, product, n=2):
 
 
 def derive_product_rate_capped(project_nfa, exclude_name, product, input_district=None, input_city=None,
-                                input_lat=None, input_lon=None, n=2):
+                                input_lat=None, input_lon=None, n=2, vat=None):
     """derive_product_rate(), but caps the effect of task 2.5's within-DISTANCE_TIER_KM tie-break
     (your rule, 2026-09-16: "if the project [is] nearly within 1km ... the swing should go up-to max
     20%, if the distance is more than [that] ... the comparison base on basic information as is").
@@ -593,14 +684,14 @@ def derive_product_rate_capped(project_nfa, exclude_name, product, input_distric
     all_ranked = nearest_comparables(project_nfa, exclude_name=exclude_name, n=n_full,
                                       input_district=input_district, input_city=input_city,
                                       input_lat=input_lat, input_lon=input_lon)
-    rate, used, note = derive_product_rate(all_ranked, product, n=n)
+    rate, used, note = derive_product_rate(all_ranked, product, n=n, vat=vat)
 
     if rate is None or input_lat is None or input_lon is None:
         return rate, used, note, all_ranked
 
     basic_ranked = nearest_comparables(project_nfa, exclude_name=exclude_name, n=n_full,
                                         input_district=input_district, input_city=input_city)
-    basic_rate, basic_used, _basic_note = derive_product_rate(basic_ranked, product, n=n)
+    basic_rate, basic_used, _basic_note = derive_product_rate(basic_ranked, product, n=n, vat=vat)
     if basic_rate is None or {c['name'] for c in used} == {c['name'] for c in basic_used}:
         return rate, used, note, all_ranked   # same selection either way — nothing to cap
 
@@ -618,7 +709,7 @@ def derive_product_rate_capped(project_nfa, exclude_name, product, input_distric
 BLENDED_FALLBACK_NOTE = 'No comparable has a real Apartment rate — fell back to the whole-property blended rate.'
 
 
-def resolve_product_rates(project):
+def resolve_product_rates(project, vat_table=None):
     """The one place each product's applied management-fee rate (VND/m²/month) is decided — change
     `use-operating-project-actuals`, P5. Both generators call this once per run and read every rate
     they write or show from its result, so the deliverable's RM.* rows, its '0. Info' fee table and
@@ -631,8 +722,9 @@ def resolve_product_rates(project):
                  comparable carries an Apartment rate at all, the blended whole-property rate
                  (derive_mgmt_rate over the 2 nearest comparables) — before P5 only the deliverable
                  had this step.
-      others     derive_product_rate() over the same coordinate-aware ranking, uncapped; when no
-                 comparable carries that product's rate, the project's applied Apartment rate.
+      others     derive_product_rate_capped(): the same coordinate-aware ranking with the same ±20% swing
+                 cap (group 4); when no comparable carries that product's rate, the project's applied
+                 Apartment rate. The blended fallback is capped the same way (derive_mgmt_rate_capped).
       entered    (P1) a rate the PM entered on the Product Mix row, read into
                  project['operating']['rates'], ranks ahead of both and is not capped. An entered
                  Apartment rate is then also the applied Apartment rate the fallback uses. The
@@ -654,17 +746,24 @@ def resolve_product_rates(project):
                    is the comparable-derived rate (None when no comparable has one)
       apartment_comparable_rate  the Apartment rate the comparables give, whether or not one was entered
       apartment_entered          dict(rate, vat) when the PM entered the Apartment rate, else None
+      vat_pct, vat_flags         (group 4) the VAT rate excl.-VAT comparable rates were multiplied by (the general rate
+                                 of the budget period's first month), and {product: [comparable names used that are
+                                 not in Ref_ComparableVATBasis.csv]}, which are treated as including VAT. A rate the
+                                 PM entered is never converted.
     Raises ValueError when no comparable has any management-fee rate."""
     loc = dict(input_district=project.get('district'), input_city=project.get('city'))
+    bp = project.get('budget_period')
+    first_y, first_m = (bp.months[0] if bp is not None else budget_period.DEFAULT_START)
+    vat = dict(pct=utility_tariffs.vat_rate(first_y, first_m),
+               table=load_vat_basis() if vat_table is None else vat_table)
     apt_rate, apt_used, apt_note, all_ranked = derive_product_rate_capped(
         project['total_nfa'], project['name'], 'Apartment',
-        input_lat=project.get('lat'), input_lon=project.get('lon'), **loc)
+        input_lat=project.get('lat'), input_lon=project.get('lon'), vat=vat, **loc)
     comparables, rate_note, apt_source = apt_used, apt_note, 'comparable'
     if apt_rate is None:
-        comparables = nearest_comparables(project['total_nfa'], exclude_name=project['name'], n=2,
-                                          input_lat=project.get('lat'), input_lon=project.get('lon'),
-                                          **loc)
-        apt_rate, blended_note = derive_mgmt_rate(comparables, all_ranked=all_ranked)
+        apt_rate, comparables, blended_note, _blended_ranked = derive_mgmt_rate_capped(
+            project['total_nfa'], project['name'], input_lat=project.get('lat'), input_lon=project.get('lon'),
+            vat=vat, **loc)
         rate_note = ((blended_note + '  ') if blended_note else '') + BLENDED_FALLBACK_NOTE
         apt_source = 'blended-fallback'
     entered = ((project.get('operating') or {}).get('rates')) or {}
@@ -685,7 +784,9 @@ def resolve_product_rates(project):
                                      vat=apt_entered['vat'] if apt_entered else None,
                                      comparable_rate=apt_comparable_rate)
             continue
-        rate, used, note = derive_product_rate(all_ranked, product, n=2)
+        rate, used, note, _ranked = derive_product_rate_capped(
+            project['total_nfa'], project['name'], product,
+            input_lat=project.get('lat'), input_lon=project.get('lon'), vat=vat, **loc)
         if product in entered:
             products[product] = dict(rate=entered[product]['rate'], used=[], note=note, source='entered',
                                      is_fallback=False, vat=entered[product]['vat'], comparable_rate=rate)
@@ -698,4 +799,6 @@ def resolve_product_rates(project):
     return dict(apartment_rate=apt_rate, apartment_used=apt_used, apartment_note=apt_note,
                 apartment_source=apt_source, comparables=comparables, rate_note=rate_note,
                 all_ranked=all_ranked, products=products, apartment_comparable_rate=apt_comparable_rate,
-                apartment_entered=apt_entered)
+                apartment_entered=apt_entered, vat_pct=vat['pct'],
+                vat_flags=vat_flags_for(vat, {**{'Apartment': apt_used if apt_source == 'comparable' else comparables},
+                                              **{k: v['used'] for k, v in products.items() if k != 'Apartment'}}))

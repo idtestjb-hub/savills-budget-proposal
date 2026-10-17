@@ -59,17 +59,17 @@ A/B movements (design D16).
 
 ## 4. Comparables (B12, then D8)
 
-- [ ] 4.1 Turn on `DISTANCE_COMPARISON_ENABLED` and route every product's rate and the blended fallback through the ±20%
+- [x] 4.1 Turn on `DISTANCE_COMPARISON_ENABLED` and route every product's rate and the blended fallback through the ±20%
   cap. Update the stale comments and `measured-effect.md`. Verify with unit tests for a capped non-Apartment product
   and for no coordinates.
-- [ ] 4.2 Add an invented fixture with coordinates and make `verify.py` check its distance-ranked result. Verify that
+- [x] 4.2 Add an invented fixture with coordinates and make `verify.py` check its distance-ranked result. Verify that
   `verify.py` reaches the path.
-- [ ] 4.3 Seed `Ref_ComparableVATBasis.csv` from the raw-text evidence and the hand-verified tags, and show the seed to
+- [x] 4.3 Seed `Ref_ComparableVATBasis.csv` from the raw-text evidence and the hand-verified tags, and show the seed to
   the user for confirmation before it is read. Verify that the user has confirmed it.
-- [ ] 4.4 Convert excl.-VAT comparable rates before averaging, and flag unknown bases on the analysis. Entered rates
+- [x] 4.4 Convert excl.-VAT comparable rates before averaging, and flag unknown bases on the analysis. Entered rates
   are not converted. Verify with unit tests (mixed basis, unknown basis, entered rate) and an A/B (expected standard
   Apartment rate 17,175 → about 18,893).
-- [ ] 4.5 Record group 4's movements and get the user's sign-off.
+- [x] 4.5 Record group 4's movements and get the user's sign-off.
 
 ## 5. New-prospect staff cost (D4, B2, D5, D6, D7)
 

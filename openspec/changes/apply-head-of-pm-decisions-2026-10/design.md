@@ -313,3 +313,34 @@ City Garden with the run log). Both inputs blank (the defaults).
 - **Checks:** 715 unit tests pass (1 xfail as before). `verify.py` with the two baseline gates opened: every other check
   passes on all sections (139 remark assertions, 506 summary reconciliations, 118 Required lines, method verdicts).
 - **Sign-off (group 3):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.
+
+### Group 4: comparables, distance cap and VAT basis (2026-10-18, session P21)
+
+Runs under `Savills-local\budget-test\2026-10-18-p21-g4\` (`r1` = standard sample and City Garden clone, default period).
+
+- **VAT basis table `Ref_ComparableVATBasis.csv` (8 rows), confirmed by the user on 2026-10-18 before the tool read it:**
+  excl. VAT: Lumi Prestige & Elite, Lumi Signature, Fiato F Zone MF (Apartment, from the hand-verified tags) and
+  Rivergate Residence (Apartment, Officetel, Shophouse, Retail, from the raw text "chưa VAT"); incl. VAT: Green Skyline
+  (Apartment). Left out on purpose: Hoang Anh Riverview (raw text "(VAT)", meaning unclear) and MT Eastmark (only its
+  shop-office rate is stated). Any comparable not in the table is used as including VAT and flagged.
+- **Standard sample (no coordinates):** derived Apartment rate 17,175 → 18,892 VND/m²/month (+1,717; docs/30 expected
+  about 18,893). Management-fee revenue at full occupancy 11,432.3M → 12,522.3M (+1,089.95M a year, the +1.09 bn docs/30
+  quoted). Year-1 deliverable lines: `RM.AP` +290.2M, `RM.KG` +5.0M, `RM.0A` developer top-up +794.8M; no other line moves
+  between group 3 and group 4. Year-1 surplus 4,390.9M → 5,476.8M.
+- **City Garden clone:** no figure moves. Its comparables are not in the table, so their rates are used as before and the
+  analysis flags them ("VAT basis NOT verified", Apartment: two comparables; Officetel: two); the PM-entered rate
+  (23,000, excl. VAT) is not converted.
+- **Distance (B12):** `DISTANCE_COMPARISON_ENABLED` is on. Neither measured project has coordinates, so no figure moves
+  from the distance step here. The cap now covers every product's rate and the blended fallback. Proven on invented
+  comparables with coordinates (unit tests and a new `verify.py` section 5i, 8 checks): a within-1 km comparable ranks
+  first; a Shophouse, an Apartment and a blended rate that distance would move by 200% are capped at +20%; a 10% move is
+  left alone; without coordinates the ranking and every rate equal the no-distance result.
+- **Where the effect shows:** the analysis `Comparison` sheet gets a "Comparable VAT basis" line and one "VAT basis NOT
+  verified" line per product with the comparables concerned. The client deliverable shows no name (group 9 removes the
+  names the older derivation notes still carry).
+- **Not covered:** the blended-fallback conversion uses the table's Apartment entry for the comparable. Distance has no
+  A/B on a real project (none carries coordinates); the note in `measured-effect.md` of
+  `rank-comparables-by-location` says the older figures are out of date.
+- **Checks:** 727 unit tests pass (1 xfail as before). `verify.py` with the two baseline gates opened: every other check
+  passes on all sections, including the new 5i (139 remark assertions, 506 summary reconciliations, 118 Required lines).
+- **Sign-off (group 4):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.

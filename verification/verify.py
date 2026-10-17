@@ -328,6 +328,20 @@ def main(argv=None):
             return 1
         print(f'OK    the Service Levels sheet ties to Staffing Demand and the data tables ({len(slrows)} check(s))')
 
+        # ---- 5i. real-distance ranking and its +-20% cap, on invented comparables (change
+        # apply-head-of-pm-decisions-2026-10, group 4) --------------------------------------------
+        dkok, dkrows, dkdiffs, dknotes = checks.check_distance_ranking()
+        for n in dknotes:
+            print(f'NOTE  {n}')
+        if not dkok:
+            print(f'FAIL  {len(dkdiffs)} distance-ranking problem(s):')
+            for label, msg in dkdiffs:
+                print(f'        - {label}: {msg}')
+            print('\nA comparable within 1 km must rank by real distance, and the rate it moves must be capped at '
+                  '+-20% of the no-distance rate for every product and for the blended fallback.')
+            return 1
+        print(f'OK    the real-distance ranking and its 20% cap hold on invented comparables ({len(dkrows)} check(s))')
+
         # ---- 6. coverage & method fidelity (never a pass/fail on the score itself) -----------
         _headline('6. COVERAGE & METHOD FIDELITY')
         try:

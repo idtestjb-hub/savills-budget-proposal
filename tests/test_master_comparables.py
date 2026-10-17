@@ -532,3 +532,118 @@ def test_basis_claims_distance_only_for_a_comparable_within_1km(mc, monkeypatch)
     assert 'distance' not in mc.comparable_match_basis(far, input_lat=10.7700, input_lon=106.7000)
     assert 'distance' not in mc.comparable_match_basis(near)                      # no input coordinates
     assert 'distance' not in mc.comparable_match_basis([comp('C', 10000)], input_lat=10.77, input_lon=106.7)
+
+
+# ------------------------------- group 4 (apply-head-of-pm-decisions-2026-10): distance on, cap on every rate
+def test_distance_comparison_is_switched_on_in_the_module(mc_module):
+    assert mc_module.DISTANCE_COMPARISON_ENABLED is True
+
+
+@pytest.fixture
+def mc_dist(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'DISTANCE_COMPARISON_ENABLED', True)
+    return mc
+
+
+def _near_far_pool(mc, shop_near, shop_far, apt_near=20_000, apt_far=10_000):
+    """'Near' sits 0.1 km from the project but is 40% off in size; 'Far' has no coordinates and is the same size.
+    Without coordinates the same-size 'Far' wins; with them the within-1 km 'Near' ranks first."""
+    near = comp('Near', 14_000, rate=apt_near, lat=10.7701, lon=106.7001,
+                rates={'Apartment': apt_near, 'Shophouse': shop_near})
+    far = comp('Far', 10_000, rate=apt_far, rates={'Apartment': apt_far, 'Shophouse': shop_far})
+    mc.MASTER_COMPARABLES[:] = [near, far]
+
+
+def test_a_non_apartment_rate_moved_by_distance_is_capped_at_20_percent(mc_dist):
+    _near_far_pool(mc_dist, shop_near=30_000, shop_far=10_000)
+    rate, used, note, _ = mc_dist.derive_product_rate_capped(
+        10_000, 'ZZ New', 'Shophouse', input_lat=10.7700, input_lon=106.7000, n=1)
+    assert [c['name'] for c in used] == ['Near']
+    assert rate == 12_000                       # +20% of the 10,000 the basic ranking gives, not 30,000
+    assert 'clamped' in note
+
+
+def test_a_rate_inside_the_cap_is_not_changed(mc_dist):
+    _near_far_pool(mc_dist, shop_near=11_000, shop_far=10_000)
+    rate, _used, note, _ = mc_dist.derive_product_rate_capped(
+        10_000, 'ZZ New', 'Shophouse', input_lat=10.7700, input_lon=106.7000, n=1)
+    assert rate == 11_000 and not (note or '').count('clamped')
+
+
+def test_the_blended_fallback_is_capped_too(mc_dist):
+    _near_far_pool(mc_dist, shop_near=None, shop_far=None, apt_near=30_000, apt_far=10_000)
+    rate, used, note, _ = mc_dist.derive_mgmt_rate_capped(
+        10_000, 'ZZ New', input_lat=10.7700, input_lon=106.7000, n=1)
+    assert [c['name'] for c in used] == ['Near'] and rate == 12_000 and 'clamped' in note
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_without_coordinates_the_ranking_and_every_rate_are_the_same_either_way(mc, monkeypatch, enabled):
+    monkeypatch.setattr(mc, 'DISTANCE_COMPARISON_ENABLED', enabled)
+    _near_far_pool(mc, shop_near=30_000, shop_far=10_000)
+    assert names(mc.nearest_comparables(10_000, n=2)) == ['Far', 'Near']
+    rate, used, _n, _r = mc.derive_product_rate_capped(10_000, 'ZZ New', 'Shophouse', n=1)
+    assert rate == 10_000 and [c['name'] for c in used] == ['Far']
+    blended, bused, _note, _r2 = mc.derive_mgmt_rate_capped(10_000, 'ZZ New', n=1)
+    assert blended == 10_000 and [c['name'] for c in bused] == ['Far']
+
+
+# ------------------------------- group 4 (apply-head-of-pm-decisions-2026-10): comparable rates on one VAT basis
+def _vat(mc, **entries):
+    """A VAT table from {'Name:Product': 'excl'|'incl'}, with a 10% first-month rate (a January 2027 budget)."""
+    return dict(pct=10.0, table={(k.split(':')[0].casefold(), k.split(':')[1]): v for k, v in entries.items()})
+
+
+def test_an_excl_vat_rate_is_raised_before_averaging(mc):
+    mc.MASTER_COMPARABLES[:] = [comp('Excl', 10_000, rate=20_000), comp('Incl', 10_000, rate=15_000)]
+    ranked = mc.nearest_comparables(10_000, n=2)
+    vat = _vat(mc, **{'Excl:Apartment': 'excl', 'Incl:Apartment': 'incl'})
+    rate, used, _ = mc.derive_product_rate(ranked, 'Apartment', n=2, vat=vat)
+    assert rate == 18_500                       # mean of 22,000 and 15,000
+    assert mc.derive_mgmt_rate(ranked, vat=vat)[0] == 18_500
+
+
+def test_an_unknown_basis_is_used_as_including_vat_and_flagged(mc):
+    mc.MASTER_COMPARABLES[:] = [comp('Known', 10_000, rate=20_000), comp('Unknown', 10_000, rate=15_000)]
+    ranked = mc.nearest_comparables(10_000, n=2)
+    vat = _vat(mc, **{'Known:Apartment': 'excl'})
+    rate, used, _ = mc.derive_product_rate(ranked, 'Apartment', n=2, vat=vat)
+    assert rate == 18_500
+    assert mc.vat_flags_for(vat, {'Apartment': used}) == {'Apartment': ['Unknown']}
+
+
+def test_without_a_vat_table_nothing_is_converted(mc):
+    mc.MASTER_COMPARABLES[:] = [comp('Excl', 10_000, rate=20_000), comp('Incl', 10_000, rate=15_000)]
+    ranked = mc.nearest_comparables(10_000, n=2)
+    assert mc.derive_product_rate(ranked, 'Apartment', n=2)[0] == 17_500
+    assert mc.vat_flags_for(None, {'Apartment': ranked}) == {}
+
+
+def test_the_basis_is_per_product(mc):
+    c = comp('Mixed', 10_000, rate=10_000, rates={'Apartment': 10_000, 'Shophouse': 20_000})
+    mc.MASTER_COMPARABLES[:] = [c]
+    ranked = mc.nearest_comparables(10_000, n=1)
+    vat = _vat(mc, **{'Mixed:Shophouse': 'excl', 'Mixed:Apartment': 'incl'})
+    assert mc.derive_product_rate(ranked, 'Apartment', n=1, vat=vat)[0] == 10_000
+    assert mc.derive_product_rate(ranked, 'Shophouse', n=1, vat=vat)[0] == 22_000
+
+
+def test_the_vat_table_loads_and_rejects_bad_rows(mc, tmp_path):
+    head = 'project_key,product,basis,source_text,checked_on\n'
+    good = tmp_path / 'ok.csv'
+    good.write_text(head + 'Tower A,Apartment,excl,"text says chua VAT",2026-10-18\n', encoding='utf-8')
+    assert mc.load_vat_basis(str(good)) == {('tower a', 'Apartment'): 'excl'}
+    assert mc.load_vat_basis(str(tmp_path / 'missing.csv')) == {}
+    for row, message in (('Tower A,Apartment,gross,"x",2026-10-18', 'must be incl or excl'),
+                         ('Tower A,Apartment,excl,,2026-10-18', 'source_text is blank'),
+                         (',Apartment,excl,"x",2026-10-18', 'required')):
+        bad = tmp_path / 'bad.csv'
+        bad.write_text(head + row + '\n', encoding='utf-8')
+        with pytest.raises(mc.VatBasisError, match=message):
+            mc.load_vat_basis(str(bad))
+
+
+def test_the_real_vat_table_loads_and_every_entry_has_a_source(mc_module):
+    table = mc_module.load_vat_basis()
+    assert table.get(('rivergate residence', 'Apartment')) == 'excl'
+    assert table.get(('green skyline', 'Apartment')) == 'incl'

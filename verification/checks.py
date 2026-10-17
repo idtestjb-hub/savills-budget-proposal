@@ -2694,3 +2694,69 @@ def _main():
 if __name__ == '__main__':
     import sys
     sys.exit(_main())
+
+
+def check_distance_ranking():
+    """Real-distance ranking with its ±20% cap (change apply-head-of-pm-decisions-2026-10, group 4, tasks 4.1-4.2),
+    exercised on an INVENTED set of comparables with coordinates: the standard sample carries none, so without this
+    the distance path would never run in verify.
+
+    Asserts, for a project at (10.7700, 106.7000) of 10,000 m2 against 'Near' (0.1 km away, 40% off in size, no real
+    relation to any project) and 'Far' (same size, no coordinates):
+      - the module has the distance comparison switched on;
+      - with coordinates, 'Near' ranks first; without them, 'Far' does, and every rate equals the no-distance rate;
+      - a Shophouse rate the ranking moves by 200% is capped at +20%, and so is the blended fallback rate;
+      - a rate moved by 10% is left alone.
+    Returns (ok, rows, differences, notes) like the other checks; rows are (label, 'ok'|'fail')."""
+    import master_comparables as mc
+    rows, diffs = [], []
+
+    def check(label, ok, why=''):
+        rows.append((label, 'ok' if ok else 'fail'))
+        if not ok:
+            diffs.append((label, why))
+
+    def comp(name, nfa, apt, shop, lat=None, lon=None):
+        c = dict(name=name, nfa=nfa, district=None, city=None, mgmt_rate=apt, mgmt_rate_vat=None,
+                 rates={'Apartment': apt, 'Shophouse': shop})
+        if lat is not None:
+            c['lat'], c['lon'] = lat, lon
+        return c
+
+    saved_pool, saved_flag = mc.MASTER_COMPARABLES[:], mc.DISTANCE_COMPARISON_ENABLED
+    try:
+        check('distance comparison is switched on', mc.DISTANCE_COMPARISON_ENABLED is True,
+              'master_comparables.DISTANCE_COMPARISON_ENABLED is not True')
+        lat, lon = 10.7700, 106.7000
+        mc.MASTER_COMPARABLES[:] = [comp('Near', 14_000, 30_000, 30_000, 10.7701, 106.7001),
+                                    comp('Far', 10_000, 10_000, 10_000)]
+        names = lambda cs: [c['name'] for c in cs]
+        check('with coordinates the within-1 km comparable ranks first',
+              names(mc.nearest_comparables(10_000, n=2, input_lat=lat, input_lon=lon)) == ['Near', 'Far'],
+              'expected Near before Far')
+        check('without coordinates the same-size comparable ranks first',
+              names(mc.nearest_comparables(10_000, n=2)) == ['Far', 'Near'], 'expected Far before Near')
+        shop, shop_used, shop_note, _ = mc.derive_product_rate_capped(10_000, 'ZZ New', 'Shophouse',
+                                                                      input_lat=lat, input_lon=lon, n=1)
+        check('a non-Apartment rate moved by distance is capped at +20%',
+              shop == 12_000 and names(shop_used) == ['Near'] and 'clamped' in (shop_note or ''),
+              f'got {shop} from {names(shop_used)}')
+        apt, _u, apt_note, _ = mc.derive_product_rate_capped(10_000, 'ZZ New', 'Apartment',
+                                                             input_lat=lat, input_lon=lon, n=1)
+        check('the Apartment rate moved by distance is capped at +20%', apt == 12_000 and 'clamped' in (apt_note or ''),
+              f'got {apt}')
+        blended, b_used, b_note, _ = mc.derive_mgmt_rate_capped(10_000, 'ZZ New', input_lat=lat, input_lon=lon, n=1)
+        check('the blended fallback rate is capped at +20%',
+              blended == 12_000 and names(b_used) == ['Near'] and 'clamped' in (b_note or ''), f'got {blended}')
+        none_rate, _u2, _n2, _r2 = mc.derive_product_rate_capped(10_000, 'ZZ New', 'Shophouse', n=1)
+        check('without coordinates the rate is the no-distance rate', none_rate == 10_000, f'got {none_rate}')
+        mc.MASTER_COMPARABLES[:] = [comp('Near', 14_000, 11_000, 11_000, 10.7701, 106.7001),
+                                    comp('Far', 10_000, 10_000, 10_000)]
+        small, _u3, small_note, _ = mc.derive_product_rate_capped(10_000, 'ZZ New', 'Shophouse',
+                                                                  input_lat=lat, input_lon=lon, n=1)
+        check('a rate moved by 10% is left alone', small == 11_000 and 'clamped' not in (small_note or ''),
+              f'got {small}')
+    finally:
+        mc.MASTER_COMPARABLES[:] = saved_pool
+        mc.DISTANCE_COMPARISON_ENABLED = saved_flag
+    return (not diffs), rows, diffs, ['invented comparables with coordinates; the standard sample carries none']

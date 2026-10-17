@@ -260,3 +260,13 @@ not just breaking rare exact ties.
   tiering and the task 2.4 distance amendment) is a no-op on the standard sample.
 - `derive_product_rate`'s full-pool contract (`len(nearest_comparables(..., n=len(MASTER_COMPARABLES))) == len(MASTER_COMPARABLES)`),
   re-confirmed after task 2.4 with coordinates supplied as well as without.
+
+---
+
+## Note added 2026-10-18 (change apply-head-of-pm-decisions-2026-10, group 4)
+
+The figures above predate the size-band preference (2026-09-18) and the comparable VAT basis. The real-distance
+comparison (`DISTANCE_COMPARISON_ENABLED`) is on again, and its ±20% cap now covers every product's rate and the blended
+fallback, not only the Apartment rate. The standard sample has no coordinates, so it is unaffected by the distance step;
+its Apartment rate moves 17,175 → 18,892 through the VAT-basis conversion alone. Current measurements:
+`openspec/changes/apply-head-of-pm-decisions-2026-10/design.md`, "Measured", group 4.

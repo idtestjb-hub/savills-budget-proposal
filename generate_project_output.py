@@ -384,6 +384,7 @@ def build_management_fee_sheet(wb, project):
 
     return dict(monthly_revenue_cell=MONTHLY_REVENUE_CELL, annual_revenue_cell=ANNUAL_REVENUE_CELL,
                 derived_rate=apt_rate, top2=rates['comparables'], rate_note=apt_note, own_real=own_real,
+                vat_pct=rates.get('vat_pct'), vat_flags=rates.get('vat_flags') or {},
                 apartment_entered=rates.get('apartment_entered'),
                 apartment_comparable_rate=rates.get('apartment_comparable_rate'))
 
@@ -448,6 +449,18 @@ def build_comparison_sheet(wb, project, mgmt):
         r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
     if rate_note:
         r = data_row(r, 'Derivation note', [rate_note, '', ''])
+    # Group 4 (change apply-head-of-pm-decisions-2026-10): comparable rates quoted excluding VAT were multiplied by
+    # (1 + VAT of the budget period's first month) before averaging; a comparable not in the hand-checked table is
+    # used as including VAT and flagged here, in the internal analysis only.
+    if mgmt.get('vat_pct') is not None:
+        r = data_row(r, 'Comparable VAT basis',
+                     [f"Rates quoted excluding VAT (per the hand-checked table) were multiplied by "
+                      f"{1 + mgmt['vat_pct'] / 100:.2f} (VAT of the budget period's first month) before averaging. "
+                      f"A rate the PM entered is not converted.", '', ''])
+    for _product, _names in (mgmt.get('vat_flags') or {}).items():
+        r = data_row(r, f'VAT basis NOT verified — {_product}',
+                     [f"{', '.join(_names)}: not in the hand-checked table, used as including VAT.", '', ''],
+                     fill=HIGHLIGHT_FILL)
     if own_real:
         gap = derived_rate - own_real['rates']['Apartment']
         r = data_row(r, "This project's ACTUAL real Apartment rate (reality check)",

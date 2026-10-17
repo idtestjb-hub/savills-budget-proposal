@@ -135,7 +135,8 @@ def test_project_location_and_size_reach_the_capped_call(mc, monkeypatch):
     seen = {}
 
     def spy(project_nfa, exclude_name, product, **kw):
-        seen.update(project_nfa=project_nfa, exclude_name=exclude_name, product=product, **kw)
+        assert kw.pop('vat')['pct'] == 10      # group 4: the VAT basis table and the first month's rate go along
+        seen[product] = dict(project_nfa=project_nfa, exclude_name=exclude_name, **kw)
         return 12_345, [], None, []
 
     monkeypatch.setattr(mc, 'derive_product_rate_capped', spy)
@@ -143,9 +144,10 @@ def test_project_location_and_size_reach_the_capped_call(mc, monkeypatch):
     p.update(lat=10.5, lon=106.5)
     res = mc.resolve_product_rates(p)
     assert res['apartment_rate'] == 12_345
-    assert seen == dict(project_nfa=41_000, exclude_name='ZZ Invented Tower', product='Apartment',
-                        input_district='Quan Alpha', input_city='Thanh pho X',
-                        input_lat=10.5, input_lon=106.5)
+    expected = dict(project_nfa=41_000, exclude_name='ZZ Invented Tower', input_district='Quan Alpha',
+                    input_city='Thanh pho X', input_lat=10.5, input_lon=106.5)
+    # group 4: every product with area goes through the capped call, not only the Apartment
+    assert seen == {'Apartment': expected, 'Shophouse': expected}
 
 
 # ---------------------------------------------------------------- P1: an entered rate wins
