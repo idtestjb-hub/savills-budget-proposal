@@ -756,7 +756,7 @@ _REMARK_RECIPE_ANCHORS = {
     # would also match the English "kWh/month", so EEE anchors on the full 'kWh/tháng'.
     'EEW':  ['m3/tháng', 'PBVMT', 'lấp đầy cư dân'],
     'EEE':  ['kWh/tháng', '1279', '40%'],
-    'EED':  ['lít/tháng', '0.005S', 'test', 'backup'],
+    'EED':  ['lít/tháng', 'DO 0,05S', 'test', 'backup'],
 }
 
 # A line-level remark naming any of these is citing an internal engineering artifact rather than

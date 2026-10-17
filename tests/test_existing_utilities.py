@@ -21,13 +21,11 @@ LT6, W = ut.CAT_E_LT6, ut.CAT_W_HCMC
 TABLE = [
     f'electricity,"{LT6}",base,1000,VND/kWh,2024-01-01,2025-05-09,,Decision A,,2026-10-11,',
     f'electricity,"{LT6}",base,1100,VND/kWh,2025-05-10,,,Decision B,,2026-10-11,',
-    'electricity,,vat_pct,8,%,2024-01-01,2026-12-31,,Resolution C,,2026-10-11,',
-    'electricity,,vat_pct,10,%,2027-01-01,,,Law D,,2026-10-11,',
+    'vat,general,vat_pct,8,%,2024-01-01,2026-12-31,,Resolution C,,2026-10-11,',
+    'vat,general,vat_pct,10,%,2027-01-01,,,Law D,,2026-10-11,',
     f'water,"{W}",base,10000,VND/m3,2024-01-01,,TP.HCM,Decision E,,2026-10-11,',
     'water,,wastewater_pct,30,%,2024-01-01,,TP.HCM,Decision F,,2026-10-11,',
     'water,,vat_pct,5,%,2024-01-01,,,Law G,,2026-10-11,',
-    'water,,wastewater_vat_pct,8,%,2024-01-01,2026-12-31,,Resolution C,,2026-10-11,',
-    'water,,wastewater_vat_pct,10,%,2027-01-01,,,Law D,,2026-10-11,',
 ]
 E_2026_INCL = 1100 * 1.08            # electricity price per kWh incl. VAT in 2026 (invented table)
 E_2027_INCL = 1100 * 1.10
@@ -321,3 +319,37 @@ def test_an_approved_amount_on_another_vat_basis_is_quoted_as_approved(rows):
             'tương đương 324,000,000 VND/năm gồm VAT →') in text
     same = eu.adjustment_sentence(_compute(_form(actuals=_both(), lines=lines), rows, incl_vat=False), 'EEE.C')
     assert 'Điều chỉnh so với NS 2026: 300,000,000 →' in same and 'tương đương' not in same
+
+
+# ------------------------------------- water groups as choices (change apply-head-of-pm-decisions-2026-10, 2.4)
+@pytest.fixture
+def rows_with_groups(tmp_path):
+    table = TABLE + [
+        f'water,"{ut.CAT_W_BUSINESS}",base,20000,VND/m3,2024-01-01,,TP.HCM,Listing Y,,2026-10-18,',
+        f'water,"{ut.CAT_W_ADMIN}",base,12000,VND/m3,2024-01-01,,TP.HCM,Listing Z,,2026-10-18,',
+    ]
+    path = tmp_path / 'Ref_UtilityTariffs.csv'
+    path.write_text(','.join(ut.COLUMNS) + '\n' + '\n'.join(table) + '\n', encoding='utf-8')
+    return ut.load_rows(str(path))
+
+
+def test_a_blank_water_category_keeps_the_household_default(rows_with_groups):
+    res = _compute(_form(actuals=_both()), rows_with_groups)
+    assert res.lines['EEW.C'].category == ut.CAT_W_HCMC
+    assert res.lines['EEW.C'].budget_prices[0].base == 10000
+
+
+@pytest.mark.parametrize('group, base', [(ut.CAT_W_BUSINESS, 20000), (ut.CAT_W_ADMIN, 12000)])
+def test_choosing_a_water_group_prices_water_from_its_rows(rows_with_groups, group, base):
+    default = _compute(_form(actuals=_both()), rows_with_groups).lines['EEW.C']
+    chosen = _compute(_form(actuals=_both(), lines={'EEW.C': (group,)}), rows_with_groups).lines['EEW.C']
+    assert chosen.category == group and chosen.budget_prices[0].base == base
+    assert chosen.annual != default.annual
+    # electricity is untouched by a water choice
+    assert _compute(_form(actuals=_both(), lines={'EEW.C': (group,)}), rows_with_groups).lines['EEE.C'].annual == \
+        _compute(_form(actuals=_both()), rows_with_groups).lines['EEE.C'].annual
+
+
+def test_the_water_dropdown_offers_the_two_new_groups():
+    assert ut.CAT_W_BUSINESS in ut.CATEGORIES[ut.WATER] and ut.CAT_W_ADMIN in ut.CATEGORIES[ut.WATER]
+    assert ut.DEFAULT_CATEGORY[ut.WATER] == ut.CAT_W_HCMC

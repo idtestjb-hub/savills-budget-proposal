@@ -1686,9 +1686,20 @@ def build_opex_sheet(wb, project):
                 'separate one-time fund, not the ongoing management fee (see notes below). Included in Total Project '
                 'Value (Net).', 'A1:F1')
 
-    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
-                         pool_volume_m3=project.get('pool_volume_m3'))
+    from generate_project_budget import _opex_kwargs, _general_vat_months
+    opex = estimate_opex(project['total_nfa'], **_opex_kwargs(project))
     ur = project.get('utilities_result')
+    if ur is None and 'Electricity' in opex and template_vat_inclusive():
+        # A new prospect's electricity is priced before VAT: add each budget month's VAT, as the deliverable does
+        # (change apply-head-of-pm-decisions-2026-10, task 2.7). Water and diesel are already priced with VAT.
+        _vat = _general_vat_months(project)
+        _elec = opex['Electricity']
+        _excl = _elec['monthly_vnd']
+        _elec['monthly_vnd'] = round(_excl * (1 + sum(_vat) / len(_vat) / 100))
+        _elec['ratio_per_m2'] = round(_elec['monthly_vnd'] / project['total_nfa'], 2) if project['total_nfa'] else None
+        _elec['source'] += (f" VAT: the tariff is before VAT, so each budget month's general VAT is added "
+                            f"({', '.join(sorted({f'{v:g}%' for v in _vat}))}): {_excl:,.0f} VND/month before VAT "
+                            f"-> {_elec['monthly_vnd']:,.0f} VND/month.")
     if ur is not None:
         # Existing-project mode (change carry-forward-common-utilities, design D6): electricity and water
         # show the client deliverable's own figures, built from the project's actual spend, so the two

@@ -31,6 +31,8 @@ Methodology, and its real limits stated plainly, same standard as estimate_capex
 import os
 import csv
 
+import utility_tariffs as ut
+
 BUDGET_AGENT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OPEX_CSV = os.path.join(BUDGET_AGENT, 'data', 'generation_A_star_schema', 'Fact_OPEX.csv')
 
@@ -98,8 +100,33 @@ def _tariff_year(price_as_of):
     return None
 
 
-def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None):
+def _dated_price(category, period_months, water_group, rows):
+    """Water and diesel prices for each budget month, from Ref_UtilityTariffs.csv (change
+    apply-head-of-pm-decisions-2026-10, group 2). Returns dict(prices, as_of, unit, provenance, ...)."""
+    if category == 'Water':
+        cat, is_default = ut.water_group_category(water_group)
+        line = ut.LineTariff(ut.WATER, category=cat, region=ut.HCMC, rows=rows)
+        month_prices = [line.month(y, m) for y, m in period_months]
+        base_row = month_prices[0].rows['base']
+        return dict(prices=[mp.gross() for mp in month_prices], unit='VND/m3', as_of=base_row['effective_from'],
+                    provenance=base_row['legal_basis'], group=cat, group_is_default=is_default,
+                    vat_bvmt=[mp.wastewater_vat_pct for mp in month_prices], vat_water=month_prices[0].vat_pct,
+                    wastewater_pct=month_prices[0].wastewater_pct)
+    d_prices = [ut.diesel_price(y, m, rows=rows) for y, m in period_months]
+    listed = d_prices[0].rows['listed_price']
+    return dict(prices=[d.gross() for d in d_prices], unit='VND/l', as_of=listed['effective_from'],
+                provenance=listed['legal_basis'], listed=d_prices[0].listed, listed_vat=d_prices[0].listed_vat_pct,
+                vat_by_month=[d.vat_pct for d in d_prices])
+
+
+def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_months=None, water_group=None,
+                  tariff_rows=None):
     """Returns {category: {...}}.
+
+    period_months: the twelve (year, month) of the budget period. When given, Water and Diesel are priced from
+    the dated tariff file month by month (water by `water_group`, blank = business); `monthly_vnd_by_month`
+    carries the twelve full-occupancy amounts and `monthly_vnd` their average. When None (older callers and
+    tests) the Fact_OPEX.csv tariff is used as before.
 
     Electricity / Water / Diesel are priced as USAGE × TARIFF: a per-m² usage ratio from A&K Tower
     (n=1) times this project's NFA times the tariff (Fact_OPEX.csv's UnitPrice, a dated input). The
@@ -130,13 +157,20 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None):
             # A&K's stored monthly quantity (fixed — NOT recomputed from cost each run, so changing
             # the tariff below actually moves the figure). Divided by A&K's NFA for the per-m² ratio.
             usage_per_m2 = ak_row['quantity'] / AK_TOWER_NFA_M2       # base_unit per m² per month
-            estimated = usage_per_m2 * total_nfa_m2 * tariff
+            dated = (_dated_price(category, period_months, water_group, tariff_rows)
+                     if period_months and category in ('Water', 'Diesel (Generator Fuel)') else None)
+            ak_tariff = tariff                                        # A&K's own price, behind its stored quantity
+            if dated:
+                tariff = dated['prices'][0]                           # shown price: the first budget month's
+            estimated = usage_per_m2 * total_nfa_m2 * (sum(dated['prices']) / 12 if dated else tariff)
             cost_ratio_per_m2 = usage_per_m2 * tariff                 # effective VND/m²/month at this tariff
-            as_of = ak_row.get('price_as_of')
+            as_of = dated['as_of'].isoformat() if dated else ak_row.get('price_as_of')
             year = _tariff_year(as_of)
             stale = year is not None and year < _TARIFF_STALE_BEFORE_YEAR
             project_qty_month = usage_per_m2 * total_nfa_m2
             cost_prov, _, tariff_prov = (ak_row.get('source') or '').partition('  TARIFF: ')
+            if dated:
+                tariff_prov = dated['provenance']
             entry = dict(
                 monthly_vnd=round(estimated),
                 ratio_per_m2=round(cost_ratio_per_m2, 2),             # kept for existing readers
@@ -153,13 +187,17 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None):
                 source=(
                     f"CONSUMPTION × TARIFF — the method Savills' costing spec states for {category}. "
                     f"USAGE (n=1): A&K Tower's {ak_row['quantity']:,.0f} {q_unit} "
-                    f"(= its real {ak_monthly:,.0f} VND/month ÷ {tariff:,.0f} VND/{base_unit}, stored fixed) "
+                    f"(= its real {ak_monthly:,.0f} VND/month ÷ {ak_tariff:,.0f} VND/{base_unit}, stored fixed) "
                     f"÷ {AK_TOWER_NFA_M2:,.0f} m² NFA = {usage_per_m2:,.4f} {q_unit} per m²; "
                     f"× this project's {total_nfa_m2:,.0f} m² = {project_qty_month:,.0f} {q_unit}. "
                     f"This change split the price out; it did not widen the single-property usage basis. "
                     f"USAGE SOURCE: {cost_prov}  TARIFF: {tariff_prov}"),
                 reference_only=None,
             )
+            if dated:
+                entry['monthly_vnd_by_month'] = [round(usage_per_m2 * total_nfa_m2 * p) for p in dated['prices']]
+                entry['tariff_by_month'] = dated['prices']
+                entry['dated'] = {k: v for k, v in dated.items() if k != 'prices'}
         else:
             entry = dict(
                 monthly_vnd=round(cost_ratio_per_m2 * total_nfa_m2),

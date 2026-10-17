@@ -237,3 +237,52 @@ Runs under `Savills-local\budget-test\2026-10-15-p17-before\` (default period ag
   period's first calendar year, so a period that straddles a change in the law uses the first year's values.
 - **Sign-off (group 1):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.
 
+
+### Group 2: dated rates, VAT by month, diesel, water, waste (2026-10-18, session P21)
+
+Runs under `Savills-local\budget-test\2026-10-18-p21-g2\` (`r3` = current code on the standard sample and on the City
+Garden clone; `ab\` = the Existing and operating fixtures before and after, each on its own tree). Default period
+(01/2027), so every month carries 10% VAT. Line totals are the twelve month values of the deliverable.
+
+- **Standard sample, per line (deliverable year 1, VND):**
+
+  | Line | Before | After | Change |
+  |---|---|---|---|
+  | `EEW.C` water (business group, 29,394 VND/m³) | 82,876,033 | 123,120,293 | +40,244,260 |
+  | `EEE.C` electricity (2,226 × 1.10) | 1,837,973,526 | 2,021,770,879 | +183,797,353 |
+  | `EED.C` diesel (29,710 ÷ 1.08 × 1.10 = 30,260) | 60,994,764 | 95,831,412 | +34,836,648 |
+  | `ESS9` waste (1,087 VND/kg × 1.10) | 512,286,984 | 563,780,208 | +51,493,224 |
+  | `ESC12` | 14,000,004 | 15,399,996 | +1,399,992 |
+  | `ESM25` | 14,000,004 | 15,399,996 | +1,399,992 |
+
+  Year-1 surplus 4,730,929,441 → 4,419,504,195 (−311,425,246). The six lines add up to +313.2M; the 1.8M difference is
+  the common-area charge-back share (`RI1`), which follows the costs. Analysis workbook (full occupancy): water
+  306.0 → 454.6M (the 452.6M quoted in docs/30 is the 2026 price; 2027 is 454.6M), diesel 61.0 → 95.8M (94.1M at 2026
+  prices), electricity 2,669.4 → 2,936.3M (+266.9M, exactly ×1.10). Total profit value −450.4M; margin 35.7% → 31.7%.
+- **City Garden clone:** water +278.5M (573.5 → 851.9M), electricity +500.3M, diesel +65.3M, `ESS9` +95.9M, `ESC12` and
+  `ESM25` +1.4M each; year-1 surplus 7,338.4M → 6,401.9M (−936.5M). Completeness against the real budget unchanged:
+  42% (50/118 Required lines with a figure above 0). Revenue and the other lines do not move.
+- **Existing samples (`Sample_Existing_Input`, `Sample_Existing_Lump_Input`):** `EEE.C` and `EEW.C` do not move at
+  equal prices (0 VND), and no staff line moves. They do take the new diesel, `ESC12`, `ESM25` and `ESS9` figures
+  (same amounts as the standard sample), because those lines are priced for both modes. Choosing business or
+  administrative water for an Existing project moves only water (unit tests on invented prices).
+- **Operating sample:** `EEE.C` +266.9M and `EEW.C` +148.6M (it prices these two from the tool, not from actuals);
+  its own 38-figure baseline: 9 figures differ, all through these two lines.
+- **Mid-period VAT step:** a period starting 10/2026 prices 3 months at 8% and 9 at 10% for water, electricity,
+  diesel, `ESC12`, `ESM25` and `ESS9`. Unit tests cover water, diesel and the VAT-by-month list; the per-month write of
+  `ESC12`, `ESM25` and `ESS9` when the rate steps is not separately tested (not run on a real period starting 10/2026).
+- **Decisions taken in this group:**
+  - A new prospect outside Ho Chi Minh City, or with a blank "City / Province", uses the SAWACO (TP.HCM) water prices
+    and the remark says to check the local bill (the user's choice, 2026-10-18).
+  - Diesel grade label is the price source's, "DO 0,05S-II, Vùng 1" (the user's choice, 2026-10-18); the remark-model
+    check for `EED` now requires "DO 0,05S" in place of "0.005S".
+  - Diesel has no price before 01/10/2026: a budget period that starts earlier stops with a message naming the month.
+- **Open, stated:** QĐ 65/2026/QĐ-UBND is dated 01/09/2026–30/06/2027 (docs/22 A3); a period running past 06/2027
+  still uses its price. SAWACO water prices are read from the 2025 page and understood to continue into 2026–2027
+  (the same unverified continuation as the drainage charge row). Diesel price source is secondary (a news report of the
+  Petrolimex 01/10/2026 listing), not the Ministry notice.
+- **Checks:** 704 unit tests pass (1 xfail as before). `verify.py` with the two baseline gates opened (a driver in the
+  run folder; baselines are re-recorded once, in group 10): every other check passes on all sections, including
+  139 remark assertions, 506 summary reconciliations, 118 Required lines and the Existing and operating samples. With the
+  gates closed, it fails only on the 7 OPEX figures above (each equals the A/B).
+- **Sign-off (group 2):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.

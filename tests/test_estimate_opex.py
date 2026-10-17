@@ -276,3 +276,93 @@ def test_pool_salt_flat_figure_does_not_scale_with_nfa(opex):
 def test_pool_requested_but_reference_has_no_pool_salt_row(opex):
     rows = [r for r in ROWS if r[1] != 'Pool Salt']
     assert 'Pool Salt' not in opex(rows).estimate_opex(2000, has_pool=True, pool_volume_m3=440)
+
+
+# ---------------------------------------- dated water and diesel (change apply-head-of-pm-decisions-2026-10, group 2)
+
+import utility_tariffs as ut
+
+_TARIFF_HEADER = ','.join(ut.COLUMNS) + '\n'
+# Invented dated table: business water 20,000 (admin 10,000) in HCMC, drainage 30%, clean-water VAT 5%,
+# general VAT 8% to 2026-12-31 then 10%; diesel listed at 10,800 incl. 8% VAT from 2026-10-01.
+_TARIFF_ROWS = [
+    f'water,"{ut.CAT_W_BUSINESS}",base,20000,VND/m3,2025-07-01,,TP.HCM,Listing Y,,2026-10-18,',
+    f'water,"{ut.CAT_W_ADMIN}",base,10000,VND/m3,2025-07-01,,TP.HCM,Listing Z,,2026-10-18,',
+    'water,,wastewater_pct,30,%,2025-01-01,,TP.HCM,Decision F,,2026-10-18,',
+    'water,,vat_pct,5,%,2024-01-01,,,Law G,,2026-10-18,',
+    'vat,general,vat_pct,8,%,2024-01-01,2026-12-31,,Resolution C,,2026-10-18,',
+    'vat,general,vat_pct,10,%,2027-01-01,,,Law D,,2026-10-18,',
+    'diesel,DO test,listed_price,10800,VND/l,2026-10-01,,,Listing X,,2026-10-18,',
+    'diesel,DO test,listed_vat_pct,8,%,2026-10-01,,,Resolution C,,2026-10-18,',
+]
+_DIESEL_ROWS = replace_row(ROWS, 'A&K Tower', 'Diesel (Generator Fuel)',
+                           Quantity=100, Unit='litre/month', UnitPrice=5000, PriceAsOf='2020')
+
+
+@pytest.fixture
+def dated(tmp_path, opex):
+    path = tmp_path / 'Ref_UtilityTariffs_invented.csv'
+    path.write_text(_TARIFF_HEADER + '\n'.join(_TARIFF_ROWS) + '\n', encoding='utf-8')
+    rows = ut.load_rows(str(path))
+    mod = opex(_DIESEL_ROWS)
+    # the diesel category label the module asks for is the real one; point it at the invented row
+    for r in rows:
+        if r['utility'] == ut.DIESEL:
+            r['category'] = ut.CAT_DIESEL
+    return mod, rows
+
+
+def _months(start_year, start_month):
+    return [((start_year * 12 + start_month - 1 + i) // 12, (start_month - 1 + i) % 12 + 1) for i in range(12)]
+
+
+def test_water_defaults_to_business_and_is_priced_from_the_dated_file(dated):
+    mod, rows = dated
+    e = mod.estimate_opex(1000.0, period_months=_months(2027, 1), tariff_rows=rows)['Water']
+    gross_2027 = 20000 * 1.05 + 6000 * 1.10
+    assert e['tariff'] == pytest.approx(gross_2027)
+    assert e['monthly_vnd'] == round(1000 * gross_2027)       # A&K usage 1,000 m3 on a 1,000 m2 building
+    assert e['dated']['group'] == ut.CAT_W_BUSINESS and e['dated']['group_is_default']
+
+
+def test_administrative_water_group_uses_its_own_base(dated):
+    mod, rows = dated
+    e = mod.estimate_opex(1000.0, period_months=_months(2027, 1), water_group='Hành chính sự nghiệp',
+                          tariff_rows=rows)['Water']
+    assert e['tariff'] == pytest.approx(10000 * 1.05 + 3000 * 1.10)
+    assert not e['dated']['group_is_default']
+
+
+def test_a_period_across_the_vat_step_prices_each_month(dated):
+    mod, rows = dated
+    e = mod.estimate_opex(1000.0, period_months=_months(2026, 10), tariff_rows=rows)
+    w = e['Water']['monthly_vnd_by_month']
+    assert w[0] == round(1000 * (20000 * 1.05 + 6000 * 1.08)) and w[-1] == round(1000 * (20000 * 1.05 + 6000 * 1.10))
+    assert e['Water']['monthly_vnd'] == round(sum(w) / 12)
+    d = e['Diesel (Generator Fuel)']['monthly_vnd_by_month']
+    assert d[0] == round(100 * 10800) and d[-1] == round(100 * 10800 / 1.08 * 1.10)
+
+
+def test_diesel_2027_is_the_listed_price_re_taxed(dated):
+    mod, rows = dated
+    e = mod.estimate_opex(1000.0, period_months=_months(2027, 1), tariff_rows=rows)['Diesel (Generator Fuel)']
+    assert e['tariff'] == pytest.approx(10800 / 1.08 * 1.10)
+    assert e['dated']['listed'] == 10800 and e['dated']['listed_vat'] == 8
+
+
+def test_an_unknown_water_group_stops():
+    with pytest.raises(ut.TariffError, match='Water Customer Group'):
+        ut.water_group_category('Sinh hoạt')
+
+
+@pytest.mark.parametrize('typed, category, is_default', [
+    (None, ut.CAT_W_BUSINESS, True), ('', ut.CAT_W_BUSINESS, True), ('Kinh doanh dịch vụ', ut.CAT_W_BUSINESS, False),
+    ('hanh chinh su nghiep', ut.CAT_W_ADMIN, False), ('Administrative', ut.CAT_W_ADMIN, False),
+])
+def test_water_group_category(typed, category, is_default):
+    assert ut.water_group_category(typed) == (category, is_default)
+
+
+def test_without_a_period_the_old_fact_opex_tariff_is_used(opex):
+    e = opex().estimate_opex(1000.0)['Water']
+    assert e['tariff'] == 10000 and 'dated' not in e

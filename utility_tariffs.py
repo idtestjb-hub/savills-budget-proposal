@@ -9,8 +9,10 @@ price decision is a new row, not a code change. The tool never adds a percentage
 Components (design D2/D3):
   base               VND per kWh or m3, excluding VAT (per category; a PM bill price replaces it)
   wastewater_pct     water only, % of base: the drainage and wastewater charge (region-specific)
-  vat_pct            VAT on electricity, or on clean water
+  vat_pct            VAT on electricity, or on clean water; utility 'vat' = the general or insurance rate
   wastewater_vat_pct VAT on the drainage and wastewater charge
+  listed_price       diesel only: the pump price as listed, VND per litre, VAT included
+  listed_vat_pct     diesel only: the VAT rate that listed price carries
 
 A row with a blank `category` applies to every category of its utility; a row with a blank `region`
 applies everywhere. The price of a month is the one in force on the 1st of that month.
@@ -27,8 +29,15 @@ COLUMNS = ['utility', 'category', 'component', 'value', 'unit', 'effective_from'
            'region', 'legal_basis', 'source_url', 'checked_on', 'note']
 ELECTRICITY = 'electricity'
 WATER = 'water'
-UTILITIES = (ELECTRICITY, WATER)
-COMPONENTS = ('base', 'wastewater_pct', 'vat_pct', 'wastewater_vat_pct')
+UTILITIES = (ELECTRICITY, WATER)        # the lines LineTariff prices
+# Rows that are not a line of their own (change apply-head-of-pm-decisions-2026-10, group 2):
+VAT = 'vat'            # the VAT rates; category 'general' or 'insurance'
+DIESEL = 'diesel'      # the listed pump price, which already carries VAT
+ROW_UTILITIES = UTILITIES + (VAT, DIESEL)
+COMPONENTS = ('base', 'wastewater_pct', 'vat_pct', 'wastewater_vat_pct', 'listed_price', 'listed_vat_pct')
+VAT_GENERAL = 'general'
+VAT_INSURANCE = 'insurance'
+VAT_KINDS = (VAT_GENERAL, VAT_INSURANCE)
 HCMC = 'TP.HCM'
 
 CAT_E_LT6 = 'Hành chính sự nghiệp, dưới 6 kV'
@@ -36,12 +45,21 @@ CAT_E_GE6 = 'Hành chính sự nghiệp, từ 6 kV trở lên'
 CAT_E_BILL = 'Kinh doanh (theo giá trên hóa đơn)'
 CAT_W_HCMC = 'Sinh hoạt bậc cao nhất, TP.HCM'
 CAT_W_BILL = 'Theo giá trên hóa đơn'
-CATEGORIES = {ELECTRICITY: (CAT_E_LT6, CAT_E_GE6, CAT_E_BILL), WATER: (CAT_W_HCMC, CAT_W_BILL)}
+CAT_W_BUSINESS = 'Kinh doanh dịch vụ, TP.HCM'
+CAT_W_ADMIN = 'Hành chính sự nghiệp, TP.HCM'
+CAT_DIESEL = 'DO 0,05S-II, Vùng 1'
+CATEGORIES = {ELECTRICITY: (CAT_E_LT6, CAT_E_GE6, CAT_E_BILL), WATER: (CAT_W_HCMC, CAT_W_BUSINESS, CAT_W_ADMIN, CAT_W_BILL)}
 DEFAULT_CATEGORY = {ELECTRICITY: CAT_E_LT6, WATER: CAT_W_HCMC}
 UNITS = {ELECTRICITY: 'kWh', WATER: 'm3'}
 
 # "City / Province" values that mean Ho Chi Minh City, compared after _fold().
 _HCMC_ALIASES = ('ho chi minh', 'hcm', 'tphcm', 'tp hcm', 'sai gon', 'saigon')
+
+
+# The new-prospect form's "Water Customer Group" choices -> table category. Compared after _fold(), so
+# 'Hanh chinh su nghiep', 'administrative' and the accented form all match.
+WATER_GROUP_LABEL = 'Water Customer Group'
+WATER_GROUP_CHOICES = ('Kinh doanh dịch vụ', 'Hành chính sự nghiệp')
 
 
 class TariffError(ValueError):
@@ -86,8 +104,8 @@ def load_rows(path=UTILITY_TARIFF_CSV):
         utility = (r['utility'] or '').strip()
         component = (r['component'] or '').strip()
         label = f'row {row_no} ({utility} {component})'
-        if utility not in UTILITIES:
-            raise TariffError(f'Ref_UtilityTariffs.csv {label}: utility must be one of {", ".join(UTILITIES)}.')
+        if utility not in ROW_UTILITIES:
+            raise TariffError(f'Ref_UtilityTariffs.csv {label}: utility must be one of {", ".join(ROW_UTILITIES)}.')
         if component not in COMPONENTS:
             raise TariffError(f'Ref_UtilityTariffs.csv {label}: component must be one of {", ".join(COMPONENTS)}.')
         if not (r['effective_from'] or '').strip():
@@ -126,6 +144,57 @@ def _in_force(cands, day):
         return None
     # A category- or region-specific row beats a general one; then the latest-starting row wins.
     return max(hits, key=lambda r: (bool(r['category']), bool(r['region']), r['effective_from']))
+
+
+def vat_row(rows, year, month, kind=VAT_GENERAL):
+    """The 'vat' table row in force on the 1st of the month for a kind (VAT_GENERAL or VAT_INSURANCE)."""
+    if kind not in VAT_KINDS:
+        raise TariffError(f'Unknown VAT kind "{kind}" (use {" or ".join(VAT_KINDS)}).')
+    day = datetime.date(year, month, 1)
+    r = _in_force(_candidates(rows, VAT, 'vat_pct', kind, ''), day)
+    if r is None:
+        raise TariffError(f'Ref_UtilityTariffs.csv has no {kind} VAT rate in force on {day.strftime("%d/%m/%Y")}.')
+    return r
+
+
+def vat_rate(year, month, kind=VAT_GENERAL, rows=None, path=UTILITY_TARIFF_CSV):
+    """The VAT rate (percent) in force in a budget month: 'general' (8% to 31/12/2026, 10% from 01/01/2027) or
+    'insurance' (10% in every month). The one place the 8%/10% rule is stated (design D2)."""
+    return vat_row(load_rows(path) if rows is None else rows, year, month, kind)['value']
+
+
+class DieselPrice:
+    """The diesel pump price of one month: the listed price (VAT included, as published) split into its net
+    part, then re-priced at the VAT rate of the budget month."""
+
+    def __init__(self, year, month, listed, listed_vat_pct, vat_pct, rows):
+        self.year, self.month = year, month
+        self.listed, self.listed_vat_pct, self.vat_pct, self.rows = listed, listed_vat_pct, vat_pct, rows
+
+    def net(self):
+        """VND per litre, excluding VAT."""
+        return self.listed / (1 + self.listed_vat_pct / 100)
+
+    def gross(self):
+        """VND per litre including the VAT of this month: listed / (1 + listed VAT) x (1 + month's VAT)."""
+        return self.net() * (1 + self.vat_pct / 100)
+
+
+def diesel_price(year, month, category=CAT_DIESEL, rows=None, path=UTILITY_TARIFF_CSV):
+    """The DieselPrice for a budget month: the latest listed price on or before the 1st of the month."""
+    rows = load_rows(path) if rows is None else rows
+    day = datetime.date(year, month, 1)
+    used = {}
+    for comp in ('listed_price', 'listed_vat_pct'):
+        r = _in_force(_candidates(rows, DIESEL, comp, category, ''), day)
+        if r is None:
+            raise TariffError(f'Ref_UtilityTariffs.csv has no diesel {comp} for "{category}" in force on '
+                              f'{day.strftime("%d/%m/%Y")}.')
+        used[comp] = r
+    general = vat_row(rows, year, month, VAT_GENERAL)
+    used['vat_pct'] = general
+    return DieselPrice(year, month, used['listed_price']['value'], used['listed_vat_pct']['value'],
+                       general['value'], used)
 
 
 class MonthPrice:
@@ -201,15 +270,20 @@ class LineTariff:
             return r['value']
 
         base = self.bill_price if self.bill_price is not None else need('base')
-        vat = need('vat_pct')
+        if self.utility == ELECTRICITY:      # electricity carries the general VAT rate
+            used['vat_pct'] = vat_row(self.rows, year, month)
+            vat = used['vat_pct']['value']
+        else:                                # clean water has its own 5% row
+            vat = need('vat_pct')
         ww = wvat = 0.0
         if self.utility == WATER:
             ww_rows = _candidates(self.rows, WATER, 'wastewater_pct', self.category, self.region)
             ww_rows = [r for r in ww_rows if r['region']]   # the charge is set city by city
             if ww_rows:
                 ww = need('wastewater_pct')
-                if ww:
-                    wvat = need('wastewater_vat_pct')
+                if ww:                       # the drainage charge carries the general VAT rate
+                    used['wastewater_vat_pct'] = vat_row(self.rows, year, month)
+                    wvat = used['wastewater_vat_pct']['value']
         return MonthPrice(self.utility, year, month, float(base), ww, vat, wvat, used, self.bill_price is not None)
 
     def latest_effective(self):
@@ -228,3 +302,17 @@ class LineTariff:
             return (f'Chưa có văn bản giá mới cho năm {year} tại ngày kiểm tra bảng giá; '
                     f'áp dụng mức đang có hiệu lực từ {latest.strftime("%d/%m/%Y")}.')
         return ''
+
+
+def water_group_category(value):
+    """(table category, is_default) for the form's water customer group. Blank gives the business group and
+    is_default True, so the remark can say so; an unknown value raises TariffError naming the field."""
+    folded = _fold(value)
+    if not folded:
+        return CAT_W_BUSINESS, True
+    if folded in ('kinh doanh dich vu', 'kinh doanh', 'business'):
+        return CAT_W_BUSINESS, False
+    if folded in ('hanh chinh su nghiep', 'hanh chinh', 'administrative'):
+        return CAT_W_ADMIN, False
+    raise TariffError(f"Project Info '{WATER_GROUP_LABEL}' is {value!r}; pick {' or '.join(WATER_GROUP_CHOICES)}, "
+                      f"or leave it blank for the business group.")

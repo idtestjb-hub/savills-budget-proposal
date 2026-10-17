@@ -25,30 +25,30 @@ A/B movements (design D16).
 
 ## 2. Dated rates, VAT by month, diesel, water, waste (D1, B4, A3)
 
-- [ ] 2.0 Precondition: `carry-forward-common-utilities` has its 7.2 back-test and 7.3 sign-off done and is archived
+- [x] 2.0 Precondition: `carry-forward-common-utilities` has its 7.2 back-test and 7.3 sign-off done and is archived
   (design D9b). Then add a MODIFIED delta on `existing-project-utilities` for the shared VAT rows and the two new water
   groups as choices; the Existing default stays household top tier. Verify with `openspec validate --strict`, which must
   report the change valid with the new delta.
-- [ ] 2.1 Extend `Ref_UtilityTariffs.csv`: general VAT (8% to 31/12/2026, 10% from 01/01/2027), insurance VAT 10%,
+- [x] 2.1 Extend `Ref_UtilityTariffs.csv`: general VAT (8% to 31/12/2026, 10% from 01/01/2027), insurance VAT 10%,
   diesel 29,710 incl. 8% VAT from 01/10/2026, and water base prices for business 21,300 and administrative 13,000.
   Each row cites its basis. Keep a dated backup of the file. Verify with a `utility_tariffs` unit test per row kind.
-- [ ] 2.2 Replace the electricity and drainage VAT rows with the general rate, and add `vat_rate(month, kind)` and the
+- [x] 2.2 Replace the electricity and drainage VAT rows with the general rate, and add `vat_rate(month, kind)` and the
   price lookup by line, category and month. Verify that the Existing samples' utility figures are unchanged at equal
   prices, and that new tests cover 2026 and 2027 months.
-- [ ] 2.3 Price new-prospect water and diesel from the dated file. Add the water customer-group input (default
+- [x] 2.3 Price new-prospect water and diesel from the dated file. Add the water customer-group input (default
   business). Keep the usage per m². Choose the water remark's source sentence from the tariff category. Verify with an
   A/B on the standard sample (expected near water 306.0 → 452.6M, diesel 61.0 → 94.1M at 2026 prices) and on the clone.
-- [ ] 2.4 Offer the business and administrative water groups in Existing mode as choices; the default stays household
+- [x] 2.4 Offer the business and administrative water groups in Existing mode as choices; the default stays household
   top tier (the user's choice in place of B4-c). Verify with an A/B on both Existing samples: staff and utility lines
   are unchanged at equal prices, and selecting business moves water as expected.
-- [ ] 2.5 Apply VAT by month to `ESC12`, `ESM25`, `ESS9` and `EEE.C`. Fix their remarks (no "(chưa gồm VAT)") and the
+- [x] 2.5 Apply VAT by month to `ESC12`, `ESM25`, `ESS9` and `EEE.C`. Fix their remarks (no "(chưa gồm VAT)") and the
   ESS9 remark check. Verify with an A/B (expected EEE.C year 1 about +183.8M VND on the standard sample) and with the
   remark checks passing.
-- [ ] 2.6 Change the household-waste price to QĐ 65/2026/QĐ-UBND, 1,087 VND/kg, with its citation in code, remark and
+- [x] 2.6 Change the household-waste price to QĐ 65/2026/QĐ-UBND, 1,087 VND/kg, with its citation in code, remark and
   catalogue. Verify that `ESS9` moves by 1,087 / 1,086.49 and that the remark names QĐ 65/2026.
-- [ ] 2.7 Make the analysis apply the same prices and monthly VAT to electricity, water and diesel. Verify that the
+- [x] 2.7 Make the analysis apply the same prices and monthly VAT to electricity, water and diesel. Verify that the
   analysis electricity equals its monthly excl.-VAT amount × 12 × 1.10 for 2027.
-- [ ] 2.8 Record group 2's measured movements in `design.md` "Measured", and get the user's sign-off.
+- [x] 2.8 Record group 2's measured movements in `design.md` "Measured", and get the user's sign-off.
 
 ## 3. Building insurance (B5)
 

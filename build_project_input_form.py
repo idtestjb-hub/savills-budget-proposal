@@ -978,10 +978,25 @@ def main(force=False):
         "month stops the run. The occupancy fill-up still counts operational months: month 1 is this month.",
         'Budget Planning Agent')
 
+    # Appended (row 57 was free), read by label. Change apply-head-of-pm-decisions-2026-10, group 2.
+    import utility_tariffs as ut
+    c_water = labeled_input(ws1, 57, ut.WATER_GROUP_LABEL, None)
+    dv_water = DataValidation(type='list', formula1='"' + ','.join(ut.WATER_GROUP_CHOICES) + '"',
+                              showErrorMessage=True, errorTitle='Water Customer Group',
+                              error='Pick Kinh doanh dịch vụ or Hành chính sự nghiệp, or leave blank')
+    ws1.add_data_validation(dv_water)
+    dv_water.add(c_water)
+    c_water.comment = Comment(
+        "The customer group on the building's water bill (SAWACO). Leave blank for Kinh doanh dịch vụ (business), "
+        "the default; pick Hành chính sự nghiệp when the bill says so. A new prospect's water is priced from the "
+        "dated tariff file by this group, with the drainage charge and VAT of each budget month. "
+        "Used for a new prospect; an Existing project chooses its water category on the 'Prior-Year Utilities' sheet.",
+        'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 
-    add_run_button(ws1)          # green RUN button at F1:G2, hyperlinked to Run Budget Agent.cmd
+    add_run_button(ws1)         # green RUN button at F1:G2, hyperlinked to Run Budget Agent.cmd
 
     # ================= Sheet 2: Roster Setup =================
     ws2 = wb.create_sheet('Roster Setup')

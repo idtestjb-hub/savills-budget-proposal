@@ -394,9 +394,10 @@ METHOD_VERDICTS = {
     # costing track) — ESS9 written for the first time; this registry predates that write.
     'ESS9': dict(spec_method='regulation-quantity-x-3-part-unit-price',
                  actual_method='(Apartment units x 2.63 kg/unit/day + Shophouse units x 3.945 '
-                               'kg/unit/day) x 30 days x (485.97 + 180.07 + 420.45 VND/kg), the AI '
-                               'Guideline\'s own \'B2.6 Rác sinh hoạt (QD67)\' worksheet, citing QĐ '
-                               '67/2025/QĐ-UBND\'s collection+transport+treatment tariff directly.',
+                               'kg/unit/day) x 30 days x (486 + 180 + 421 VND/kg), QĐ 65/2026/QĐ-UBND\'s '
+                               'collection+transport+treatment tariff (replacing the QĐ 67/2025 prices on '
+                               'the AI Guideline\'s \'B2.6 Rác sinh hoạt (QD67)\' worksheet), with the VAT '
+                               'of each budget month added.',
                  verdict='matches', reasoning='Direct implementation of the guideline\'s own stated '
                                               'formula and cited rates — the Shophouse weight uses the '
                                               'guideline\'s formula-instruction basis (3.945 kg/unit/'

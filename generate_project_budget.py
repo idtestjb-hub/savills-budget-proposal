@@ -46,6 +46,7 @@ from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
 from input_labels import SheetLabels, normalise
 import budget_period
+import utility_tariffs
 import existing_staffing
 import existing_utilities
 import operating_inputs
@@ -658,6 +659,10 @@ def read_input(path):
         # only — no figure changes when absent, comparable matching stays size-only exactly as today.
         district=(L.value('District') if L.has('District') else None),
         city=(L.value('City / Province') if L.has('City / Province') else None),
+        # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 2). Blank or
+        # absent means the business group. A new prospect's water is priced by it from the dated tariff file.
+        water_group=(L.value(utility_tariffs.WATER_GROUP_LABEL) if L.has(utility_tariffs.WATER_GROUP_LABEL)
+                     else None),
         # Optional: absent on workbooks created before this field was added (change
         # rank-comparables-by-location, task 2.4, 2026-09-16). Refines ORDER within whatever tier
         # District/City above already placed a candidate in — never changes tiers. A lone value on
@@ -1208,6 +1213,48 @@ def _vi_unit(unit):
     return _UNIT_VI.get(unit) or (unit or '').replace('/month', '/tháng').replace('litre', 'lít')
 
 
+def _opex_kwargs(project):
+    """estimate_opex arguments shared by every call: the pool, and (group 2) the budget period and water group
+    that price water and diesel from the dated tariff file."""
+    bp = project.get('budget_period') or budget_period.default()
+    return dict(has_pool=project.get('has_pool', False), pool_volume_m3=project.get('pool_volume_m3'),
+                period_months=bp.months, water_group=project.get('water_group'))
+
+
+def _general_vat_months(project):
+    """The general VAT rate (percent) in force in each of the twelve budget months, from the dated tariff file."""
+    bp = project.get('budget_period') or budget_period.default()
+    rows = utility_tariffs.load_rows()
+    return [utility_tariffs.vat_rate(y, m, rows=rows) for y, m in bp.months]
+
+
+def _vat_factors(project):
+    """(1 + that month's VAT) for each budget month when the run includes VAT; 1.0 each when the financial
+    model excludes it (KHOÁN). Applied only to amounts the tool prices excluding VAT (design D9a)."""
+    if not _ACTIVE_VAT_SENTENCE:
+        return [1.0] * 12
+    return [1 + r / 100 for r in _general_vat_months(project)]
+
+
+def _rate_phrase(months, rates):
+    """'8% đến hết tháng 12/2026 và 10% từ tháng 01/2027' for rates that change inside the period; '10%' if flat."""
+    runs = []
+    for (y, m), r in zip(months, rates):
+        if not runs or runs[-1][0] != r:
+            runs.append([r, (y, m), (y, m)])
+        else:
+            runs[-1][2] = (y, m)
+    if len(runs) == 1:
+        return f'{runs[0][0]:g}%'
+    parts = []
+    for i, (r, first, last) in enumerate(runs):
+        if i == 0:
+            parts.append(f'{r:g}% đến hết tháng {last[1]:02d}/{last[0]}')
+        else:
+            parts.append(f'{r:g}% từ tháng {first[1]:02d}/{first[0]}')
+    return ' và '.join(parts)
+
+
 def _energy_narrative_vi(category, project, yr):
     """Vietnamese narrative for one of the three consumption-x-tariff OPEX categories (Water,
     Electricity, Diesel (Generator Fuel)) — shared by the '1. Summary' composed narrative
@@ -1221,8 +1268,7 @@ def _energy_narrative_vi(category, project, yr):
     if ur is not None and category in ('Water', 'Electricity'):
         # Existing-project mode: the project's own actual consumption, no curve, no floor.
         return existing_utilities.narrative_vi(ur, 'EEW.C' if category == 'Water' else 'EEE.C')
-    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
-                         pool_volume_m3=project.get('pool_volume_m3'))
+    opex = estimate_opex(project['total_nfa'], **_opex_kwargs(project))
     e = opex.get(category, {})
     qty = e.get('project_quantity_month', 0)
     unit = _vi_unit(e.get('usage_unit', ''))
@@ -1230,16 +1276,24 @@ def _energy_narrative_vi(category, project, yr):
     tunit = _vi_unit(e.get('tariff_unit', ''))
     as_of = e.get('tariff_as_of', '')
     if category == 'Water':
-        # One source per price: when the tariff is the costing guideline's worked example, say so
-        # and do not also say it came from projects of the same size.
-        price_source = ("Đơn giá nước theo ví dụ trong hướng dẫn lập ngân sách của Savills."
-                        if 'built-up example' in as_of else
-                        "Đơn giá nước lấy theo các dự án chung cư cùng quy mô.")
+        d = e.get('dated') or {}
+        # The price source follows the tariff row's category, never a substring of the date text (design D3).
+        group_vi = ('hành chính sự nghiệp' if d.get('group') == utility_tariffs.CAT_W_ADMIN else 'kinh doanh dịch vụ')
+        price_source = (f"Đơn giá nước nhóm khách hàng {group_vi} theo bảng giá nước sạch của SAWACO (TP.HCM)"
+                        + (", mặc định khi ô 'Nhóm khách hàng nước' để trống; PM chọn nhóm hành chính sự nghiệp "
+                           "khi hóa đơn ghi vậy" if d.get('group_is_default') else ", theo nhóm PM đã chọn")
+                        + ".")
+        if utility_tariffs.region_of(project.get('city')) != utility_tariffs.HCMC:
+            price_source += (" Dự án nằm ngoài TP.HCM hoặc chưa ghi tỉnh/thành: đây là giá SAWACO TP.HCM, cần đối "
+                             "chiếu hóa đơn nước địa phương.")
+        bp = project.get('budget_period') or budget_period.default()
+        bvmt = _rate_phrase(bp.months, d.get('vat_bvmt', [8.0] * 12))
         basis = (operating_inputs.water_stable_vi(yr) if project.get('stable_operation') else
                  f"Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
                  f"lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư dân'.")
-        return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT 5%, "
-                f"PBVMT 30%, VAT bvmt 8% ({tariff:,.0f} {tunit}). {price_source} " + basis)
+        return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT {d.get('vat_water', 5):g}%, "
+                f"PBVMT {d.get('wastewater_pct', 30):g}%, VAT bvmt {bvmt} ({tariff:,.0f} {tunit}"
+                + (" tháng đầu" if len(set(e.get('tariff_by_month', []))) > 1 else "") + f"). {price_source} " + basis)
     if category == 'Electricity':
         basis = (f"Dự ước tại năm {yr}. {operating_inputs.ELECTRICITY_STABLE_VI}"
                  if project.get('stable_operation') else
@@ -1247,13 +1301,24 @@ def _energy_narrative_vi(category, project, yr):
                  f"trên tỷ lệ lấp đầy cư dân, căn cứ theo trang 'Tỷ lệ lấp đầy cư dân' — mức tối "
                  f"thiểu khi tỷ lệ lấp đầy bằng 0 là khoảng 40% full chi phí, đạt full chi phí khi "
                  f"tỷ lệ lấp đầy từ 40% trở lên.")
+        bp = project.get('budget_period') or budget_period.default()
+        vat_clause = (f", cộng VAT {_rate_phrase(bp.months, _general_vat_months(project))} theo từng tháng"
+                      if _ACTIVE_VAT_SENTENCE else "")
         return (f"Tổng lượng điện tiêu thụ 1 tháng {qty:,.0f} {unit}. Đơn giá điện đang áp dụng "
                 f"theo mức đơn giá điện dưới 6KV — đơn vị hành chính sự nghiệp ({tariff:,.0f} "
-                f"{tunit}), theo Quyết định 1279/QĐ-BCT ngày 09/05/2025. " + basis)
+                f"{tunit} trước VAT{vat_clause}), theo Quyết định 1279/QĐ-BCT ngày 09/05/2025. " + basis)
+    d = e.get('dated') or {}
+    if d:
+        bp = project.get('budget_period') or budget_period.default()
+        price = (f"Giá dầu DO 0,05S-II Vùng 1 niêm yết ngày {d['as_of'].strftime('%d/%m/%Y')} là "
+                 f"{d['listed']:,.0f} đ/lít đã gồm VAT {d['listed_vat']:g}%; quy đổi theo VAT từng tháng "
+                 f"({_rate_phrase(bp.months, d['vat_by_month'])}) là {tariff:,.0f} {tunit}"
+                 + (" tháng đầu" if len(set(e.get('tariff_by_month', []))) > 1 else "") + ".")
+    else:
+        price = f"Giá dầu DO 0.005S Vùng 1 niêm yết {as_of} là {tariff:,.0f} {tunit}."
     return (f"Dự ước tiêu thụ {qty:,.0f} {unit}. Mỗi năm chạy test không tải khoảng 12 giờ; "
             f"chạy backup điện có tải do sự cố điện lưới và bảo trì máy biến thế + tủ điện hạ "
-            f"thế chính khoảng 8 giờ/năm. Giá dầu DO 0.005S Vùng 1 niêm yết {as_of} là "
-            f"{tariff:,.0f} {tunit}.")
+            f"thế chính khoảng 8 giờ/năm. " + price)
 
 
 def _recipe_narrative(key, wb, project, demand, year, written):
@@ -1606,12 +1671,15 @@ DRINKING_WATER_BOTTLE_PRICE = 60_000        # incl. VAT — guideline's own cite
 # Added 2026-09-21, change complete-ai-guideline-remark-coverage (B2.6 / waste-collection-costing
 # track) — read directly from the guideline's own 'B2.6 Rác sinh hoạt (QD67)' worksheet (both the
 # docs/ source copy and the live TEMPLATE_PATH form carry the same three unit prices). QĐ
-# 67/2025/QĐ-UBND's own three-part household-waste tariff, VND/kg, excl. VAT:
-WASTE_QD67_COLLECTION_PRICE = 485.97        # Dịch vụ thu gom tại nguồn CTRSH
-WASTE_QD67_TRANSPORT_PRICE = 180.07         # Dịch vụ vận chuyển CTRSH
-WASTE_QD67_TREATMENT_PRICE = 420.45         # Dịch vụ xử lý CTRSH
-WASTE_QD67_UNIT_PRICE = (WASTE_QD67_COLLECTION_PRICE + WASTE_QD67_TRANSPORT_PRICE
-                          + WASTE_QD67_TREATMENT_PRICE)  # 1,086.49 VND/kg
+# 67/2025/QĐ-UBND's three-part household-waste tariff, VND/kg, excl. VAT. Since change
+# apply-head-of-pm-decisions-2026-10 (group 2, task 2.6) the prices are those of QĐ 65/2026/QĐ-UBND
+# (group 1 household waste, 01/09/2026 to 30/06/2027): 486 + 180 + 421 = 1,087 VND/kg, replacing
+# 485.97 + 180.07 + 420.45 = 1,086.49. VAT is added by month from the dated rate file.
+WASTE_COLLECTION_PRICE = 486                # Dịch vụ thu gom tại nguồn CTRSH
+WASTE_TRANSPORT_PRICE = 180                 # Dịch vụ vận chuyển CTRSH
+WASTE_TREATMENT_PRICE = 421                 # Dịch vụ xử lý CTRSH
+WASTE_UNIT_PRICE = (WASTE_COLLECTION_PRICE + WASTE_TRANSPORT_PRICE
+                    + WASTE_TREATMENT_PRICE)  # 1,087 VND/kg
 WASTE_APARTMENT_KG_PER_UNIT_DAY = 2.63      # guideline note + formula instruction agree for Apartment
 # Shophouse: the guideline sheet is internally inconsistent — its note text says "khoảng 3.41kg"
 # per unit/day, but the formula instruction beside it says "2.63 x 1.5 x 30 ngày" (= 3.945 kg/day).
@@ -1683,7 +1751,7 @@ MGMT_FUND_ROWS = {
     # 154, hazardous waste) and ESS11 (row 155, construction rubble) are real, different waste
     # streams the guideline's B2.6 sheet does not price at all — left alone. ESS19 (row 163, garbage
     # bags) is a real waste-adjacent consumable with no unit price anywhere — left alone.
-    'waste_collection': 153,    # ESS9   Normal domestic garbage collection (QĐ 67/2025)
+    'waste_collection': 153,    # ESS9   Normal domestic garbage collection (QĐ 65/2026)
 }
 
 # Cost code each MGMT_FUND_ROWS key must land on — the guard below checks every row on every run
@@ -2654,8 +2722,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # Expense are single blended aggregates in this pipeline, so each lands on its section's
     # catch-all leaf (EMA15 / ERM) rather than being spread across the 30+/19 specific sub-system
     # rows the template itemizes — see MGMT_FUND_ROWS and _CATCH_ALL_NOTE below) ----
-    opex = estimate_opex(project['total_nfa'], has_pool=project.get('has_pool', False),
-                         pool_volume_m3=project.get('pool_volume_m3'))
+    opex = estimate_opex(project['total_nfa'], **_opex_kwargs(project))
     _opex_yr = _budget_year(wb, year)
 
     _OPEX_CATEGORY_VI = {
@@ -2686,11 +2753,17 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
             # reading only this cell should still see them.
             # The date, without the internal-document label some tariffs carry in their source data.
             tariff_date = re.sub(r"\s*\(AI Guideline built-up example\)", '', str(entry['tariff_as_of']))
-            date_note = (
-                f" Đơn giá đã lập ngày {tariff_date}, trước năm ngân sách {_opex_yr} — "
-                f"cần xác nhận đây vẫn là đơn giá công bố hiện hành trước khi sử dụng số liệu này."
-                if entry.get('tariff_stale') else
-                f" Đơn giá lập ngày {tariff_date}.")
+            if entry.get('dated'):
+                tariff_date = datetime.date.fromisoformat(tariff_date).strftime('%d/%m/%Y')
+            if entry.get('dated') and category == 'Diesel (Generator Fuel)':
+                date_note = (f" Giá niêm yết ngày {tariff_date}; giá dầu điều chỉnh khoảng 7 ngày một lần, "
+                             f"cần xác nhận giá hiện hành trước khi sử dụng số liệu này.")
+            else:
+                date_note = (
+                    f" Đơn giá đã lập ngày {tariff_date}, trước năm ngân sách {_opex_yr} — "
+                    f"cần xác nhận đây vẫn là đơn giá công bố hiện hành trước khi sử dụng số liệu này."
+                    if entry.get('tariff_stale') else
+                    f" Đơn giá lập ngày {tariff_date}.")
             return (
                 _energy_narrative_vi(category, project, _opex_yr) + date_note +
                 f" Mức tiêu thụ lấy theo số liệu thực tế của A&K Tower (chỉ một dự án tham chiếu), "
@@ -2709,6 +2782,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # full load once the building is ~40% occupied, not only at 100%. Diesel is NOT occupancy-scaled
     # (it is driven by generator test/backup hours), so it stays flat.
     water_full_monthly = opex.get('Water', {}).get('monthly_vnd', 0)
+    # By-month full-occupancy amounts when the tariff changes inside the period (VAT step); else flat.
+    water_full_by_month = opex.get('Water', {}).get('monthly_vnd_by_month') or [water_full_monthly] * 12
     elec_full_monthly = opex.get('Electricity', {}).get('monthly_vnd', 0)
     _ur = project.get('utilities_result')
     if _ur is not None:
@@ -2719,22 +2794,30 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                 existing_utilities.narrative_vi(_ur, _line)
                 + existing_utilities.adjustment_sentence(_ur, _line)))
     else:
-        _full_note = "." if stable else (f" (nếu lấp đầy 100%: {water_full_monthly * 12:,.0f} VND/năm).")
-        _write_ramped_row(ws, MGMT_FUND_ROWS['water'], [water_full_monthly * f for f in fills], (
+        _full_note = "." if stable else (f" (nếu lấp đầy 100%: {sum(water_full_by_month):,.0f} VND/năm).")
+        _water_months = [w * f for w, f in zip(water_full_by_month, fills)]
+        _write_ramped_row(ws, MGMT_FUND_ROWS['water'], _water_months, (
             _opex_remark('Water') + " " + _anchor_note
-            + f" Tổng năm 1: {sum(water_full_monthly * f for f in fills):,.0f} VND" + _full_note))
+            + f" Tổng năm 1: {sum(_water_months):,.0f} VND" + _full_note))
         _elec_fills = year1_electricity_fills(stable)
         # The floor-at-40%/reaches-full-by-~40%-occupancy mechanism is already stated in Vietnamese by
         # _energy_narrative_vi() above (change localize-line-level-remarks, 2026-09-15) — this used to
         # restate it in English before that helper existed; corrected 2026-09-21 (found reading this
         # remark aloud for change localize-line-level-remarks task 7.1) to just add the year-1 total,
         # not repeat the mechanism a second time.
-        _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], [elec_full_monthly * f for f in _elec_fills], (
+        _vf = _vat_factors(project)
+        _elec_months = [elec_full_monthly * f * v for f, v in zip(_elec_fills, _vf)]
+        _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], _elec_months, (
             _opex_remark('Electricity')
-            + f" Tổng năm 1: {sum(elec_full_monthly * f for f in _elec_fills):,.0f} VND"
-            + ("." if stable else f" (nếu lấp đầy 100%: {elec_full_monthly * 12:,.0f} VND/năm).")))
-    write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
-                        remark=_opex_remark('Diesel (Generator Fuel)'))
+            + f" Tổng năm 1: {sum(_elec_months):,.0f} VND"
+            + ("." if stable else f" (nếu lấp đầy 100%: {sum(elec_full_monthly * v for v in _vf):,.0f} VND/năm).")))
+    _diesel_months = opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd_by_month')
+    if _diesel_months and len(set(_diesel_months)) > 1:    # VAT steps inside the period: one value per month
+        _write_ramped_row(ws, MGMT_FUND_ROWS['diesel'], _diesel_months,
+                          _opex_remark('Diesel (Generator Fuel)'))
+    else:
+        write_even_monthly('diesel', opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd', 0) * 12,
+                           remark=_opex_remark('Diesel (Generator Fuel)'))
     # P4 (use-operating-project-actuals): collect-on-behalf (thu hộ / chi hộ) pairs, only where entered.
     _write_collect_on_behalf(ws, project)
 
@@ -2821,16 +2904,32 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # ---- Added 2026-09-14, change fill-guideline-required-line-items: Required codes that were
     # left at the template's blank default with no basis stated, but that DO have a real, findable
     # pricing method (Costing_Method_Catalogue.csv) — see that change's docs/14. ----
-    write_even_monthly('env_incident_plan', ENV_INCIDENT_PLAN_ANNUAL, remark=(
-        f"{ENV_INCIDENT_PLAN_ANNUAL:,.0f} VND/năm (chưa gồm VAT) — kế hoạch ứng phó sự cố môi "
+    def write_vat_monthly(key, annual_excl, remark):
+        """A line the tool prices excluding VAT, spread evenly over the year, with each month's VAT added
+        (design D4): one value when every month carries the same rate, otherwise one value per month."""
+        vf = _vat_factors(project)
+        if len(set(vf)) == 1:
+            write_even_monthly(key, annual_excl * vf[0], remark=remark)
+        else:
+            _write_ramped_row(ws, MGMT_FUND_ROWS[key], [annual_excl / 12 * v for v in vf], remark)
+        return sum(annual_excl / 12 * v for v in vf)
+
+    _vat_bp = project.get('budget_period') or budget_period.default()
+    _vat_text = (f"cộng VAT {_rate_phrase(_vat_bp.months, _general_vat_months(project))} theo từng tháng"
+                 if _ACTIVE_VAT_SENTENCE else "chưa cộng VAT theo mô hình tài chính đã chọn")
+    _env_total = sum(ENV_INCIDENT_PLAN_ANNUAL / 12 * v for v in _vat_factors(project))
+    write_vat_monthly('env_incident_plan', ENV_INCIDENT_PLAN_ANNUAL, remark=(
+        f"{ENV_INCIDENT_PLAN_ANNUAL:,.0f} VND/năm trước VAT, {_vat_text} = {_env_total:,.0f} VND/năm — kế hoạch "
+        f"ứng phó sự cố môi "
         f"trường bắt buộc (phòng ngừa & ứng phó tràn đổ/sự cố khẩn cấp), một lần/năm. Hướng dẫn lập ngân sách của Savills "
         f"nêu trực tiếp số liệu tạm tính này; không phải số liệu ước tính theo dự án tham chiếu."))
     wastewater_crosscheck_annual = WASTEWATER_CROSSCHECK_SAMPLE_PRICE * WASTEWATER_CROSSCHECK_PER_YEAR
-    write_even_monthly('wastewater_crosscheck', wastewater_crosscheck_annual, remark=(
-        f"= {WASTEWATER_CROSSCHECK_SAMPLE_PRICE:,.0f} VND/lần (chưa gồm VAT, theo SCE) x "
+    _ww_total = sum(wastewater_crosscheck_annual / 12 * v for v in _vat_factors(project))
+    write_vat_monthly('wastewater_crosscheck', wastewater_crosscheck_annual, remark=(
+        f"= {WASTEWATER_CROSSCHECK_SAMPLE_PRICE:,.0f} VND/lần (trước VAT, theo SCE) x "
         f"{WASTEWATER_CROSSCHECK_PER_YEAR} lần/năm (hàng quý) = {wastewater_crosscheck_annual:,.0f} "
-        f"VND/năm — đối chiếu chéo với báo cáo chất lượng nước sau xử lý của nhà thầu vận hành "
-        f"trạm xử lý nước thải (STP)."))
+        f"VND/năm trước VAT, {_vat_text} = {_ww_total:,.0f} VND/năm — đối chiếu chéo với báo cáo chất lượng "
+        f"nước sau xử lý của nhà thầu vận hành trạm xử lý nước thải (STP)."))
 
     # EMA7 Drinking water — guideline: BQL headcount x 1 L/person/day, 19 L bottle, real vendor
     # price. BQL headcount = every in-house roster position except Security/Cleaning/Landscape
@@ -2859,19 +2958,21 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     _waste_shop_units = (project['products'].get('Shophouse') or {}).get('units') or 0
     if _waste_apt_units or _waste_shop_units:
         _waste_apt_monthly = (_waste_apt_units * WASTE_APARTMENT_KG_PER_UNIT_DAY
-                               * WASTE_DAYS_PER_MONTH * WASTE_QD67_UNIT_PRICE)
+                               * WASTE_DAYS_PER_MONTH * WASTE_UNIT_PRICE)
         _waste_shop_monthly = (_waste_shop_units * WASTE_SHOPHOUSE_KG_PER_UNIT_DAY
-                                * WASTE_DAYS_PER_MONTH * WASTE_QD67_UNIT_PRICE)
+                                * WASTE_DAYS_PER_MONTH * WASTE_UNIT_PRICE)
         waste_monthly = _waste_apt_monthly + _waste_shop_monthly
         waste_annual = waste_monthly * 12
-        write_even_monthly('waste_collection', waste_annual, remark=(
+        _waste_total = sum(waste_monthly * v for v in _vat_factors(project))
+        write_vat_monthly('waste_collection', waste_annual, remark=(
             f"= (Căn hộ: {_waste_apt_units} căn x {WASTE_APARTMENT_KG_PER_UNIT_DAY} kg/căn/ngày"
             + (f" + Shophouse: {_waste_shop_units} căn x {WASTE_SHOPHOUSE_KG_PER_UNIT_DAY:.3f} "
                f"kg/căn/ngày" if _waste_shop_units else "")
-            + f") x {WASTE_DAYS_PER_MONTH} ngày x {WASTE_QD67_UNIT_PRICE:,.2f} VND/kg (thu gom "
-              f"{WASTE_QD67_COLLECTION_PRICE:,.2f} + vận chuyển {WASTE_QD67_TRANSPORT_PRICE:,.2f} + "
-              f"xử lý {WASTE_QD67_TREATMENT_PRICE:,.2f}, theo Quyết định 67/2025/QĐ-UBND, chưa gồm "
-              f"VAT) = {waste_monthly:,.0f} VND/tháng."
+            + f") x {WASTE_DAYS_PER_MONTH} ngày x {WASTE_UNIT_PRICE:,.0f} VND/kg (thu gom "
+              f"{WASTE_COLLECTION_PRICE:,.0f} + vận chuyển {WASTE_TRANSPORT_PRICE:,.0f} + "
+              f"xử lý {WASTE_TREATMENT_PRICE:,.0f}, theo Quyết định 65/2026/QĐ-UBND, có hiệu lực từ "
+              f"01/09/2026, trước VAT) = {waste_monthly:,.0f} VND/tháng trước VAT, {_vat_text} = "
+              f"{_waste_total:,.0f} VND/năm."
             + (" Khối lượng Shophouse tính theo công thức trong hướng dẫn lập ngân sách của Savills (2.63 x 1.5 x "
                "30 ngày = 3.945 kg/căn/ngày), khác với ghi chú bằng chữ trên cùng trang nguồn "
                "(khoảng 3.41kg) — hai số liệu này mâu thuẫn nhau trong tài liệu gốc, đã chọn theo "
@@ -2977,13 +3078,13 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         # reader of the generated deliverable.
         154: ('ESS10', "A real, different waste stream (hazardous garbage) from ESS9 (normal "
                         "domestic garbage, now priced) — the AI Guideline's 'B2.6 Rác sinh hoạt "
-                        "(QD67)' sheet gives a QĐ 67/2025 rate only for normal domestic waste, "
+                        "(QD67)' sheet gives a household-waste rate only for normal domestic waste, "
                         "nothing for hazardous waste."),
         156: ('ESS12', "No pricing method recorded in Costing_Method_Catalogue.csv."),
         161: ('ESS17', "No pricing method recorded in Costing_Method_Catalogue.csv."),
         162: ('ESS18', "No pricing method recorded in Costing_Method_Catalogue.csv."),
         163: ('ESS19', "A real waste-collection consumable (garbage bags), but the guideline's QĐ "
-                        "67/2025 rate on ESS9 prices the collection/transport/treatment SERVICE only "
+                        "65/2026 rate on ESS9 prices the collection/transport/treatment SERVICE only "
                         "— it has no unit price for bags themselves, and no other source in this "
                         "pipeline does either."),
         167: ('ESS23', "No pricing method recorded in Costing_Method_Catalogue.csv."),
@@ -3033,13 +3134,13 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         'ESC5':  "Chưa có phương pháp định giá được ghi nhận.",
         'ESS10': "Một dòng rác thải thực tế nhưng khác với ESS9 (rác sinh hoạt thông thường, đã "
                  "được định giá) — trang 'B2.6 Rác sinh hoạt (QD67)' của hướng dẫn lập ngân sách của Savills chỉ nêu đơn "
-                 "giá QĐ 67/2025 cho rác sinh hoạt thông thường, không có đơn giá cho rác thải "
+                 "giá cho rác sinh hoạt thông thường (QĐ 65/2026), không có đơn giá cho rác thải "
                  "nguy hại.",
         'ESS12': "Chưa có phương pháp định giá được ghi nhận.",
         'ESS17': "Chưa có phương pháp định giá được ghi nhận.",
         'ESS18': "Chưa có phương pháp định giá được ghi nhận.",
         'ESS19': "Một vật tư tiêu hao thực tế liên quan đến thu gom rác (túi rác), nhưng đơn giá QĐ "
-                 "67/2025 tại ESS9 chỉ định giá DỊCH VỤ thu gom/vận chuyển/xử lý — không có đơn giá "
+                 "65/2026 tại ESS9 chỉ định giá DỊCH VỤ thu gom/vận chuyển/xử lý — không có đơn giá "
                  "cho bản thân túi rác, và không có nguồn nào khác trong hệ thống có đơn giá này.",
         'ESS23': "Chưa có phương pháp định giá được ghi nhận.",
         'ESI2':  "Cột hướng dẫn để trống; phương pháp duy nhất được nêu là 'báo giá hàng năm', "
