@@ -309,6 +309,25 @@ def main(argv=None):
             return 1
         print(f'OK    the run log holds ({len(rgrows)} assertion(s), temporary folder only)')
 
+        # ---- 5h. the Service Levels sheet and its data tables (change add-service-level-table) ----
+        try:
+            slok, slrows, sldiffs, slnotes = checks.check_service_levels(paths, sample)
+        except bl.BaselineUnavailable as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        for n in slnotes:
+            print(f'NOTE  {n}')
+        if not slok:
+            print(f'FAIL  {len(sldiffs)} service-level problem(s):')
+            for label, msg in sldiffs:
+                print(f'        - {label}: {msg}')
+            print("\nThe Service Levels sheet must count the same people Staffing Demand lists, classify them from the "
+                  'threshold table (a cut-off value in the higher band, an out-of-bounds value not classified), compare '
+                  'only form-read real projects with the project left out, and the two data tables must carry no '
+                  'project or file name (change add-service-level-table). Display only: no baseline moves here.')
+            return 1
+        print(f'OK    the Service Levels sheet ties to Staffing Demand and the data tables ({len(slrows)} check(s))')
+
         # ---- 6. coverage & method fidelity (never a pass/fail on the score itself) -----------
         _headline('6. COVERAGE & METHOD FIDELITY')
         try:
@@ -406,6 +425,8 @@ def main(argv=None):
                 ('remark content', lambda: check_remark_content(ex_paths)),
                 ('summary reconciliation', lambda: check_summary_reconciles(ex_paths)),
                 ('Required line items', lambda: check_required_line_items(ex_paths)),
+                ('Service Levels sheet ties to Staffing Demand and the data tables',
+                 lambda: checks.check_service_levels(ex_paths, ex_sample)),
             ]
             if not _run_sections(sections):
                 return 1

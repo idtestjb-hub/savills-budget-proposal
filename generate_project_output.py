@@ -3541,6 +3541,143 @@ def build_utility_bridge_sheet(wb, result):
     return ws
 
 
+def build_service_levels_sheet(wb, project, demand):
+    """'Service Levels' (change add-service-level-table, design D9): the cleaning and security crews the tool has
+    just costed, set against the fixed thresholds in data/service_levels/Ref_ServiceLevelThresholds.csv and the
+    anonymous real-project table Ref_ServiceLevelProjects.csv. Internal, display only: it writes no value that any
+    other sheet reads, so every recorded baseline stays where it is. A missing data file or a project without a
+    fee-paying NFA gives 'chưa phân loại' with the reason; the run still completes."""
+    import service_levels as sl
+    ws = wb.create_sheet(sl.SHEET_NAME)
+    title_block(ws, 'Service Levels — cleaning and security crews against fixed thresholds and real projects',
+                'Internal, display only (change add-service-level-table). Changes no figure. Measures: m² of fee-paying '
+                'NFA per cleaning person on duty per day; 24-hour-equivalent security posts per 10,000 m² of fee-paying '
+                'NFA (a 24H shift row = 24 h, any other shift row = 8 h). Levels from the editable threshold table; the '
+                'percentile is among real Savills projects whose headcount was read from their own A2/A3 forms, the '
+                'project itself left out.', 'A1:M1')
+    r = 4
+    try:
+        res = sl.evaluate(project, demand)
+    except (OSError, ValueError, KeyError) as exc:
+        ws.cell(row=r, column=1, value='Service levels could not be computed: ' + f'{type(exc).__name__}: {exc}').font = Font(bold=True, color='C00000')
+        ws.cell(row=r + 1, column=1, value='Cần hai file data/service_levels/Ref_ServiceLevelThresholds.csv và '
+                                           'Ref_ServiceLevelProjects.csv (xem RUNNING.md). Không có con số nào khác bị ảnh hưởng.').alignment = LEFT
+        ws.column_dimensions['A'].width = 120
+        return ws
+
+    headers = ['Service', 'People on duty / day', 'Roster headcount', '24h-equivalent posts', 'Fee-paying NFA (m²)',
+               'Measure', 'Unit', 'Level', 'Near cut-off', 'Thresholds applied',
+               'Percentile among form-read real projects (%)', 'Projects compared (form-read)',
+               'Inferred rows (reference only, not compared)']
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    th = res['thresholds']
+
+    def _rule(t):
+        f = (lambda v: f'{v:,.0f}') if t.cutoff_1 >= 100 else (lambda v: f'{v:g}')
+        bounds = (f'; ngoài cận {f(t.bound_low)}–{f(t.bound_high)} = chưa phân loại'
+                  if t.bound_low is not None and t.bound_high is not None else '')
+        return (f'< {f(t.cutoff_1)} = {t.levels[0]}; {f(t.cutoff_1)} đến < {f(t.cutoff_2)} = {t.levels[1]}; '
+                f'≥ {f(t.cutoff_2)} = {t.levels[2]}{bounds} (duyệt {t.approved_on})')
+
+    for service, label in (('cleaning', 'Cleaning'), ('security', 'Security')):
+        s = res['services'][service]
+        cls = s['classification']
+        values = [label, s['on_duty'], s['roster'], s['posts24'] if service == 'security' else None,
+                  res['nfa'] or None, s['value'], th[service].unit, cls.label,
+                  sl.NEAR_MARK if cls.near else '', _rule(th[service]),
+                  s['percentile'], s['n_form'], s['n_inferred']]
+        for c, v in enumerate(values, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = BORDER
+            if isinstance(v, float):
+                cell.number_format = '#,##0.00' if (c in (4, 6) and v < 100) else MONEY_FMT
+            cell.alignment = LEFT if c in (7, 8, 10) else CENTER
+        r += 1
+    land = ['Landscape', None, None, None, res['nfa'] or None, None, '', res['landscape'], '', 'chưa đặt ngưỡng',
+            None, None, None]
+    for c, v in enumerate(land, start=1):
+        cell = ws.cell(row=r, column=c, value=v)
+        cell.border = BORDER
+        cell.alignment = LEFT if c in (8, 10) else CENTER
+    r += 2
+
+    section(ws, r, 'THRESHOLD TABLE — data/service_levels/Ref_ServiceLevelThresholds.csv (editable without code)', ncols=13)
+    r += 1
+    thead = ['Service', 'Measure', 'Unit', 'Cut-off 1', 'Cut-off 2', 'Level below cut-off 1', 'Level between',
+             'Level from cut-off 2', 'Bound low', 'Bound high', 'Approved on', 'Bounds approved on', 'Source']
+    for c, h in enumerate(thead, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    for t in th.values():
+        vals = [t.service, t.measure, t.unit, t.cutoff_1, t.cutoff_2, *(t.levels or ('', '', '')),
+                t.bound_low, t.bound_high, t.approved_on, t.bounds_approved_on, t.source]
+        for c, v in enumerate(vals, start=1):
+            cell = ws.cell(row=r, column=c, value=v if v is not None else ('' if c > 3 else v))
+            cell.border = BORDER
+            cell.alignment = LEFT if c in (2, 3, 13) else CENTER
+        r += 1
+    r += 1
+
+    section(ws, r, 'ROWS COUNTED FROM STAFFING DEMAND (people on duty per day; the roster count adds rest-day cover)', ncols=13)
+    r += 1
+    for c, h in enumerate(['Service', 'Position', 'Shift code', 'On duty / day', 'Hours counted (security)',
+                           'Roster Staff Count'], start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    for service, label in (('cleaning', 'Cleaning'), ('security', 'Security')):
+        for pos, shift, spd, hrs, rc in res['services'][service]['rows']:
+            for c, v in enumerate([label, pos, shift, spd, hrs, rc], start=1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.border = BORDER
+                cell.alignment = LEFT if c == 2 else CENTER
+            r += 1
+        if not res['services'][service]['rows']:
+            ws.cell(row=r, column=1, value=label).border = BORDER
+            ws.cell(row=r, column=2, value='No matching row in Staffing Demand').border = BORDER
+            r += 1
+    r += 1
+
+    section(ws, r, 'GHI CHÚ', ncols=13)
+    r += 1
+    snapshot = ''
+    try:
+        rows_real = sl.load_projects()
+        snapshot = rows_real[0].get('snapshot', '') if rows_real else ''
+        n_total = len(rows_real)
+    except OSError:
+        n_total = 0
+    notes = [
+        'Mức dịch vụ chỉ để tham khảo: không làm thay đổi con số nào trong ngân sách, roster hay bản giao khách hàng.',
+        'Diện tích dùng là NFA thu phí (tổng mọi sản phẩm), không phải diện tích cần vệ sinh. Lẫn sàn gộp với sàn '
+        'sử dụng có thể làm chi phí vệ sinh lệch khoảng 15%.',
+        'Ngưỡng là số tròn đọc từ phân bố của các dự án thật trong kho quét ngân sách (duyệt 16/10/2026, sửa '
+        '18/10/2026), không phải chuẩn bên ngoài. Sửa ngưỡng trong file CSV, kèm ngày duyệt mới.',
+        'Số người lấy từ Staffing Demand, cột "Staff On Duty / Day": do PM nhập, hoặc công cụ ước từ tỷ lệ Roster Setup '
+        'khi để trống. Khi ước, mức phản ánh benchmark của công cụ chứ không phải dự án.',
+        f'Tập so sánh: {n_total} dự án thật ẩn danh ({snapshot}); chỉ dự án có số người đọc từ form A2/A3 của ngân sách '
+        'và đã phân loại được đưa vào percentile. Dự án suy số người từ chi phí chỉ ghi để tham khảo, vì cách suy '
+        'biến đơn giá cao thành số người nhiều. Percentile = tỷ lệ dự án so sánh có chỉ số nhỏ hơn hoặc bằng dự án này.',
+        '"sát ngưỡng": chỉ số cách một ngưỡng dưới 10%, nên một thay đổi nhỏ về số người sẽ đổi mức.',
+        '"chưa phân loại": thiếu NFA, thiếu số người, hoặc chỉ số ngoài cận (nghi đọc sai). Không đoán để điền.',
+        'Vệ sinh và bảo vệ là hai mức riêng, không gộp thành một nhãn.',
+        'Cảnh quan: chưa đặt ngưỡng vì kho không có diện tích cây xanh.',
+    ]
+    for n in notes:
+        ws.cell(row=r, column=1, value=n).alignment = LEFT
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=13)
+        ws.row_dimensions[r].height = 30
+        r += 1
+    for col, w in {'A': 16, 'B': 30, 'C': 16, 'D': 18, 'E': 18, 'F': 14, 'G': 24, 'H': 34, 'I': 14, 'J': 60,
+                   'K': 22, 'L': 18, 'M': 22}.items():
+        ws.column_dimensions[col].width = w
+    return ws
+
+
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
     if project.get('utilities') is not None:
@@ -3569,6 +3706,8 @@ def main():
         build_staff_bridge_sheet(wb, existing_result(project, demand, project['budget_period'].start_year))
     if project.get('utilities_result') is not None:
         build_utility_bridge_sheet(wb, project['utilities_result'])
+    # Last among the internal sheets and read-only (change add-service-level-table, design D9).
+    build_service_levels_sheet(wb, project, demand)
 
     _fix_fake_formula_strings(wb)
 

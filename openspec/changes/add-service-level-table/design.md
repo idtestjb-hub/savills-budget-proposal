@@ -6,11 +6,17 @@ See proposal.md for why. What shapes the approach:
   (`density_p21.py`, `tier_fixed_p21.py`, with `density_p21.md` and `tier_fixed_p21.md`) and critiqued on 2026-10-18
   (`phan_bien_p1.md`, `phan_bien_p1_sens.py`). It reads `level_assignment_v7.csv`, `rec_v7.pkl` and the scan store
   `budget_scan_v2.sqlite`. Result after the 2026-10-18 rules: 48 projects after keeping the latest file per project
-  (one pair with identical NFA merged), 41 with fee-paying NFA. The measures form one continuous spread with no
-  natural break, so the cut-offs are round numbers read off that spread, not a statistical finding. Three of the four
-  sit where a three-equal-groups split would also cut; their only advantage over that split is that they are frozen.
-  They split the 41 projects 13 / 18 / 10 for cleaning (Nâng cao / Tiêu chuẩn / Cơ bản) and 12 / 19 / 9 for
-  security (Cơ bản / Tiêu chuẩn / Nâng cao), with one security value not classified (suspected misread).
+  (one pair with identical NFA merged), 45 with a total fee-paying NFA (four more than P21, whose apartment-NFA
+  column was blank for them). The measures form one continuous spread with no natural break, so the cut-offs are
+  round numbers read off that spread, not a statistical finding. Three of the four sit where a three-equal-groups
+  split would also cut; their only advantage over that split is that they are frozen. On the total fee-paying NFA
+  (D6) the build of 2026-10-18 gives, for cleaning, 7 Nâng cao / 24 Tiêu chuẩn / 11 Cơ bản / 6 not classified (3 no
+  NFA, 3 outside the bounds) and, for security, 8 Nâng cao / 20 Tiêu chuẩn / 15 Cơ bản / 5 not classified (3 no NFA,
+  2 outside the bounds). The P21 analysis had used the apartment NFA where the budget gave one (29 of 42 files),
+  which is why its counts (13 / 18 / 11 and 16 / 12 / 14 on 2.5) differ; the user chose the total basis on
+  2026-10-18 so that the real projects and the tool measure the same area. The three cleaning values outside the
+  bounds (9,500 to 23,400 m² per person, form-read) are budgets whose cleaning form covers only part of the crew;
+  the bounds rule keeps them out of the comparison, which is what it is for.
 - **Sensitivity (2026-10-18, 42 projects):** moving a cut-off by 10% changes the level of 1 to 6 projects per
   cut-off; 11 projects sit within 10% of the cleaning cut-off 2,500, which is the densest part of the spread. No
   cut-off between 2,000 and 4,500 m² per cleaner would be more stable.
@@ -59,19 +65,30 @@ shown with both components; never an average.
 
 **D4. Keep and mark both sources; compare against form-read projects only.** (Revised 2026-10-18.) Both the form-read
 and the inferred headcount stay in the table with their `source` ("form" / "chi phí"). The percentile and the count on
-the sheet are computed over form-read, classified projects only (23 for cleaning and 25 for security on
+the sheet are computed over form-read, classified projects only (24 for cleaning and 28 for security on
 2026-10-18). The inferred rows are shown as a second count for reference. Reason: the inference bias in Context would
 otherwise pull the comparison set towards Nâng cao. Alternative: inferring headcount from the project's own price per
 position. Rejected: that price is not in the store for projects without a form, which is the case being inferred.
 
-**D5. Count the same positions the store counts.** Cleaning counts every cleaning position on the roster, supervisors
-included, because the store's headcount does the same. Security counts each position at coverage hours / 24. If this
-rule differs from what the store did, the measures stop being comparable. Task 1.1 re-checks it against the store
-before the build.
+**D5. Count the same positions the store counts: people on duty per day.** (Settled 2026-10-18, task 1.1.) The
+store read the budgets' own A2 / A3 forms, whose rows give the people on duty per shift and the shift length; it
+counted cleaning as the sum of the rows' counts, supervisors included, and security as count × hours / 24. The tool's
+equivalent is the `Staff On Duty / Day` column of `Staffing Demand` (every row whose position contains "cleaning" or
+"security"), not the roster's `Staff Count`, which adds the rest-day cover (ceil × 7 / 6, about 17% more people) that
+a contractor's form never lists. For security, a row on shift `24H` counts 24 hours; every other shift row counts 8
+hours, so the three rows of a gate (Morning, Afternoon, Night) make one 24-hour post, the same convention the tool
+already uses when it splits the citywide security rate three ways. The user chose this over the roster count on
+2026-10-18. The sheet shows both figures: the on-duty count that feeds the measure, and the roster headcount beside
+it, and verification ties the roster figure to the roster and the on-duty figure to `Staffing Demand`.
 
-**D6. Fee-paying NFA stands in for the area to clean.** The store has no cleanable area. The sheet says so in
-Vietnamese. Gross-versus-usable area can move cleaning cost by about 15% (found in the 2026-10-16 search), so the
-note stays on the sheet.
+**D6. The total fee-paying NFA stands in for the area to clean, on both sides.** The store has no cleanable area.
+The store's `file_profile.nfa_total` is the total fee-paying NFA of every product, the same concept as the tool's
+`project['total_nfa']` (sum of the products' NFA); the P21 analysis had used the apartment NFA (`nfa_los_v7`), which
+is 5 to 13% smaller for most mixed projects and 3.7 times smaller for one. The user chose the total on 2026-10-18.
+Two files whose NFA was summed from product rows carry a "Management Fee" pseudo-product equal to the whole, so
+their total is double; the build subtracts that entry when `nfa_how` is `sum_of_types`. The sheet says in
+Vietnamese that the area is the fee-paying NFA, not the area to clean. Gross-versus-usable area can move cleaning
+cost by about 15% (found in the 2026-10-16 search), so the note stays on the sheet.
 
 **D7. Anonymous table, built from the store with the approved scan rules, plus an identical-NFA rule.** Same rules as
 `use-real-budget-ranges`: latest file per project, an unnamed file is its own project, no PDF, xlsb or duplicate.
@@ -116,8 +133,12 @@ levels in the tool, and they disagree for about a third of the projects whicheve
 - **NFA is not the cleanable area.** → Stated on the sheet (D6).
 - **A new project's roster is partly the tool's own estimate**, so its level partly reflects the benchmark used to
   estimate it. → The sheet says whether the headcount came from the input or from the benchmark.
-- **Small comparison set** (41 projects; 23 and 25 form-read). → The count is always shown; the percentile is given
-  without a verdict word.
+- **Small comparison set** (45 projects with NFA; 24 and 28 form-read and classified). → The count is always shown;
+  the percentile is given without a verdict word.
+- **The headcount the store read is not in the SQLite store.** It sits in the level-of-service readers' output
+  (`level_assignment_v7.csv`, built from the budgets' A2 / A3 forms by `extract_*` and `levels4_v7.py`). → The build
+  reads that file next to the store and records both paths; a rescan of the forms means re-running those readers
+  first.
 - **Store drift:** a rescan changes the real-project table but not the thresholds. → Rebuilding the table records the
   store's scan date in the file.
 

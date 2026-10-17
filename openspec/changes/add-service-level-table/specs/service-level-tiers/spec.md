@@ -44,7 +44,7 @@ Data files read: none. Data files written: `Budget_Agent/data/service_levels/Ref
 
 ### Requirement: A service level is classified from fee-paying NFA and the headcount
 
-For cleaning, the measure SHALL be the project's fee-paying NFA in m² divided by the number of cleaning positions. For security, the measure SHALL be the number of security positions, each counted as its hours of coverage divided by 24, divided by the fee-paying NFA in units of 10,000 m².
+For cleaning, the measure SHALL be the project's total fee-paying NFA in m² (every product) divided by the number of cleaning people on duty per day, supervisors included. For security, the measure SHALL be the number of security people on duty per day, each counted as their shift's hours of coverage divided by 24, divided by the total fee-paying NFA in units of 10,000 m². In the tool, the people on duty per day are the `Staff On Duty / Day` column of `Staffing Demand`; a row on shift `24H` counts 24 hours and every other shift row counts 8 hours, so three shift rows of one post make one 24-hour post.
 
 Cleaning and security SHALL each get their own level. The two levels SHALL NOT be merged into one label, average or minimum.
 
@@ -60,12 +60,12 @@ A measure within 10% of either cut-off (cut-off × 0.9 up to but excluding cut-o
 
 #### Scenario: Cleaning level from the thresholds
 
-- **WHEN** a project has 60,000 m² of fee-paying NFA and 20 cleaning positions
+- **WHEN** a project has 60,000 m² of fee-paying NFA and 20 cleaning people on duty per day
 - **THEN** its measure SHALL be 3,000 m² per cleaner and its cleaning level SHALL be Tiêu chuẩn, with no "sát ngưỡng" mark
 
 #### Scenario: Security counted in 24-hour equivalents
 
-- **WHEN** a project has 100,000 m² of fee-paying NFA, 10 security positions of 24 hours and 10 positions of 12 hours
+- **WHEN** a project has 100,000 m² of fee-paying NFA, 10 security people on a `24H` shift and 15 people on 8-hour shifts
 - **THEN** its security posts SHALL be 15 and its measure SHALL be 1.5 per 10,000 m², so its security level SHALL be Tiêu chuẩn with the mark "sát ngưỡng"
 
 #### Scenario: Near a cut-off
@@ -85,7 +85,7 @@ A measure within 10% of either cut-off (cut-off × 0.9 up to but excluding cut-o
 
 ### Requirement: Real projects are held in a separate anonymous service-level table
 
-A build step SHALL read the real-budget scan store and write one data table with one row per project. Each row SHALL hold: an anonymous project id; the budget year; fee-paying NFA; for each of cleaning and security, the headcount measure, its level or "chưa phân loại" with the reason, its source and its "sát ngưỡng" mark; and any flag.
+A build step SHALL read the real-budget scan store, and the headcount file the level-of-service readers produced from the budgets' A2 / A3 forms, and write one data table with one row per project. Each row SHALL hold: an anonymous project id; the budget year; the total fee-paying NFA of every product (the store's `nfa_total`, less the "Management Fee" pseudo-product where the store summed product rows); for each of cleaning and security, the headcount measure, its level or "chưa phân loại" with the reason, its source and its "sát ngưỡng" mark; and any flag.
 
 The source of each measure SHALL be marked "form" when the headcount was read from the project's own staffing form in the budget, and "chi phí" when it was inferred from the service's cost. Both SHALL be kept and marked. The inferred ones SHALL NOT be shown as if they were read.
 
@@ -117,13 +117,13 @@ Data files read: the scan store in `Savills-local` (build step only). Data files
 
 #### Scenario: Regression check against the 2026-10-18 result
 
-- **WHEN** the build runs on the scan store as it stood on 2026-10-07 (48 projects after the identical-NFA rule, 41 with NFA)
-- **THEN** cleaning SHALL give 13 Nâng cao, 18 Tiêu chuẩn and 10 Cơ bản, and security SHALL give 9 Nâng cao, 19 Tiêu chuẩn, 12 Cơ bản and 1 "chưa phân loại: ngoài cận, nghi đọc sai". This is a regression check on the data the thresholds were read from, not a validation of the thresholds.
+- **WHEN** the build runs on the scan store as it stood on 2026-10-07 and the level-of-service readers' file v7 (48 projects after the identical-NFA rule, 45 with a total fee-paying NFA)
+- **THEN** cleaning SHALL give 7 Nâng cao, 24 Tiêu chuẩn, 11 Cơ bản and 6 "chưa phân loại" (3 "thiếu NFA", 3 "ngoài cận, nghi đọc sai"), and security SHALL give 8 Nâng cao, 20 Tiêu chuẩn, 15 Cơ bản and 5 "chưa phân loại" (3 "thiếu NFA", 2 "ngoài cận, nghi đọc sai"). This is a regression check on the data the thresholds were read from, not a validation of the thresholds.
 
 ### Requirement: The internal analysis shows the tool's own service levels
 
 The internal analysis workbook SHALL carry a sheet `Service Levels`. For the project being budgeted it SHALL show, for cleaning and security separately:
-- the headcount the tool has just costed (equal to the roster) and the fee-paying NFA used;
+- the people on duty per day that feed the measure (equal to `Staffing Demand`), the roster headcount beside it (equal to the roster), and the total fee-paying NFA used;
 - the measure, the level or "chưa phân loại" with the reason, the "sát ngưỡng" mark when it applies, and the thresholds applied;
 - where the measure sits among the real projects of the same service: its percentile and the number of projects compared.
 
@@ -150,7 +150,7 @@ Data files read: `Ref_ServiceLevelThresholds.csv`, `Ref_ServiceLevelProjects.csv
 #### Scenario: Headcount ties to the roster
 
 - **WHEN** the sheet is written
-- **THEN** its cleaning and security headcount SHALL equal the number of those positions on the roster
+- **THEN** its roster headcount for cleaning and security SHALL equal the number of those positions on the roster, and its on-duty count SHALL equal the sum of `Staff On Duty / Day` of those rows in `Staffing Demand`
 
 #### Scenario: Figures do not move
 

@@ -22,6 +22,8 @@ listed below; the user approved them standing in for the Head of PM.
     and 2.5 made Nâng cao the largest group).
   - Landscape: no threshold. The store has no green area, so hectares per person cannot be computed. The table
     carries a landscape row marked "not set" so the gap is visible.
+  - The area on both sides is the total fee-paying NFA of every product, and the people counted are those on duty
+    per day as the budgets' own A2 / A3 forms list them (user's choices, 2026-10-18).
 - **A separate service-level table of real projects.** One anonymous row per project: the two measures, the level of
   each service, and whether the headcount was read from the budget form or inferred from its cost. Cleaning and
   security get two separate levels. They are never merged into one label.

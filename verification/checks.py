@@ -75,6 +75,7 @@ EXPECTED_SHEETS = {
         'Year 1 Strategy',
         'Owner Operating Position',
         'Savills Fee Position',
+        'Service Levels',
     ],
     'roster': [
         'Shift Types',
@@ -2379,6 +2380,197 @@ def check_run_log(paths, input_path, required_rows):
     notes.append(f"run log: {sum(1 for _l, s in rows if s == 'ok')} of {len(rows)} assertions passed "
                  f"(synthetic project, temporary folder only).")
     return (len(differences) == 0), rows, differences, notes
+
+
+_SERVICE_LEVEL_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07',
+                                            'final_v2', 'service_levels_names.txt')
+
+
+def check_service_levels(paths, input_path, names_list=None):
+    """The Service Levels sheet and its two data tables (change add-service-level-table, spec
+    budget-workflow-verification). Asserts, on the given run:
+      - the analysis workbook carries the sheet and the client deliverable does not;
+      - the sheet's people on duty, roster headcount and 24-hour posts equal an independent count of the input's
+        Staffing Demand rows (24H = 24 h, other shifts 8 h; roster = ceil x 7/6 for 7-day rows);
+      - its NFA equals the Management Fee sheet's total NFA; its measures, levels and 'sát ngưỡng' marks equal an
+        independent recomputation from Ref_ServiceLevelThresholds.csv (a value on a cut-off in the higher band, a
+        value outside the bounds not classified);
+      - the comparison counts equal the form-read, classified rows of Ref_ServiceLevelProjects.csv with the project
+        itself left out, and the inferred count is shown apart;
+      - no two rows of the real-project table share a fee-paying NFA;
+      - neither data table contains a store project or file name (the names list is the build step's own output,
+        kept outside the repository; absent on this PC -> noted, not failed).
+    Every other sheet and the deliverable are compared with their baselines by the sections before this one.
+    Returns (ok, rows, differences, notes); rows are (label, 'ok' | 'FAIL — ...').
+    """
+    import csv
+    import hashlib
+    import math
+    import sys
+    import unicodedata
+
+    import openpyxl
+
+    _src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
+    import service_levels as sl
+
+    rows, differences, notes = [], [], []
+
+    def check(label, ok, msg=''):
+        rows.append((label, 'ok' if ok else f'FAIL — {msg}'))
+        if not ok:
+            differences.append((label, msg))
+
+    def close(a, b, tol=1e-6):
+        return a is not None and b is not None and abs(float(a) - float(b)) <= tol * max(1.0, abs(float(b)))
+
+    sheet = sl.SHEET_NAME
+    check('client deliverable carries no Service Levels sheet', sheet not in _sheet_names(paths['deliverable']), 'present')
+    if sheet not in _sheet_names(paths['analysis']):
+        check('Service Levels sheet in the analysis workbook', False, 'absent')
+        return False, rows, differences, notes
+
+    # ---- the sheet ----------------------------------------------------------------------------
+    wb = openpyxl.load_workbook(paths['analysis'], read_only=True, data_only=True)
+    try:
+        table = list(wb[sheet].iter_rows(values_only=True))
+        mf = {str(r[0]).strip(): r[1] for r in wb['Management Fee'].iter_rows(max_col=2, values_only=True) if r and r[0]}
+    finally:
+        wb.close()
+    hdr_i = next((i for i, r in enumerate(table) if r and str(r[0] or '').strip() == 'Service'), None)
+    if hdr_i is None:
+        check('Service Levels table header', False, 'no header row')
+        return False, rows, differences, notes
+    cols = {str(v or '').strip(): i for i, v in enumerate(table[hdr_i])}
+    svc = {}
+    for r in table[hdr_i + 1:hdr_i + 4]:
+        if r and r[0] in ('Cleaning', 'Security', 'Landscape'):
+            svc[str(r[0]).lower()] = {k: r[i] for k, i in cols.items()}
+    check('three service rows on the sheet', set(svc) == {'cleaning', 'security', 'landscape'}, f'found {sorted(svc)}')
+    if set(svc) != {'cleaning', 'security', 'landscape'}:
+        return False, rows, differences, notes
+    check('landscape has no level', 'chưa đặt ngưỡng' in str(svc['landscape'].get('Level', '')), str(svc['landscape'].get('Level')))
+
+    # ---- independent count of the roster's Staffing Demand -------------------------------------------
+    # The roster workbook's 'Staffing Demand' is the input's sheet after the tool filled the ratio-driven rows
+    # (blank 'Staff On Duty / Day' in the input form), so it is the roster the sheet must tie to. The input form
+    # gives only the project name, for the leave-one-out key.
+    wi = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
+    try:
+        proj_name = next((r[1] for r in wi['Project Info'].iter_rows(values_only=True)
+                          if r and str(r[0] or '').strip().casefold() == 'project name'), None)
+    finally:
+        wi.close()
+    wr = openpyxl.load_workbook(paths['roster'], read_only=True, data_only=True)
+    try:
+        sd = list(wr['Staffing Demand'].iter_rows(values_only=True))
+    finally:
+        wr.close()
+    h = next(i for i, r in enumerate(sd) if r and str(r[0] or '').strip() == 'Position')
+    hc = {str(v or '').strip(): i for i, v in enumerate(sd[h])}
+    ci = {'pos': hc['Position'], 'shift': hc['Shift Code'], 'spd': hc['Staff On Duty / Day'], 'cov': hc['Coverage Days / Week']}
+    mine = {'cleaning': {'on_duty': 0.0, 'roster': 0, 'hours': 0.0}, 'security': {'on_duty': 0.0, 'roster': 0, 'hours': 0.0}}
+    for r in sd[h + 1:]:
+        if not r or not r[ci['pos']]:
+            continue
+        pos = str(r[ci['pos']]).lower()
+        for s in mine:
+            if s in pos:
+                spd = float(r[ci['spd']] or 0)
+                cov = float(r[ci['cov']] or 0)
+                mine[s]['on_duty'] += spd
+                mine[s]['roster'] += math.ceil(spd * 7 / 6) if cov >= 7 else spd
+                mine[s]['hours'] += spd * (24.0 if str(r[ci['shift']] or '').strip().upper() == '24H' else 8.0)
+    for s in ('cleaning', 'security'):
+        check(f'{s}: people on duty / day equals Staffing Demand', close(svc[s].get('People on duty / day'), mine[s]['on_duty']),
+              f"sheet {svc[s].get('People on duty / day')} vs input {mine[s]['on_duty']}")
+        check(f'{s}: roster headcount equals the roster rule on Staffing Demand', close(svc[s].get('Roster headcount'), mine[s]['roster']),
+              f"sheet {svc[s].get('Roster headcount')} vs input {mine[s]['roster']}")
+    check('security: 24h-equivalent posts equal hours / 24', close(svc['security'].get('24h-equivalent posts'), mine['security']['hours'] / 24),
+          f"sheet {svc['security'].get('24h-equivalent posts')} vs input {mine['security']['hours'] / 24}")
+    nfa_mf = next((v for k, v in mf.items() if k.startswith('Total NFA')), None)
+    nfa_sheet = svc['cleaning'].get('Fee-paying NFA (m²)')
+    check('fee-paying NFA equals the Management Fee sheet total NFA', close(nfa_sheet, nfa_mf) or (not nfa_sheet and not nfa_mf),
+          f'sheet {nfa_sheet} vs Management Fee {nfa_mf}')
+
+    # ---- independent recomputation from the threshold table -----------------------------------------
+    with open(sl.THRESHOLDS_CSV, encoding='utf-8-sig', newline='') as fh:
+        th = {r['service']: r for r in csv.DictReader(fh)}
+
+    def level_of(v, t):
+        if v is None or v <= 0:
+            return None, False
+        if (t['bound_low'] and v < float(t['bound_low'])) or (t['bound_high'] and v > float(t['bound_high'])):
+            return None, False
+        c1, c2 = float(t['cutoff_1']), float(t['cutoff_2'])
+        lvl = t['level_below_cutoff_1'] if v < c1 else t['level_between'] if v < c2 else t['level_from_cutoff_2']
+        return lvl, any(c * 0.9 <= v < c * 1.1 for c in (c1, c2))
+
+    nfa_v = float(nfa_mf or 0)
+    expect = {'cleaning': (nfa_v / mine['cleaning']['on_duty']) if nfa_v > 0 and mine['cleaning']['on_duty'] > 0 else None,
+              'security': ((mine['security']['hours'] / 24) / (nfa_v / 1e4)) if nfa_v > 0 and mine['security']['hours'] > 0 else None}
+    for s in ('cleaning', 'security'):
+        lvl, near = level_of(expect[s], th[s])
+        got_lvl, got_near = str(svc[s].get('Level') or ''), str(svc[s].get('Near cut-off') or '')
+        check(f'{s}: measure recomputed', close(svc[s].get('Measure'), expect[s]) or (svc[s].get('Measure') in (None, '') and expect[s] is None),
+              f"sheet {svc[s].get('Measure')} vs {expect[s]}")
+        check(f'{s}: level recomputed from the threshold table',
+              (got_lvl == lvl) if lvl else got_lvl.startswith('chưa phân loại'), f'sheet {got_lvl!r} vs {lvl!r}')
+        check(f'{s}: sát ngưỡng mark recomputed', (got_near == 'sát ngưỡng') == near, f'sheet {got_near!r} vs {near}')
+    thr = sl.load_thresholds()
+    edges = [('cleaning', 2500, th['cleaning']['level_between']), ('cleaning', 4000, th['cleaning']['level_from_cutoff_2']),
+             ('security', float(th['security']['cutoff_1']), th['security']['level_between']),
+             ('security', float(th['security']['cutoff_2']), th['security']['level_from_cutoff_2'])]
+    for s, v, want in edges:
+        got = sl.classify(s, v, thr).level
+        check(f'{s}: a value exactly on {v:g} falls in the higher band ({want})', got == want, f'got {got!r}')
+    oob = sl.classify('security', 0.08, thr)
+    check('security 0.08 is kept, not classified', oob.level is None and oob.value == 0.08 and oob.reason == sl.REASON_OUT_OF_BOUNDS, oob.label)
+
+    # ---- the comparison set ---------------------------------------------------------------------
+    projects = sl.load_projects()
+    self_key = sl.name_key(proj_name)
+    for s in ('cleaning', 'security'):
+        values, n_inf = sl.comparison_set(s, projects, self_key, nfa_v if nfa_v > 0 else None)
+        check(f'{s}: projects compared = form-read classified rows, project left out',
+              close(svc[s].get('Projects compared (form-read)'), len(values)),
+              f"sheet {svc[s].get('Projects compared (form-read)')} vs table {len(values)}")
+        check(f'{s}: inferred rows shown apart', close(svc[s].get('Inferred rows (reference only, not compared)'), n_inf),
+              f"sheet {svc[s].get('Inferred rows (reference only, not compared)')} vs table {n_inf}")
+        src_col = 'cln_source' if s == 'cleaning' else 'sec_source'
+        lvl_col = 'cln_level' if s == 'cleaning' else 'sec_level'
+        n_form = sum(1 for p in projects if p.get(src_col) == sl.SOURCE_FORM and p.get(lvl_col) != sl.NOT_CLASSIFIED)
+        check(f'{s}: no inferred row inside the comparison set', len(values) <= n_form, f'{len(values)} compared, {n_form} form-read')
+    nfas = [p['nfa_fee_m2'] for p in projects if p.get('nfa_fee_m2')]
+    dup = sorted({v for v in nfas if nfas.count(v) > 1})
+    check('no two real projects share a fee-paying NFA', not dup,
+          'duplicate NFA: ' + ', '.join(p['project_id'] for p in projects if p.get('nfa_fee_m2') in dup))
+    notes.append(f'real-project table: {len(projects)} rows, {len(nfas)} with NFA; '
+                 + '; '.join(f'{s} {len(sl.comparison_set(s, projects)[0])} form-read compared' for s in ('cleaning', 'security')))
+
+    # ---- the name scan --------------------------------------------------------------------------
+    names_path = names_list or os.environ.get('SERVICE_LEVEL_NAMES') or _SERVICE_LEVEL_NAMES_DEFAULT
+    if os.path.exists(names_path):
+        def norm(x):
+            return ''.join(ch for ch in unicodedata.normalize('NFC', str(x or '')).casefold() if ch.isalnum())
+        with open(names_path, encoding='utf-8') as fh:
+            tokens = {norm(line) for line in fh if len(norm(line)) >= 4}
+        leaked = []
+        for path in (sl.THRESHOLDS_CSV, sl.PROJECTS_CSV):
+            with open(path, encoding='utf-8-sig', newline='') as fh:
+                for i, r in enumerate(csv.reader(fh)):
+                    for cell in r:
+                        c = norm(cell)
+                        if c and any(t in c for t in tokens):
+                            leaked.append(f'{os.path.basename(path)} row {i}')
+        check(f'no store project or file name in either data table ({len(tokens)} names scanned)', not leaked, '; '.join(leaked[:5]))
+    else:
+        notes.append('name scan skipped: the names list from the build step is not on this PC '
+                     f'({names_path}); set SERVICE_LEVEL_NAMES to run it')
+    _ = hashlib  # the key function lives in service_levels; kept importable here for a manual check
+    return not differences, rows, differences, notes
 
 
 def _main():

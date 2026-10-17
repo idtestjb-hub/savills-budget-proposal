@@ -211,7 +211,7 @@ why `run.py` exists.
 | Command | Produces |
 |---|---|
 | `generate_project_budget.py` | `sample_output/{Project} - Sample Consulting Budget.xlsx` — the 25-sheet client deliverable (the form's 24 sheets plus `Comparison`), in Savills' own template<br>`reports/Roster_Demand_Model.xlsx` — the 5-sheet shift roster |
-| `generate_project_output.py` | `reports/Project_Budget_Output.xlsx` — the 14-sheet internal analysis showing the reasoning behind every figure |
+| `generate_project_output.py` | `reports/Project_Budget_Output.xlsx` — the 15-sheet internal analysis showing the reasoning behind every figure (the last sheet, `Service Levels`, is display only) |
 
 ### The run log (change `add-budget-run-log`)
 
@@ -233,6 +233,38 @@ What a record holds (fields in `run_log.py`, rules in spec `budget-run-log`):
 A blank (`null`) figure means "could not be read", never zero; `status` says why (`excel_unavailable`,
 `missing_label:...`, `missing_row:...`). A problem with the log prints one `Run log:` line and never changes the run.
 `verify.py` checks the log on the synthetic project in a temporary folder.
+
+### The Service Levels sheet (change `add-service-level-table`)
+
+The internal analysis ends with a sheet **`Service Levels`**: are the cleaning and security crews the tool has just
+costed lean, standard or generous next to real Savills projects? Display only: it changes no figure, and nothing
+else reads it.
+
+- **Two measures.** Cleaning: m² of total fee-paying NFA per cleaning person on duty per day (supervisors included).
+  Security: 24-hour-equivalent posts per 10,000 m² of fee-paying NFA, where a `24H` shift row counts 24 hours and
+  any other shift row 8 hours (the three rows of a gate make one post). The people are Staffing Demand's
+  `Staff On Duty / Day`; the roster's Staff Count (rest-day cover added) is shown beside it for the tie.
+- **Fixed thresholds** in `data/service_levels/Ref_ServiceLevelThresholds.csv`: cleaning below 2,500 = Nâng cao,
+  2,500 to below 4,000 = Tiêu chuẩn, 4,000 or more = Cơ bản (bounds 1,000–8,000); security below 1.5 = Cơ bản, 1.5 to
+  below 3.0 = Tiêu chuẩn, 3.0 or more = Nâng cao (bounds 0.5–8). A value on a cut-off takes the higher-numbered band;
+  a value outside the bounds, a missing NFA or a zero headcount gives `chưa phân loại` with the reason; a value within
+  10% of a cut-off carries `sát ngưỡng`. Edit the CSV to change a threshold, and record the new approval date in it;
+  no code changes. Landscape has no threshold (the store has no green area).
+- **Real projects** in `data/service_levels/Ref_ServiceLevelProjects.csv`: one anonymous row per project (48 on
+  2026-10-18, 45 with NFA) with both measures, their level, and whether the headcount was read from the budget's own
+  A2/A3 form (`form`) or inferred from its cost (`chi phí`). The sheet's percentile counts only form-read, classified
+  projects, with the project itself left out (by name key or an NFA within 0.5%); the inferred count is shown apart.
+- **Rebuilding the table** (only after a new scan of `input/budget_planning/` and a re-run of the level-of-service
+  readers in `Savills-local\budget-test\level-of-service\`):
+
+  ```bash
+  python build_service_levels.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v2\budget_scan_v2.sqlite" --levels "C:\Users\CDangQuang\Savills-local\budget-test\level-of-service\level_assignment_v7.csv"
+  ```
+
+  It writes the table beside the thresholds, prints the counts per level, and writes the name-to-id map and the
+  names list next to the store (never into the repository). It refuses to write if a project or file name would
+  land in the table. `verify.py` section 5h checks the sheet against the roster and both tables; the name scan
+  needs the names list from the store folder and is noted as skipped on a PC without it.
 
 ## If you run only one generator
 
@@ -279,6 +311,10 @@ Six reference files, plus the template and your input. This list comes from trac
 
 `data/generation_B_verified/Ref_LaborLawParams.csv` (the labour-law table) is read on every run for the
 analysis workbook's payroll caps and rates, and drives the staff lines in Existing-project mode.
+
+`data/service_levels/Ref_ServiceLevelThresholds.csv` and `Ref_ServiceLevelProjects.csv` are read on every run for
+the analysis workbook's `Service Levels` sheet only (display; no figure depends on them). A missing file gives a
+note on that sheet and the run still completes.
 
 One more file is read only on a fallback path: `data/generation_B_verified/Fact_MasterRateCard.csv`
 supplies a flat Capex price list when no nearest-project item list can be built
