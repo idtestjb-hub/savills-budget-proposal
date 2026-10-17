@@ -117,8 +117,8 @@ Data files read: the scan store in `Savills-local` (build step only). Data files
 
 #### Scenario: Regression check against the 2026-10-18 result
 
-- **WHEN** the build runs on the scan store as it stood on 2026-10-07 and the level-of-service readers' file v7 (48 projects after the identical-NFA rule, 45 with a total fee-paying NFA)
-- **THEN** cleaning SHALL give 7 Nâng cao, 24 Tiêu chuẩn, 11 Cơ bản and 6 "chưa phân loại" (3 "thiếu NFA", 3 "ngoài cận, nghi đọc sai"), and security SHALL give 8 Nâng cao, 20 Tiêu chuẩn, 15 Cơ bản and 5 "chưa phân loại" (3 "thiếu NFA", 2 "ngoài cận, nghi đọc sai"). This is a regression check on the data the thresholds were read from, not a validation of the thresholds.
+- **WHEN** the build runs on the scan store as it stood on 2026-10-07 and the level-of-service readers' file v8 of 2026-10-18 (48 projects after the identical-NFA rule, 45 with a total fee-paying NFA)
+- **THEN** cleaning SHALL give 8 Nâng cao, 23 Tiêu chuẩn, 11 Cơ bản and 6 "chưa phân loại" (3 "thiếu NFA", 3 "ngoài cận, nghi đọc sai"), and security SHALL give 8 Nâng cao, 21 Tiêu chuẩn, 15 Cơ bản and 4 "chưa phân loại" (3 "thiếu NFA", 1 "ngoài cận, nghi đọc sai"), with 28 and 31 form-read classified projects. (The readers' file v7 of the same morning gave 7 / 24 / 11 / 6 and 8 / 20 / 15 / 5; the v8 readers read five more forms.) This is a regression check on the data the thresholds were read from, not a validation of the thresholds.
 
 ### Requirement: The internal analysis shows the tool's own service levels
 

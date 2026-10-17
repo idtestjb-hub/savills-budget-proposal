@@ -253,14 +253,16 @@ else reads it.
   10% of a cut-off carries `sát ngưỡng`. Edit the CSV to change a threshold, and record the new approval date in it;
   no code changes. Landscape has no threshold (the store has no green area).
 - **Real projects** in `data/service_levels/Ref_ServiceLevelProjects.csv`: one anonymous row per project (48 on
-  2026-10-18, 45 with NFA) with both measures, their level, and whether the headcount was read from the budget's own
+  2026-10-18, 45 with NFA; readers v8) with both measures, their level, and whether the headcount was read from the budget's own
   A2/A3 form (`form`) or inferred from its cost (`chi phí`). The sheet's percentile counts only form-read, classified
   projects, with the project itself left out (by name key or an NFA within 0.5%); the inferred count is shown apart.
 - **Rebuilding the table** (only after a new scan of `input/budget_planning/` and a re-run of the level-of-service
-  readers in `Savills-local\budget-test\level-of-service\`):
+  readers in `Savills-local\budget-test\level-of-service\`: `extract_fix_v8.py` → `levels4_v8.py` → `levels5_v8.py`,
+  see that folder's README; v8 of 2026-10-18 reads security forms whose shift column is text and cleaning forms
+  without an hours column):
 
   ```bash
-  python build_service_levels.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v2\budget_scan_v2.sqlite" --levels "C:\Users\CDangQuang\Savills-local\budget-test\level-of-service\level_assignment_v7.csv"
+  python build_service_levels.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v2\budget_scan_v2.sqlite" --levels "C:\Users\CDangQuang\Savills-local\budget-test\level-of-service\level_assignment_v8.csv"
   ```
 
   It writes the table beside the thresholds, prints the counts per level, and writes the name-to-id map and the

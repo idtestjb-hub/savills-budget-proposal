@@ -30,7 +30,8 @@ Values revised on 2026-10-18 (security upper cut-off 3.0, sanity bounds, form-on
   reading is a scan fix, not a threshold change.
   Done 2026-10-18 (`task_log.md` §1.1 in the session folder): the readers count people on duty per form row
   (security × hours / 24); the user chose the matching tool rule (Staff On Duty / Day; 24H = 24 h, other shifts 8 h)
-  and the total fee-paying NFA. D17: 14 posts on the form, one row read (text shift column) → a reader fix, pending;
+  and the total fee-paying NFA. D17: 14 posts on the form, one row read (text shift column) → fixed later on 2026-10-18 (session P2,
+  readers v8: 11.33 posts and 16 cleaners read from the form, `2026-10-18-p2-reader-fix\task_log.md`);
   D16: forms not recognised, inferred from cost, same level; D32: read right, the extreme came from the apartment NFA.
 - [x] 1.2 Write `Ref_ServiceLevelThresholds.csv` (design D1) with the approved cut-offs, the sanity bounds, the
   approval dates (2026-10-16 for the cut-offs; 2026-10-18 for the security upper cut-off 3.0 and the bounds) and the
@@ -55,6 +56,14 @@ Values revised on 2026-10-18 (security upper cut-off 3.0, sanity bounds, form-on
     `.gitignore` rule hides `data/`).
   Done 2026-10-18: `build.log` in the session folder; map and names list in `scan-2026-10-07\final_v2\`;
   `Ref_ServiceLevelProjects.build.txt` beside the table lists the 4 merged files by store id. Tracking: at commit.
+  Rebuilt 2026-10-18 (session P2) from `level_assignment_v8.csv` after the reader fix: cleaning 8 / 23 / 11 / 6,
+  security 8 / 21 / 15 / 4 (3 thiếu NFA, 1 ngoài cận), form-read classified 28 and 31, map and names list unchanged;
+  row diff in `Savills-local\budget-test\2026-10-18-p2-reader-fix\task_log.md`; the quick check on the clean copy
+  passes 28 checks with the five deliberate breaks each caught (`gen_check_v8.log`).
+  Rebuilt 2026-10-18 (session P2) from `level_assignment_v8.csv` after the reader fix: cleaning 8 / 23 / 11 / 6,
+  security 8 / 21 / 15 / 4 (3 thiếu NFA, 1 ngoài cận), form-read classified 28 and 31, map and names list unchanged;
+  row diff in `Savills-local\budget-test\2026-10-18-p2-reader-fix\task_log.md`; the quick check on the clean copy
+  passes 28 checks with the five deliberate breaks each caught (`gen_check_v8.log`).
 
 ## 2. Service levels in the tool
 

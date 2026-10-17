@@ -10,9 +10,12 @@ See proposal.md for why. What shapes the approach:
   column was blank for them). The measures form one continuous spread with no natural break, so the cut-offs are
   round numbers read off that spread, not a statistical finding. Three of the four sit where a three-equal-groups
   split would also cut; their only advantage over that split is that they are frozen. On the total fee-paying NFA
-  (D6) the build of 2026-10-18 gives, for cleaning, 7 Nâng cao / 24 Tiêu chuẩn / 11 Cơ bản / 6 not classified (3 no
-  NFA, 3 outside the bounds) and, for security, 8 Nâng cao / 20 Tiêu chuẩn / 15 Cơ bản / 5 not classified (3 no NFA,
-  2 outside the bounds). The P21 analysis had used the apartment NFA where the budget gave one (29 of 42 files),
+  (D6) the first build of 2026-10-18 (readers v7) gave, for cleaning, 7 Nâng cao / 24 Tiêu chuẩn / 11 Cơ bản / 6 not
+  classified (3 no NFA, 3 outside the bounds) and, for security, 8 Nâng cao / 20 Tiêu chuẩn / 15 Cơ bản / 5 not
+  classified (3 no NFA, 2 outside the bounds). The reader fix of the same day (v8: security forms whose shift column
+  is text, cleaning forms without an hours column; five projects now read from their forms instead of inferred from
+  cost) gives 8 / 23 / 11 / 6 for cleaning and 8 / 21 / 15 / 4 for security, with 28 and 31 form-read classified
+  projects; the table in `data/service_levels/` carries v8. The P21 analysis had used the apartment NFA where the budget gave one (29 of 42 files),
   which is why its counts (13 / 18 / 11 and 16 / 12 / 14 on 2.5) differ; the user chose the total basis on
   2026-10-18 so that the real projects and the tool measure the same area. The three cleaning values outside the
   bounds (9,500 to 23,400 m² per person, form-read) are budgets whose cleaning form covers only part of the crew;
@@ -109,6 +112,10 @@ which keeps every recorded baseline unmoved.
 cleaner, is marked "chưa phân loại: ngoài cận, nghi đọc sai" with the value kept in the table, and is excluded from
 the comparison set. On 2026-10-16 the one such project (0.08 posts; its security form has no hours column and only one
 row was read) was flagged but still given the level Cơ bản, which would have shown a PM a wrong level with a note.
+That form was read correctly by the v8 readers later on 2026-10-18 (11.3 posts, 1.34 per 10,000 m², Cơ bản); one
+security value outside the bounds remains in the table.
+That form was read correctly by the v8 readers later on 2026-10-18 (11.3 posts, 1.34 per 10,000 m², Cơ bản); one
+security value outside the bounds remains in the table.
 The next-lowest security value is 0.99, so 0.5 cuts in a real gap. The cleaning bounds enclose every value seen so far
 (1,062 to 7,819); the two extremes are checked by hand in task 1.1.
 
@@ -133,10 +140,13 @@ levels in the tool, and they disagree for about a third of the projects whicheve
 - **NFA is not the cleanable area.** → Stated on the sheet (D6).
 - **A new project's roster is partly the tool's own estimate**, so its level partly reflects the benchmark used to
   estimate it. → The sheet says whether the headcount came from the input or from the benchmark.
-- **Small comparison set** (45 projects with NFA; 24 and 28 form-read and classified). → The count is always shown;
+- **Small comparison set** (45 projects with NFA; 28 and 31 form-read and classified with the v8 readers, 24 and 28
+  before). → The count is always shown;
   the percentile is given without a verdict word.
 - **The headcount the store read is not in the SQLite store.** It sits in the level-of-service readers' output
-  (`level_assignment_v7.csv`, built from the budgets' A2 / A3 forms by `extract_*` and `levels4_v7.py`). → The build
+  (`level_assignment_v8.csv` since 2026-10-18, built from the budgets' A2 / A3 forms by `extract_*` — `extract_fix_v8.py`
+  reads security forms whose shift column is text and cleaning forms without an hours column — and `levels4_v8.py`,
+  `levels5_v8.py`). → The build
   reads that file next to the store and records both paths; a rescan of the forms means re-running those readers
   first.
 - **Store drift:** a rescan changes the real-project table but not the thresholds. → Rebuilding the table records the
