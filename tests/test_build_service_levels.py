@@ -2,7 +2,7 @@
 
 Covered: latest year per project, an unnamed file as its own project, two names with one identical NFA merged into
 one row, form-read and inferred headcount, missing NFA, zero or blank measure, a value outside the bounds kept but not
-classified, the near mark, the Management Fee double-count fix, and the refusal to write when a name would be written.
+classified, the near mark, the Management Fee and group-row double-count fixes, and the refusal to write when a name would be written.
 """
 import csv
 import os
@@ -25,6 +25,9 @@ FILES = [
     ('f7', 'Doubled', 'doubled.xlsx', 2026, '2026-06-01 10:00', 80000, 'sum_of_types', 'Management Fee=40000.0; Apartment=40000.0', '', 'excel'),
     ('f8', 'Scanned', 'scan.pdf', 2026, '2026-06-01 10:00', 50000, 'total_row', '', '', 'pdf_ocr'),
     ('f9', 'Copy', 'copy.xlsx', 2026, '2026-06-01 10:00', 50000, 'total_row', '', 'f2', 'excel'),
+    # the store summed group rows (I., II., B) and their children: total 72,000 = twice I. + II.
+    ('f10', 'Grouped', 'grouped.xlsx', 2026, '2026-07-01 10:00', 72000, 'sum_of_types',
+     'I.=30000.0; Căn hộ=25000.0; Shophouse=5000.0; II.=6000.0; A=2000.0; B=4000.0; B1=3000.0; B2=1000.0', '', 'excel'),
 ]
 LEVELS = [
     # file_id, sec_equiv_posts, sec_src, cln_equiv_posts, cln_src
@@ -37,6 +40,7 @@ LEVELS = [
     ('f7', 8, 'cost', 20, 'cost'),       # fee NFA 40000 -> 2000 Nâng cao; 2.0 Tiêu chuẩn
     ('f8', 5, 'form', 5, 'form'),
     ('f9', 5, 'form', 5, 'form'),
+    ('f10', 6, 'form', 10, 'form'),      # fee NFA 30000 (group I) -> 3000 Tiêu chuẩn; 2.0 Tiêu chuẩn
 ]
 
 
@@ -78,7 +82,7 @@ def test_rules_and_classification(mini_store, tmp_path):
     rows, mapping, out, mp = _run(mini_store, tmp_path)
     by_file = {mapping[r['project_id']]['file_id']: r for r in rows}
     # latest year wins; pdf and content duplicate left out; two names with one NFA -> one row (later file date)
-    assert set(by_file) == {'f2', 'f3', 'f5', 'f6', 'f7'}
+    assert set(by_file) == {'f2', 'f3', 'f5', 'f6', 'f7', 'f10'}
     # f2: inferred cleaning 2500 exactly -> Tiêu chuẩn (edge) with near mark; security 1.5 -> Tiêu chuẩn near
     assert by_file['f2']['cln_level'] == 'Tiêu chuẩn' and by_file['f2']['cln_near'] is True
     assert by_file['f2']['cln_source'] == sl.SOURCE_COST and by_file['f2']['sec_source'] == sl.SOURCE_FORM
@@ -93,8 +97,13 @@ def test_rules_and_classification(mini_store, tmp_path):
     assert by_file['f6']['cln_m2_per_person'] is None
     # f7: Management Fee pseudo-product removed -> fee NFA 40,000
     assert by_file['f7']['nfa_fee_m2'] == 40000 and by_file['f7']['cln_level'] == 'Nâng cao'
+    # f10: group and child rows both summed -> fee NFA is the group I row (group II is parking)
+    assert by_file['f10']['nfa_fee_m2'] == 30000 and by_file['f10']['nfa_m2'] == 30000
+    assert by_file['f10']['cln_m2_per_person'] == 3000 and by_file['f10']['cln_level'] == 'Tiêu chuẩn'
+    assert by_file['f10']['sec_per_10k'] == 2.0 and by_file['f10']['sec_level'] == 'Tiêu chuẩn'
+    assert 'f10: fee NFA from the group I row' in (out / b.BUILD_INFO).read_text(encoding='utf-8')
     # ids are sequential and anonymous; the map holds the names, outside the table
-    assert [r['project_id'] for r in rows] == ['S001', 'S002', 'S003', 'S004', 'S005']
+    assert [r['project_id'] for r in rows] == ['S001', 'S002', 'S003', 'S004', 'S005', 'S006']
     assert all(mapping[r['project_id']]['project_name'] == next(p for p in FILES if p[0] == mapping[r['project_id']]['file_id'])[1]
                for r in rows)
     assert (mp / b.NAMES_FILE).exists() and (out / b.BUILD_INFO).exists()
@@ -103,7 +112,7 @@ def test_rules_and_classification(mini_store, tmp_path):
 def test_table_is_anonymous(mini_store, tmp_path):
     rows, mapping, out, mp = _run(mini_store, tmp_path)
     text = open(out / 'Ref_ServiceLevelProjects.csv', encoding='utf-8-sig').read().casefold()
-    for name in ('invented tower', 'phase one', 'phase two', 'doubled', 'tower 2026', 'noname'):
+    for name in ('invented tower', 'phase one', 'phase two', 'doubled', 'tower 2026', 'noname', 'grouped'):
         assert name not in text
 
 
@@ -118,3 +127,16 @@ def test_fee_nfa_fix():
     assert b.fee_nfa(80000, 'sum_of_types', 'Management Fee=40000.0; Apartment=40000.0') == 40000
     assert b.fee_nfa(80000, 'total_row', 'Management Fee=40000.0') == 80000
     assert b.fee_nfa(None, 'total_row', '') is None
+
+
+def test_fee_nfa_group_i_row():
+    groups = 'I.=16000.0; Căn hộ=13000.0; Shop=1500.0; II.=1500.0'
+    assert b.fee_nfa(32000, 'sum_of_types', groups) == 16000
+    # group I need not come first in the list
+    assert b.fee_nfa(32000, 'sum_of_types', 'II.=1500.0; I.=16000.0; Căn hộ=16000.0') == 16000
+    # a zero group I row falls back to the Management Fee rule, then to the total
+    assert b.fee_nfa(80000, 'sum_of_types', 'I.=0; Management Fee=40000.0; Apartment=40000.0') == 40000
+    assert b.fee_nfa(30000, 'sum_of_types', 'I.=0; Apartment=30000.0') == 30000
+    # a product whose label merely starts with I is not the group row; total_row files keep their total
+    assert b.fee_nfa(30000, 'sum_of_types', 'Industrial=10000.0; Apartment=20000.0') == 30000
+    assert b.fee_nfa(30000, 'total_row', 'I.=15000.0') == 30000

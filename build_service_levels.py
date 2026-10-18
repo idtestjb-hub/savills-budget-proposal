@@ -18,7 +18,8 @@ Writes:
 Store rules (approved 2026-10-12 and 2026-10-18): Excel sources only (no scanned PDF, no converted xlsb), no content
 duplicate; one file per project, the latest budget year (tie: later file date); a file with no project name is its
 own project; two files with the same fee-paying NFA to the square metre are one project. The total fee-paying NFA
-is file_profile.nfa_total less the "Management Fee" pseudo-product when the store summed product rows.
+is file_profile.nfa_total; when the store summed product rows it is the group I row ("I. Các loại hình sản phẩm")
+if there is one (approved 2026-10-18), else the sum less the "Management Fee" pseudo-product.
 
 The script refuses to write when any output cell would contain a store project or file name.
 """
@@ -47,12 +48,28 @@ def _norm(s):
     return ''.join(ch for ch in unicodedata.normalize('NFC', str(s or '')).casefold() if ch.isalnum())
 
 
+GROUP_I_RE = re.compile(r'(?:^|;)\s*I\.\s*=\s*([0-9.]+)')
+
+
+def group_i_nfa(nfa_how, nfa_types):
+    """The 'I. Các loại hình sản phẩm' row when the store summed product rows, else None."""
+    if (nfa_how or '') != 'sum_of_types' or not nfa_types:
+        return None
+    m = GROUP_I_RE.search(nfa_types)
+    return float(m.group(1)) if m and float(m.group(1)) > 0 else None
+
+
 def fee_nfa(nfa_total, nfa_how, nfa_types):
-    """Total fee-paying NFA. When the store summed product rows and one of them is the 'Management Fee' total
-    itself, take it out (design D6)."""
+    """Total fee-paying NFA. When the store summed product rows it may have added group rows and their children
+    both: the group I row (product types; group II is parking) is then the fee-paying NFA (approved 2026-10-18,
+    as in build_real_budget_ranges.fee_nfa). Otherwise take out the 'Management Fee' pseudo-product if it is one
+    of the summed rows (design D6)."""
     if nfa_total in (None, ''):
         return None
     total = float(nfa_total)
+    group_i = group_i_nfa(nfa_how, nfa_types)
+    if group_i is not None:
+        return group_i
     if (nfa_how or '') == 'sum_of_types' and nfa_types:
         m = re.search(r'Management Fee=([0-9.]+)', nfa_types)
         if m:
@@ -104,7 +121,9 @@ def select_projects(level_rows, profile, files, names, log):
             log.append(f'{fid}: content duplicate of {p["content_dup_of"]}, left out')
             continue
         nfa = fee_nfa(p.get('nfa_total'), p.get('nfa_how'), p.get('nfa_types'))
-        name = names.get(fid, '') or r.get('project', '') or ''
+        if group_i_nfa(p.get('nfa_how'), p.get('nfa_types')) is not None:
+            log.append(f'{fid}: fee NFA from the group I row ({nfa:.0f} m², store total {float(p["nfa_total"]):.0f})')
+        name =names.get(fid, '') or r.get('project', '') or ''
         cands.append({
             'file_id': fid, 'project_name': name, 'file_name': files.get(fid, {}).get('file_name') or p.get('file_name') or '',
             'modified': files.get(fid, {}).get('modified') or '', 'budget_year': _f(p.get('budget_year_v2')),
