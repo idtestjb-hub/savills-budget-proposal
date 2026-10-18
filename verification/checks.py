@@ -655,6 +655,8 @@ def check_summary_reconciles(paths):
             top_up = float(const_m.group(1))
         elif re.search(r"=\s*'A1[^!]*'!AC96/12\s*$", emh2_formula.strip()):
             top_up = 0.0
+        elif allowance_out and re.search(r"AC95\)/12\s*$", emh2_formula.strip()):
+            top_up = 0.0          # =(AC96-AC90*AC95)/12: no unplaced rows (group 5, D5)
         # EMH2's own derivation (a1_total + top_up) is only PART of the EMH section once any other
         # EMH-family code carries a real figure of its own (EMH4 — PCCC allowance — since change
         # fill-guideline-required-line-items, 2026-09-14). Add every other EMH leaf's own G from
@@ -2130,7 +2132,8 @@ def existing_detail_ties(cell, fund_rows):
     EMH2/EMH3/EMH4 to their row on the fund sheet. Each line's VND/year is recomputed from its detail
     sheet without reading the line's own formula:
       EMH2 = A1!AC96 - AC90*AC95 + 12 * every AC value from row 98 down (overflow, carried, adjustment);
-      EMH3 = 12 * A1.1!S13 + every typed S below row 13 (carried, adjustment; VND/year);
+      EMH3 = 12 * A1.1!S13 + every S below row 13 (VND/year: Existing's typed carried / adjustment rows, and a new
+             prospect's formula rows for a qualifying code with no template row; the template has no S there);
       EMH4 = A5!H8 + every typed H below row 8.
     The line must be a formula naming its detail sheet. A line left at zero with a "Để ở mức 0" remark
     (EMH3 with no duty data and no approved amount) is not priced and passes."""
@@ -2144,7 +2147,7 @@ def existing_detail_ties(cell, fund_rows):
     expected = {
         'EMH2': (num(a1, 96, 29) - num(a1, 90, 29) * num(a1, 95, 29)
                  + 12 * sum(num(a1, r, 29) for r in range(98, 141))),
-        'EMH3': 12 * num(a11, 13, 19) + sum(num(a11, r, 19) for r in range(14, 41) if cell(a11, r, 19)[1] is None),
+        'EMH3': 12 * num(a11, 13, 19) + sum(num(a11, r, 19) for r in range(14, 41)),
         'EMH4': num(a5, 8, 8) + sum(num(a5, r, 8) for r in range(9, 41) if cell(a5, r, 8)[1] is None),
     }
     for code in ('EMH2', 'EMH3', 'EMH4'):

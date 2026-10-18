@@ -98,7 +98,9 @@ block. Zero-pay rows are listed in the run output.
 - The per-person extras come from `existing_staffing.a1_row_cost`'s constants.
 - Night and holiday allowance are priced per shift, as on `A1.1`, and the ×1.3 night factor on loaded cost is
   removed.
-- `STAFF_MARKET_KEYWORDS` gains the four missing categories.
+- `STAFF_MARKET_KEYWORDS` gains the four missing categories (built as `NEW_PROSPECT_STAFF_MARKET_KEYWORDS`, new
+  prospects only, with the assistant and supervisor positions split out; see "Measured", task 5.6).
+- The employer caps apply per person (added 2026-10-18 at the user's choice).
 - The stale "under 1%" note and the dead `full_payroll_annual_cost` are removed.
 
 **D9. Contingency is a live formula per month.**
@@ -344,3 +346,161 @@ Runs under `Savills-local\budget-test\2026-10-18-p21-g4\` (`r1` = standard sampl
 - **Checks:** 727 unit tests pass (1 xfail as before). `verify.py` with the two baseline gates opened: every other check
   passes on all sections, including the new 5i (139 remark assertions, 506 summary reconciliations, 118 Required lines).
 - **Sign-off (group 4):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18.
+
+### Group 5: new-prospect staff cost (2026-10-18, session P22; measured cluster by cluster, signed off once)
+
+Runs under `Savills-local\budget-test\2026-10-18-p22-g5\` (`a` = tasks 5.1-5.2 on the standard sample and the City
+Garden clone, against group 4's `2026-10-18-p21-g4\r1`; `ab\` = the Existing and operating fixtures on `tree_before`
+(commit `0acd603`) and `tree_after`). Default period (01/2027). Figures are Excel-recalculated.
+
+**D4, working days (tasks 5.1-5.2).**
+- **Count:** Mondays to Saturdays minus the paid holidays of the period, under the law in force on its first day:
+  302 for 2027 (by month 25, 20, 27, 24, 25, 26, 27, 26, 24, 26, 25, 27), 302 for 09/2026-08/2027, 303 for 2026 (11
+  holidays: 24/11 was not yet in force on 01/01/2026; the user's choice, 2026-10-18). A 7-day position counts 6 days per
+  person; 5 days counts Mondays to Fridays (252 in 2027); fewer days count Monday to the N-th weekday (the user's
+  choice). One function (`vn_holidays.working_days`, through `generate_project_budget.period_workdays`) for A1, the
+  unplaced rows, A1.1 and the analysis.
+- **Standard sample:** every A1 gross moves by exactly 302/300 (25 → 25.17 days a month; e.g. Technician 8,125,000 →
+  8,179,167). `EMH` staff year 1 4,940,513,881 → 4,971,816,901 (+31,303,020, +0.63%: the per-person extras do not
+  scale). Year-1 surplus 5,476,845,924 → 5,445,705,478 (−31,140,446). Analysis: every `Staff (Roster)` row moves by
+  exactly 302/317 (−4.7%); staff cost 3,923,305,125 → 3,812,563,147 (−110,741,978); total profit value 4,717.0M →
+  4,827.7M; margin 37.67% → 38.55%; markup 60.43% → 62.74%.
+- **City Garden clone:** `EMH` staff +60,835,332 (+0.63%); year-1 surplus 6,373,246,455 → 6,312,806,036 (−60,440,419);
+  analysis staff cost −243,549,075; total profit value 6,635.7M → 6,879.3M. No other line moves.
+- **Existing samples (`Sample_Existing_Input`, `Sample_Existing_Lump_Input`):** 0 figures move and no A1 gross cell
+  changes (Existing keeps 25 days a month and the analysis's coverage estimate). The operating sample is a new
+  prospect: it moves exactly as the standard sample (`EMH` +31.3M, surplus −31.1M).
+- **`A1.1!E7:E11`** now read `=302/12` on a new prospect; no figure moves until `A1.1` is filled (task 5.3).
+- **Input form defaults:** every default daily rate with a stated monthly source is now monthly ÷ (302/12) for the default
+  period, Security included (the user's choice), e.g. Technician 325,000 → 336,000, Accountant 522,000 → 539,000. The
+  sample fixtures were not rebuilt, so the A/B above is the count alone. Not changed: Reception and Cleaning
+  (340,000 / 480,000, no monthly source stated) and the older roster-only form `build_roster_input_form.py` (still ÷ 26).
+- **Not yet in these figures:** the night ×1.3 loading and the missing A1 extras still separate the two workbooks
+  (tasks 5.4 and 5.6), so the 318M gap docs/30 quotes for Diamond Skyline is not re-measured here.
+- **Checks (5.1-5.2):** 749 unit tests pass (1 xfail as before). `verify.py` with the two baseline gates opened passes
+  every other check on all sections (`verify_a_open.log`).
+
+**B2 + D5, `A1.1` for a new prospect (task 5.3; run `b` against `a`).**
+- **Rules built (docs/30 B2 + D5 and the user's choices of 2026-10-18):** night work (30% on the period's non-holiday
+  nights, 390% on its holiday nights) = staff per day on D and 24H shifts, for any in-house position with a night shift;
+  holiday day work (300%) only for a position on 7-day coverage that has a night shift, with the staff per day of every
+  shift that is not a night shift (morning + afternoon; 24H staff count for both day and night). Outsourced Security /
+  Cleaning / Landscape are not on A1.1. `H6/L6/P6` come from the period (353 / 12 / 12 for 2027), `D7` (CS) takes the
+  same A1 lookup as `D8:D11`, `E7:E11` = 302/12.
+- **Built differently from D5's wording:** a qualifying code with no template row (CS, BE, TDS, TN, AA only) gets its own
+  row below the table from row 15, with A1.1's own formula chain and a total row (`T` = `S13` + the rows), the same
+  place Existing mode's extra rows use, instead of a row inserted inside the `S12` total; inserting rows would shift the
+  cells `A1!AC90` and other formulas point at. `EMH3` then points at that total row. Neither sample has such a code; the
+  path is covered by unit tests and the widened detail-sheet tie.
+- **`EMH2`** takes Existing mode's form, `(AC96 − AC90 × AC95 + unplaced rows × 12) / 12`, so the allowance A1 already
+  holds at `AC90` is counted once, in `EMH3`. `check_existing_detail_ties` now also runs on the standard sample (it
+  fails on a forced double count, unit test), and counts formula rows below `A1.1`'s table too.
+- **Standard sample:** `EMH3` 0 → 172,794,300 a year (Technician 73,027,503, Shift Leader 99,766,800; read back from
+  the recalculated `A1.1` and worked by hand). By decision: **D5** night work 117,426,302 (30%: 81,437,101; 390%:
+  35,989,201); **B2** holiday day work 55,368,001. `EMH2` unchanged (4,961,249,184), so `EMH` staff year 1
+  4,971,816,901 → 5,144,611,201 and the year-1 surplus 5,445,705,478 → 5,273,808,594 (−171,896,884).
+- **City Garden clone:** `EMH3` 0 → 423,844,812 (Technician 4 night / 8 holiday-day staff 292,110,012; Shift Leader
+  131,734,800). D5 266,308,808 (30%: 184,689,606; 390%: 81,619,202); B2 157,536,004. Year-1 surplus 6,312,806,036 →
+  5,891,712,619 (−421,093,417).
+
+**M4-a, the analysis on A1.1's method (task 5.4; run `c` against `b`).**
+- The analysis no longer loads night rows by ×1.3 (new prospects; Existing keeps it). A "Night and holiday allowance"
+  block on `Staff (Roster)` prices each A1.1 code per shift on the same counts and daily wage, and its rows join the
+  category of their positions (Technician, Shift Leader), plain (no insurance or markup, as `A1!AC90`).
+- **Tie:** analysis annual allowance 172,794,303 against 12 × `EMH3` 172,794,300 (3 VND: `S13` is rounded to the
+  month); City Garden 423,844,812 against 423,844,812 (`allowance_tie.py`).
+- **Standard sample:** staff cost 3,812,563,147 → 3,800,190,335 (−12,372,812 = +172,794,303 allowance − 185,167,115
+  night loading removed); total profit value 4,827.7M → 4,840.1M; margin 38.55% → 38.65%.
+- **City Garden clone:** staff cost +86,226,037 (+423,844,812 − 337,618,775); total profit value 6,879.3M → 6,793.1M.
+- **Existing samples:** still 0 figures moved across group 5 so far (`ab\`, tree after 5.4). Operating sample (a new
+  prospect): `EMH` staff +204.1M, analysis staff −123.1M, as the standard sample.
+- **Checks (5.3-5.4):** 760 unit tests pass (1 xfail). `verify.py` with the baseline gates opened passes every other
+  check, including the new detail-sheet tie on the standard sample (`verify_c_open.log`).
+- **M4 (for 5.8):** the PM saw +214.4M for D5 on Diamond Skyline on the analysis's loaded basis; on A1.1's method the
+  standard sample's D5 is 117.4M. Diamond Skyline itself is not re-run here.
+
+**D6, every head reaches A1 (task 5.5; run `d` against `c`).**
+- Each A1 row-group (the Property Manager included) fills its own template rows; the heads beyond them go into the one
+  block below the table from row 98, after the unplaced positions (Reception), each with A1's own row formulas and a
+  label "<group label> (thêm n)". `EMH2`'s SUM range spans the whole block. A staffed in-house position whose gross is 0
+  is printed as a WARNING in the run output and written at 0, not skipped.
+- **Fixture (2 Property Managers, 2 Accountants, invented, `overflow\`):** A1 rows 98-99 Reception, 100 "Trưởng Ban
+  Quản Lý (thêm 1)", 101 "Kế toán (thêm 1)" (13,564,833 = 539,000 × 302/12); `EMH2` = `(AC96 − AC90 × AC95 +
+  SUM(AC98:AC101) × 12) / 12`; the detail-sheet tie and the summary reconciliation (check d, `1. Summary!H22`) pass.
+- **Standard sample:** 0 figures move (no group has more heads than template rows).
+- **City Garden clone:** 6 heads were being dropped and now reach A1 (a second Property Manager, Chief Engineer,
+  Assistant Property Manager and Accountant, and pool attendants 11-12): `EMH` staff year 1 10,118,622,937 →
+  12,284,418,889 (+2,165,795,952); year-1 surplus 5,891,712,619 → 3,739,975,963 (−2,151,736,656). Detail-sheet tie and
+  summary reconciliation pass on this run. The analysis does not move: it already counts every head, but leaves the
+  Accountant / Assistant categories out of its staff cost (task 5.6). docs/30 quoted +239.2M for Diamond Skyline (its
+  second Accountant only); not re-run.
+- **Checks (5.5):** 765 unit tests pass (1 xfail). `verify.py` with the baseline gates opened passes every other check
+  (`verify_d_open.log`).
+
+**D6-b + D7, the analysis costs every in-house head on A1's components (task 5.6, session P23; run `e` against `d`).**
+- **Built (the user's choices of 2026-10-18):** new prospects only (Existing keeps its categories and figures, G2-a).
+  Every in-house position takes exactly one staff category: Accountant, Cashier, Operations Manager and Technical
+  Secretary are added, and Assistant Property Manager, Assistant Chief Engineer and Customer Service Supervisor leave
+  the Property Manager, Chief Engineer and Customer Service categories for their own. Necessity: Accountant, Assistant
+  Property Manager and Assistant Chief Engineer Must-Have (the assistants as before the split, the user's choice at
+  sign-off), Cashier, Operations Manager, Technical Secretary and Customer Service Supervisor Optional. Each category has its market rate (the rows the input form takes its defaults from).
+- **A1's per-person extras** on `Staff (Roster)` columns AB:AF, in-house rows only, before the markup: team building
+  (1,000,000 a month for the Property Manager, A1 code `PM`; 300,000 for others), training 1.3%, health check 1,350,000
+  a year, accident insurance on A1's column X, uniform 300,000 a month. The constants, the accident formula included,
+  are one source in `existing_staffing` (`a1_accident_monthly` / `a1_accident_formula`; `a1_row_cost` unchanged).
+- **Caps per person** (the user's choice, 2026-10-18): the employer SI/HI, UI and union caps now apply to each person's
+  pay (`$AA/12 × $R`), as A1 does, instead of to the row's total of several people. The standard sample has no row
+  above the cap; on City Garden the Customer Service (10), Property Manager (2) and Chief Engineer (2) rows were.
+- The stale "under 1%" note and the dead `full_payroll_annual_cost` are removed.
+- **Deliverable:** 0 figures move (sample, City Garden, the Existing / lump / operating fixtures).
+- **Standard sample:** analysis staff cost, Must-Have basis (the headline), 3,800,190,335 → 3,911,986,483
+  (+111,796,148); full basis 6,697,061,863 → 6,981,001,356 (+283,939,493, the extras alone); total profit value 4,840.1M
+  → 4,728.3M; margin 38.65% → 37.76%.
+- **City Garden clone:** Must-Have 14,224,379,747 → 15,128,320,714 (+903,940,967, run `e2`: Accountant +481.4M in,
+  extras and caps on the rest; run `e`, with the assistants Optional, read 14,530,008,242); full basis 20,124,434,815 → 21,849,703,854
+  (+1,725,269,039; Accountant 481.4M and Cashier 361.0M now costed); total profit value 6,793.1M → 6,487.4M.
+- **The two workbooks now agree:** analysis in-house staff cost (full basis less Security / Cleaning / Landscape)
+  against the deliverable's `EMH2 + EMH3` for the year: standard sample −283,939,621 (−5.53%) → −128 VND; City Garden
+  −1,725,269,357 (−14.06%) → −318 VND (rounding: A1 rounds each row's gross and total).
+- **Existing samples:** 0 of 32 figures move, analysis included (`ab\prev_*_after` against `ab\*_after`). Operating
+  sample (a new prospect): as the standard sample (+111.8M).
+- **Checks (5.6):** 795 unit tests pass (1 xfail), 30 of them new (`tests/test_analysis_staff_categories.py`).
+  `verify.py` with the baseline gates opened passes every other check (`verify_e_open.log`).
+
+**Blank duty table in Existing mode (task 5.7, session P23; `blank_duty\`).**
+- An Existing input whose 'HOLIDAY AND NIGHT DUTY' block is empty prints a WARNING in the run output, adds a note on
+  the Staff Bridge sheet, and opens `EMH3`'s remark with "Bảng trực ca đêm/ngày lễ … để trống: công cụ không tự suy số
+  người trực từ mã ca" (`existing_staffing.BLANK_DUTY_TEXT`). With an approved prior-year amount `EMH3` keeps it, as
+  before; without one `EMH3` is 0 and its reason asks the PM to fill the table (it used to show the new-prospect
+  sentence). The tool never derives duty counts from shift codes.
+- **Checked on:** the lump fixture (empty table, approved 30.0M + PM override 31.5M) and a copy of it with the EMH3 line
+  cleared (`blank_duty\lump_no_emh3_input.xlsx`); two unit tests in `tests/test_existing_staffing.py`, one with a night
+  shift in Staffing Demand that must not become duty counts. No figure moves (text only). 796 unit tests pass (1 xfail);
+  `verify.py` with the baseline gates opened passes every other check (`verify_f_open.log`).
+
+**Group 5 per decision, for sign-off (task 5.8).** Diamond Skyline (the docs/30 project) was re-run from its
+2026-10-05 input copy on the code before group 5 (`tree_before`, commit `0acd603`) and after task 5.6 (`ds\`), so each
+decision lines up with docs/30's figure. Deliverable movements are VND/year on `EMH`; they add up exactly to the
++449,390,016 total.
+
+| Decision | docs/30 (Diamond Skyline) | Diamond Skyline, measured | Standard sample | City Garden clone |
+|---|---|---|---|---|
+| D4 working days (deliverable `EMH2`) | — | +35,881,692 | +31,303,020 | +60,835,332 |
+| D5 night work (`EMH3`) | +214.4M on the analysis's ×1.3 basis | +117,426,302 (A1.1 method) | +117,426,302 | +266,308,808 |
+| B2 holiday day work (`EMH3`) | — | +55,368,001 | +55,368,001 | +157,536,004 |
+| D6 every head reaches A1 (`EMH2`) | +239.2M (second Accountant) | +240,714,024 (`Kế toán (thêm 1)`) | 0 | +2,165,795,952 (6 heads) |
+| D6-b + D7 analysis extras (full basis) | +337.5M | +332,352,104 (AB:AF × 1.1) | +283,939,493 | +684.0M, incl. Accountant / Cashier extras |
+| Per-person caps (analysis, full basis; the user's choice) | — | 0 | 0 | +245,926,890 |
+| Workbook gap (analysis in-house − `EMH2 + EMH3`) | 318M (docs/24) | −223,375,752 → −106 | −283,939,621 → −128 | −1,725,269,357 → −318 |
+
+- **Deliverable totals:** Diamond Skyline `EMH` +449,390,016, year-1 surplus 4,845,354,962 → 4,398,941,042
+  (−446,413,919). Standard sample `EMH` +204,097,320. City Garden `EMH` +2,650,476,096 (D4 + D5 + B2 + D6).
+- **Analysis headline (Must-Have basis, final, assistants Must-Have):** Diamond Skyline 4,685,985,778 → 5,154,605,780
+  (+468,620,002, `ds\after2`); standard sample +111,796,148; City Garden +903,940,967 (`e2`). Full basis, Diamond
+  Skyline 7,731,371,800 → 8,404,137,462 (+672,765,662, of which Accountant 481.4M and Cashier 180.5M now costed). The
+  sign-off question first offered the assistants as Optional, which would have taken them out of the headline
+  (−299.2M Diamond Skyline, −598.3M City Garden); the user chose Must-Have.
+- **Why D5 differs from the +214.4M:** the PM's figure loaded every night row by ×1.3 and then added 13th month,
+  insurance and markup; A1.1 pays 30% / 390% / 300% of the daily wage per shift, plain, as the template does (M4-a).
+- **Sign-off (group 5):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18 (session
+  P23), with the two assistant categories Must-Have.

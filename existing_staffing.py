@@ -41,6 +41,9 @@ MODES = (MODE_NEW, MODE_EXISTING)
 ROSTER_SHEET = 'Prior-Year Roster'
 SEC_ROSTER = 'PRIOR-YEAR ROSTER'
 SEC_DUTY = 'HOLIDAY AND NIGHT DUTY'
+# An empty duty block is flagged, never filled by the tool (change apply-head-of-pm-decisions-2026-10, task 5.7).
+BLANK_DUTY_TEXT = (f"Bảng trực ca đêm/ngày lễ ('{SEC_DUTY}') trên form nhập để trống: công cụ không tự suy số người "
+                   f"trực từ mã ca")
 SEC_LINES = 'STAFF LINES'
 SEC_ACTUAL = 'ACTUAL HEADCOUNT'
 SECTIONS = (SEC_ROSTER, SEC_DUTY, SEC_LINES, SEC_ACTUAL)
@@ -102,6 +105,17 @@ A1_TEAM_BUILDING_PM = 1_000_000   # R: PM row
 A1_TEAM_BUILDING = 300_000        # R: every other row
 A1_UNIFORM = 300_000              # Z
 A1_CONTRACT_MONTHS = 12           # AC95
+# X (24/24 accident insurance): base = gross x 30 x 0.00099 + gross x 3 x 0.0044 + 446,985; the PM row adds 2,456,000
+# and takes 58% / 12, every other row takes 40% / 12 with a 30,000 floor. The analysis builds the same formula from these.
+A1_ACCIDENT_DAY_RATE = 0.00099
+A1_ACCIDENT_DAYS = 30
+A1_ACCIDENT_MEDICAL_RATE = 0.0044
+A1_ACCIDENT_MEDICAL_MULTIPLE = 3
+A1_ACCIDENT_FIXED = 446985
+A1_ACCIDENT_PM_EXTRA = 2456000
+A1_ACCIDENT_PM_SHARE = 0.58
+A1_ACCIDENT_SHARE = 0.40
+A1_ACCIDENT_FLOOR = 30000
 # A1.1 (allowance) constants: E7:E11 working days per month, and the legal rates I6/M6/Q6
 # (Labour Code 2019 Article 98: night +30%, night on a holiday 390%, day on a holiday 300%).
 A11_WORKDAYS = 25
@@ -376,6 +390,24 @@ def a1_params(month_values):
     }
 
 
+def a1_accident_monthly(code, gross):
+    """A1 column X, one person's monthly accident insurance on a monthly gross."""
+    base = (gross * A1_ACCIDENT_DAYS * A1_ACCIDENT_DAY_RATE
+            + gross * A1_ACCIDENT_MEDICAL_MULTIPLE * A1_ACCIDENT_MEDICAL_RATE + A1_ACCIDENT_FIXED)
+    if code == 'PM':
+        return (base + A1_ACCIDENT_PM_EXTRA) * A1_ACCIDENT_PM_SHARE / 12
+    return max(A1_ACCIDENT_FLOOR, base * A1_ACCIDENT_SHARE / 12)
+
+
+def a1_accident_formula(code, gross):
+    """The same as an Excel expression on a gross cell or expression `gross`."""
+    base = (f'({gross}*{A1_ACCIDENT_DAYS}*{A1_ACCIDENT_DAY_RATE}'
+            f'+{gross}*{A1_ACCIDENT_MEDICAL_MULTIPLE}*{A1_ACCIDENT_MEDICAL_RATE}+{A1_ACCIDENT_FIXED})')
+    if code == 'PM':
+        return f'({base}+{A1_ACCIDENT_PM_EXTRA})*{A1_ACCIDENT_PM_SHARE}/12'
+    return f'MAX({A1_ACCIDENT_FLOOR},{base}*{A1_ACCIDENT_SHARE}/12)'
+
+
 def a1_row_cost(code, gross, p):
     """One A1 row's monthly cost to Savills incl. admin markup (column AC), as the template computes
     it from column G (gross) with H (increase rate) blank."""
@@ -389,11 +421,7 @@ def a1_row_cost(code, gross, p):
     u = p['cap_ui'] * p['U8'] if i > p['cap_ui'] else i * p['U8']
     v = p['cap_si_hi'] * p['V8'] if i > p['cap_si_hi'] else i * p['V8']
     w = A1_CHECKUP_ANNUAL / 12
-    base = i * 30 * 0.00099 + i * 3 * 0.0044 + 446985
-    if code == 'PM':
-        x = (base + 2456000) * 0.58 / 12
-    else:
-        x = max(30000, base * 0.40 / 12)
+    x = a1_accident_monthly(code, i)
     z = A1_UNIFORM
     aa = excel_round(i + n + r + s + t + u + v + w + x + 0 + z)
     ab = excel_round(aa * p['AB1'])
@@ -416,14 +444,15 @@ def period_days(year_or_period):
     return year_days(year_or_period)
 
 
-def a11_monthly(duty, year, gross_of=lambda d: d.gross):
+def a11_monthly(duty, year, gross_of=lambda d: d.gross, workdays=A11_WORKDAYS):
     """A1.1!S13 — the monthly night/holiday allowance for the duty rows in `year`'s calendar. `year` may also be a
-    BudgetPeriod, which counts its own days and the paid holidays inside it."""
+    BudgetPeriod, which counts its own days and the paid holidays inside it. `workdays` is A1.1's daily-wage divisor
+    (E7:E11): the template's 25 in Existing mode, the calendar count / 12 for a new prospect (D6)."""
     n = len(vh_paid(year))
     h6, l6, p6 = period_days(year) - n, n, n
     j = nn = rr = 0.0
     for d in duty:
-        f = gross_of(d) / A11_WORKDAYS
+        f = gross_of(d) / (workdays if workdays < 26 else 26)      # F = IF(E<26, D/E, D/26)
         h = h6 * d.night_normal if d.night_normal > 0 else 0
         l_ = l6 * d.night_holiday if d.night_holiday > 0 else 0
         pp = p6 * d.day_holiday if d.day_holiday > 0 else 0
@@ -687,6 +716,10 @@ def compute(ex, demand, budget_year, code_of, is_outsourced, unplaced_code_of,
                           computed=emh3_line.approved, kind='carried', approved=emh3_line.approved)
     else:
         emh3 = LineResult('EMH3', baseline=0, budget=0, computed=0, kind='none')
+    if not ex.duty:
+        notes.append(f'{BLANK_DUTY_TEXT}; EMH3 '
+                     + (f'giữ số đã duyệt NS {ex.prior_year}.' if emh3.kind == 'carried'
+                        else 'không có số trực tính lại.'))
 
     # ---------------- EMH4 ----------------
     emh4_line = ex.lines.get('EMH4') or LineRow('EMH4')

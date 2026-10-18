@@ -107,6 +107,11 @@ constants:
 
 Outsourced positions SHALL NOT carry these components.
 
+Each in-house position SHALL fall in exactly one staff category. Assistant Property Manager, Assistant Chief Engineer and
+Customer Service Supervisor SHALL have their own categories, with the necessity of the category they were part of. The
+employer SI/HI, unemployment and trade-union caps SHALL apply to each person's pay, as `A1` applies them, not to the
+total of a row of several people.
+
 #### Scenario: An in-house technician
 
 - **WHEN** the analysis costs an in-house Technician
@@ -117,6 +122,11 @@ Outsourced positions SHALL NOT carry these components.
 
 - **WHEN** the staffing input has an Accountant
 - **THEN** the analysis's staff cost SHALL include that position
+
+#### Scenario: Ten customer service staff
+
+- **WHEN** a row has 10 people whose combined monthly pay is above the SI/HI cap and each person's pay is below it
+- **THEN** the analysis SHALL charge SI/HI on each person's full pay
 
 ### Requirement: The analysis prices night and holiday work on `A1.1`'s method
 

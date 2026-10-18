@@ -404,6 +404,11 @@ def main(argv=None):
             print('FAIL  the New-prospect run produced a Utility Bridge')
             return 1
         print('OK    the standard (New-prospect) sample produces no Utility Bridge')
+        # A new prospect fills A1.1 too (change apply-head-of-pm-decisions-2026-10, D5): EMH2 must leave A1's
+        # allowance out and EMH3 carry it, so the same detail-sheet tie runs here and fails on a double count.
+        if not _run_sections([('EMH2, EMH3 and EMH4 of the standard sample equal their detail sheets',
+                               lambda: checks.check_existing_detail_ties(paths))]):
+            return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
             existing_dir = os.path.join(workdir, sub)

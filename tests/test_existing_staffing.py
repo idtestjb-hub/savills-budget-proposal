@@ -191,6 +191,18 @@ def test_empty_duty_block_carries_the_approved_emh3():
     ex = _read(_form(lines={'EMH2': (1_000_000_000,), 'EMH3': (24_000_000,)}))
     res = _compute(ex)
     assert res.lines['EMH3'].budget == 24_000_000 and res.lines['EMH3'].reasons == []
+    # Task 5.7 (change apply-head-of-pm-decisions-2026-10): the empty table is flagged, not filled.
+    assert res.duty == []
+    assert any(n.startswith(es.BLANK_DUTY_TEXT) and 'giữ số đã duyệt NS 2026' in n for n in res.notes)
+
+
+def test_empty_duty_block_without_an_approved_emh3_is_flagged_and_left_at_zero():
+    ex = _read(_form(lines={'EMH2': (1_000_000_000,)}))
+    # A night shift in Staffing Demand must not be turned into duty counts.
+    res = _compute(ex, [_demand('Technician (Night)', code='D', staff=2, days=7)])
+    assert res.lines['EMH3'].kind == 'none' and res.lines['EMH3'].budget == 0
+    assert res.duty == []
+    assert any(n.startswith(es.BLANK_DUTY_TEXT) and 'không có số trực' in n for n in res.notes)
 
 
 # ---------------------------------------------------------------- 3.4 EMH4

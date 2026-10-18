@@ -216,6 +216,41 @@ def holidays_in_month(year, month):
     return sorted(d.day for d, _ in paid_days_of_year(year) if d.year == year and d.month == month)
 
 
+def weekly_working_days(coverage_days):
+    """The weekdays (Monday = 0) one person works for a position covered `coverage_days` days a week.
+
+    A position on 6 or 7 coverage days works Monday to Saturday: a 7-day position's headcount already carries the
+    7/6 uplift, so each person still works 6 days. Below 6, the person works Monday to the N-th weekday, the same
+    shape the roster grid uses (5 = Monday to Friday)."""
+    n = int(coverage_days or 0)
+    if n < 1:
+        raise ValueError(f'Coverage days is {coverage_days!r}; a staffed position works at least 1 day a week.')
+    return frozenset(range(min(n, 6)))
+
+
+def working_days_by_month(first_day, last_day, coverage_days=6):
+    """A person's working days in each calendar month of [first_day, last_day]: the days on their weekly pattern
+    (see weekly_working_days) minus the paid holidays, under the law in force on `first_day` (the same convention as
+    paid_holidays_in_period). Returns [((year, month), days)] in date order (change apply-head-of-pm-decisions-2026-10,
+    D6: one count for both workbooks)."""
+    pattern = weekly_working_days(coverage_days)
+    holidays = {d for d, _ in paid_holidays_in_period(first_day, last_day)}
+    out = {}
+    day = first_day
+    while day <= last_day:
+        key = (day.year, day.month)
+        out.setdefault(key, 0)
+        if day.weekday() in pattern and day not in holidays:
+            out[key] += 1
+        day += datetime.timedelta(days=1)
+    return list(out.items())
+
+
+def working_days(first_day, last_day, coverage_days=6):
+    """A person's working days in [first_day, last_day] (see working_days_by_month). 302 for 2027 on 6 days."""
+    return sum(n for _, n in working_days_by_month(first_day, last_day, coverage_days))
+
+
 def test_known_tet():
     """Validate the lunar conversion against Tet dates that already happened.
 

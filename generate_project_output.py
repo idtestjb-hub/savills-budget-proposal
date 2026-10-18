@@ -30,7 +30,10 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule
 
 from generate_project_budget import (read_input, INPUT_PATH, PRODUCT_ROWS, existing_result,
-                                     utilities_result, template_vat_inclusive)
+                                     utilities_result, template_vat_inclusive, period_workdays,
+                                     _new_prospect_duty, _a11_code_of, _a1_group_of, _is_outsourced)
+import budget_period
+import vn_holidays
 import existing_utilities
 import existing_staffing
 import operating_inputs
@@ -112,29 +115,6 @@ def statutory_payroll_params(year, region=None):
     }
 
 
-def full_payroll_annual_cost(annual_gross, year):
-    """The employer's real all-in annual cost of one position or group, on 'A1. Staff cost 08.2026
-    (VN)''s own basis, given its annual gross salary: a 13th-month salary, employer SI/HI 20.5% and
-    Unemployment 1% (both capped at 20x the regional base), Trade Union 2% (same cap), then Savills'
-    own 10% admin markup on the whole employer cost.
-
-    Deliberately narrower than A1's full formula chain — it leaves out A1's smaller per-position
-    extras (team-building fee, a 1.3% training/recruitment charge, an annual health check-up,
-    optional 24/24 accident insurance, a uniform allowance): together well under 1% of a typical
-    roster's total (design.md D3), and the residual is what the analysis 'Staff (Roster)' sheet
-    states rather than silently absorbs. The caps are monthly in the template; `annual_gross` is
-    spread evenly across 12 months to apply them, matching this pipeline's own "monthly estimate,
-    not a live day-grid" staffing model (see build_staff_sheet's docstring).
-    """
-    s = statutory_payroll_params(year)
-    monthly = annual_gross / 12
-    thirteenth_month_annual = monthly                                            # one month's pay
-    si_hi_annual = min(monthly, s['si_hi_cap']) * s['si_hi_rate'] * 12
-    ui_annual = min(monthly, s['ui_cap']) * s['ui_rate'] * 12
-    union_annual = min(monthly, s['si_hi_cap']) * s['union_rate'] * 12
-    subtotal = annual_gross + thirteenth_month_annual + si_hi_annual + ui_annual + union_annual
-    return subtotal * (1 + s['markup'])
-
 # Shared between build_staff_sheet (for its Service-equivalent comparison columns) and
 # build_service_sheet (for its own Qty matching) — kept in one place so the two sheets can never
 # silently drift onto different definitions of "which Staffing Demand rows count as Security".
@@ -160,7 +140,7 @@ SERVICE_EXCLUDE_KEYWORDS = ['supervisor']
 # Security — dividing by real per-shift headcount (23 individuals, each working ONE of the 3
 # shifts) without first splitting the rate 3 ways would price each of them as if they alone cost
 # a whole post, ~3x too high. Cleaning/Landscape have no such split (single shift per position;
-# Landscape's own AvgDailyRate comment divides the citywide rate straight by 26 working days, no
+# Landscape's own AvgDailyRate comment divides the citywide rate straight by the working days, no
 # ×3), so their multiplier stays 1.
 SERVICE_SHIFT_ROLES_PER_POST = {'Security': 3, 'Cleaning': 1, 'Landscape': 1}
 
@@ -194,7 +174,67 @@ STAFF_MARKET_RATES = {
     'Technician': (8_459_141, 458, 'Kỹ thuật viên'),
     'Amenities Attendant': (7_988_816, 91, 'Nhân viên tiện ích'),
     'Pool Attendant': (7_166_250, 1, 'Gym - Pool Attendant'),
+    # The new-prospect categories below; the same rows build_project_input_form.py sets their default rates from.
+    'Assistant Property Manager': (17_000_000, 2, 'Trợ lý trưởng ban quản lý'),
+    'Assistant Chief Engineer': (17_427_160, 24, 'Trợ lý Kỹ sư trưởng'),
+    'Customer Service Supervisor': (14_240_818, 10, 'Trưởng nhóm Chăm Sóc Khách Hàng'),
+    'Operations Manager': (26_395_822, 14, 'Quản lý vận hành'),
+    'Accountant': (13_574_175, 54, 'Kế toán'),
+    'Cashier': (10_028_473, 13, 'Thủ Quỹ'),
+    'Technical Secretary': (10_737_610, 4, 'Thư ký Bộ phận kỹ thuật'),
 }
+
+# A new prospect costs every in-house position on its own category (change apply-head-of-pm-decisions-2026-10, D6-b):
+# the four positions the analysis left out, and the assistant and supervisor positions that the substring match filed
+# under Property Manager, Chief Engineer and Customer Service. A position takes its first matching category, so the
+# assistant and supervisor categories come first. Existing mode keeps STAFF_MARKET_KEYWORDS and its figures (G2-a).
+NEW_PROSPECT_STAFF_MARKET_KEYWORDS = {
+    'Assistant Property Manager': ['assistant property manager'],
+    'Assistant Chief Engineer': ['assistant chief engineer'],
+    'Customer Service Supervisor': ['customer service supervisor'],
+    **STAFF_MARKET_KEYWORDS,
+    'Operations Manager': ['operations manager'],
+    'Accountant': ['accountant'],
+    'Cashier': ['cashier'],
+    'Technical Secretary': ['technical secretary'],
+}
+
+
+def staff_market_categories(project):
+    """The staff categories of the analysis for this project, and whether a position takes its first match only."""
+    if project.get('existing') is None:
+        return NEW_PROSPECT_STAFF_MARKET_KEYWORDS, True
+    return STAFF_MARKET_KEYWORDS, False
+
+
+def in_staff_category(position, name, categories, first_match):
+    p = position.lower()
+    if first_match:
+        return next((k for k, kws in categories.items() if any(kw in p for kw in kws)), None) == name
+    return any(kw in p for kw in categories[name])
+
+
+# A1's per-person extras on a new prospect's 'Staff (Roster)' rows (columns AB:AF, after the working days in AA), from
+# the constants existing_staffing.a1_row_cost uses. Annual, for the row's $B people; outsourced rows carry none.
+A1_EXTRA_HEADERS = ['Team Building (A1)', f'Training {existing_staffing.A1_TRAINING_RATE:.1%} (A1)',
+                    'Health Check (A1)', 'Accident Insurance (A1)', 'Uniform (A1)']
+EXTRAS_FIRST_COL = 28                                                  # AB
+EXTRAS_FIRST_LETTER = get_column_letter(EXTRAS_FIRST_COL)
+EXTRAS_LAST_LETTER = get_column_letter(EXTRAS_FIRST_COL + len(A1_EXTRA_HEADERS) - 1)
+
+
+def a1_extra_formulas(r, position):
+    """The five extras of row `r` (one person's monthly gross = $AA/12 x $R), in A1_EXTRA_HEADERS' order."""
+    if _is_outsourced(position):
+        return [0] * len(A1_EXTRA_HEADERS)
+    code = 'PM' if _a1_group_of(position) == 'PM' else None
+    team = existing_staffing.A1_TEAM_BUILDING_PM if code == 'PM' else existing_staffing.A1_TEAM_BUILDING
+    gross = f'$AA{r}/12*$R{r}'
+    return [f'=$B{r}*{team}*12',
+            f'=$B{r}*{gross}*{existing_staffing.A1_TRAINING_RATE}*12',
+            f'=$B{r}*{existing_staffing.A1_CHECKUP_ANNUAL}',
+            f'=$B{r}*{existing_staffing.a1_accident_formula(code, gross)}*12',
+            f'=$B{r}*{existing_staffing.A1_UNIFORM}*12']
 
 HEADER_FILL = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -574,8 +614,11 @@ def build_staff_sheet(wb, project, demand, year):
     month to within rounding; it is not read from a live day-grid because this sheet has none."""
     ws = wb.create_sheet('Staff (Roster)')
     title_block(ws, 'Staff (Roster) — Full Year',
-                'Estimated from average weekly coverage (see script docstring) — night differential (+30%) included, '
-                'holiday differentials excluded (no annual holiday calendar on the input form yet).', 'A1:F1')
+                ('Calendar working days per person (column AA), the same count A1 uses; night and holiday allowance '
+                 'per shift, as A1.1 (block below the total)'
+                 if project.get('existing') is None else
+                 'Estimated from average weekly coverage (see script docstring) — night differential (+30%) '
+                 'included, holiday differentials excluded'), 'A1:F1')
     ws['A3'] = 'Year'
     ws['A3'].font = Font(bold=True)
     ws['B3'] = year
@@ -591,9 +634,10 @@ def build_staff_sheet(wb, project, demand, year):
     # Columns 16-19 (P-S) are hidden per-row helper cells (StaffPerDay/CoverageDays/AvgDailyRate/
     # IsNight, written per-row below) — these new columns sit right after them rather than being
     # inserted earlier, so none of the existing formula column references above need to shift.
-    # T-Z replicate 'A1. Staff cost 08.2026 (VN)''s own employer-cost chain (see
-    # full_payroll_annual_cost() docstring) as explicit formulas, replacing the old flat
-    # EMPLOYER_INSURANCE_RATE (x1.215) shortcut — change reconcile-summary-with-detail-sheets, D3.
+    # T-Z replicate 'A1. Staff cost 08.2026 (VN)''s own employer-cost chain (13th month, capped SI/HI, UI and union,
+    # admin markup) as explicit formulas, replacing the old flat EMPLOYER_INSURANCE_RATE (x1.215) shortcut — change
+    # reconcile-summary-with-detail-sheets, D3. A new prospect also carries A1's per-person extras (AB:AF) and caps
+    # each person's pay, as A1 does (change apply-head-of-pm-decisions-2026-10, D7).
     s = statutory_payroll_params(year)
     for c, h in [(20, '13th-Month Salary (A1 basis)'),
                  (21, f'Employer SI/HI {s["si_hi_rate"]:.1%} (capped, A1 basis)'),
@@ -609,13 +653,30 @@ def build_staff_sheet(wb, project, demand, year):
         cell.border = BORDER
 
     DAYS_ROW = 6
-    ws.cell(row=DAYS_ROW, column=1, value='Days in Month').font = Font(italic=True, size=9)
-    for i in range(12):
-        col = 3 + i
-        col_letter = get_column_letter(col)
-        f = ws.cell(row=DAYS_ROW, column=col, value=f'=DAY(EOMONTH(DATE($B$3,{i + 1},1),0))')
-        f.font = Font(italic=True, size=9, color='7F7F7F')
-        f.alignment = CENTER
+    # A new prospect pays each person the calendar working days of the budget period / 12 every month, the count A1
+    # uses (column AA; change apply-head-of-pm-decisions-2026-10, D6). Existing mode keeps the coverage estimate
+    # below, so its figures do not move (G2-a).
+    calendar_days = project.get('existing') is None
+    WORKDAYS_COL = 27                                                  # AA
+    if calendar_days:
+        period = project.get('budget_period') or budget_period.default()
+        ws.cell(row=DAYS_ROW, column=1, value=(
+            f'Working days: Mon–Sat minus paid holidays in {period.label()} (column AA), paid evenly ÷ 12'
+        )).font = Font(italic=True, size=9)
+        h = ws.cell(row=HEADER_ROW, column=WORKDAYS_COL, value='Working Days / Person in Period (calendar)')
+        h.fill, h.font, h.alignment, h.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+        ws.column_dimensions['AA'].width = 18
+        for c, h in enumerate(A1_EXTRA_HEADERS, start=EXTRAS_FIRST_COL):
+            cell = ws.cell(row=HEADER_ROW, column=c, value=h)
+            cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+            ws.column_dimensions[get_column_letter(c)].width = 16
+    else:
+        ws.cell(row=DAYS_ROW, column=1, value='Days in Month').font = Font(italic=True, size=9)
+        for i in range(12):
+            col = 3 + i
+            f = ws.cell(row=DAYS_ROW, column=col, value=f'=DAY(EOMONTH(DATE($B$3,{i + 1},1),0))')
+            f.font = Font(italic=True, size=9, color='7F7F7F')
+            f.alignment = CENTER
 
     si_hi_cap = s['si_hi_cap']
     ui_cap = s['ui_cap']
@@ -630,11 +691,22 @@ def build_staff_sheet(wb, project, demand, year):
         b = ws.cell(row=r, column=2, value=f'=IF(Q{r}>=7,ROUNDUP(P{r}*7/6,0),P{r})')
         b.border = BORDER
         b.alignment = CENTER
+        if calendar_days:
+            wd = ws.cell(row=r, column=WORKDAYS_COL,
+                         value=(period_workdays(period, d['CoverageDays'], d['Position'])
+                                if d['StaffPerDay'] else 0))
+            wd.border, wd.alignment = BORDER, CENTER
         for i in range(12):
             col = 3 + i
             col_letter = get_column_letter(col)
             day_ref = f'{col_letter}${DAYS_ROW}'
-            formula = (f'=$B{r}*ROUND({day_ref}*IF($Q{r}>=7,6,$Q{r})/7,0)*$R{r}*IF($S{r}=1,{NIGHT_DIFFERENTIAL},1)')
+            if calendar_days:
+                # Night work is priced per shift in the allowance block below, as A1.1 does (docs/30 M4-a), not as a
+                # x1.3 loading on the night rows.
+                formula = f'=$B{r}*$AA{r}/12*$R{r}'
+            else:
+                formula = (f'=$B{r}*ROUND({day_ref}*IF($Q{r}>=7,6,$Q{r})/7,0)*$R{r}'
+                           f'*IF($S{r}=1,{NIGHT_DIFFERENTIAL},1)')
             cell = ws.cell(row=r, column=col, value=formula)
             cell.number_format = MONEY_FMT
             cell.border = BORDER
@@ -648,19 +720,29 @@ def build_staff_sheet(wb, project, demand, year):
         thirteenth = ws.cell(row=r, column=20, value=f'={annual_letter}{r}/12')
         thirteenth.number_format = MONEY_FMT
         thirteenth.border = BORDER
-        si_hi = ws.cell(row=r, column=21,
-                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{s["si_hi_rate"]}*12')
+        if calendar_days:
+            # A1 caps each person's pay ($AA/12 x $R a month), not the row's total of $B people.
+            def capped(cap, rate):
+                return f'=$B{r}*MIN($AA{r}/12*$R{r},{cap})*{rate}*12'
+        else:
+            def capped(cap, rate):
+                return f'=MIN({annual_letter}{r}/12,{cap})*{rate}*12'
+        si_hi = ws.cell(row=r, column=21, value=capped(si_hi_cap, s['si_hi_rate']))
         si_hi.number_format = MONEY_FMT
         si_hi.border = BORDER
-        ui = ws.cell(row=r, column=22,
-                      value=f'=MIN({annual_letter}{r}/12,{ui_cap})*{s["ui_rate"]}*12')
+        ui = ws.cell(row=r, column=22, value=capped(ui_cap, s['ui_rate']))
         ui.number_format = MONEY_FMT
         ui.border = BORDER
-        union = ws.cell(row=r, column=23,
-                         value=f'=MIN({annual_letter}{r}/12,{si_hi_cap})*{s["union_rate"]}*12')
+        union = ws.cell(row=r, column=23, value=capped(si_hi_cap, s['union_rate']))
         union.number_format = MONEY_FMT
         union.border = BORDER
-        subtotal = ws.cell(row=r, column=24, value=f'={annual_letter}{r}+T{r}+U{r}+V{r}+W{r}')
+        extras = ''
+        if calendar_days:
+            for c, v in enumerate(a1_extra_formulas(r, d['Position']), start=EXTRAS_FIRST_COL):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.number_format, cell.border = MONEY_FMT, BORDER
+            extras = f'+SUM({EXTRAS_FIRST_LETTER}{r}:{EXTRAS_LAST_LETTER}{r})'
+        subtotal = ws.cell(row=r, column=24, value=f'={annual_letter}{r}+T{r}+U{r}+V{r}+W{r}{extras}')
         subtotal.number_format = MONEY_FMT
         subtotal.border = BORDER
         markup = ws.cell(row=r, column=25, value=f'=X{r}*{s["markup"]}')
@@ -690,29 +772,34 @@ def build_staff_sheet(wb, project, demand, year):
     c = ws.cell(row=r, column=annual_col, value=f'=SUM({annual_letter}{first_row}:{annual_letter}{last_row})')
     c.number_format = MONEY_FMT
     c.font = SECTION_FONT
-    for col_letter in ('T', 'U', 'V', 'W', 'X', 'Y', 'Z'):
+    total_cols = ['T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+    if calendar_days:
+        total_cols += [get_column_letter(c) for c in range(EXTRAS_FIRST_COL, EXTRAS_FIRST_COL + len(A1_EXTRA_HEADERS))]
+    for col_letter in total_cols:
         c = ws.cell(row=r, column=column_index_from_string(col_letter),
                      value=f'=SUM({col_letter}{first_row}:{col_letter}{last_row})')
         c.number_format = MONEY_FMT
         c.font = SECTION_FONT
-    ANNUAL_TOTAL_CELL = f'Z{r}'  # full payroll basis — see full_payroll_annual_cost()
+    ANNUAL_TOTAL_CELL = f'Z{r}'  # full payroll basis, A1's components
     r += 1
     ws.cell(row=r, column=1, value=(
-        "This total uses the deliverable's own 'A1. Staff cost' components (13th-month, capped "
-        'employer SI/HI 20.5% and UI 1%, Trade Union 2%, +10% admin markup) but omits A1\'s smaller '
-        'extras (team building fee, 1.3% training charge, annual checkup, optional accident insurance, '
-        'uniform allowance — together under 1% of a typical roster). Measured on Wayne Tower, this '
-        "sheet's in-house total (excl. outsourced Security/Cleaning/Landscape) runs ~4% above the "
-        "deliverable's A1!AC96 + Reception-style top-up — almost entirely because A1's own gross-salary "
-        'step (fill_staff_cost_sheet) averages a shift role\'s Morning/Afternoon/Night daily rates into '
-        'one flat monthly salary with no night-shift differential, while this sheet prices each shift '
-        "at its own rate (Night +30%, per this sheet's title). That gap is in A1's gross-salary "
-        'assignment, not in the payroll math either sheet applies on top — out of scope here (re-pricing '
-        'staff is not part of this change); flagged for a follow-up.')).font = Font(italic=True, size=9, color='7F7F7F')
+        "Column Z uses the deliverable's own 'A1. Staff cost' components per person: 13th month, employer SI/HI, UI "
+        "and Trade Union capped on each person's pay, A1's per-person extras for in-house staff (team building, 1.3% "
+        'training, health check, accident insurance, uniform; columns AB:AF), then the admin markup. Outsourced '
+        'Security / Cleaning / Landscape are costed at the bare contract (column O) in every category total.'
+        if calendar_days else
+        "Column Z uses the deliverable's own 'A1. Staff cost' components (13th month, capped employer SI/HI, UI and "
+        "Trade Union, admin markup) on each row's total pay. It leaves out A1's per-person extras (team building, "
+        'training, health check, accident insurance, uniform), which only a new prospect carries here.'
+    )).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
     ws.merge_cells(f'A{r}:F{r}')
-    ws.row_dimensions[r].height = 68
+    ws.row_dimensions[r].height = 42
     r += 2
+
+    allowance_cells, allowance_total_cell = {}, None
+    if calendar_days:
+        r, allowance_cells, allowance_total_cell = _write_allowance_block(ws, r, demand, period)
 
     section(ws, r, 'REAL BENCHMARK CROSS-CHECK — from the Master List (derive_staffing_benchmarks.py)', ncols=6); r += 1
     hc_est = estimate_staff_headcount(project['total_gfa'])
@@ -794,10 +881,15 @@ def build_staff_sheet(wb, project, demand, year):
         if excluded_rows:
             category_annual_cells[f'{cat} — Supervisory'] = _cell_sum(excluded_rows, OUTSOURCED_COL)
             category_annual_cells_inhouse[f'{cat} — Supervisory'] = _cell_sum(excluded_rows)
-    for cat, keywords in STAFF_MARKET_KEYWORDS.items():
-        rows = [position_row[pos] for pos in position_row if any(kw in pos.lower() for kw in keywords)]
+    market, first_match = staff_market_categories(project)
+    for cat in market:
+        rows = [position_row[pos] for pos in position_row if in_staff_category(pos, cat, market, first_match)]
         category_annual_cells[cat] = _cell_sum(rows)
         category_annual_cells_inhouse[cat] = _cell_sum(rows)
+    # A new prospect's night and holiday allowance (the block above) joins the category of the positions it is paid to.
+    for cat, refs in allowance_cells.items():
+        for cells in (category_annual_cells, category_annual_cells_inhouse):
+            cells[cat] = cells.get(cat, '=0') + ''.join(f"+'Staff (Roster)'!{ref}" for ref in refs)
 
     # ---- Cost the three outsourced services the way EXENSIVE LOGIC.xlsx says to ----
     # ESS1 "Monthly contract fee x 12", ESS4 "m2 x unit price x 12 OR monthly contract x 12",
@@ -817,7 +909,66 @@ def build_staff_sheet(wb, project, demand, year):
         category_annual_cells.pop(f'{cat} — Supervisory', None)
 
     return dict(annual_total_cell=ANNUAL_TOTAL_CELL, category_annual_cells=category_annual_cells,
-                category_annual_cells_inhouse=category_annual_cells_inhouse)
+                category_annual_cells_inhouse=category_annual_cells_inhouse,
+                allowance_total_cell=allowance_total_cell, market_categories=market, first_match=first_match)
+
+
+def _write_allowance_block(ws, r, demand, period):
+    """A new prospect's night and holiday allowance on 'Staff (Roster)', per shift and on the same counts as the
+    deliverable's A1.1 (change apply-head-of-pm-decisions-2026-10, D5 and M4-a): daily wage = A1 gross / (working days
+    / 12); annual = daily wage x (30% x normal nights x night staff + 390% x holidays x night staff + 300% x holidays x
+    holiday day staff). Returns (next row, {staff category: [annual cells]}, total cell or None)."""
+    duty = _new_prospect_duty(demand, period)
+    n = len(vn_holidays.paid_holidays_in_period(period.first_day, period.last_day))
+    nights = (period.last_day - period.first_day).days + 1 - n
+    wd = period_workdays(period, 6)
+    section(ws, r, "NIGHT AND HOLIDAY ALLOWANCE — per shift, on the deliverable's A1.1 counts (Labour Code 2019 "
+                   'Art. 98)', ncols=6)
+    r += 1
+    headers = ['A1.1 Code', 'Positions', 'A1 Gross / Person / Month', 'Daily Wage', 'Night Staff',
+               'Normal Nights (30%)', 'Holiday Nights (390%)', 'Holiday Day Staff', 'Holidays (300%)',
+               'Annual Allowance']
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    first = r
+    cells = {}
+    for d in duty:
+        positions = [x['Position'] for x in demand
+                     if x.get('StaffPerDay') and not _is_outsourced(x['Position']) and _a11_code_of(x['Position']) == d.code]
+        values = [d.code, ', '.join(positions), d.gross, f'=C{r}/({wd}/12)', d.night_normal, nights, n,
+                  d.day_holiday, n,
+                  (f'=D{r}*({existing_staffing.A11_NIGHT_RATE}*E{r}*F{r}'
+                   f'+{existing_staffing.A11_HOLIDAY_NIGHT_RATE}*E{r}*G{r}'
+                   f'+{existing_staffing.A11_HOLIDAY_DAY_RATE}*H{r}*I{r})')]
+        for c, v in enumerate(values, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = BORDER
+            if c in (3, 4, 10):
+                cell.number_format = MONEY_FMT
+        cat = next((k for k in NEW_PROSPECT_STAFF_MARKET_KEYWORDS
+                    if positions and in_staff_category(positions[0], k, NEW_PROSPECT_STAFF_MARKET_KEYWORDS, True)),
+                   f'Night & Holiday Allowance ({d.code})')
+        cells.setdefault(cat, []).append(f'J{r}')
+        r += 1
+    total = None
+    if duty:
+        ws.cell(row=r, column=1, value='TOTAL').font = SECTION_FONT
+        c = ws.cell(row=r, column=10, value=f'=SUM(J{first}:J{r - 1})')
+        c.number_format, c.font = MONEY_FMT, SECTION_FONT
+        total = f'J{r}'
+        r += 1
+    note = ('Holiday day work is counted for 7-day positions with a night shift only (morning + afternoon staff); '
+            'night work for every in-house position with a D or 24H shift. Equals 12 x the deliverable\'s EMH3 '
+            '(A1.1!S13). Added to each position\'s category below, not loaded with insurance or markup (A1 adds it '
+            'plain at AC90).' if duty else
+            'No in-house position has a night shift (D or 24H), so there is no night or holiday allowance (EMH3 = 0).')
+    ws.cell(row=r, column=1, value=note).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    return r + 2, cells, total
 
 
 def build_roster_detail_grid(ws, demand, start_row):
@@ -1086,8 +1237,9 @@ def build_service_sheet(wb, demand, staff):
         cell.border = BORDER
     r += 1
     mkt_first_row = r
-    for name, keywords in STAFF_MARKET_KEYWORDS.items():
-        matched = [d for d in demand if any(kw in d['Position'].lower() for kw in keywords)]
+    market, first_match = staff['market_categories'], staff['first_match']
+    for name in market:
+        matched = [d for d in demand if in_staff_category(d['Position'], name, market, first_match)]
         if not matched:
             continue
         qty = sum(math.ceil(d['StaffPerDay'] * 7 / 6) if d['CoverageDays'] >= 7 else d['StaffPerDay'] for d in matched)
@@ -1159,7 +1311,8 @@ def build_service_sheet(wb, demand, staff):
     r += 1
     ws.cell(row=r, column=1,
             value=(f'Night-Shift Blend accounts for the +{(NIGHT_DIFFERENTIAL - 1) * 100:.0f}% night-shift premium '
-                   'the Staff (Roster) sheet already prices (same NIGHT_DIFFERENTIAL) — without it, this flat citywide '
+                   "of a vendor's night post (the factor Existing mode's Staff (Roster) still uses) — without it, "
+                   'this flat citywide '
                    'reference would be systematically low against the roster for any category with real night-shift '
                    'headcount. Computed from THIS project\'s own Staffing Demand split, not copied from Staff (Roster).')
             ).font = Font(italic=True, size=9, color='7F7F7F')
@@ -2128,6 +2281,15 @@ STAFF_NECESSITY = {
     'Building Executive': ('Optional', 'Quality-supervision role — real breadth is 34/88 properties.'),
     'Amenities Attendant': ('Conditional', 'Only if the project has amenities beyond the pool (gym/BBQ/community room).'),
     'Pool Attendant': ('Conditional', 'Only if the project has a pool (Project Info "Has Swimming Pool?").'),
+    'Accountant': ('Must-Have', 'The management office keeps the accounts of the management fee and the funds.'),
+    'Cashier': ('Optional', 'Depends on the size of the office and how fees are collected.'),
+    'Operations Manager': ('Optional', 'A layer above the department heads on larger or higher-tier properties.'),
+    'Technical Secretary': ('Optional', 'Administrative support for a larger technical team.'),
+    # Must-Have as before the split, when they were costed inside Property Manager / Chief Engineer (the user's
+    # choice, 2026-10-18), so splitting them out does not lower the Must-Have headline.
+    'Assistant Property Manager': ('Must-Have', 'Part of the Property Manager function on the properties that staff it.'),
+    'Assistant Chief Engineer': ('Must-Have', 'Part of the Chief Engineer function on the properties that staff it.'),
+    'Customer Service Supervisor': ('Optional', 'Leads a larger customer service team.'),
 }
 CAPEX_NECESSITY = {
     'M&E Equipment': ('Must-Have', 'Includes fire-safety/PCCC gear, much of it legally required.'),

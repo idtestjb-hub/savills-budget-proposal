@@ -156,3 +156,51 @@ def test_statutory_holidays_are_article_112_only():
     assert len(vh.statutory_holidays(2027)) == 11
     assert len(vh.paid_days_of_year(2026)) == len(vh.paid_days_of_year(2027)) == 12
     assert len(vh.paid_days_of_year(2025)) == 11
+
+
+# --- working days: Mondays to Saturdays minus the paid holidays (change apply-head-of-pm-decisions-2026-10, D6) ---
+# Expected values worked by hand from the calendar, not from running the module:
+#  - 2027 starts on a Friday: 52 Sundays, 313 Mondays-Saturdays; 12 paid holidays, one on a Sunday (7 Feb, Tet),
+#    so 313 - 11 = 302. Per month as docs/30 D4 lists: 25, 20, 27, 24, 25, 26, 27, 26, 24, 26, 25, 27.
+#  - 2026 starts on a Thursday: 313 Mondays-Saturdays; a 2026 budget has 11 paid holidays (24/11 not yet in force on
+#    1 January), Hung Kings falls on Sunday 26 Apr, so 313 - 10 = 303.
+#  - Mondays-Fridays 2027: 261; holidays on a weekend: Sat 6 Feb, Sun 7 Feb, Sat 1 May, so 261 - 9 = 252.
+
+def test_working_days_2027_six_day_is_302():
+    assert vh.working_days(D(2027, 1, 1), D(2027, 12, 31), 6) == 302
+
+
+def test_working_days_2027_by_month_matches_docs_30():
+    months = vh.working_days_by_month(D(2027, 1, 1), D(2027, 12, 31), 6)
+    assert [k for k, _ in months] == [(2027, m) for m in range(1, 13)]
+    assert [n for _, n in months] == [25, 20, 27, 24, 25, 26, 27, 26, 24, 26, 25, 27]
+
+
+def test_working_days_2026_six_day_is_303():
+    assert vh.working_days(D(2026, 1, 1), D(2026, 12, 31), 6) == 303
+
+
+def test_working_days_september_2026_to_august_2027_is_302():
+    # docs/30 D4: "Kỳ 9/2026–8/2027 cũng là 302". 24/11/2026 counts (in force on 01/09/2026).
+    months = vh.working_days_by_month(D(2026, 9, 1), D(2027, 8, 31), 6)
+    assert sum(n for _, n in months) == 302
+    assert dict(months)[(2026, 11)] == 24          # 25 Mondays-Saturdays, minus Tuesday 24 November
+
+
+def test_a_seven_day_position_counts_six_days_per_person():
+    assert vh.working_days(D(2027, 1, 1), D(2027, 12, 31), 7) == 302
+
+
+def test_a_five_day_position_counts_mondays_to_fridays():
+    assert vh.working_days(D(2027, 1, 1), D(2027, 12, 31), 5) == 252
+
+
+def test_fewer_coverage_days_work_monday_to_the_nth_weekday():
+    assert vh.weekly_working_days(4) == frozenset({0, 1, 2, 3})
+    assert vh.weekly_working_days(7) == vh.weekly_working_days(6) == frozenset(range(6))
+
+
+@pytest.mark.parametrize('bad', [0, None, -1])
+def test_a_position_with_no_coverage_day_is_refused(bad):
+    with pytest.raises(ValueError):
+        vh.weekly_working_days(bad)

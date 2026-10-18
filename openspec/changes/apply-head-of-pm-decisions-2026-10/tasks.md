@@ -73,12 +73,12 @@ A/B movements (design D16).
 
 ## 5. New-prospect staff cost (D4, B2, D5, D6, D7)
 
-- [ ] 5.1 Add the working-day count to `vn_holidays` (302 for 2027 at 6 days; Monday–Friday for 5-day; 6 per person
+- [x] 5.1 Add the working-day count to `vn_holidays` (302 for 2027 at 6 days; Monday–Friday for 5-day; 6 per person
   for 7-day). Verify with unit tests for 2026, 2027 and Sep 2026–Aug 2027.
-- [ ] 5.2 Use the count for the new-prospect `A1` gross, `A1.1!E7:E11` and the input form's default daily rates, and
+- [x] 5.2 Use the count for the new-prospect `A1` gross, `A1.1!E7:E11` and the input form's default daily rates, and
   in the analysis roster (in place of 317). Existing mode is unchanged. Verify that both workbooks use the same count,
   that the Existing staff lines are unchanged, and an A/B.
-- [ ] 5.3 Fill `A1.1` for new prospects:
+- [x] 5.3 Fill `A1.1` for new prospects:
   - 24/7 = 7 coverage days and a D or 24H shift;
   - holiday staff = day staff per day;
   - night staff = night staff per day;
@@ -88,16 +88,16 @@ A/B movements (design D16).
 
   Set `EMH3` = `S13`, and `EMH2` to exclude `AC90`. Verify with a fixture position test and with `existing_detail_ties`
   now running on the standard sample (and failing on a forced double count).
-- [ ] 5.4 Make the analysis price night and holiday allowance per shift (no ×1.3 loading). Verify that its annual
+- [x] 5.4 Make the analysis price night and holiday allowance per shift (no ×1.3 loading). Verify that its annual
   allowance equals the deliverable's `EMH3` over the year.
-- [ ] 5.5 Generalise the `A1` overflow block to every group, PM included, and flag zero-pay rows. Verify with a fixture
+- [x] 5.5 Generalise the `A1` overflow block to every group, PM included, and flag zero-pay rows. Verify with a fixture
   with 2 Accountants and 2 PMs; `EMH2` includes them and check (d) passes.
-- [ ] 5.6 Add the analysis's missing categories (Accountant, Cashier, Operations Manager, Technical Secretary) and the A1
+- [x] 5.6 Add the analysis's missing categories (Accountant, Cashier, Operations Manager, Technical Secretary) and the A1
   per-person extras before the markup, from `a1_row_cost`'s constants. Remove the stale note and the dead function.
   Verify with unit tests on one in-house and one outsourced position.
-- [ ] 5.7 Flag a blank holiday and night-duty table in Existing mode (run output and `EMH3` remark). Verify on an
+- [x] 5.7 Flag a blank holiday and night-duty table in Existing mode (run output and `EMH3` remark). Verify on an
   Existing fixture with an empty table.
-- [ ] 5.8 Record group 5's movements per decision: D4, B2, D5 (compared with the +214.4M VND the PM saw), D6 and D7. Get
+- [x] 5.8 Record group 5's movements per decision: D4, B2, D5 (compared with the +214.4M VND the PM saw), D6 and D7. Get
   the user's sign-off.
 
 ## 6. Contingency (B6)

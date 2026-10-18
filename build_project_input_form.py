@@ -31,6 +31,9 @@ import tempfile
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protection
+
+import budget_period
+import vn_holidays
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.comments import Comment
 
@@ -109,12 +112,26 @@ _SQM_PER_CLEANER = "'Roster Setup'!$B$6"
 _TOWERS_PER_SUPERVISOR = "'Roster Setup'!$B$7"
 _SQM_PER_GARDENER = "'Roster Setup'!$B$8"
 
+# Default daily rate = monthly rate / the calendar working days a month of the default budget period (01-12/2027:
+# Mondays to Saturdays minus the paid holidays = 302, so 302/12 a month), the same count A1 and the analysis use
+# (change apply-head-of-pm-decisions-2026-10, D6). The form is built before the PM picks a start month, so the
+# defaults use the default period; the PM can overwrite any rate.
+_DEFAULT_PERIOD = budget_period.default()
+_WORKDAYS_PER_YEAR = vn_holidays.working_days(_DEFAULT_PERIOD.first_day, _DEFAULT_PERIOD.last_day, 6)
+_WORKDAYS_PER_MONTH = _WORKDAYS_PER_YEAR / 12
+_WORKDAYS_TEXT = f'{_WORKDAYS_PER_YEAR}/12 working days (2027 calendar)'
+
+
+def _daily(monthly):
+    return round(monthly / _WORKDAYS_PER_MONTH, -3)
+
+
 _SECURITY_MONTHLY_ALL_ROLES = 17_500_000  # Fact_MasterRateCard.csv: Service/Security "24/24 position (all roles)"
-_SECURITY_DAILY_PER_ROLE = round(_SECURITY_MONTHLY_ALL_ROLES / 3 / 26, -3)
+_SECURITY_DAILY_PER_ROLE = round(_SECURITY_MONTHLY_ALL_ROLES / 3 / _WORKDAYS_PER_MONTH, -3)
 _SECURITY_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Service/Security "24/24 position (all roles)" row — '
     f'{_SECURITY_MONTHLY_ALL_ROLES:,} VND/month covers all 3 shift roles for one post. '
-    f'Split 3 ways = {_SECURITY_MONTHLY_ALL_ROLES // 3:,}/month per role ÷ 26 working days ≈ {_SECURITY_DAILY_PER_ROLE:,.0f}/day.'
+    f'Split 3 ways = {_SECURITY_MONTHLY_ALL_ROLES // 3:,}/month per role ÷ {_WORKDAYS_TEXT} ≈ {_SECURITY_DAILY_PER_ROLE:,.0f}/day.'
 )
 _RATIO_NOTE = ('Formula-driven from Roster Setup!Staffing Ratios — an editable PM assumption, not a real '
                'benchmark (no dataset joins staff headcount to property scale for the same properties; see '
@@ -130,28 +147,28 @@ _RATIO_NOTE = ('Formula-driven from Roster Setup!Staffing Ratios — an editable
 # (n=458 vs n=25 for the English "Technician" label — same role, just counted separately by the source
 # extraction because the label differs).
 _PROPERTY_MANAGER_MONTHLY = 42_325_000  # Fact_MasterRateCard.csv, Staff domain, "Property Manager" row, n=7
-_PROPERTY_MANAGER_DAILY = round(_PROPERTY_MANAGER_MONTHLY / 26, -3)
+_PROPERTY_MANAGER_DAILY = round(_PROPERTY_MANAGER_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _PROPERTY_MANAGER_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Property Manager" row — {_PROPERTY_MANAGER_MONTHLY:,} VND/month '
-    f'(real, n=7 across the portfolio) ÷ 26 working days ≈ {_PROPERTY_MANAGER_DAILY:,.0f}/day. Admin hours (HC), not '
+    f'(real, n=7 across the portfolio) ÷ {_WORKDAYS_TEXT} ≈ {_PROPERTY_MANAGER_DAILY:,.0f}/day. Admin hours (HC), not '
     f'shift-based. Not scaled by project size — no real ratio ties PM headcount to scale, so this is a fixed, '
     f'PM-adjustable assumption (1 PM per project), same treatment as Reception.'
 )
 
 _TECHNICIAN_MONTHLY = 8_459_141  # Fact_MasterRateCard.csv, Staff domain, "Kỹ thuật viên" row, n=458 (largest sample in the whole card)
-_TECHNICIAN_DAILY = round(_TECHNICIAN_MONTHLY / 26, -3)
+_TECHNICIAN_DAILY = round(_TECHNICIAN_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _TECHNICIAN_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Kỹ thuật viên" (Technician) row — {_TECHNICIAN_MONTHLY:,} VND/month '
-    f'(real, n=458 — the largest single sample in the whole rate card) ÷ 26 working days ≈ {_TECHNICIAN_DAILY:,.0f}/day. '
+    f'(real, n=458 — the largest single sample in the whole rate card) ÷ {_WORKDAYS_TEXT} ≈ {_TECHNICIAN_DAILY:,.0f}/day. '
     f'Not scaled by project size (no real ratio found linking technician headcount to scale) — fixed at 1/shift, a '
     f'PM-adjustable starting point, same treatment as Security - CCTV Room.'
 )
 
 _POOL_ATTENDANT_MONTHLY = 7_166_250  # Fact_MasterRateCard.csv, Staff domain, "Gym - Pool Attendant" row, n=1
-_POOL_ATTENDANT_DAILY = round(_POOL_ATTENDANT_MONTHLY / 26, -3)
+_POOL_ATTENDANT_DAILY = round(_POOL_ATTENDANT_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _POOL_ATTENDANT_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Gym - Pool Attendant" row — {_POOL_ATTENDANT_MONTHLY:,} VND/month '
-    f'(real, n=1) ÷ 26 working days ≈ {_POOL_ATTENDANT_DAILY:,.0f}/day. A&K Tower\'s own real staffing plan runs this '
+    f'(real, n=1) ÷ {_WORKDAYS_TEXT} ≈ {_POOL_ATTENDANT_DAILY:,.0f}/day. A&K Tower\'s own real staffing plan runs this '
     f'role 2 shifts (Morning/Afternoon), pool closed Mondays — modeled here as 6-day coverage, but this template\'s '
     f'day-off convention is always Sunday (same as every other <7-day role) — it does NOT reproduce the real Monday '
     f'closure; edit by hand if that specific fidelity matters. Delete both rows if Project Info!B29 = No.'
@@ -169,47 +186,47 @@ _POOL_ATTENDANT_NOTE = (
 # Accountant 27/88, Cashier 12/88, Admin staff 10/88, Operations Manager 14/88) — those are
 # portfolio/corporate-level costs, not building-roster staffing, which is this template's scope.
 _CHIEF_ENGINEER_MONTHLY = 34_262_409  # Fact_MasterRateCard.csv, Staff domain, "Kỹ sư trưởng" row, n=61 (most common of the 3 label variants)
-_CHIEF_ENGINEER_DAILY = round(_CHIEF_ENGINEER_MONTHLY / 26, -3)
+_CHIEF_ENGINEER_DAILY = round(_CHIEF_ENGINEER_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _CHIEF_ENGINEER_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Kỹ sư trưởng" (Chief Engineer) row — {_CHIEF_ENGINEER_MONTHLY:,} '
-    f'VND/month (real, n=61 — present in 62 of 88 real properties, more common than Property Manager itself) ÷ 26 '
-    f'working days ≈ {_CHIEF_ENGINEER_DAILY:,.0f}/day. Admin hours (HC), senior oversight of the Technician team — '
+    f'VND/month (real, n=61 — present in 62 of 88 real properties, more common than Property Manager itself) ÷ '
+    f'{_WORKDAYS_TEXT} ≈ {_CHIEF_ENGINEER_DAILY:,.0f}/day. Admin hours (HC), senior oversight of the Technician team — '
     f'not scaled by project size, fixed 1/project, same treatment as Property Manager.'
 )
 
 _BUILDING_EXEC_MONTHLY = 15_298_818  # Fact_MasterRateCard.csv, Staff domain, "Giám sát chất lượng dịch vụ" row, n=73
-_BUILDING_EXEC_DAILY = round(_BUILDING_EXEC_MONTHLY / 26, -3)
+_BUILDING_EXEC_DAILY = round(_BUILDING_EXEC_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _BUILDING_EXEC_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Giám sát chất lượng dịch vụ" (Building Executive / service-quality '
-    f'supervisor) row — {_BUILDING_EXEC_MONTHLY:,} VND/month (real, n=73 — present in 34 of 88 real properties) ÷ 26 '
-    f'working days ≈ {_BUILDING_EXEC_DAILY:,.0f}/day. Admin hours (HC) — fixed 1/project, same treatment as Property Manager.'
+    f'supervisor) row — {_BUILDING_EXEC_MONTHLY:,} VND/month (real, n=73 — present in 34 of 88 real properties) ÷ '
+    f'{_WORKDAYS_TEXT} ≈ {_BUILDING_EXEC_DAILY:,.0f}/day. Admin hours (HC) — fixed 1/project, same treatment as Property Manager.'
 )
 
 _CUSTOMER_SERVICE_MONTHLY = 8_919_726  # Fact_MasterRateCard.csv, Staff domain, "Chăm sóc khách hàng" row, n=178 (largest sample of any new role added here)
-_CUSTOMER_SERVICE_DAILY = round(_CUSTOMER_SERVICE_MONTHLY / 26, -3)
+_CUSTOMER_SERVICE_DAILY = round(_CUSTOMER_SERVICE_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _CUSTOMER_SERVICE_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Chăm sóc khách hàng" (Customer Service) row — '
     f'{_CUSTOMER_SERVICE_MONTHLY:,} VND/month (real, n=178, present in 40 of 88 real properties — more common than '
-    f'Reception/Lễ Tân\'s 11/88) ÷ 26 working days ≈ {_CUSTOMER_SERVICE_DAILY:,.0f}/day. Added alongside Reception, not '
+    f'Reception/Lễ Tân\'s 11/88) ÷ {_WORKDAYS_TEXT} ≈ {_CUSTOMER_SERVICE_DAILY:,.0f}/day. Added alongside Reception, not '
     f'replacing it — real buildings commonly run both as distinct roles (front-desk/access vs resident relations). '
     f'Same admin-hours, 7-day treatment as Reception.'
 )
 
 _SHIFT_LEADER_MONTHLY = 11_541_695  # Fact_MasterRateCard.csv, Staff domain, "Trưởng Ca" row, n=138 (largest sample of any new role added here)
-_SHIFT_LEADER_DAILY = round(_SHIFT_LEADER_MONTHLY / 26, -3)
+_SHIFT_LEADER_DAILY = round(_SHIFT_LEADER_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _SHIFT_LEADER_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Trưởng Ca" (Shift Leader / on-duty manager) row — '
-    f'{_SHIFT_LEADER_MONTHLY:,} VND/month (real, n=138 — present in 48 of 88 real properties) ÷ 26 working days ≈ '
+    f'{_SHIFT_LEADER_MONTHLY:,} VND/month (real, n=138 — present in 48 of 88 real properties) ÷ {_WORKDAYS_TEXT} ≈ '
     f'{_SHIFT_LEADER_DAILY:,.0f}/day. Cross-department on-duty supervisor covering the property when Property '
     f'Manager/Chief Engineer aren\'t on-site — modeled 3 shifts like Security/Technician since the role\'s whole point '
     f'is round-the-clock presence. Not scaled by project size, fixed 1/shift.'
 )
 
 _AMENITIES_ATTENDANT_MONTHLY = 7_988_816  # Fact_MasterRateCard.csv, Staff domain, "Nhân viên tiện ích" row, n=91
-_AMENITIES_ATTENDANT_DAILY = round(_AMENITIES_ATTENDANT_MONTHLY / 26, -3)
+_AMENITIES_ATTENDANT_DAILY = round(_AMENITIES_ATTENDANT_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _AMENITIES_ATTENDANT_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Nhân viên tiện ích" (Amenities Attendant) row — '
-    f'{_AMENITIES_ATTENDANT_MONTHLY:,} VND/month (real, n=91, present in 24 of 88 real properties) ÷ 26 working days ≈ '
+    f'{_AMENITIES_ATTENDANT_MONTHLY:,} VND/month (real, n=91, present in 24 of 88 real properties) ÷ {_WORKDAYS_TEXT} ≈ '
     f'{_AMENITIES_ATTENDANT_DAILY:,.0f}/day. Broader than Pool Attendant — covers gym/BBQ/community-room amenities '
     f'beyond just the pool. 2 shifts (Morning/Afternoon), 6-day coverage — no real per-project ops note found for '
     f'which specific day is off (unlike Pool Attendant\'s documented Monday closure), so this uses the template\'s '
@@ -257,8 +274,9 @@ EXAMPLE_DEMAND = [
      _POOL_ATTENDANT_DAILY, _POOL_ATTENDANT_NOTE),
     ('Amenities Attendant (Morning)', 'S', 0, 6, _AMENITIES_ATTENDANT_DAILY, _AMENITIES_ATTENDANT_NOTE),
     ('Amenities Attendant (Afternoon)', 'C', 0, 6, _AMENITIES_ATTENDANT_DAILY, _AMENITIES_ATTENDANT_NOTE),
-    ('Gardener / Landscape', 'HC', f'=ROUNDUP({_GARDEN_AREA}/{_SQM_PER_GARDENER},0)', 6, 423000,
-     'Source: Fact_MasterRateCard.csv, Service/Landscape "8/24 position" row — 11,000,000 VND/month ÷ 26 ≈ 423,000/day. Delete this row if no garden. ' + _RATIO_NOTE),
+    ('Gardener / Landscape', 'HC', f'=ROUNDUP({_GARDEN_AREA}/{_SQM_PER_GARDENER},0)', 6, _daily(11_000_000),
+     f'Source: Fact_MasterRateCard.csv, Service/Landscape "8/24 position" row — 11,000,000 VND/month ÷ {_WORKDAYS_TEXT} '
+     f'≈ {_daily(11_000_000):,.0f}/day. Delete this row if no garden. ' + _RATIO_NOTE),
 
     # Added 2026-09-09. The 2027 Resi template carries staff-cost rows for 13 position codes; this
     # form only ever shipped 6 of them, so APM/OM/CSS/ACC/CSR/ACE/ADCE could not be costed at all —
@@ -266,29 +284,34 @@ EXAMPLE_DEMAND = [
     # STAFF = 0, which costs nothing and reads as a deliberate "this project has none" rather than
     # an omission. Enter a headcount to include one.
     # Rates are real, from Fact_MasterRateCard.csv (Staff domain), converted the same way as every
-    # other row on this sheet: monthly ÷ 26 working days, rounded to the nearest 1,000. Each note
-    # carries the source row and its sample size, so a thin one is visible as thin.
-    ('Assistant Property Manager', 'HC', 0, 6, 654000,
-     'Trợ lý Trưởng Ban Quản Lý (template code APM). Real: Fact_MasterRateCard.csv "Trợ lý trưởng ban quản lý" '
-     '17,000,000 VND/month (n=2 — thin) ÷ 26 ≈ 654,000/day. Ships at 0 — enter a headcount if this project has one.'),
-    ('Operations Manager', 'HC', 0, 6, 1015000,
-     'Quản lý vận hành (template code OM). Real: Fact_MasterRateCard.csv "Quản lý vận hành" 26,395,822 VND/month '
-     '(n=14) ÷ 26 ≈ 1,015,000/day. Ships at 0 — enter a headcount if this project has one.'),
-    ('Customer Service Supervisor', 'HC', 0, 6, 548000,
-     'Trưởng nhóm Chăm sóc khách hàng (template code CSS). Real: Fact_MasterRateCard.csv "Trưởng nhóm Chăm Sóc '
-     'Khách Hàng" 14,240,818 VND/month (n=10) ÷ 26 ≈ 548,000/day. Ships at 0 — enter a headcount if needed.'),
-    ('Accountant', 'HC', 0, 6, 522000,
-     'Kế toán (template code ACC). Real: Fact_MasterRateCard.csv "Kế toán" 13,574,175 VND/month (n=54 — the '
-     'best-evidenced staff rate in the table) ÷ 26 ≈ 522,000/day. Ships at 0 — enter a headcount if needed.'),
-    ('Cashier', 'HC', 0, 6, 386000,
-     'Thủ quỹ (template code CSR). Real: Fact_MasterRateCard.csv "Thủ Quỹ" 10,028,473 VND/month (n=13) ÷ 26 '
-     '≈ 386,000/day. Ships at 0 — enter a headcount if needed.'),
-    ('Assistant Chief Engineer', 'HC', 0, 6, 670000,
-     'Trợ lý Kỹ sư trưởng (template code ACE). Real: Fact_MasterRateCard.csv "Trợ lý Kỹ sư trưởng" 17,427,160 '
-     'VND/month (n=24) ÷ 26 ≈ 670,000/day. Ships at 0 — enter a headcount if needed.'),
-    ('Technical Secretary', 'HC', 0, 6, 413000,
-     'Thư ký bộ phận Kỹ thuật (template code ADCE). Real: Fact_MasterRateCard.csv "Thư ký Bộ phận kỹ thuật" '
-     '10,737,610 VND/month (n=4 — thin) ÷ 26 ≈ 413,000/day. Ships at 0 — enter a headcount if needed.'),
+    # other row on this sheet: monthly ÷ the default period's working days a month (_daily), rounded
+    # to the nearest 1,000. Each note carries the source row and its sample size, so a thin one is
+    # visible as thin.
+    ('Assistant Property Manager', 'HC', 0, 6, _daily(17_000_000),
+     f'Trợ lý Trưởng Ban Quản Lý (template code APM). Real: Fact_MasterRateCard.csv "Trợ lý trưởng ban quản lý" '
+     f'17,000,000 VND/month (n=2 — thin) ÷ {_WORKDAYS_TEXT} ≈ {_daily(17_000_000):,.0f}/day. Ships at 0 — enter a '
+     f'headcount if this project has one.'),
+    ('Operations Manager', 'HC', 0, 6, _daily(26_395_822),
+     f'Quản lý vận hành (template code OM). Real: Fact_MasterRateCard.csv "Quản lý vận hành" 26,395,822 VND/month '
+     f'(n=14) ÷ {_WORKDAYS_TEXT} ≈ {_daily(26_395_822):,.0f}/day. Ships at 0 — enter a headcount if this project has one.'),
+    ('Customer Service Supervisor', 'HC', 0, 6, _daily(14_240_818),
+     f'Trưởng nhóm Chăm sóc khách hàng (template code CSS). Real: Fact_MasterRateCard.csv "Trưởng nhóm Chăm Sóc '
+     f'Khách Hàng" 14,240,818 VND/month (n=10) ÷ {_WORKDAYS_TEXT} ≈ {_daily(14_240_818):,.0f}/day. Ships at 0 — enter a '
+     f'headcount if needed.'),
+    ('Accountant', 'HC', 0, 6, _daily(13_574_175),
+     f'Kế toán (template code ACC). Real: Fact_MasterRateCard.csv "Kế toán" 13,574,175 VND/month (n=54 — the '
+     f'best-evidenced staff rate in the table) ÷ {_WORKDAYS_TEXT} ≈ {_daily(13_574_175):,.0f}/day. Ships at 0 — enter a '
+     f'headcount if needed.'),
+    ('Cashier', 'HC', 0, 6, _daily(10_028_473),
+     f'Thủ quỹ (template code CSR). Real: Fact_MasterRateCard.csv "Thủ Quỹ" 10,028,473 VND/month (n=13) ÷ '
+     f'{_WORKDAYS_TEXT} ≈ {_daily(10_028_473):,.0f}/day. Ships at 0 — enter a headcount if needed.'),
+    ('Assistant Chief Engineer', 'HC', 0, 6, _daily(17_427_160),
+     f'Trợ lý Kỹ sư trưởng (template code ACE). Real: Fact_MasterRateCard.csv "Trợ lý Kỹ sư trưởng" 17,427,160 '
+     f'VND/month (n=24) ÷ {_WORKDAYS_TEXT} ≈ {_daily(17_427_160):,.0f}/day. Ships at 0 — enter a headcount if needed.'),
+    ('Technical Secretary', 'HC', 0, 6, _daily(10_737_610),
+     f'Thư ký bộ phận Kỹ thuật (template code ADCE). Real: Fact_MasterRateCard.csv "Thư ký Bộ phận kỹ thuật" '
+     f'10,737,610 VND/month (n=4 — thin) ÷ {_WORKDAYS_TEXT} ≈ {_daily(10_737_610):,.0f}/day. Ships at 0 — enter a '
+     f'headcount if needed.'),
 ]
 
 HEADER_FILL = PatternFill('solid', fgColor='1F4E78')

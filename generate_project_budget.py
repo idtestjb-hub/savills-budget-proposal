@@ -46,6 +46,7 @@ from estimate_opex import estimate_opex
 from estimate_capex_qty import estimate_capex_items
 from input_labels import SheetLabels, normalise
 import budget_period
+import vn_holidays
 import utility_tariffs
 import existing_staffing
 import existing_utilities
@@ -1841,6 +1842,35 @@ def _eff_headcount(d):
     return math.ceil(p * 7 / 6) if q >= 7 else p
 
 
+def _period_of(project):
+    return project.get('budget_period') or budget_period.default()
+
+
+def period_workdays(period, coverage_days, position=None):
+    """One person's working days in the budget period for a position covered `coverage_days` a week: the calendar
+    count (Mondays to Saturdays minus the paid holidays; 302 for 2027). New prospects only, in both workbooks; Existing
+    mode keeps WORKDAYS_PER_MONTH (change apply-head-of-pm-decisions-2026-10, D6 and G2-a). A staffed position with
+    no coverage day stops the run and is named."""
+    try:
+        return vn_holidays.working_days(period.first_day, period.last_day, coverage_days)
+    except ValueError as exc:
+        if position:
+            raise ValueError(f"Staffing Demand '{position}': {exc}") from None
+        raise
+
+
+def _new_prospect_monthly_gross(rows, period):
+    """Headcount-weighted monthly gross of a new prospect's demand rows: each row's daily rate x its working days in
+    the period / 12, paid evenly over the twelve months (docs/30 D4-a). Rows with no headcount weigh nothing."""
+    staffed = [d for d in rows if _eff_headcount(d)]
+    total = sum(_eff_headcount(d) for d in staffed)
+    if not total:
+        return 0
+    return round(sum(_eff_headcount(d) * d['AvgDailyRate']
+                     * period_workdays(period, d['CoverageDays'], d['Position'])
+                     for d in staffed) / total / 12)
+
+
 # Vietnamese label / short code for a position with no predefined row-group on 'A1. Staff cost' —
 # used only when fill_staff_cost_sheet() gives it a real row (see _A1_UNPLACED_FIRST_ROW). Falls
 # back to the raw English name / its first 2 letters for a position not in this small, known set.
@@ -1856,7 +1886,7 @@ _UNPLACED_POSITION_CODE = {'Reception': 'LT'}
 _A1_UNPLACED_FIRST_ROW = 98
 
 
-def _unplaced_positions(demand):
+def _unplaced_positions(demand, period=None):
     """Demand rows naming a position that is neither an outsourced Security/Cleaning/Landscape
     contract (SERVICE_CATEGORY_KEYWORDS) nor one of 'A1. Staff cost'\'s own predefined row-groups
     (STAFF_COST_KEYWORDS / STAFF_COST_AA_KEYWORDS) — today: Reception, which otherwise only
@@ -1867,7 +1897,8 @@ def _unplaced_positions(demand):
     Returns [(position_name, effective_headcount, monthly_gross)] in first-seen order — this order
     IS the row order fill_staff_cost_sheet() writes starting at _A1_UNPLACED_FIRST_ROW, and the
     only thing fill_management_fund_sheet() needs from this list is len(...), to size EMH2's SUM
-    range over those rows.
+    range over those rows. `period` is the budget period the monthly gross is counted in (default
+    01-12/2027).
     """
     from generate_project_output import SERVICE_CATEGORY_KEYWORDS
     outsourced_kws = [kw for kws in SERVICE_CATEGORY_KEYWORDS.values() for kw in kws]
@@ -1887,11 +1918,55 @@ def _unplaced_positions(demand):
         total_headcount = sum(_eff_headcount(d) for d in rows_for_name)
         if total_headcount == 0:
             continue
-        weighted_daily = (sum(_eff_headcount(d) * d['AvgDailyRate'] for d in rows_for_name)
-                          / total_headcount)
-        monthly_gross = round(weighted_daily * WORKDAYS_PER_MONTH)
+        monthly_gross = _new_prospect_monthly_gross(rows_for_name, period or budget_period.default())
         result.append((name, total_headcount, monthly_gross))
     return result
+
+
+def _new_prospect_groups(demand, period):
+    """[(A1 row-group key, A1 code, headcount, per-person monthly gross)] for every A1 row-group with staff, in the
+    template's order (STAFF_COST_KEYWORDS, then the pool and gym groups, both code 'AA')."""
+    out = []
+    groups = [(code, code, kws, STAFF_COST_EXCLUDE.get(code, ())) for code, kws in STAFF_COST_KEYWORDS.items()]
+    groups += [(f'AA_{suffix.upper()}', 'AA', kws, ()) for suffix, kws in STAFF_COST_AA_KEYWORDS.items()]
+    for key, code, keywords, exclude in groups:
+        matched = [d for d in demand
+                   if any(kw in d['Position'].lower() for kw in keywords)
+                   and not any(x in d['Position'].lower() for x in exclude)]
+        headcount = sum(_eff_headcount(d) for d in matched)
+        if headcount:
+            out.append((key, code, headcount, _new_prospect_monthly_gross(matched, period)))
+    return out
+
+
+def _new_prospect_below_rows(demand, period, rows_by_code, labels=None):
+    """[(label, A1 code, monthly gross)], one per head, for A1's block below the table (from _A1_UNPLACED_FIRST_ROW):
+    the unplaced positions first, then each group's heads beyond its template rows. `labels` maps a row-group key to
+    the label its extra rows carry (default: the group's code)."""
+    out = [(_UNPLACED_POSITION_VI.get(name, name), _unplaced_code_of(name), mg)
+           for name, hc, mg in _unplaced_positions(demand, period) for _ in range(hc)]
+    for key, code, headcount, mg in _new_prospect_groups(demand, period):
+        extra = headcount - len(rows_by_code.get(key, []))
+        label = (labels or {}).get(key, code)
+        out += [(f'{label} (thêm {k + 1})', code, mg) for k in range(max(0, extra))]
+    return out
+
+
+def _a1_group_labels(ws, rows_by_code):
+    """Each A1 row-group's label for its extra rows: its first template row's label up to the first digit
+    ('Kỹ thuật viên 1' -> 'Kỹ thuật viên')."""
+    return {key: re.split(r'\s*\d', str(ws.cell(row=rows[0], column=2).value or key).strip())[0].strip() or key
+            for key, rows in rows_by_code.items()}
+
+
+def _zero_pay_positions(demand, period):
+    """In-house positions with staff whose A1 monthly gross is 0, by name, in first-seen order (flagged, not skipped)."""
+    names = []
+    for d in demand:
+        if (_eff_headcount(d) and not _is_outsourced(d['Position'])
+                and not _new_prospect_monthly_gross([d], period) and d['Position'] not in names):
+            names.append(d['Position'])
+    return names
 
 
 # ---- Existing-project mode (change carry-forward-staffing) -----------------------------------
@@ -1925,7 +2000,8 @@ def _unplaced_code_of(position):
 
 
 def _monthly_gross_of(rows):
-    """Headcount-weighted monthly gross of demand rows — group_stats()'s own conversion."""
+    """Headcount-weighted monthly gross of demand rows, for Existing mode's new positions: still the template's 25
+    days a month, so Existing staff lines do not move (G2-a). New prospects use _new_prospect_monthly_gross()."""
     total = sum(_eff_headcount(d) for d in rows)
     if not total:
         return 0
@@ -2007,6 +2083,103 @@ A5_SHEET = 'A5. Trợ cấp PCCC'
 _A11_EXTRA_FIRST_ROW = 15     # below A1.1's row 13 total
 _A5_EXTRA_FIRST_ROW = 10      # below A5's row 8 total
 _A5_TEAM_ROWS = {5: 'Đội trưởng', 6: 'Đội phó', 7: 'Thành viên'}
+
+
+# ---- A new prospect's holiday and night allowance on A1.1 (change apply-head-of-pm-decisions-2026-10, group 5, D5) --
+# Counts come from Staffing Demand (docs/30 B2 + D5, the user's choices of 2026-10-18):
+#  - night work, 30% on normal nights and 390% on holiday nights: the staff per day on D and 24H shifts, for any
+#    in-house position with a night shift;
+#  - day work on a holiday, 300%: only for a position on 7-day coverage that has a night shift ("trực 24/7", B2-a);
+#    its holiday day staff = the staff per day of every shift that is not a night shift (morning + afternoon), 24H
+#    staff included (a 24H post works both the day and the night).
+# Outsourced Security / Cleaning / Landscape are not on A1.1. Codes CS, BE, TDS, TN and AA have a template row (7-11);
+# any other qualifying code gets its own row below the table, from _A11_EXTRA_FIRST_ROW, with A1.1's own formulas and
+# a total row, as Existing mode's extra rows do. Existing mode never comes here (G2-a).
+_A11_NIGHT_SHIFTS = {'D', '24H'}
+_A11_TABLE_ROWS = {'CS': 7, 'BE': 8, 'TDS': 9, 'TN': 10, 'AA': 11}
+
+
+def _a11_code_of(position):
+    """The A1.1 code of an in-house position: its A1 code (both AA groups share 'AA'), else its unplaced A1 code."""
+    group = _a1_group_of(position)
+    if group is None:
+        return _unplaced_code_of(position)
+    return 'AA' if group.startswith('AA_') else group
+
+
+def _shift_of(d):
+    return str(d.get('ShiftCode') or '').strip().upper()
+
+
+def _new_prospect_duty(demand, period):
+    """[existing_staffing.DutyRow] for every in-house position group with a night shift, in first-seen order. `gross`
+    is the group's per-person A1 gross (_new_prospect_monthly_gross)."""
+    groups = {}
+    for d in demand:
+        if not d.get('StaffPerDay') or _is_outsourced(d['Position']):
+            continue
+        groups.setdefault(_a11_code_of(d['Position']), []).append(d)
+    out = []
+    for code, rows in groups.items():
+        night = sum(d['StaffPerDay'] for d in rows if _shift_of(d) in _A11_NIGHT_SHIFTS)
+        if not night:
+            continue
+        seven_day = max(d['CoverageDays'] or 0 for d in rows) >= 7
+        day = sum(d['StaffPerDay'] for d in rows if _shift_of(d) != 'D') if seven_day else 0
+        out.append(existing_staffing.DutyRow(code, night, night, day,
+                                             gross=_new_prospect_monthly_gross(rows, period)))
+    return out
+
+
+def _new_prospect_a11_total_row(duty):
+    """A1.1's total row when some qualifying code has no template row (its rows sit below the table), else None."""
+    extra = [d for d in duty if d.code not in _A11_TABLE_ROWS]
+    return _A11_EXTRA_FIRST_ROW + len(extra) if extra else None
+
+
+def _fill_new_prospect_a11(wb, duty, period):
+    """Write a new prospect's duty counts on A1.1: the period's day counts (H6/L6/P6), CS's gross lookup (D7, blank in
+    the template), the counts of codes with a template row, and a row per other qualifying code below the table."""
+    if A11_SHEET not in wb.sheetnames:
+        return
+    a11 = wb[A11_SHEET]
+    money_fmt = '#,##0'
+    n = len(vn_holidays.paid_holidays_in_period(period.first_day, period.last_day))
+    a11['H6'], a11['L6'], a11['P6'] = (period.last_day - period.first_day).days + 1 - n, n, n
+    a1 = f"'{STAFF_COST_SHEET}'"
+    a11['D7'] = f"=_xlfn.XLOOKUP(C7,{a1}!$D$15:$D$88,{a1}!$I$15:$I$88)"
+    workdays = f'={period_workdays(period, 6)}/12'
+    for d in duty:
+        r = _A11_TABLE_ROWS.get(d.code)
+        if r is None:
+            continue
+        found = str(a11.cell(row=r, column=3).value or '').strip()
+        if found != d.code:
+            raise ValueError(f"'{A11_SHEET}' row {r} is code {found!r}, not {d.code!r}.")
+        a11.cell(row=r, column=7, value=d.night_normal or None)
+        a11.cell(row=r, column=11, value=d.night_holiday or None)
+        a11.cell(row=r, column=15, value=d.day_holiday or None)
+    extra = [d for d in duty if d.code not in _A11_TABLE_ROWS]
+    for i, d in enumerate(extra):
+        r = _A11_EXTRA_FIRST_ROW + i
+        # A1's code column reaches the unplaced rows below its table (row 98 on), so the lookup covers them too.
+        look = lambda col: f"=_xlfn.XLOOKUP(C{r},{a1}!$D$15:$D$140,{a1}!${col}$15:${col}$140)"
+        values = {1: len(_A11_TABLE_ROWS) + i + 1, 2: look('B'), 3: d.code, 4: look('I'), 5: workdays,
+                  6: f'=IF(E{r}<26,D{r}/E{r},D{r}/26)',
+                  7: d.night_normal or None, 8: f'=IF(G{r}>0,$H$6*G{r},0)', 9: '=$I$6', 10: f'=I{r}*H{r}*F{r}',
+                  11: d.night_holiday or None, 12: f'=IF(K{r}>0,$L$6*K{r},0)', 13: '=$M$6', 14: f'=M{r}*L{r}*F{r}',
+                  15: d.day_holiday or None, 16: f'=IF(O{r}>0,$P$6*O{r},0)', 17: '=$Q$6', 18: f'=Q{r}*P{r}*F{r}',
+                  19: f'=R{r}+N{r}+J{r}', 20: f'=S{r}/$T$2',
+                  21: 'Vị trí trực có ca đêm, không có dòng sẵn trong bảng trên: thêm dòng với cùng công thức.'}
+        for col, v in values.items():
+            c = a11.cell(row=r, column=col, value=v)
+            if col in (4, 6, 10, 14, 18, 19, 20):
+                c.number_format = money_fmt
+    t = _new_prospect_a11_total_row(duty)
+    if t is not None:
+        a11.cell(row=t, column=2, value='Tổng EMH3/tháng (dòng 13 cộng các dòng trên)').font = Font(bold=True)
+        a11.cell(row=t, column=20,
+                 value=f'=S13+SUM(T{_A11_EXTRA_FIRST_ROW}:T{t - 1})').number_format = money_fmt
 
 
 def _existing_detail_layout(result, layout):
@@ -2338,32 +2511,37 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # _A1_UNPLACED_FIRST_ROW, using A1's own exact formula chain (not a Python replica) — so its
     # cost is a live, auditable, editable Excel calculation, not a number hidden inside this
     # formula string. This cell only needs to know how many such rows exist, to size the SUM range.
-    unplaced = _unplaced_positions(demand)
-    top_up_names = [name for name, _hc, _mg in unplaced]
-    # fill_staff_cost_sheet() writes ONE ROW PER HEADCOUNT UNIT (2 headcount => 2 rows), the same
-    # per-person write fill_group() does for every other position — so the SUM range here must span
-    # total headcount, not the number of distinct position names, or it silently drops headcount.
-    total_unplaced_rows = sum(hc for _n, hc, _mg in unplaced)
+    # The block below A1's table also holds every group's heads beyond its template rows (D7), so the SUM range spans
+    # every row fill_staff_cost_sheet() writes there — one per head, never one per position name.
+    _a1_ws = wb[STAFF_COST_SHEET]
+    _a1_groups = _a1_rows_by_group(_a1_ws)
+    below_rows = _new_prospect_below_rows(demand, _period_of(project), _a1_groups, _a1_group_labels(_a1_ws, _a1_groups))
+    top_up_names = list(dict.fromkeys(re.sub(r' \(thêm \d+\)$', '', label) for label, _c, _g in below_rows))
+    total_unplaced_rows = len(below_rows)
 
     assert_row_code('staff_remainder', 'EMH2')
     emh2_row = MGMT_FUND_ROWS['staff_remainder']
     ws.cell(row=emh2_row, column=3, value='Monthly')                    # C — Frequency
     a1_ref = "'A1. Staff cost 08.2026 (VN)'"
+    # A1's total (AC96) already holds A1.1's allowance (AC90 = A1.1!S13, for AC95 months); EMH3 carries that allowance,
+    # so EMH2 leaves it out, in Existing mode's form (change apply-head-of-pm-decisions-2026-10, D5).
+    a1_base = f"{a1_ref}!AC96-{a1_ref}!AC90*{a1_ref}!AC95"
     if total_unplaced_rows:
         last_unplaced_row = _A1_UNPLACED_FIRST_ROW + total_unplaced_rows - 1
         unplaced_range = (f"{a1_ref}!AC{_A1_UNPLACED_FIRST_ROW}"
                           if total_unplaced_rows == 1 else
                           f"SUM({a1_ref}!AC{_A1_UNPLACED_FIRST_ROW}:AC{last_unplaced_row})")
-        emh2_formula = f"=({a1_ref}!AC96+{unplaced_range}*12)/12"
+        emh2_formula = f"=({a1_base}+{unplaced_range}*12)/12"
     else:
-        emh2_formula = f"={a1_ref}!AC96/12"
+        emh2_formula = f"=({a1_base})/12"
     f_cell = ws.cell(row=emh2_row, column=6, value=emh2_formula)        # F — Unit Price (formula)
     f_cell.number_format = _NUM_FMT
     for col in range(8, 20):                                            # H:S — same formula, shown
         c = ws.cell(row=emh2_row, column=col, value=emh2_formula)       # every month for transparency
         c.number_format = _NUM_FMT
     _write_remark(ws, emh2_row, (
-        f"= 'A1. Staff cost 08.2026 (VN)'!AC96 — tổng quỹ lương thực tế cả năm của chính trang này, "
+        f"= 'A1. Staff cost 08.2026 (VN)'!AC96 trừ phụ cấp ca đêm/ngày lễ (AC90 x AC95, tính riêng ở EMH3) "
+        f"— tổng quỹ lương thực tế cả năm của chính trang này, "
         f"cho mọi vị trí theo đúng nhóm dòng đã định sẵn (lương tháng 13, BHXH/BHYT người sử dụng "
         f"lao động 20,5% và Bảo hiểm thất nghiệp 1% đã tính trần, Kinh phí công đoàn 2%, các khoản "
         f"phụ cấp riêng của từng vị trí, toàn bộ chi phí người sử dụng lao động cộng thêm "
@@ -3229,6 +3407,13 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
             )
         if _code == 'EMH3' and _existing_emh3_priced(existing):
             continue    # priced in Existing-project mode (_write_existing_staff_lines)
+        if _code == 'EMH3' and not existing:
+            continue    # a new prospect's EMH3 comes from A1.1 (_write_new_prospect_emh3)
+        if _code == 'EMH3' and not existing.duty:
+            _write_zero_reason(ws, _row, _code, (
+                f"{existing_staffing.BLANK_DUTY_TEXT}, và NS {existing.prior_year} không có số EMH3 đã duyệt, nên "
+                f"EMH3 = 0. Nếu dự án có trực đêm hoặc làm ngày lễ, PM điền bảng này rồi chạy lại."))
+            continue
         _write_zero_reason(ws, _row, _code, (
             f"{_FLAGGED_NO_METHOD_VI[_code]} Không tự đặt ra số liệu — đã được rà soát "
             f"và ghi nhận đầy đủ."))
@@ -3265,9 +3450,47 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
 
     if existing:
         _write_existing_staff_lines(ws, existing, existing_layout)
+    else:
+        _write_new_prospect_emh3(ws, demand, _period_of(project))
 
 
 _FUND_EMH3_ROW = 84
+
+
+def _write_new_prospect_emh3(ws, demand, period):
+    """A new prospect's EMH3 on '2. Budget-Management Fund': A1.1's monthly total (S13, or its total row when a
+    qualifying code sits below the table), or 0 with the reason when no in-house position has a night shift
+    (change apply-head-of-pm-decisions-2026-10, D5)."""
+    found = str(ws.cell(row=_FUND_EMH3_ROW, column=_CODE_COL).value or '').strip()
+    if found != 'EMH3':
+        raise ValueError(f"'2. Budget-Management Fund' row {_FUND_EMH3_ROW} is {found!r}, not EMH3.")
+    duty = _new_prospect_duty(demand, period)
+    if not duty:
+        _write_zero_reason(ws, _FUND_EMH3_ROW, 'EMH3', (
+            "Staffing Demand không có vị trí nội bộ nào làm ca đêm (ca D hoặc 24H), nên không có phụ cấp ca đêm, "
+            "ca đêm ngày lễ và ca ngày ngày lễ theo Điều 98 Bộ luật Lao động 2019."))
+        return
+    t = _new_prospect_a11_total_row(duty)
+    formula = f"='{A11_SHEET}'!S13" if t is None else f"='{A11_SHEET}'!T{t}"
+    ws.cell(row=_FUND_EMH3_ROW, column=3, value='Monthly')
+    for col in [6] + list(range(8, 20)):
+        ws.cell(row=_FUND_EMH3_ROW, column=col, value=formula).number_format = _NUM_FMT
+    n = len(vn_holidays.paid_holidays_in_period(period.first_day, period.last_day))
+    nights = (period.last_day - period.first_day).days + 1 - n
+    wd = period_workdays(period, 6)
+
+    def who(d):
+        parts = [f"{d.night_normal} người trực đêm"]
+        if d.day_holiday:
+            parts.append(f"{d.day_holiday} người ca ngày dịp lễ")
+        return f"{d.code} ({', '.join(parts)})"
+    _write_remark(ws, _FUND_EMH3_ROW, (
+        f"= '{A11_SHEET}'!" + ('S13' if t is None else f"T{t} (dòng 13 cộng các dòng thêm bên dưới)")
+        + f" — phụ cấp làm ca đêm ngày thường (30%, {nights} đêm), ca đêm ngày lễ (390%, {n} đêm) và ca ngày "
+          f"ngày lễ (300%, {n} ngày) theo Điều 98 Bộ luật Lao động 2019, tính trên lương ngày = lương gộp trên A1 / "
+          f"({wd}/12) ngày công. Số người trực lấy từ Staffing Demand: {', '.join(who(d) for d in duty)}. Ca ngày "
+          f"dịp lễ chỉ tính cho vị trí trực 7 ngày/tuần có ca đêm (ca sáng và ca chiều cộng lại); vị trí chỉ làm ca "
+          f"ngày không tính. A1 đã gồm khoản này ở AC90, nên EMH2 trừ ra để không tính hai lần."))
 
 
 def _existing_emh3_priced(existing):
@@ -3346,8 +3569,10 @@ def _write_existing_staff_lines(ws, existing, layout):
         else:
             put(_FUND_EMH3_ROW, f"={a11_ref}!T{t}")
             base = (f"= '{A11_SHEET}'!T{t}: dòng 13 ("
-                    + (duty_text if emh3.kind == 'duty' else 'bảng trực ca đêm/ngày lễ để trống')
+                    + (duty_text if emh3.kind == 'duty' else 'bằng 0')
                     + f") cộng dòng {_rows_text(detail['EMH3'])}.")
+        if not existing.duty:
+            base = f"{existing_staffing.BLANK_DUTY_TEXT}. {base}"
         remark(_FUND_EMH3_ROW, 'EMH3', base)
 
     # EMH4 — A5's total row when carried forward or overridden; left to the template otherwise.
@@ -3679,11 +3904,14 @@ def fill_common_area_fund_sheet(wb, project):
 # row-group in this sheet at all (it lives on the dedicated "B1. Lịch Lễ tân" sheet instead).
 # APM/OM/CSS/ACC/CSR/ACE/ADCE genuinely aren't in Blue Skyline's current Staffing Demand — left
 # blank rather than invented; add those positions to Staffing Demand first if they should be
-# costed. Real 25-workdays/month conversion sourced from this same template's own
-# "A1.1 Allowance (From 08.2026)" sheet (E7=25), not assumed. Night-shift/holiday premiums are NOT
-# folded in here — they're what that Allowance sheet's own formulas already exist to compute.
+# costed. Daily rate to monthly gross: the daily rate x the person's calendar working days in the
+# budget period / 12 (period_workdays(); 302 / 12 for 2027 — change apply-head-of-pm-decisions-2026-10,
+# D6). Night-shift/holiday premiums are NOT folded in here — they're what that Allowance sheet's own
+# formulas already exist to compute.
 STAFF_COST_SHEET = 'A1. Staff cost 08.2026 (VN)'
-WORKDAYS_PER_MONTH = 25  # real — 'A1.1 Allowance (From 08.2026)'!E7 in this same template
+# Existing mode only (its new positions, through _monthly_gross_of): the template's 'A1.1 Allowance
+# (From 08.2026)'!E7 = 25 days a month, kept so Existing staff lines do not move (G2-a).
+WORKDAYS_PER_MONTH = 25
 
 # keyword -> template abbreviation code (column D groups), matched the same way
 # SERVICE_CATEGORY_KEYWORDS/STAFF_MARKET_KEYWORDS already match Staffing Demand positions elsewhere
@@ -3725,89 +3953,49 @@ def fill_staff_cost_sheet(wb, project, demand, year):
     if STAFF_COST_SHEET not in wb.sheetnames:
         return  # older template version without this sheet — nothing to fill
     ws = wb[STAFF_COST_SHEET]
+    period = _period_of(project)
 
-    def group_stats(keywords, exclude=()):
-        matched = [d for d in demand
-                   if any(kw in d['Position'].lower() for kw in keywords)
-                   and not any(x in d['Position'].lower() for x in exclude)]
-        if not matched:
-            return 0, 0
-        total_headcount = sum(_eff_headcount(d) for d in matched)
-        if total_headcount == 0:
-            return 0, 0
-        weighted_daily = sum(_eff_headcount(d) * d['AvgDailyRate'] for d in matched) / total_headcount
-        monthly_gross = round(weighted_daily * WORKDAYS_PER_MONTH)
-        return total_headcount, monthly_gross
+    # A1.1's daily-wage divisor (E7:E11, the template's 25) becomes the same calendar count A1's gross uses, so a
+    # holiday or night shift is priced on the daily wage the monthly gross was built from (docs/30 D4-b).
+    if A11_SHEET in wb.sheetnames:
+        a11 = wb[A11_SHEET]
+        for r in range(7, 12):
+            a11.cell(row=r, column=5, value=f'={period_workdays(period, 6)}/12')
+        _fill_new_prospect_a11(wb, _new_prospect_duty(demand, period), period)
 
-    # Find each abbreviation's contiguous row-group by scanning column D (template's own layout,
-    # not hardcoded row numbers — self-verifying against whatever row positions this copy has).
-    rows_by_code = {}
-    for r in range(15, 89):
-        code = ws.cell(row=r, column=4).value
-        label = ws.cell(row=r, column=2).value
-        # Pool and gym staff share the same 'AA' abbreviation in this template — the label is the
-        # only thing that tells them apart, so it's checked BEFORE falling back to the code column
-        # (checking code first would silently merge both groups under one generic 'AA' bucket).
-        if label and 'hồ bơi' in str(label).lower():
-            rows_by_code.setdefault('AA_POOL', []).append(r)
-        elif label and 'gym' in str(label).lower():
-            rows_by_code.setdefault('AA_GYM', []).append(r)
-        elif code:
-            rows_by_code.setdefault(str(code).strip(), []).append(r)
-    # Property Manager (row 15) has no abbreviation of its own — it's the sheet's single named row.
-    pm_row = 15
-
-    def fill_group(rows, headcount, monthly_gross):
-        if not rows or headcount == 0:
-            return
-        for r in rows[:headcount]:
-            c = ws.cell(row=r, column=7, value=monthly_gross)  # G: Current Gross Salary
-            c.number_format = '#,##0'
-
-    for code, keywords in STAFF_COST_KEYWORDS.items():
-        headcount, monthly_gross = group_stats(keywords, STAFF_COST_EXCLUDE.get(code, ()))
-        if code == 'PM':
-            if monthly_gross:
-                c = ws.cell(row=pm_row, column=7, value=monthly_gross)
-                c.number_format = '#,##0'
-            continue
-        fill_group(rows_by_code.get(code, []), headcount, monthly_gross)
-
-    for suffix, keywords in STAFF_COST_AA_KEYWORDS.items():
-        headcount, monthly_gross = group_stats(keywords)
-        fill_group(rows_by_code.get(f'AA_{suffix.upper()}', []), headcount, monthly_gross)
-
-    # ---- Position(s) with no predefined row-group above (today: Reception) get a REAL row here,
-    # starting at _A1_UNPLACED_FIRST_ROW, using the IDENTICAL formula chain as every position row
-    # above (copied from row 15's own formulas, column for column) — not a Python-computed number
-    # folded into 'EMH2' on another sheet. This is what makes that cost auditable/editable in Excel
-    # like any other position, and it shares A1's own statutory-cap cells ($L$7/$T$7/etc.), so it
-    # can never drift from what every other row on this sheet uses. Change
-    # reconcile-summary-with-detail-sheets — built after PM feedback that a top-up folded into
-    # another sheet's formula string wasn't an acceptable substitute for a real, visible line item.
+    # Each group's heads fill its own template rows (found by column D / B, _a1_rows_by_group); heads beyond them go
+    # below the table with the unplaced positions (change apply-head-of-pm-decisions-2026-10, D7 / docs/30 D6: no head
+    # is dropped, the Property Manager included).
     money_fmt = '#,##0'
-    unplaced_here = _unplaced_positions(demand)
-    # One row PER HEADCOUNT UNIT, not per position name — the same per-person write fill_group()
-    # does for every other position above (2 headcount => 2 rows, each the per-person monthly
-    # gross; summing both, not doubling one, is what makes the total right).
-    unplaced_flat = [(name, monthly_gross) for name, headcount, monthly_gross in unplaced_here
-                     for _ in range(headcount)]
-    for i, (name, monthly_gross) in enumerate(unplaced_flat):
+    rows_by_code = _a1_rows_by_group(ws)
+    for key, _code, headcount, monthly_gross in _new_prospect_groups(demand, period):
+        for r in rows_by_code.get(key, [])[:headcount]:
+            ws.cell(row=r, column=7, value=monthly_gross).number_format = money_fmt   # G: Current Gross Salary
+
+    # ---- The block below the table, from _A1_UNPLACED_FIRST_ROW: positions with no predefined row-group (today:
+    # Reception), then the extra heads of any group, each a REAL row with A1's IDENTICAL formula chain (copied from
+    # row 15's own formulas, column for column) — not a Python-computed number folded into 'EMH2' on another sheet.
+    # This is what makes that cost auditable/editable in Excel like any other position, and it shares A1's own
+    # statutory-cap cells ($L$7/$T$7/etc.), so it can never drift from what every other row on this sheet uses.
+    # Change reconcile-summary-with-detail-sheets — built after PM feedback that a top-up folded into another sheet's
+    # formula string wasn't an acceptable substitute for a real, visible line item. One row PER HEADCOUNT UNIT.
+    below = _new_prospect_below_rows(demand, period, rows_by_code, _a1_group_labels(ws, rows_by_code))
+    for i, (label, code, monthly_gross) in enumerate(below):
         r = _A1_UNPLACED_FIRST_ROW + i
-        ws.cell(row=r, column=2, value=_UNPLACED_POSITION_VI.get(name, name))          # B Position
-        ws.cell(row=r, column=4, value=_UNPLACED_POSITION_CODE.get(name, name[:2].upper()))  # D code
-        g = ws.cell(row=r, column=7, value=monthly_gross)                              # G Current Gross
-        g.number_format = money_fmt
+        ws.cell(row=r, column=2, value=label)                                          # B Position
+        ws.cell(row=r, column=4, value=code)                                           # D code
+        ws.cell(row=r, column=7, value=monthly_gross).number_format = money_fmt        # G Current Gross
         ws.cell(row=r, column=8, value=0)                                              # H Increase rate
-        formulas = _a1_chain_formulas(r)
-        for col, formula in formulas.items():
-            c = ws.cell(row=r, column=col, value=formula)
-            c.number_format = money_fmt
-    if unplaced_here:
+        for col, formula in _a1_chain_formulas(r).items():
+            ws.cell(row=r, column=col, value=formula).number_format = money_fmt
+    if below:
         note = ws.cell(row=_A1_UNPLACED_FIRST_ROW - 1, column=2, value=(
-            "Vị trí không có nhóm dòng cố định trong mẫu chuẩn của Savills ở trên — định giá dưới "
-            "đây bằng đúng công thức của bảng trên (không phải số ước tính riêng)."))
+            "Vị trí không có nhóm dòng cố định trong mẫu chuẩn của Savills, hoặc số người vượt số dòng sẵn có của "
+            "nhóm ở trên — định giá dưới đây bằng đúng công thức của bảng trên (không phải số ước tính riêng)."))
         note.font = Font(italic=True, size=9, color='7F7F7F')
+    for name in _zero_pay_positions(demand, period):
+        print(f"WARNING  A1 '{STAFF_COST_SHEET}': '{name}' has staff but a gross pay of 0 (daily rate blank or 0 in "
+              f"Staffing Demand). The row is written at 0, not skipped — enter its daily rate.")
 
 
 def build_budget(project, demand, year):
@@ -4005,6 +4193,10 @@ def build_budget(project, demand, year):
     # Existing-project mode (change carry-forward-staffing): computed once here, before the fund
     # sheet, because EMH2's formula needs to know how many A1 rows go below the table.
     existing = existing_result(project, demand, _budget_year(wb, year))
+    if existing and not existing.duty:
+        print(f"WARNING  Existing project: the '{existing_staffing.SEC_DUTY}' table is empty. EMH3 is "
+              + (f"carried at the approved {existing.prior_year} amount" if existing.lines['EMH3'].kind == 'carried'
+                 else '0') + ' and its remark says so; the tool does not infer duty counts from the shift codes.')
     existing_layout = _existing_a1_layout(wb, existing) if existing else None
     # Existing-project EEE.C / EEW.C (change carry-forward-common-utilities): computed once, on the VAT
     # basis the switch above set; fill_management_fund_sheet() and the '1. Summary' narrative read it.
