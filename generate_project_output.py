@@ -2308,6 +2308,77 @@ OPEX_NECESSITY = {
 NECESSITY_COLOR = {'Must-Have': 'C00000', 'Conditional': '806000', 'Optional': '1F6357', 'Mixed': '595959'}
 
 
+CONTINGENCY_REPAIRS_ITEM = 'Repairs & Maintenance (materials only)'
+
+
+def _write_contingency_section(ws, r, project, staff, item_rows, total_cells, must_have_cells):
+    """The analysis's own contingency (change apply-head-of-pm-decisions-2026-10, group 6, design D9): the
+    deliverable's contingency rate times this workbook's in-house staff plus OPEX less repairs, at 100% fill, once
+    on the Must-Have basis and once on the Full Cost basis, as live formulas over this sheet's own rows. In-house
+    staff leaves out the categories priced as vendor contracts on the Service sheet (Security, Cleaning,
+    Landscape), which the deliverable carries as outsourced services. It does not equal the deliverable's year-1
+    VND (the user's choice, 2026-10-19). Returns the cells and the next free row."""
+    rate = project.get('contingency_rate', 0.02)
+    section(ws, r, 'CONTINGENCY (rate x in-house staff + OPEX less repairs, at 100% fill)', ncols=6); r += 1
+    for c, h in enumerate(['Item', 'Must-Have Only (VND)', 'Full Cost (VND)'], start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+    r += 1
+
+    def must(cat_rows, necessity_map, names):
+        return [f'B{cat_rows[n]}' for n in names if necessity_map.get(n, ('',))[0] == 'Must-Have']
+
+    staff_rows = item_rows.get('Staff', {})
+    outsourced = [n for n, f in staff['category_annual_cells'].items()
+                  if n in staff_rows and str(f).startswith("='Service'!")]
+    opex_rows = item_rows.get('OPEX', {})
+    repairs = [CONTINGENCY_REPAIRS_ITEM] if CONTINGENCY_REPAIRS_ITEM in opex_rows else []
+
+    def less(base, cells):
+        return f"={base or 0}" + ''.join(f'-{c}' for c in cells)
+
+    rows = [
+        ('Contingency Rate (Project Info, the deliverable\'s EM#/ES#/EE# rate)', rate, rate),
+        ('In-house staff (less the ' + '/'.join(outsourced) + ' vendor contracts)' if outsourced else 'In-house staff',
+         less(must_have_cells['staff'], must(staff_rows, STAFF_NECESSITY, outsourced)),
+         less(total_cells['staff'], [f'B{staff_rows[n]}' for n in outsourced])),
+        ('OPEX less Repairs & Maintenance',
+         less(must_have_cells['opex'], must(opex_rows, OPEX_NECESSITY, repairs)),
+         less(total_cells['opex'], [f'B{opex_rows[n]}' for n in repairs])),
+    ]
+    first = r
+    for label, b, c in rows:
+        ws.cell(row=r, column=1, value=label).border = BORDER
+        ws.cell(row=r, column=1).alignment = LEFT
+        for col, v in ((2, b), (3, c)):
+            cell = ws.cell(row=r, column=col, value=v)
+            cell.number_format = '0.0%' if r == first else MONEY_FMT
+            cell.border = BORDER
+        r += 1
+    ws.cell(row=r, column=1, value='Contingency = Rate x (In-house staff + OPEX less repairs)').font = SECTION_FONT
+    for col in ('B', 'C'):
+        cell = ws[f'{col}{r}']
+        cell.value = f'=ROUND({col}{first}*({col}{first + 1}+{col}{first + 2}),0)'
+        cell.number_format = MONEY_FMT
+        cell.font = SECTION_FONT
+    total_row = r
+    r += 1
+    ws.cell(row=r, column=1,
+            value=('Same rate as the deliverable\'s contingency lines, over this workbook\'s own costs in the same scope, '
+                   'at 100% fill. It does not equal the deliverable\'s VND: the deliverable is year 1 on the fill-up '
+                   'curve and its service contingency also covers the outsourced contracts. Total Profit Value and '
+                   'every cost total built from it include this line (Summary toggle picks the column).')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 2
+    return dict(rate_cell=f'B{first}', must_have_cell=f'B{total_row}', total_cell=f'C{total_row}', next_row=r)
+
+
 def build_cost_priority_sheet(wb, project, staff, capex, opex):
     """Answers "which is fixed/must-have, which is sizable" across Staff/Capex/OPEX — every
     number here is a live cross-sheet formula (same real cells the source sheets use), the
@@ -2334,6 +2405,7 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
         r += 1
         cat_first_row = r
         ordered = sorted(annual_cells.keys(), key=lambda k: -current_values.get(k, 0))
+        item_rows[category_label] = {name: cat_first_row + i for i, name in enumerate(ordered)}
         must_have_cells, conditional_cells, optional_cells = [], [], []
         for name in ordered:
             necessity, why = necessity_map.get(name, ('Unclassified', 'Not yet categorized.'))
@@ -2383,6 +2455,7 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
         return category_grand_row, (f'B{must_have_row}' if must_have_row else None)
 
     r = 4
+    item_rows = {}
     staff_total_row, staff_must_have_row = _section('Staff', staff['category_annual_cells'], STAFF_NECESSITY,
               {'Security': 1782300800, 'Cleaning': 323340000, 'Cleaning — Supervisory': 152160000, 'Landscape': 268182000,
                'Property Manager': 516076000, 'Chief Engineer': 417806000, 'Technician': 679965000,
@@ -2401,6 +2474,11 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
               {'Electricity': 3842128512, 'Water': 440442996, 'Diesel (Generator Fuel)': 87792096,
                'Repairs & Maintenance (materials only)': 40496844, 'Administrative Expense (office overhead)': 82282236,
                'Pool Salt': 79884000})
+
+    cont = _write_contingency_section(ws, r, project, staff, item_rows,
+                                      dict(staff=f'B{staff_total_row}', opex=f'B{opex_total_row}'),
+                                      dict(staff=staff_must_have_row, opex=opex_must_have_row))
+    r = cont['next_row']
 
     ws.cell(row=r, column=1,
             value=('"Sizable" = ranked largest-first within each category above — the real cost drivers, not a fixed '
@@ -2423,7 +2501,10 @@ def build_cost_priority_sheet(wb, project, staff, capex, opex):
                 opex_must_have_cell=f"'Cost Priority'!{opex_must_have_row}",
                 staff_total_cell=f"'Cost Priority'!B{staff_total_row}",
                 capex_total_cell=f"'Cost Priority'!B{capex_total_row}",
-                opex_total_cell=f"'Cost Priority'!B{opex_total_row}")
+                opex_total_cell=f"'Cost Priority'!B{opex_total_row}",
+                contingency_rate_cell=f"'Cost Priority'!{cont['rate_cell']}",
+                contingency_must_have_cell=f"'Cost Priority'!{cont['must_have_cell']}",
+                contingency_total_cell=f"'Cost Priority'!{cont['total_cell']}")
 
 
 def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
@@ -2442,9 +2523,9 @@ def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
                 'A1:F1')
 
     MUST_HAVE = dict(staff=cost_priority['staff_must_have_cell'], capex=cost_priority['capex_must_have_cell'],
-                      opex=cost_priority['opex_must_have_cell'])
+                      opex=cost_priority['opex_must_have_cell'], cont=cost_priority['contingency_must_have_cell'])
     FULL = dict(staff=cost_priority['staff_total_cell'], capex=cost_priority['capex_total_cell'],
-                opex=cost_priority['opex_total_cell'])
+                opex=cost_priority['opex_total_cell'], cont=cost_priority['contingency_total_cell'])
     MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
 
     r = 4
@@ -2460,14 +2541,14 @@ def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
     ws.row_dimensions[r].height = 40
     r += 1
     ws.cell(row=r, column=1, value='(A) Breakeven Fill % — Must-Have Only staffing').font = Font(bold=True)
-    c = ws.cell(row=r, column=2, value=f"=({MUST_HAVE['staff']}+{MUST_HAVE['opex']}+{MUST_HAVE['capex']})/{MGMT_100}")
+    c = ws.cell(row=r, column=2, value=f"=({MUST_HAVE['staff']}+{MUST_HAVE['opex']}+{MUST_HAVE['capex']}+{MUST_HAVE['cont']})/{MGMT_100}")
     c.number_format = '0.0%'
     c.font = Font(bold=True)
     c.fill = HIGHLIGHT_FILL
     A_CELL = f'B{r}'
     r += 1
     ws.cell(row=r, column=1, value='(B) Breakeven Fill % — Full Cost (all service tiers)').font = Font(bold=True)
-    c = ws.cell(row=r, column=2, value=f"=({FULL['staff']}+{FULL['opex']}+{FULL['capex']})/{MGMT_100}")
+    c = ws.cell(row=r, column=2, value=f"=({FULL['staff']}+{FULL['opex']}+{FULL['capex']}+{FULL['cont']})/{MGMT_100}")
     c.number_format = '0.0%'
     c.font = Font(bold=True)
     c.fill = HIGHLIGHT_FILL
@@ -2488,7 +2569,8 @@ def build_year1_strategy_sheet(wb, project, mgmt, cost_priority, extra_revenue):
     r += 1
     ws.cell(row=r, column=1, value='Cost deferred by staying Must-Have-only (Optional + Conditional, all categories)').font = Font(bold=True)
     c = ws.cell(row=r, column=2,
-                value=f"=({FULL['staff']}-{MUST_HAVE['staff']})+({FULL['opex']}-{MUST_HAVE['opex']})+({FULL['capex']}-{MUST_HAVE['capex']})")
+                value=f"=({FULL['staff']}-{MUST_HAVE['staff']})+({FULL['opex']}-{MUST_HAVE['opex']})+({FULL['capex']}-{MUST_HAVE['capex']})"
+                      f"+({FULL['cont']}-{MUST_HAVE['cont']})")
     c.number_format = MONEY_FMT
     c.font = Font(bold=True)
     c.fill = HIGHLIGHT_FILL
@@ -2703,13 +2785,17 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     SELECTED_STAFF_CELL = _selected('Selected Staff Cost (per toggle, VND)', MUST_HAVE_CELLS['staff'], FULL_COST_CELLS['staff'])
     SELECTED_OPEX_CELL = _selected('Selected OPEX (per toggle, VND)', MUST_HAVE_CELLS['opex'], FULL_COST_CELLS['opex'])
     SELECTED_CAPEX_CELL = _selected('Selected Capex (per toggle, VND)', MUST_HAVE_CELLS['capex'], FULL_COST_CELLS['capex'])
-    r += 1
+    SELECTED_CONTINGENCY_CELL = _selected('Selected Contingency (per toggle, VND; Cost Priority sheet)',
+                                          cost_priority['contingency_must_have_cell'],
+                                          cost_priority['contingency_total_cell'])
+    # No spacer row after it: the contingency takes the old spacer, so Total Profit Value and the Key Figures stay
+    # on the rows verification/baseline.py reads (Summary B19, B33:B40).
 
     section(ws, r, 'TOTAL PROFIT VALUE (per Cost Basis toggle above), AT 100% FILL', ncols=5); r += 1
-    ws.cell(row=r, column=1, value='Total Profit Value = Mgmt Fee Revenue (3) − Selected Staff (4) − Selected OPEX (7) − Selected Capex (6)').font = Font(bold=True, size=12)
+    ws.cell(row=r, column=1, value='Total Profit Value = Mgmt Fee Revenue (3) − Selected Staff (4) − Selected OPEX (7) − Selected Capex (6) − Contingency (10)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2,
                 value=f"='Management Fee'!{mgmt['annual_revenue_cell']}-{SELECTED_STAFF_CELL}"
-                      f"-{SELECTED_OPEX_CELL}-{SELECTED_CAPEX_CELL}")
+                      f"-{SELECTED_OPEX_CELL}-{SELECTED_CAPEX_CELL}-{SELECTED_CONTINGENCY_CELL}")
     c.number_format = MONEY_FMT
     c.font = Font(bold=True, size=12)
     c.fill = HIGHLIGHT_FILL
@@ -2724,7 +2810,8 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     r += 1
     ws.cell(row=r, column=1, value='Markup (Total Profit Value ÷ Selected Costs) — for pricing reference only').font = Font(size=10, italic=True)
     c = ws.cell(row=r, column=2,
-                value=f"={PROFIT_CELL}/({SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL})")
+                value=f"={PROFIT_CELL}/({SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL}"
+                      f"+{SELECTED_CONTINGENCY_CELL})")
     c.number_format = '+0.0%;-0.0%'
     c.font = Font(size=10, italic=True)
     MARKUP_CELL = f'B{r}'
@@ -2764,7 +2851,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
     ws.merge_cells(f'A{r}:F{r}')
     ws.row_dimensions[r].height = 55
     r += 1
-    fill_headers = ['Fill %', 'Mgmt Fee Revenue (3)', 'Staff (4) + OPEX (7) + Capex (6) — per toggle',
+    fill_headers = ['Fill %', 'Mgmt Fee Revenue (3)', 'Staff (4) + OPEX (7) + Capex (6) + Contingency (10) — per toggle',
                      'Total Profit Value', 'Margin (Profit ÷ Revenue)', 'Additional Revenue (8) — reference only']
     for c, h in enumerate(fill_headers, start=1):
         cell = ws.cell(row=r, column=c, value=h)
@@ -2780,7 +2867,8 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         c2 = ws.cell(row=r, column=2, value=f"={NET_TOTAL_CELLS['mgmt']}*A{r}")
         c2.number_format = MONEY_FMT
         c2.border = BORDER
-        c3 = ws.cell(row=r, column=3, value=f"={SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL}")
+        c3 = ws.cell(row=r, column=3, value=f"={SELECTED_STAFF_CELL}+{SELECTED_OPEX_CELL}+{SELECTED_CAPEX_CELL}"
+                                             f"+{SELECTED_CONTINGENCY_CELL}")
         c3.number_format = MONEY_FMT
         c3.border = BORDER
         c4 = ws.cell(row=r, column=4, value=f'=B{r}-C{r}')
@@ -2812,6 +2900,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         ('(7) Annual OPEX — per Cost Basis toggle (VND)', f"={SELECTED_OPEX_CELL}"),
         ('(8) Annual Additional Revenue (VND)', f"='Additional Revenue'!{extra_revenue['annual_total_cell']}"),
         ('(9) Margin (Total Profit Value ÷ Mgmt Fee Revenue)', f'={MARGIN_CELL}'),
+        ('(10) Contingency — per Cost Basis toggle (VND)', f"={SELECTED_CONTINGENCY_CELL}"),
     ]
     for label, val in rows:
         ws.cell(row=r, column=1, value=label).font = Font(bold=True)
@@ -2830,6 +2919,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
         '(6) Capex (M&E Equipment + MO Equipment always; "Full Cost" adds Conditional Amenity Area + Mixed Public Area). One-time, PM-entered quantities — see Capex/Cost Priority sheets. IN Total Profit Value (as a Year-1 lump sum, not amortized).',
         '(7) OPEX (Electricity/Water/Diesel/Repairs & Maintenance/Administrative Expense always; "Full Cost" adds Conditional Pool Salt). Real but thin data (n=1 per category — see OPEX sheet). IN Total Profit Value.',
         '(8) Real Parking Fee (at 100% occupancy — a ceiling, not a realistic average) + Elevator Advertising (real rate, Qty PRE-FILLED from an assumption, still PM-editable) + a fixed-lease parking alternative with a computed breakeven fill % — see Additional Revenue sheet. NOT in Total Profit Value, and NOT affected by the toggle.',
+        '(10) Contingency at the deliverable\'s EM#/ES#/EE# rate, over in-house staff (4, less the Security/Cleaning/Landscape vendor contracts) plus OPEX (7) less Repairs & Maintenance, per the toggle, at 100% fill — see Cost Priority sheet. IN Total Profit Value. Not equal to the deliverable\'s year-1 contingency, which follows the fill-up curve and also covers the outsourced contracts.',
         '(9) Margin, the standard accounting definition (profit ÷ revenue), not markup (profit ÷ cost) — the two answer different questions and will always differ for the same numbers. Markup is shown as a secondary reference next to Total Profit Value above, for pricing conversations specifically.',
     ]
     for note in notes:
@@ -2846,6 +2936,7 @@ def build_summary_sheet(ws, project, mgmt, staff, service, capex, opex, extra_re
                 selected_staff_cell=f"'Summary'!{SELECTED_STAFF_CELL}",
                 selected_opex_cell=f"'Summary'!{SELECTED_OPEX_CELL}",
                 selected_capex_cell=f"'Summary'!{SELECTED_CAPEX_CELL}",
+                selected_contingency_cell=f"'Summary'!{SELECTED_CONTINGENCY_CELL}",
                 profit_cell=f"'Summary'!{PROFIT_CELL}",
                 margin_cell=f"'Summary'!{MARGIN_CELL}")
 
@@ -2973,7 +3064,8 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
                 'cumulative balance. Years/fill path are a disclosed simplifying assumption — see NOTES.', 'A1:F1')
 
     MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
-    RECURRING_COST = f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']})"
+    RECURRING_COST = (f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']}"
+                      f"+{summary['selected_contingency_cell']})")
     CAPEX_CELL = summary['selected_capex_cell']
     DROP_YEAR = project['capex_drop_year']
     DROP_YEAR_NOTE = (f'the evidenced default of Year {DROP_YEAR}' if project['capex_drop_year_is_default']
@@ -2995,7 +3087,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     ws.merge_cells(f'A{r}:F{r}')
     ws.row_dimensions[r].height = 55
     r += 1
-    headers = ['Year', 'Fill %', 'Annual Collections (VND)', 'Staff + OPEX, per toggle (VND)',
+    headers = ['Year', 'Fill %', 'Annual Collections (VND)', 'Staff + OPEX + Contingency, per toggle (VND)',
                'Capex — per sinking-fund (VND)', 'Total Operating Cost (VND)',
                'Annual Surplus / (Deficit) (VND)', 'Cumulative Balance (VND)']
     for c, h in enumerate(headers, start=1):
@@ -3066,7 +3158,7 @@ def build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strat
     ws.merge_cells(f'A{r}:H{r}')
     ws.row_dimensions[r].height = 50
     r += 1
-    m_headers = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Staff + OPEX (VND)', 'Capex — per sinking-fund (VND)',
+    m_headers = ['Month', 'Fill %', 'Monthly Collections (VND)', 'Staff + OPEX + Contingency (VND)', 'Capex — per sinking-fund (VND)',
                  'Total Operating Cost (VND)', 'Monthly Surplus / (Deficit) (VND)', 'Margin (Profit ÷ Revenue)',
                  'Cumulative Balance (VND)']
     for c, h in enumerate(m_headers, start=1):
@@ -3190,7 +3282,8 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
                 'NOT self-clear the way the Owner Operating Position sheet\'s balance does. See NOTES.', 'A1:F1')
 
     MGMT_100 = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
-    BASE_PACKAGE = f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']}+{summary['profit_cell']})"
+    BASE_PACKAGE = (f"({summary['selected_staff_cell']}+{summary['selected_opex_cell']}"
+                    f"+{summary['selected_contingency_cell']}+{summary['profit_cell']})")
     CAPEX_CELL = summary['selected_capex_cell']
     DROP_YEAR = project['capex_drop_year']
     DROP_YEAR_NOTE = (f'the evidenced default of Year {DROP_YEAR}' if project['capex_drop_year_is_default']
@@ -3243,6 +3336,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     package_rows = [
         ('Staff Cost Reimbursement (per Cost Basis toggle, VND)', summary['selected_staff_cell'], None),
         ('OPEX Reimbursement (per Cost Basis toggle, VND)', summary['selected_opex_cell'], None),
+        ('Contingency Reimbursement (per Cost Basis toggle, VND)', summary['selected_contingency_cell'], None),
         (f'Capex Reimbursement — {FULL_YEARS_LABEL} full lump sum (VND)', summary['selected_capex_cell'], 'FFF7CC'),
         ("Savills' Own Service Fee / Profit, at 100% fill (VND)", summary['profit_cell'], None),
     ]
@@ -3270,9 +3364,10 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     c.font = Font(size=10, italic=True)
     c.fill = PatternFill('solid', fgColor='E2EFDA')
     r += 1
-    ws.cell(row=r, column=1, value=f'RECURRING PACKAGE, {RESERVE_YEARS_LABEL} (Staff+OPEX+Profit; Capex at reserve rate) (VND)').font = Font(bold=True, size=12)
+    ws.cell(row=r, column=1, value=f'RECURRING PACKAGE, {RESERVE_YEARS_LABEL} (Staff+OPEX+Contingency+Profit; Capex at reserve rate) (VND)').font = Font(bold=True, size=12)
     c = ws.cell(row=r, column=2,
-                value=f"={summary['selected_staff_cell']}+{summary['selected_opex_cell']}+{summary['profit_cell']}"
+                value=f"={summary['selected_staff_cell']}+{summary['selected_opex_cell']}"
+                      f"+{summary['selected_contingency_cell']}+{summary['profit_cell']}"
                       f"+{summary['selected_capex_cell']}*{CAPEX_RESERVE_RATE}")
     c.number_format = MONEY_FMT
     c.font = Font(bold=True, size=12)
@@ -3306,7 +3401,7 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     ws.row_dimensions[r].height = 40
     r += 1
     headers2 = ['Year', 'Fill %', 'Actual Collections (VND)', 'Capex Component (VND)',
-                'Package Owed — Staff+OPEX+Profit+Capex (VND)', 'Shortfall This Year (VND)',
+                'Package Owed — Staff+OPEX+Contingency+Profit+Capex (VND)', 'Shortfall This Year (VND)',
                 'Cumulative Receivable Owed by Owner (VND)']
     for c, h in enumerate(headers2, start=1):
         cell = ws.cell(row=r, column=c, value=h)

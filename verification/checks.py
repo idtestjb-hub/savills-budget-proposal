@@ -2233,6 +2233,174 @@ def check_existing_detail_ties(paths):
         shutil.rmtree(os.path.dirname(work), ignore_errors=True)
 
 
+# ---- Contingency lines EM#, ES#, EE# (change apply-head-of-pm-decisions-2026-10, group 6) ------------------------
+_CONTINGENCY_FORMULA = None
+
+
+def contingency_ties(lines_by_sheet, cell, analysis=None):
+    """Hold each contingency line of both fund sheets to its rule (design D9), as Excel evaluated it.
+
+    `lines_by_sheet` is {sheet: contingency.layout(...)}; `cell(sheet, row, col)` returns (value, formula or None).
+    Each month is either the live formula `=ROUND(rate*(SUBTOTAL(9,<col><first>:<col><last>)-<excluded>),0)` over
+    exactly the line's own leaves and exclusions, with `last` above the line itself (a range reaching the line would
+    make it depend on itself), and equal to ROUND(rate x (the plain sum of the leaf rows - the excluded rows)); or, at
+    a rate of 0, the six lines stay 0 with a "Để ở mức 0" remark. One rate on every line. `analysis`, when given, is
+    dict(rate=, bases={label: (contingency, in-house staff, OPEX less repairs)}) from the analysis's Cost Priority
+    sheet: same rate, and contingency = ROUND(rate x (staff + OPEX)). Returns (ok, rows, differences, notes)."""
+    import re
+    import contingency as ct
+    global _CONTINGENCY_FORMULA
+    if _CONTINGENCY_FORMULA is None:
+        _CONTINGENCY_FORMULA = re.compile(
+            r'^=ROUND\(([0-9.]+)\*\(SUBTOTAL\(9,([A-Z]+)(\d+):\2(\d+)\)((?:-[A-Z]+\d+)*)\),0\)$')
+    from openpyxl.utils import get_column_letter
+    rows, differences, rates = [], [], set()
+
+    def record(label, passed, reason=''):
+        rows.append((label, 'ok' if passed else f'fail: {reason}'))
+        if not passed:
+            differences.append((label, reason))
+
+    def num(v):
+        return float(v) if isinstance(v, (int, float)) else 0.0
+
+    for sheet, lines in lines_by_sheet.items():
+        for line in lines:
+            label = f"{sheet} {line['code']}"
+            row = line['row']
+            formulas = [cell(sheet, row, 8 + m)[1] for m in range(12)]
+            if all(f is None for f in formulas):
+                g = num(cell(sheet, row, 7)[0])
+                remark = str(cell(sheet, row, 20)[0] or '')
+                rates.add(0.0)
+                record(f'{label} at rate 0', abs(g) < 0.5 and remark.startswith('Để ở mức 0'),
+                       f'G {g:,.0f}, remark {remark[:60]!r}')
+                continue
+            leaves = [r for r in range(line['first'], line['last'] + 1)
+                      if 'SUBTOTAL' not in str(cell(sheet, r, 7)[1] or '').upper()]
+            excluded = sorted(r for _c, r in line['excluded'])
+            problems = []
+            for m, f in enumerate(formulas):
+                col = get_column_letter(ct.MONTH_BASE_COL[sheet] + m)
+                hit = _CONTINGENCY_FORMULA.match(str(f or '').replace(' ', ''))
+                if not hit:
+                    problems.append(f'month {m + 1}: {f!r} is not the contingency formula')
+                    continue
+                rate, fcol, first, last = float(hit.group(1)), hit.group(2), int(hit.group(3)), int(hit.group(4))
+                minus = sorted(int(x[len(fcol):]) for x in hit.group(5).split('-') if x)
+                rates.add(rate)
+                if last >= row or first <= row <= last or row in minus:
+                    problems.append(f'month {m + 1}: the range {first}-{last} reaches the line itself (row {row})')
+                if (fcol, first, last, minus) != (col, line['first'], line['last'], excluded):
+                    problems.append(f'month {m + 1}: reads {fcol}{first}:{fcol}{last} less {minus}, expected '
+                                    f'{col}{line["first"]}:{col}{line["last"]} less {excluded}')
+                c = ct.MONTH_BASE_COL[sheet] + m
+                want = round(rate * (sum(num(cell(sheet, r, c)[0]) for r in leaves)
+                                     - sum(num(cell(sheet, r, c)[0]) for r in excluded)))
+                got = num(cell(sheet, row, 8 + m)[0])
+                if abs(got - want) > 0.5:
+                    problems.append(f'month {m + 1}: {got:,.0f}, but rate x its leaves = {want:,.0f}')
+            record(f'{label} = rate x its own leaves, each month', not problems, '; '.join(problems[:3]))
+    record('one contingency rate on every line', len(rates) == 1, f'rates {sorted(rates)}')
+    notes = [f"contingency rate {sorted(rates)[0]:.4g} on {sum(len(v) for v in lines_by_sheet.values())} lines"
+             if len(rates) == 1 else 'more than one contingency rate']
+    if analysis is not None and len(rates) == 1:
+        rate = next(iter(rates))
+        record('the analysis uses the deliverable\'s contingency rate', abs(analysis['rate'] - rate) < 1e-9,
+               f"analysis {analysis['rate']}, deliverable {rate}")
+        for basis, (cont, staff, opex) in analysis['bases'].items():
+            want = round(rate * (staff + opex))
+            record(f'analysis contingency ({basis}) = rate x (in-house staff + OPEX less repairs)',
+                   abs(cont - want) < 0.5, f'{cont:,.0f} vs {want:,.0f}')
+    return (not differences), rows, differences, notes
+
+
+def check_contingency(paths):
+    """The contingency lines on the generated deliverable and the analysis, read through Excel after a full
+    recalculation (contingency_ties), plus Excel's own circular-reference flag on both fund sheets and
+    '1. Summary'. The lines and their leaves come from contingency.layout on the deliverable itself, with the
+    catalogue's collect-on-behalf expense lines as exclusions. Returns (ok, rows, differences, notes).
+    False negative: Excel's CircularReference names only the first loop it finds on a sheet."""
+    import shutil
+    import tempfile
+
+    import openpyxl
+    import contingency as ct
+    import generate_project_budget as gpb
+    import operating_inputs
+    from verification.baseline import BaselineUnavailable
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The contingency check needs Excel ({exc}).') from exc
+    paired = set(operating_inputs.cob_pairing(gpb.CATALOGUE_PATH).values())
+    owb = openpyxl.load_workbook(paths['deliverable'])
+    lines_by_sheet = {s: ct.layout(owb[s], s, extra_exclusions=paired) for s in (ct.FUND_SHEET, ct.COMMON_SHEET)}
+    tmp = tempfile.mkdtemp(prefix='contingency_')
+    pythoncom.CoInitialize()
+    xl = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(shutil.copy(paths['deliverable'], os.path.join(tmp, 'd.xlsx')), UpdateLinks=0)
+        xl.CalculateFullRebuild()
+        grids, circular = {}, []
+        for ws in wb.Worksheets:
+            name = _nfc(ws.Name)
+            if name in (_nfc(ct.FUND_SHEET), _nfc(ct.COMMON_SHEET), _nfc('1. Summary')):
+                if ws.CircularReference is not None:
+                    circular.append(f'{ws.Name}!{ws.CircularReference.Address}')
+                if name != _nfc('1. Summary'):
+                    rng = ws.Range('A1:BB500')
+                    grids[name] = (rng.Value2, rng.Formula)
+        wb.Close(SaveChanges=False)
+
+        def cell(sheet, r, c):
+            values, formulas = grids[_nfc(sheet)]
+            f = formulas[r - 1][c - 1]
+            return values[r - 1][c - 1], (f if isinstance(f, str) and f.startswith('=') else None)
+
+        analysis = None
+        if paths.get('analysis') and os.path.exists(paths['analysis']):
+            wa = xl.Workbooks.Open(shutil.copy(paths['analysis'], os.path.join(tmp, 'a.xlsx')), UpdateLinks=0)
+            xl.CalculateFullRebuild()
+            cp = next((ws for ws in wa.Worksheets if ws.Name == 'Cost Priority'), None)
+            if cp is not None:
+                vals = cp.UsedRange.Value2
+                at = next((i + 1 for i, r in enumerate(vals) if isinstance(r[0], str)
+                           and r[0].startswith('Contingency Rate')), None)
+                if at is not None:
+                    get = lambda r, c: float(cp.Cells(r, c).Value2 or 0)
+                    analysis = dict(rate=get(at, 2), bases={
+                        'Must-Have': (get(at + 3, 2), get(at + 1, 2), get(at + 2, 2)),
+                        'Full Cost': (get(at + 3, 3), get(at + 1, 3), get(at + 2, 3))})
+            wa.Close(SaveChanges=False)
+        ok, rows, differences, notes = contingency_ties(lines_by_sheet, cell, analysis)
+        rows.append(('no circular reference on the fund sheets or 1. Summary', 'ok' if not circular else 'fail'))
+        if circular:
+            differences.append(('circular reference', ', '.join(circular)))
+        if analysis is None:
+            notes.append('the analysis has no contingency section on Cost Priority; its rate was not compared')
+        return (not differences), rows, differences, notes
+    except BaselineUnavailable:
+        raise
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the contingency lines: {type(exc).__name__}: {exc}') from exc
+    finally:
+        try:
+            if xl is not None:
+                xl.Quit()
+        except Exception:
+            pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_run_log(paths, input_path, required_rows):
     """The run log (change add-budget-run-log, spec budget-run-log), exercised on the synthetic project.
 

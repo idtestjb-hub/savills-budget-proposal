@@ -411,6 +411,17 @@ METHOD_VERDICTS = {
                  verdict='matches', reasoning='The spec method is an annual quotation, which the PM enters as the '
                                               'USD premium; with no quotation the logic file\'s example premium is '
                                               'used and the remark says so.'),
+    # Added 2026-10-19, change apply-head-of-pm-decisions-2026-10 (group 6) - the contingency lines priced for the
+    # first time, by the Head of PM decision B6 (rules approved by the user 2026-10-18, design D9).
+    **{code: dict(spec_method='percent-of-section (Head of PM decision B6; catalogue entry with the lane-a merge)',
+                  actual_method=('Contingency rate (Project Info, default 2%) x each month\'s SUBTOTAL of the group\'s '
+                                 'leaf lines on the month-allocation columns' + exclusions + ', as a live '
+                                 'formula per month on both fund sheets.'),
+                  verdict='matches',
+                  reasoning='Head of PM decision B6 sets the method (a stated rate of the group); the guideline names '
+                            'no figure or basis, so the decision is the method.')
+       for code, exclusions in (('EM#', ', less EMH1 (Savills\' fee)'), ('ES#', ''),
+                                ('EE#', ', less EEW.A, EEE.A and any collect-on-behalf expense line'))},
     'ESI1': dict(spec_method='asset-value-x-premium-rate',
                  actual_method='No figure written — no insured-asset-value input exists on the intake '
                                 'form, so the pipeline correctly leaves this at 0 rather than guess an '

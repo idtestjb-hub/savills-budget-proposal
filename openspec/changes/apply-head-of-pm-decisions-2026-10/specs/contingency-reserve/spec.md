@@ -54,7 +54,13 @@ exclusions.
 ### Requirement: The contingency reaches the summary and the analysis
 
 `1. Summary` SHALL include the contingency lines in the section totals that hold them, and its narrative SHALL name
-them. The internal analysis SHALL show the same contingency amount, so that the two workbooks' expense totals agree.
+them. The internal analysis SHALL carry its own contingency at the same rate, over its own costs in the same scope
+(in-house staff per its cost-basis toggle, plus OPEX less repairs), inside Total Profit Value. It is computed at full
+occupancy, so it does not equal the deliverable's year-1 amount in VND.
+
+The analysis's in-house staff SHALL exclude the Security, Cleaning and Landscape vendor contracts, and its
+contingency SHALL be a cost in every analysis total built from staff, OPEX and profit (the fill-up table, the markup,
+the Year 1 Strategy breakevens, Owner Operating Position and Savills Fee Position).
 
 #### Scenario: Summary ties
 
@@ -64,4 +70,5 @@ them. The internal analysis SHALL show the same contingency amount, so that the 
 #### Scenario: Analysis agrees
 
 - **WHEN** both workbooks are generated
-- **THEN** the analysis's contingency SHALL equal the sum of the deliverable's three contingency lines over the year
+- **THEN** the analysis's contingency SHALL equal the contingency rate times the analysis's own in-scope costs
+- **AND** the rate SHALL be the one the deliverable uses

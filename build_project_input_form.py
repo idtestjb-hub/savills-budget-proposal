@@ -1028,6 +1028,20 @@ def main(force=False):
         "VND per US dollar used to convert the ESI2 premium. Leave blank for 26,190, the Vietcombank selling rate on "
         "05/10/2026; the remark names the rate and its date.", 'Budget Planning Agent')
 
+    # Appended (row 60 was free), read by label. Change apply-head-of-pm-decisions-2026-10, group 6.
+    import contingency
+    c_cont = labeled_input(ws1, 60, contingency.LABEL, None, fmt='0.0%')
+    dv_cont = DataValidation(type='decimal', operator='between', formula1='0', formula2='0.1',
+                             allow_blank=True, showErrorMessage=True, errorTitle='Contingency Rate',
+                             error='Enter a percentage from 0% to 10%, or leave blank for 2%')
+    ws1.add_data_validation(dv_cont)
+    dv_cont.add(c_cont)
+    c_cont.comment = Comment(
+        "The contingency rate of the three contingency lines EM#, ES# and EE# on both fund sheets. Leave blank for "
+        "2%. Each month's contingency is this rate times that month's total of its group's cost lines, leaving out "
+        "Savills' own fee (EMH1) and the residents' own water and electricity collected on their behalf (EEW.A, "
+        "EEE.A). Enter 0% to budget no contingency; above 10% stops the run.", 'Budget Planning Agent')
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 
