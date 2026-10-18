@@ -8,20 +8,31 @@ repository and `docs/` carry anonymous ids only.
 - [ ] 0.1 Precondition (design D7): `apply-head-of-pm-decisions-2026-10` is archived, or the user says to start
   before it. Then record the "before" outputs of the standard sample and the clone, and the unit-test count. Verify
   that the files exist and that `verify.py` passes on them.
-- [ ] 0.2 Confirm the store still matches its sources: re-check every source file's modified time against
+- [x] 0.2 Confirm the store still matches its sources: re-check every source file's modified time against
   `dim_file.modified`, and list any new file in `input/budget_planning/`. Verify: 0 changed, 0 new. If not, rerun the
   scan (`scan-2026-10-07\README.md`, "Bản v2") before the build.
+  - Done 2026-10-18 (lane C): 83/83 source files match `dim_file.modified`, 0 changed. The 12 files on disk
+    that are not in the store are the 7 originals of the `__repaired` copies and 5 exports (no new budget).
 
 ## 1. Reference data
 
-- [ ] 1.1 Write `build_real_budget_ranges.py` (design D3, D6) and its unit tests on an invented mini-store (SQLite
+- [x] 1.1 Write `build_real_budget_ranges.py` (design D3, D6) and its unit tests on an invented mini-store (SQLite
   fixture, no real names). It covers: main sheet and high confidence only, no PDF/xlsb/duplicate, latest year per
   project, an unnamed file as its own project, zero/blank counted not valued, `name_key` and `nfa_m2`, and the refusal
   when a name would be written. Verify with the unit tests.
-- [ ] 1.2 Build `Ref_CPI_VN.csv` (design D4): 2021–2025 published averages read from Cục Thống kê's year-end
+  - Done 2026-10-18 (lane C): `tests/test_build_real_budget_ranges.py`. Rules approved by the user on
+    2026-10-18 beyond D3, also covered: the "I." products group as the fee-paying NFA when the store summed
+    the product rows (it had added the group rows too, so 5 usable files carried twice their NFA; the group
+    matches `Dim_Property_v2_verified` for the three files it holds); two files with one NFA to the m2 are one
+    project and a same-year tie goes to the later file date (as the service-level table); two files of one
+    name whose NFA differs by more than 5% are two projects, flagged, with a blank `name_key` so that only the NFA
+    matches them at run time. `--out` has no default.
+- [x] 1.2 Build `Ref_CPI_VN.csv` (design D4): 2021–2025 published averages read from Cục Thống kê's year-end
   releases, and the user-approved stand-in for 2026 and 2027 marked `stand-in`, each with its source and check date.
   Verify with a unit test of the factor for 2021, 2025, 2026, 2027 and 2028.
-- [ ] 1.3 Run the build on the real store into `Budget_Agent/data/real_budget_ranges/`, with the id map kept in the
+  - Done 2026-10-18 (lane C): 2021 1.84%, 2022 3.15%, 2023 3.25%, 2024 3.63%, 2025 3.31% published; 2026,
+    2027 and 2028 4.52% stand-in. `test_cpi_factor_public_table` and `test_cpi_factor_invented_table`.
+- [x] 1.3 Run the build on the real store into `Budget_Agent/data/real_budget_ranges/`, with the id map kept in the
   store folder. Verify:
   - the name scan passes (no store project or file name in the output);
   - the per-code counts of projects with a value match an independent SQL count on the store, written separately
@@ -30,16 +41,25 @@ repository and `docs/` carry anonymous ids only.
     `.gitignore` rule hides `data/`, as with `Ref_UtilityTariffs.csv`);
   - the count of projects per code after the latest-file rule, IQR and leave-one-out is at least 10. On 2026-10-12 it
     was 14 (`ESS23`) to 35 (`ESS12`, `ESC1`).
+  - Done 2026-10-18 (lane C): 41 projects, 410 rows; the build's name scan and a separate scan of the written
+    files against the store's 208 project and file names pass; an independent SQL count matches all 10 codes.
+    With the standard sample (36,679 m2) left out: 14 (`ESS23`) to 37 (`ESC1`). Scripts and logs:
+    `Savills-local\budget-test\2026-10-18-laneC-real-budget-ranges\`. Tracking in the outer repository
+    (`git add -f`, `data/` is ignored there) is handed to the coordinating session.
 
 ## 2. Ranges in the tool
 
-- [ ] 2.1 Write `real_budget_ranges.py` (design D1–D5, D8): load, leave-one-out by `name_key` or NFA within 0.5%,
+- [x] 2.1 Write `real_budget_ranges.py` (design D1–D5, D8): load, leave-one-out by `name_key` or NFA within 0.5%,
   IQR outliers, 10-project floor, `PERCENTILE.INC` percentiles, CPI factor, VAT, the figure, and the reason when not
   usable. Verify with unit tests on invented values: the project left out, an outlier dropped, 9 projects, a 2025 value
   with its factor, both VAT bases, no pool, no tower.
-- [ ] 2.2 Write the Vietnamese remark sentences: the priced line, the stand-in note for `ESC1`/`ESC2`, and the zero
+  - Done 2026-10-18 (lane C): `tests/test_real_budget_ranges.py`. Not wired into the pipeline (part 2).
+- [x] 2.2 Write the Vietnamese remark sentences: the priced line, the stand-in note for `ESC1`/`ESC2`, and the zero
   reasons (fewer than 10 projects, no pool, no tower). Verify with unit tests, and that `check_remark_content`'s
   internal-wording scan passes on them.
+  - Done 2026-10-18 (lane C): sentences in `real_budget_ranges.py`; the test runs them through
+    `_INTERNAL_WORDING_DENYLIST` and the Vietnamese check. The full `check_remark_content` on a deliverable
+    runs in part 2, where the generic VAT sentence is appended as on other lines.
 - [ ] 2.3 Wire the figures into `generate_project_budget.py` for the codes in scope that have no other figure, and
   drop a code from `_FLAGGED_NO_METHOD` only when its range is usable. `2.2 Common area Fund` follows its existing
   allocation. Verify:
