@@ -86,7 +86,7 @@ A measure within 10% of either cut-off (cut-off × 0.9 up to but excluding cut-o
 
 ### Requirement: Real projects are held in a separate anonymous service-level table
 
-A build step SHALL read the real-budget scan store, and the headcount file the level-of-service readers produced from the budgets' A2 / A3 forms, and write one data table with one row per project. Each row SHALL hold: an anonymous project id; the budget year; the total fee-paying NFA of every product (the store's `nfa_total`, less the "Management Fee" pseudo-product where the store summed product rows); for each of cleaning and security, the headcount measure, its level or "chưa phân loại" with the reason, its source and its "sát ngưỡng" mark; and any flag.
+A build step SHALL read the real-budget scan store, and the headcount file the level-of-service readers produced from the budgets' A2 / A3 forms, and write one data table with one row per project. Each row SHALL hold: an anonymous project id; the budget year; the total fee-paying NFA of every product (the store's `nfa_total`; where the store summed group rows and their product rows both, the group I row "I. Các loại hình sản phẩm" alone, group II being parking, as in `build_real_budget_ranges`; otherwise less the "Management Fee" pseudo-product where the store summed product rows); for each of cleaning and security, the headcount measure, its level or "chưa phân loại" with the reason, its source and its "sát ngưỡng" mark; and any flag.
 
 The source of each measure SHALL be marked "form" when the headcount was read from the project's own staffing form in the budget, and "chi phí" when it was inferred from the service's cost. Both SHALL be kept and marked. The inferred ones SHALL NOT be shown as if they were read.
 
@@ -119,7 +119,7 @@ Data files read: the scan store in `Savills-local` (build step only). Data files
 #### Scenario: Regression check against the 2026-10-18 result
 
 - **WHEN** the build runs on the scan store as it stood on 2026-10-07 and the level-of-service readers' file v8 of 2026-10-18 (48 projects after the identical-NFA rule, 45 with a total fee-paying NFA)
-- **THEN** cleaning SHALL give 8 Nâng cao, 23 Tiêu chuẩn, 11 Cơ bản and 6 "chưa phân loại" (3 "thiếu NFA", 3 "ngoài cận, nghi đọc sai"), and security SHALL give 8 Nâng cao, 21 Tiêu chuẩn, 15 Cơ bản and 4 "chưa phân loại" (3 "thiếu NFA", 1 "ngoài cận, nghi đọc sai"), with 28 and 31 form-read classified projects. (The readers' file v7 of the same morning gave 7 / 24 / 11 / 6 and 8 / 20 / 15 / 5; the v8 readers read five more forms.) This is a regression check on the data the thresholds were read from, not a validation of the thresholds.
+- **THEN** cleaning SHALL give 9 Nâng cao, 24 Tiêu chuẩn, 11 Cơ bản and 4 "chưa phân loại" (3 "thiếu NFA", 1 "ngoài cận, nghi đọc sai"), and security SHALL give 8 Nâng cao, 24 Tiêu chuẩn, 13 Cơ bản and 3 "chưa phân loại" (3 "thiếu NFA"), with 30 and 32 form-read classified projects. (Before the group I rule of the evening of 2026-10-18 the same inputs gave 8 / 23 / 11 / 6 and 8 / 21 / 15 / 4 with 28 and 31: four files' NFA had been summed twice. The readers' file v7 of the same morning gave 7 / 24 / 11 / 6 and 8 / 20 / 15 / 5; the v8 readers read five more forms.) This is a regression check on the data the thresholds were read from, not a validation of the thresholds.
 
 ### Requirement: The internal analysis shows the tool's own service levels
 
