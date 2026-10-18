@@ -407,7 +407,10 @@ def main(argv=None):
         # A new prospect fills A1.1 too (change apply-head-of-pm-decisions-2026-10, D5): EMH2 must leave A1's
         # allowance out and EMH3 carry it, so the same detail-sheet tie runs here and fails on a double count.
         if not _run_sections([('EMH2, EMH3 and EMH4 of the standard sample equal their detail sheets',
-                               lambda: checks.check_existing_detail_ties(paths))]):
+                               lambda: checks.check_existing_detail_ties(paths)),
+                              # Group 6 of apply-head-of-pm-decisions-2026-10: EM#/ES#/EE# on both fund sheets.
+                              ('contingency lines are a rate of their own leaves, none depends on itself',
+                               lambda: checks.check_contingency(paths))]):
             return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
@@ -446,6 +449,8 @@ def main(argv=None):
                 ('Required line items', lambda: check_required_line_items(ex_paths)),
                 ('Service Levels sheet ties to Staffing Demand and the data tables',
                  lambda: checks.check_service_levels(ex_paths, ex_sample)),
+                ('contingency lines are a rate of their own leaves, none depends on itself',
+                 lambda: checks.check_contingency(ex_paths)),
             ]
             if not _run_sections(sections):
                 return 1
@@ -485,6 +490,8 @@ def main(argv=None):
             ('remark content', lambda: check_remark_content(op_paths)),
             ('summary reconciliation', lambda: check_summary_reconciles(op_paths)),
             ('Required line items', lambda: check_required_line_items(op_paths)),
+            ('contingency lines leave the collect-on-behalf lines out, none depends on itself',
+             lambda: checks.check_contingency(op_paths)),
         ]):
             return 1
 

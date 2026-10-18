@@ -51,6 +51,7 @@ import utility_tariffs
 import existing_staffing
 import existing_utilities
 import operating_inputs
+import contingency
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -702,6 +703,10 @@ def read_input(path):
     project['budget_period'] = budget_period.from_value(
         L.value(budget_period.LABEL) if L.has(budget_period.LABEL) else None)
     project['esi2'] = _resolve_esi2(project['esi2_premium_usd'], project['usd_rate'])
+    # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 6). Blank or absent
+    # means 2%; text, a negative rate or one above 10% stop the run (contingency.ContingencyRateError).
+    project['contingency_rate'], project['contingency_rate_is_default'] = contingency.resolve_rate(
+        L.value(contingency.LABEL) if L.has(contingency.LABEL) else None)
     project['pool_count'], project['pool_count_stated'] = _resolve_pool_count(
         project['pool_count'], project['has_pool'])
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
@@ -1597,6 +1602,7 @@ def _compose_summary_narratives(wb, project, demand, year, written):
         cell = ws.cell(row=srow, column=_SUMMARY_K_COL, value=narrative)
         cell.alignment = Alignment(wrap_text=True, vertical='top')
         filled.append(f"K{srow}({code})")
+    filled += _write_contingency_narratives(wb, project, written)
     if filled:
         print('  1. Summary narratives:', ', '.join(filled))
     return filled
@@ -1793,6 +1799,11 @@ MGMT_FUND_ROWS = {
     # bags) is a real waste-adjacent consumable with no unit price anywhere — left alone.
     'waste_collection': 153,    # ESS9   Normal domestic garbage collection (QĐ 65/2026)
     'esi2': 190,                # ESI2   Public liability insurance, USD premium x rate x 1.10
+    # Added 2026-10-19, change apply-head-of-pm-decisions-2026-10 (group 6): the contingency lines, live month
+    # formulas over their group's leaves (_write_contingency_lines; contingency.py).
+    'contingency_em': 131,      # EM#    Management-expense contingency
+    'contingency_es': 221,      # ES#    Outsourced-service contingency
+    'contingency_ee': 262,      # EE#    Energy contingency
 }
 
 # Cost code each MGMT_FUND_ROWS key must land on — the guard below checks every row on every run
@@ -1809,6 +1820,7 @@ MGMT_FUND_EXPECTED_CODE = {
     'pccc_allowance': 'EMH4', 'drinking_water': 'EMA7', 'env_incident_plan': 'ESC12',
     'wastewater_crosscheck': 'ESM25', 'asset_insurance': 'ESI1',
     'waste_collection': 'ESS9', 'esi2': 'ESI2',
+    'contingency_em': 'EM#', 'contingency_es': 'ES#', 'contingency_ee': 'EE#',
 }
 
 
@@ -3298,9 +3310,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                         "zero in year 1 per the guideline — legitimately zero for a year-1 budget, "
                         "not a pricing gap."),
         126: ('EMO6',  "No pricing method recorded in Costing_Method_Catalogue.csv."),
-        131: ('EM#',   "Management-expense-section contingency row — no formula or percentage "
-                        "basis stated anywhere this pipeline can read."),
-        134: ('ESC1',  "Needs a real count of planned events and their scale — no such input "
+        # EM# (131), ES# (221) and EE# (262) removed 2026-10-19 (change apply-head-of-pm-decisions-2026-10, group 6):
+        # now priced as a rate of their group by _write_contingency_lines.
+        134: ('ESC1', "Needs a real count of planned events and their scale — no such input "
                         "exists anywhere in this pipeline (Staffing Demand, 0. Info, or otherwise)."),
         135: ('ESC2',  "Catalogue describes the shape (drills/year x cost/drill + a year-1 plan-"
                         "preparation fee) but gives no real cited VND figure, unlike ESC12/ESM25."),
@@ -3337,10 +3349,6 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         205: ('ESM13', "No pricing method recorded in Costing_Method_Catalogue.csv."),
         220: ('ESR',   "Section rollup row — no formula or basis stated anywhere this pipeline can "
                         "read."),
-        221: ('ES#',   "Section-contingency row — no formula or percentage basis stated anywhere "
-                        "this pipeline can read."),
-        262: ('EE#',   "Energy-section contingency — the catalogue says to link the remark from "
-                        "the corresponding code, but names no actual figure or percentage basis."),
         480: ('ERCS1', "Frequency x unit-cost, but the 'benchmark unit cost' has no real cited "
                         "source anywhere in this pipeline."),
     }
@@ -3362,8 +3370,6 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                  "đầu theo hướng dẫn lập ngân sách của Savills — hợp lý khi bằng 0 cho ngân sách năm 1, không phải thiếu "
                  "phương pháp định giá.",
         'EMO6':  "Chưa có phương pháp định giá được ghi nhận.",
-        'EM#':   "Dòng dự phòng của nhóm Chi phí quản lý — không có công thức hay tỷ lệ phần trăm "
-                 "nào được nêu rõ mà hệ thống có thể đọc được.",
         'ESC1':  "Cần số liệu thực tế về số sự kiện dự kiến và quy mô — hiện chưa có đầu vào này ở "
                  "bất kỳ đâu trong hệ thống.",
         'ESC2':  "Đã có mô tả cách tính (số đợt diễn tập/năm x chi phí/đợt + phí lập kế hoạch năm "
@@ -3389,10 +3395,6 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         'ESM13': "Chưa có phương pháp định giá được ghi nhận.",
         'ESR':   "Dòng tổng hợp của nhóm — không có công thức hay căn cứ nào được nêu rõ mà hệ "
                  "thống có thể đọc được.",
-        'ES#':   "Dòng dự phòng của nhóm — không có công thức hay tỷ lệ phần trăm nào được nêu rõ "
-                 "mà hệ thống có thể đọc được.",
-        'EE#':   "Dự phòng của nhóm năng lượng — hướng dẫn yêu cầu liên kết ghi chú từ mã tương "
-                 "ứng, nhưng không nêu số liệu hay tỷ lệ phần trăm cụ thể nào.",
         'ERCS1': "Tính theo Tần suất x đơn giá, nhưng 'đơn giá tham chiếu' chưa có nguồn trích dẫn "
                  "thực tế nào trong hệ thống.",
     }
@@ -3452,6 +3454,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         _write_existing_staff_lines(ws, existing, existing_layout)
     else:
         _write_new_prospect_emh3(ws, demand, _period_of(project))
+
+    _write_contingency_lines(ws, contingency.FUND_SHEET, project)
 
 
 _FUND_EMH3_ROW = 84
@@ -3670,9 +3674,10 @@ def _write_common_area_zero_reasons(ws):
     line that line's own reason (change explain-common-area-fund-zero-lines). Rows are found by code
     (column Y), not by row number, because the two sheets' rows differ. A row whose F is the
     template's XLOOKUP-into-'2. Fund' allocation gets the reason marked "phần phân bổ". The three
-    section-contingency rows (EM#, ES#, EE#) are '2.2''s own lines, not allocations (F blank or 0),
-    and their '2. Fund' reason — no formula or percentage basis stated anywhere — is equally true of
-    them, so they get the same reason without the allocation wording (user decision 2026-10-04). Any
+    section-contingency rows (EM#, ES#, EE#) are '2.2''s own lines, not allocations (F blank or 0);
+    they are priced by _write_contingency_lines since group 6 of apply-head-of-pm-decisions-2026-10,
+    and carry a '2. Fund' reason only at a contingency rate of 0, which is equally true of them, so they
+    get the same reason without the allocation wording (user decision 2026-10-04). Any
     other row is skipped: the copied reason would not be known to apply. A Remarks cell already
     holding template text is left alone; whitespace counts as empty (two template cells ship a
     single space)."""
@@ -3743,6 +3748,61 @@ def _code_rows(ws, codes, sheet_label):
     if missing:
         raise ValueError(f"{sheet_label} has no row for {', '.join(missing)} (column Y).")
     return rows
+
+
+def _contingency_rate(project):
+    """(rate, is_default) as read_input resolved it; 2% default for a project dict built without read_input."""
+    return (project.get('contingency_rate', contingency.DEFAULT_RATE),
+            project.get('contingency_rate_is_default', True))
+
+
+def _write_contingency_lines(ws, sheet, project):
+    """EM#, ES# and EE# on one fund sheet (change apply-head-of-pm-decisions-2026-10, group 6, design D9): each
+    month a live =ROUND(rate*(SUBTOTAL(9,<leaves>)-<excluded>),0) over the group's month-allocation column,
+    written Schedule so G = SUM(H:S). The energy base also leaves out every expense line the catalogue pairs as
+    collect-on-behalf, so an entered pair moves revenue and expense alike and the surplus does not move. At a rate
+    of 0 the '2. Fund' lines keep their template zero with the approved reason, which '2.2' copies through
+    _ZERO_REASONS (_write_common_area_zero_reasons). Returns the layout written."""
+    rate, is_default = _contingency_rate(project)
+    paired = set(operating_inputs.cob_pairing(CATALOGUE_PATH).values())
+    lines = contingency.layout(ws, sheet, extra_exclusions=paired)
+    if not rate:
+        if sheet == contingency.FUND_SHEET:
+            for line in lines:
+                _write_zero_reason(ws, line['row'], line['code'], contingency.ZERO_REASON_VI)
+        return lines
+    for line in lines:
+        row = line['row']
+        ws.cell(row=row, column=3, value='Schedule')   # C: Frequency -> G = SUM(H:S)
+        ws.cell(row=row, column=6, value=None)         # F: not used under Schedule
+        for i, formula in enumerate(contingency.month_formulas(sheet, line, rate)):
+            cell = ws.cell(row=row, column=8 + i, value=formula)
+            cell.number_format = _NUM_FMT
+        _write_remark(ws, row, remark=contingency.remark_vi(line, rate, is_default))
+    return lines
+
+
+def _write_contingency_narratives(wb, project, written):
+    """'1. Summary' K25, K35 and K42 (group 6): the rows whose H reads a contingency line (H25 = EMO + EM#,
+    H35 = ESR + ES#, H42 = EE#). Each lists what else the row sums, then the contingency item. The template's
+    K42 pulls an unrelated remark (T251), so it is overwritten. Returns the cells written."""
+    ws = wb['1. Summary']
+    fund = wb[contingency.FUND_SHEET]
+    rate, _default = _contingency_rate(project)
+    lines = {l['code']: l for l in contingency.layout(fund, contingency.FUND_SHEET)}
+    filled = []
+    for srow, code, others in ((25, 'EM#', ('EMO',)), (35, 'ES#', ('=ESR',)), (42, 'EE#', ())):
+        line = lines[code]
+        h = str(ws.cell(row=srow, column=8).value or '')
+        if f"AK{line['row']}" not in h.replace('$', '') and ws.cell(row=srow, column=2).value != code:
+            raise ValueError(f"'1. Summary'!H{srow} is {h!r}; it no longer reads {code} (row {line['row']}).")
+        items = [w['name_vi'] for _c, w in _children_for(others, written)] if others else []
+        items.append(contingency.summary_item_vi(line, rate))
+        narrative = _append_vat("Dự ước bao gồm:\n" + _vi_list(items))
+        cell = ws.cell(row=srow, column=_SUMMARY_K_COL, value=narrative)
+        cell.alignment = Alignment(wrap_text=True, vertical='top')
+        filled.append(f"K{srow}({code})")
+    return filled
 
 
 def _collect_on_behalf_lines(project):
@@ -3830,6 +3890,7 @@ def fill_common_area_fund_sheet(wb, project):
     _activate_common_area_passthrough_rows(ws, skip_codes=_cob_expense_codes)
     _write_common_area_zero_reasons(ws)
     _write_common_area_rp5_reason(ws)
+    _write_contingency_lines(ws, contingency.COMMON_SHEET, project)
     if _cob_expense_codes:
         _keep_collect_on_behalf_out_of_common_area(wb, ws, _cob_expense_codes)
 

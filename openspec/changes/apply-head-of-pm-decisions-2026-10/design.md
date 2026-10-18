@@ -115,6 +115,30 @@ block. Zero-pay rows are listed in the run output.
 - The rate is written as a literal from the input and stated in the remark.
 - Verification asserts that no contingency cell is among its own precedents.
 - The analysis adds one contingency row equal to the deliverable's annual sum.
+- **As approved by the user on 2026-10-18 (group 6 rules), these points replace the wording above:**
+  - The base is read from the template's month-allocation columns, `AQ:BB` on `2. Budget-Management Fund` and `AL:AW`
+    on `2.2 Common area Fund`, not from `H:S`. The contingency row is written `Schedule`, with `H:S` holding
+    `=ROUND(rate*(SUBTOTAL(9,AQ<first leaf>:AQ<row above>)-AQ<excluded>),0)` and so on per month. Measured on the
+    recalculated standard sample: on the fund sheet 1 of 161 leaves (`EMH4`) has `SUM(H:S)` = 0 against a year total of
+    10.6M, and on `2.2` 20 of 161 do (its share rows are `Monthly` on `F` only). Yearly and quarterly rows hold a date in
+    `H:S`.
+  - The rate is the Project Info field "Contingency Rate (EM#, ES#, EE#)" (row 60, read by label). Blank, or an older
+    form without the field, gives 2%. 0 gives 0 on all six rows, with a reason that names the field. Text, a negative
+    rate or a rate above 10% stops the run and names the field.
+  - The energy exclusions are `EEW.A`, `EEE.A` and any other expense line the catalogue pairs as collect-on-behalf.
+  - Every mode carries the contingency: new prospect, Existing and operating.
+  - On `2.2` the same rule runs over its own rows. `RI1` reads `2.2!AH40`, so it rises by `2.2`'s contingency.
+  - The analysis computes its own contingency: the rate times its own costs in the same scope (in-house staff per the
+    cost-basis toggle, plus OPEX less repairs), at full occupancy, as a live formula inside Total Profit Value. It
+    does not equal the deliverable in VND, because the deliverable is year 1 on the fill-up curve and includes the
+    outsourced services.
+- **The user's choices of 2026-10-19 (made while building group 6):**
+  - "In-house staff" is the analysis's staff cost under the toggle less the Security, Cleaning and Landscape vendor
+    contracts (the Service sheet's contract figures, the deliverable's `ESS1`/`ESS4`/`ESS16`).
+  - The analysis's contingency is a cost in every total built from staff, OPEX and profit, not only Total Profit
+    Value: the fill-up table and the markup on the Summary, the Year 1 Strategy breakevens and deferred cost, Owner
+    Operating Position's recurring cost, and a Contingency Reimbursement line on Savills Fee Position, so its full
+    package still equals revenue at 100% fill.
 
 **D9a. A line already priced including VAT gets no second VAT.**
 - The VAT-by-month factor applies only to amounts the tool prices excluding VAT: a new prospect's `EEE.C`, plus
@@ -133,6 +157,21 @@ block. Zero-pay rows are listed in the run output.
 - Order (the user's choice): that change's back-test (7.2) and sign-off (7.3) finish and it is archived before group 2
   starts. This change then adds a MODIFIED delta on `existing-project-utilities` for the shared VAT rows and the two new
   water groups (task 2.0). Groups 0, 1 and 3 to 9 do not touch those files and can go ahead meanwhile.
+
+**D9c. Group 7 rules (B1, B7, B10, K14), as approved by the user on 2026-10-19 (the docs/30 ★ options).**
+- `EMH1` keeps its two bases: fixed fee = the monthly fee × 12, even; % fee = the % × the full annual management fee
+  (residents plus the developer's top-up), even. Both filled stops the run; both blank leaves 0 with its reason.
+- The fixed fee is entered excluding VAT (B1-a) and the tool adds each budget month's VAT (none under KHOÁN). The %
+  fee gets no added VAT: its base, the management-fee revenue, already includes it.
+- Every `EMH1` remark and the both-filled message name the inputs by label, never by cell address. The `1. Summary`
+  `EMH` narrative names the basis actually used (fixed, or the % of the management fee) instead of always "cố định".
+- The analysis shows the entered fee on `Savills Fee Position` beside the profit it computes, or "chưa nhập" (B1-b).
+- `METHOD_VERDICTS` records the % basis; the catalogue edit goes to the coordinator (shared data folder).
+- `ERCS1` stays 0 with the reason "đang chờ báo giá dịch vụ cho chung cư", keeping that no sourced unit price exists.
+- `BK507` = `IF(N(BK10)=0,"N/A",-BK505/BK10)`, `BK511` = `IF(ISNUMBER(BK507),BK507+BK509,"N/A")`, found by their
+  column-BG labels; a missing label stops the run.
+- `1. Summary!K14` always ends with "Doanh thu hạng mục này dự ước tại năm <năm>." (K14-a) and is exempt from the
+  generic VAT-sentence check.
 
 **D10. `ESI2` is an input-driven Monthly line.** Annual = USD × FX × 1.10; `F` = annual / 12. Its `_FLAGGED_NO_METHOD`
 entry, `METHOD_VERDICTS` entry and catalogue entry are updated.
@@ -504,3 +543,72 @@ decision lines up with docs/30's figure. Deliverable movements are VND/year on `
   insurance and markup; A1.1 pays 30% / 390% / 300% of the daily wage per shift, plain, as the template does (M4-a).
 - **Sign-off (group 5):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-18 (session
   P23), with the two assistant categories Must-Have.
+
+### Group 6: contingency `EM#`, `ES#`, `EE#` (2026-10-19, lane A session P2)
+
+Runs under `Savills-local\budget-test\2026-10-18-laneA-g6\`: `before` = code `239bbf3` (standard sample, the City Garden
+clone, the Existing, lump and operating fixtures); `after2` = group 6 on the same inputs, plus the variants built by
+`make_variants.py` (operating fixture with its collect-on-behalf amounts cleared; standard sample with the rate at 0%,
+3%, a text value and 11%). Figures are Excel-recalculated (`cont_check.py`, `ab_table.py`, `ab_g6.json`). Default
+rate 2% (no fixture has the new field).
+
+**Built (rules of 2026-10-18 and the user's choices of 2026-10-19).**
+- New module `contingency.py`: the rate (`Contingency Rate (EM#, ES#, EE#)`, Project Info row 60, read by label), the
+  layout found by code and checked against the approved rows, the month formulas and the remarks. GPB writes the six
+  lines (`_write_contingency_lines`) and `1. Summary` K25/K35/K42 (`_write_contingency_narratives`); EM#, ES# and EE#
+  leave `_FLAGGED_NO_METHOD` and join `MGMT_FUND_ROWS`. Month formula, e.g. `2. Fund!H131` =
+  `=ROUND(0.02*(SUBTOTAL(9,AQ82:AQ130)-AQ82),0)`; `2.2!H223` = `=ROUND(0.02*(SUBTOTAL(9,AL190:AL222)-AL190-AL200),0)`.
+- Analysis (the user's choices of 2026-10-19): a CONTINGENCY block on `Cost Priority` = rate × (in-house staff, i.e. the
+  staff total less the Security / Cleaning / Landscape vendor contracts, + OPEX less Repairs & Maintenance), on the
+  Must-Have and Full Cost bases; the Summary's toggle picks one (`Selected Contingency`, on the old spacer row, so
+  Total Profit Value stays at B19). It is a cost everywhere costs are summed: Total Profit Value, the fill-up table, the
+  markup, Key Figure (10), the Year 1 Strategy breakevens and deferred cost, Owner Operating Position's recurring cost
+  and a Contingency Reimbursement line on Savills Fee Position (its full package still equals revenue at 100% fill).
+- `verify.py` gains `check_contingency` (sections 8 and 9: the standard, Existing, lump and operating samples).
+
+**Per line, year 1 (VND).**
+
+| Case | `2. Fund` EM# / ES# / EE# | `2.2` EM# / ES# / EE# | Analysis contingency (Must-Have) |
+|---|---|---|---|
+| Standard sample | 104,565,768 / 51,991,740 / 44,814,453 | 543,072 / 270,024 / 232,752 | 117,458,666 |
+| City Garden clone | 249,121,980 / 216,515,208 / 130,685,580 | 1,617,180 / 1,405,512 / 848,352 | 259,717,591 |
+| Existing sample | 136,462,812 / 51,991,740 / 26,476,776 | 708,732 / 270,024 / 137,508 | 74,427,055 |
+| Existing lump sample | 77,903,544 / 51,991,740 / 20,030,892 | 404,592 / 270,024 / 104,028 | 67,981,169 |
+| Operating sample | 104,565,768 / 51,991,740 / 69,734,760 | 696,432 / 346,272 / 464,448 | 117,458,666 |
+
+**Headline movements.** Year-1 surplus moves by −(the `2. Fund` contingency) + (RI1's rise, which equals the `2.2`
+contingency, because RI1 reads `2.2!AH40`); total expense (`1. Summary!H20`) rises by exactly the `2. Fund` contingency.
+
+| Case | Year-1 surplus | of which RI1 | Total Profit Value | Margin | Markup |
+|---|---|---|---|---|---|
+| Standard sample | 5,273,808,594 → 5,073,482,481 (−200,326,113) | +1,045,848 | 4,728,323,743 → 4,610,865,077 (−117,458,666) | 37.76% → 36.82% | 60.67% → 58.28% |
+| City Garden clone | 3,739,975,963 → 3,147,524,239 (−592,451,724) | +3,871,044 | 5,889,113,203 → 5,629,395,612 (−259,717,591) | 20.95% → 20.03% | 26.51% → 25.05% |
+| Existing sample | 4,599,361,028 → 4,385,545,964 (−213,815,064) | +1,116,264 | 6,879,904,278 → 6,805,477,222 (−74,427,055) | 54.94% → 54.35% | 121.93% → 119.04% |
+| Existing lump sample | 7,832,738,452 → 7,683,590,920 (−149,147,532) | +778,644 | 7,202,198,598 → 7,134,217,428 (−67,981,169) | 57.52% → 56.97% | 135.38% → 132.41% |
+| Operating sample | 551,544,459 → 326,759,343 (−224,785,116) | +1,507,152 | 3,161,282,143 → 3,043,823,477 (−117,458,666) | 28.86% → 27.78% | 40.56% → 38.47% |
+
+No literal line of `2. Fund` moves in any case (`lines_diff.py`, every twelve-month total); RI1 rises by exactly the `2.2` contingency, so no other `2.2` line moves in total; Total Profit Value falls by exactly the analysis contingency, so revenue, staff, OPEX and capex do not move.
+
+**COM read-back (`cont_check.py`, every case).**
+- Each month of the six lines equals ROUND(rate × (the template's group total − the line itself − the excluded
+  leaves)), and equals ROUND(rate × the plain sum of the leaf rows − excluded); G = SUM(H:S).
+- No circular reference on any sheet of either workbook (Excel's `CircularReference` after a full recalculation), and
+  every formula range ends on the row above its line. False negative: Excel names only the first loop per sheet.
+- `1. Summary` H25/H35/H42 equal the fund cells they read (AK120 + AK131, AK220 + AK221, AK262); K25/K35/K42 carry the
+  contingency item (the template's K42 pulled the diesel remark T251).
+- Analysis: same rate as the deliverable; contingency = ROUND(rate × (in-house staff + OPEX less repairs)) on both bases;
+  Total Profit Value = revenue − staff − OPEX − capex − contingency; Savills Fee Position package = revenue.
+- Only error cells: `2. Fund` BK507/BK511, inherited from the template and present before (task 7.3).
+- **Collect-on-behalf:** the operating sample with its pairs (310,000,000 + 455,000,000 + 27,500,000 a month) and
+  without them give the same surplus (326,759,343), the same EE# (69,734,760) and the same Total Profit Value.
+- **Rate 0%:** all six lines 0 with "Để ở mức 0: ô 'Contingency Rate' trên Project Info là 0%." (the `2.2` lines copy it),
+  K25/K35/K42 say so, and the surplus and Total Profit Value equal `before` exactly. **3%:** `2. Fund` contingency
+  302,057,946 (1.5 × the 2% run, within the month rounding). **Text / 11%:** the run stops naming the field.
+
+**Checks (6.1-6.2):** 822 unit tests pass (1 xfail as before; 26 new in `tests/test_contingency.py`, including the verify check failing on a range that reaches its own line, on a wrong month and on a second rate). `verify.py` with the two baseline gates opened passes every other check on all sections, the new contingency check included (`verify_g6_open.log`); the gated figures differ from the recorded baseline by groups 1-6 together, and their current values equal the `after2` column above (total profit value 4,610,865,077; year-1 surplus 5,073,482,481).
+
+**Catalogue.** `Costing_Method_Catalogue.csv` is in the shared data folder: the coordinator applies EE# →
+`percent-of-section` and adds EM# / ES# with tonight's merge. Until then `method_coverage.METHOD_VERDICTS` records the
+three lines as `matches` (Head of PM decision B6).
+- **Sign-off (group 6):** the user, standing in for the Head of PM, accepted these measurements and the remark wording
+  (the Project Info pointer kept) on 2026-10-19 (lane A session P2).

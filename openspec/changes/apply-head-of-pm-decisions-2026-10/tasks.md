@@ -102,15 +102,15 @@ A/B movements (design D16).
 
 ## 6. Contingency (B6)
 
-- [ ] 6.1 Add the contingency rate input (default 2%), and write `EM#`, `ES#` and `EE#` on `2. Budget-Management Fund`
+- [x] 6.1 Add the contingency rate input (default 2%), and write `EM#`, `ES#` and `EE#` on `2. Budget-Management Fund`
   as live month formulas (`H:S`), using `SUBTOTAL(9, first leaf:row above)` minus the excluded leaves (design D9). The
   base excludes `EMH1`, `EEW.A` and `EEE.A`. A rate of 0 gives 0 with a reason. Verify with a COM read-back that:
   - each month equals 2% of its base, with each leaf counted once;
   - no contingency cell is among its own precedents;
   - a collect-on-behalf pair leaves the surplus unchanged.
-- [ ] 6.2 Write the same on `2.2 Common area Fund` from its own ranges. Add the contingency to `1. Summary`'s
+- [x] 6.2 Write the same on `2.2 Common area Fund` from its own ranges. Add the contingency to `1. Summary`'s
   reconciliation and narratives, and to the analysis. Verify that the summary ties and the two workbooks agree.
-- [ ] 6.3 Record the A/B and get the user's sign-off.
+- [x] 6.3 Record the A/B and get the user's sign-off.
 
 ## 7. Savills fee cleanup, ERCS, break-even cells, fee narrative (B1, B7, B10, K14)
 
