@@ -409,6 +409,11 @@ def main(argv=None):
         if not _run_sections([('EMH2, EMH3 and EMH4 of the standard sample equal their detail sheets',
                                lambda: checks.check_existing_detail_ties(paths))]):
             return 1
+        # The helper sheets explain their lines (change apply-head-of-pm-decisions-2026-10, D15): A2/A3/A4 x 12 =
+        # ESS1/ESS4/ESS16, the B3 garbage sheet = ESS9 before VAT, B4 = RA1.A + RA2. Run on every sample below too.
+        if not _run_sections([('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
+                               lambda: checks.check_helper_sheet_ties(paths))]):
+            return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
             existing_dir = os.path.join(workdir, sub)
@@ -439,6 +444,8 @@ def main(argv=None):
                  lambda: checks.check_staff_bridge(ex_paths, existing_mode=True)),
                 ('EMH2, EMH3 and EMH4 equal their detail sheets',
                  lambda: checks.check_existing_detail_ties(ex_paths)),
+                ('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
+                 lambda: checks.check_helper_sheet_ties(ex_paths)),
                 ('Utility Bridge ties to EEE.C and EEW.C of the deliverable',
                  lambda: checks.check_utility_bridge(ex_paths, existing_mode=True)),
                 ('remark content', lambda: check_remark_content(ex_paths)),
@@ -485,6 +492,8 @@ def main(argv=None):
             ('remark content', lambda: check_remark_content(op_paths)),
             ('summary reconciliation', lambda: check_summary_reconciles(op_paths)),
             ('Required line items', lambda: check_required_line_items(op_paths)),
+            ('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
+             lambda: checks.check_helper_sheet_ties(op_paths)),
         ]):
             return 1
 
