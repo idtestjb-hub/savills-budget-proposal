@@ -612,3 +612,57 @@ No literal line of `2. Fund` moves in any case (`lines_diff.py`, every twelve-mo
 three lines as `matches` (Head of PM decision B6).
 - **Sign-off (group 6):** the user, standing in for the Head of PM, accepted these measurements and the remark wording
   (the Project Info pointer kept) on 2026-10-19 (lane A session P2).
+### Group 8: helper sheets A2-A4, B1-B5 (2026-10-19, lane B session P2)
+
+Runs under `Savills-local\budget-test\lanes\B\ab\` (`before2` = commit `239bbf3` from a detached worktree, `g8` = the
+lane-B working tree; both on the same data, standard sample and the City Garden clone). The first "before" run
+(`before`, 2026-10-18) showed 6 cells moving on the analysis's `Service Levels` sheet: `data/service_levels/
+Ref_ServiceLevelProjects.csv` was rebuilt after it (lane C's NFA fix), so `before` was re-run as `before2` on today's
+data; `before` and `before2` agree on all 32 baseline figures.
+
+**Rules applied (the 17 rules of the lane-B note, the user's OK of 2026-10-18/19).**
+- **A2-A4:** people on an 8-hour shift (E = 8), relief for the weekly day off included (x 7/6, rounded up), at the
+  line's post rate x night blend written into the rate cell (`A2!G3 = 17,500,000 x 1.0882`, `A3!J3`, `A4!J3`), all
+  recorded once by `contract_cost` and not worked out again. Posts go on their standard row (main gate A4, CCTV A2,
+  patrol A6, side gate A5, FCC A3; cleaning A3 / clubhouse A4 / parking C1; gardener L3); a post with no standard row
+  goes on the group's main row with a note (the user's choice, 2026-10-19: the sheets have no blank row); a supervisor
+  goes on the unpriced row (A3 A1, A4 L1) or is named in A2's notes. Night and 24h cleaning or landscape people go in
+  the standard-shift column with a note (the user's choice). Every other standard row keeps its name and duty text at
+  quantity 0. A2's 24h-conversion block counts the 8-hour rows (`E35` 16 -> 8).
+- **B1:** the roster month (Roster Setup; blank = the budget's first month; 09/2026 on every sample), real weekdays,
+  the roster's rest rule, one row per person; more than five people: five rows and a note (the user's choice). The
+  weekly and daily parts say "Chưa áp dụng" and lose their sample codes, `#REF!` included.
+- **B2-B5:** B3 garbage = ESS9's units x 100% x kg/unit/day x 30 x 1,087 VND/kg (staff and visitor rows "Chưa áp
+  dụng"); B4 = the RA1.A/RA2 devices and rates; B5 part B = RP1/RP2 monthly prices for this project (part A, the
+  reference projects, not filled); B2 and B3 consumables "Chưa áp dụng" with the sample quantities and prices cleared,
+  norms kept. The form's `#REF!` cells (B1 `B42`/`C42`, B3 consumables `Q13`) are removed; they go on the form-owner
+  list.
+
+**Measured.**
+- **Fund figures:** 0 of the 32 baseline figures move, on both samples (`compare_runs.py before2 g8`).
+- **Every cell outside the helper sheets** (formulas and constants as written, all three workbooks): 0 differences on
+  both samples (`compare_cells_lane.py before2 g8`; 756,531 + 756,759 deliverable cells). Helper-sheet cells changed:
+  448 (standard sample), 402 (City Garden).
+- **Excel read-back (`helper_read.py`):**
+
+| | Standard sample | City Garden clone |
+|---|---|---|
+| `A2` x 12 / `ESS1` | 1,294,958,000 / 1,294,958,004 (17 people) | 4,367,853,000 / 4,367,853,000 (57) |
+| `A3` x 12 / `ESS4` | 288,000,000 / 288,000,000 (3 + 1 supervisor unpriced) | 4,416,000,000 / 4,416,000,000 (46 + 1) |
+| `A4` x 12 / `ESS16` | 264,000,000 / 264,000,000 (2) | 792,000,000 / 792,000,000 (6) |
+| `B4` x 12 / `RA1.A + RA2` | 82,545,456 / 82,545,456 | 222,181,824 / 222,181,824 |
+| `B3` garbage x 12 / `ESS9` (incl. VAT) | 512,527,457 / 563,780,208 | 954,042,073 / 1,049,446,284 |
+| `EMH4` | 10,567,717, unchanged | 10,567,717, unchanged |
+| Error cells on the helper sheets | 3 -> 0 | 3 -> 0 |
+| `B1` reception | 2 people, 09/2026 | 4 people, 09/2026 |
+
+  Before group 8 the sheets showed the form's samples: `A2` x 12 = 4,550,000,000 and `A3` x 12 = 1,530,000,000 on both
+  samples.
+- **Checks:** `check_helper_sheet_ties` (new; ESS9 compared before VAT, tolerance 12 VND a year) passes on the standard
+  sample, both Existing samples and the operating sample inside `verify.py`. 814 unit tests pass (18 new in
+  `tests/test_helper_sheets.py`), 1 xfail as before.
+  `verify.py` with the two baseline gates opened (`lanes/B/ab/verify_gate_open.py`, log `verify_g8.log`) passes every
+  other check on all sections; the gates report the same 11 / 6 / 0 / 10 baseline differences as at the end of group 5
+  (`2026-10-18-p22-g5/verify_g_open.log`), so group 8 moves no recorded figure.
+- **Sign-off (group 8):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-19
+  (lane B session P2).

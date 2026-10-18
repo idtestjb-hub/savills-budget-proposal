@@ -2401,6 +2401,126 @@ def check_contingency(paths):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# The deliverable's helper sheets that explain a fund line (change apply-head-of-pm-decisions-2026-10, D15): each
+# sheet's monthly total cell x 12 equals the line(s) on the fund sheet named. ESS9 is compared before VAT, as the
+# garbage sheet prices it; the fund line carries each month's VAT when the financial model includes it.
+_COMMON_AREA_SHEET = '2.2 Common area Fund'
+_HELPER_TIES = (
+    ('A2. Bảo vệ - Security', 31, 8, _FUND_SHEET, ('ESS1',)),
+    ('A3. Vệ sinh - Cleaning', 23, 11, _FUND_SHEET, ('ESS4',)),
+    ('A4. Cây xanh - Landscape', 11, 11, _FUND_SHEET, ('ESS16',)),
+    ('B3. Thu gom rác - Garbage coll ', 11, 12, _FUND_SHEET, ('ESS9',)),
+    ('B4. DT Quảng cáo - Elevator adv', 7, 12, _COMMON_AREA_SHEET, ('RA1.A', 'RA2')),
+)
+HELPER_TIE_TOLERANCE = 12      # VND a year: the fund lines are written month by month, rounded
+
+
+def helper_sheet_ties(cell, line_rows):
+    """Pure core of check_helper_sheet_ties. `cell(sheet, row, col)` -> (value, formula or None) after Excel
+    recalculation; `line_rows` maps (sheet, code) to the line's row. A line's VND/year is its column G; ESS9's is
+    taken back to before VAT month by month (H:S over 1 + that month's general VAT, from the dated tariff file and
+    the period starting at the fund sheet's AH6) unless the model switch F7 says KHOÁN."""
+    import datetime as _dt
+    import budget_period
+    import utility_tariffs
+    rows, differences, notes = [], [], []
+
+    def num(sheet, r, c):
+        return _num(cell(sheet, r, c)[0]) or 0.0
+
+    incl_vat = ' '.join(str(cell(_FUND_SHEET, 7, 6)[0] or '').split()).upper() != 'KHOÁN'
+    start = cell(_FUND_SHEET, 6, 34)[0]
+    if isinstance(start, (int, float)) and not isinstance(start, bool):
+        start = _dt.datetime(1899, 12, 30) + _dt.timedelta(days=start)
+    period = budget_period.from_value(start)
+    tariff_rows = utility_tariffs.load_rows()
+    vat = [utility_tariffs.vat_rate(y, m, rows=tariff_rows) for y, m in period.months]
+    for sheet, r, c, line_sheet, codes in _HELPER_TIES:
+        label = f"'{sheet}'!{chr(64 + c)}{r} x 12 = " + ' + '.join(codes)
+        missing = [code for code in codes if (line_sheet, code) not in line_rows]
+        if missing:
+            differences.append((label, 'row not found: ' + ', '.join(missing), ''))
+            continue
+        expected = 0.0
+        for code in codes:
+            lr = line_rows[(line_sheet, code)]
+            if code == 'ESS9':
+                months = [num(line_sheet, lr, 8 + i) for i in range(12)]
+                expected += sum(v / (1 + vat[i] / 100) if incl_vat else v for i, v in enumerate(months))
+            else:
+                expected += num(line_sheet, lr, 7)
+        got = num(sheet, r, c) * 12
+        rows.append((label, got, expected))
+        if abs(got - expected) > HELPER_TIE_TOLERANCE:
+            differences.append((label, got, expected))
+    notes.append(f'{len(rows)} helper-sheet total(s) tied to their fund lines (tolerance {HELPER_TIE_TOLERANCE} '
+                 f'VND a year; ESS9 before VAT, model {"incl." if incl_vat else "excl."} VAT).')
+    return not differences, rows, differences, notes
+
+
+def check_helper_sheet_ties(paths):
+    """A2/A3/A4 = ESS1/ESS4/ESS16, the B3 garbage sheet = ESS9 before VAT, B4 = RA1.A + RA2, on the deliverable as
+    Excel recalculates it (helper_sheet_ties). Returns (ok, rows, differences, notes)."""
+    import shutil
+    import tempfile
+
+    from verification.baseline import BaselineUnavailable
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The helper-sheet tie needs Excel ({exc}).') from exc
+    work = os.path.join(tempfile.mkdtemp(prefix='helper_tie_'), os.path.basename(paths['deliverable']))
+    shutil.copy(paths['deliverable'], work)
+    pythoncom.CoInitialize()
+    xl = wb = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        sheets = {_nfc(ws.Name): ws for ws in wb.Worksheets}
+
+        def cell(sheet, r, c):
+            ws = sheets.get(_nfc(sheet))
+            if ws is None:
+                raise BaselineUnavailable(f"'{sheet}' not found on the deliverable.")
+            x = ws.Cells(r, c)
+            return x.Value2, (str(x.Formula) if x.HasFormula else None)
+
+        wanted = {(s, code) for _h, _r, _c, s, codes in _HELPER_TIES for code in codes}
+        line_rows = {}
+        for s in {s for s, _code in wanted}:
+            ws = sheets[_nfc(s)]
+            codes = ws.Range('Y1:Y700').Value
+            for i, (y,) in enumerate(codes, start=1):
+                key = (s, str(y or '').strip())
+                if key in wanted and key not in line_rows:
+                    line_rows[key] = i
+        return helper_sheet_ties(cell, line_rows)
+    except BaselineUnavailable:
+        raise
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
+    finally:
+        try:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        try:
+            if xl is not None:
+                xl.Quit()
+        except Exception:
+            pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+
+
 def check_run_log(paths, input_path, required_rows):
     """The run log (change add-budget-run-log, spec budget-run-log), exercised on the synthetic project.
 

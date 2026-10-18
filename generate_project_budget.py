@@ -841,6 +841,9 @@ def read_input(path):
         ))
     if not demand:
         raise ValueError("Staffing Demand sheet has no complete rows.")
+    # The roster month and its holidays, for the deliverable's reception calendar 'B1' (design D15).
+    project['roster_month'] = (year, month)
+    project['roster_holidays'] = sorted(holiday_days)
 
     return project, ratios, month, year, holiday_days, demand
 
@@ -897,6 +900,10 @@ _UNIT_RATES = {}
 # '1. Summary' fee narrative states the basis the PM gave instead of "(đã gồm VAT)". Cleared with
 # _UNIT_RATES at the start of every run.
 _ENTERED_RATE_VAT = {}
+# The figures the helper sheets A2-A4, B3 garbage, B4 and B5 show, recorded where the fund lines are priced (ESS1/
+# ESS4/ESS16 posts, ESS9 units, RA1.A/RA2 devices, RP1/RP2 prices) so fill_helper_sheets() writes the same numbers
+# instead of working them out again (change apply-head-of-pm-decisions-2026-10, D15). Cleared by build_budget().
+_HELPER_FIGURES = {}
 _VAT_SWITCH_DEFAULT = ('2. Budget-Management Fund', 'F7')
 
 
@@ -2481,6 +2488,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         qty = sum(math.ceil(d['StaffPerDay'] * 7 / 6) if d['CoverageDays'] >= 7 else d['StaffPerDay']
                   for d in matched)
         if not qty:
+            _record_contract_posts(cat, demand, matched, SERVICE_CITYWIDE_RATES[cat],
+                                   SERVICE_SHIFT_ROLES_PER_POST[cat], 1.0, 0)
             return 0.0, 0, 1.0
         night_qty = sum(math.ceil(d['StaffPerDay'] * 7 / 6) if d['CoverageDays'] >= 7 else d['StaffPerDay']
                         for d in matched if d['ShiftCode'] in NIGHT_SHIFT_CODES)
@@ -2490,6 +2499,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         blend = round(1 + (night_qty / qty) * (NIGHT_DIFFERENTIAL - 1), 4)
         post_rate = SERVICE_CITYWIDE_RATES[cat]
         roles = SERVICE_SHIFT_ROLES_PER_POST[cat]
+        _record_contract_posts(cat, demand, matched, post_rate, roles, blend, qty)
         return (post_rate / roles) * blend * qty * 12, qty, blend
 
     security_cost, n_sec_posts, sec_blend = contract_cost('Security')
@@ -2705,6 +2715,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # stable operation, replaces bays x default rate x fill for that vehicle type, flat over 12 months.
     # _UNIT_RATES then holds the monthly figure, so the RPa narrative quotes it, not a per-bay rate.
     _recorded = ((project.get('operating') or {}).get('parking')) or {}
+    _HELPER_FIGURES['parking'] = {
+        'moto': dict(rate=PARKING_FEE_MOTO_MONTHLY, slots=moto_slots, recorded=_recorded.get('moto')),
+        'car': dict(rate=PARKING_FEE_CAR_MONTHLY, slots=car_slots, recorded=_recorded.get('car'))}
     for _key, _code, _vehicle in (('moto', 'RP1', 'parking_moto'), ('car', 'RP2', 'parking_car')):
         if _recorded.get(_key) is not None:
             _UNIT_RATES[_code] = _recorded[_key]
@@ -3193,6 +3206,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                                 * WASTE_DAYS_PER_MONTH * WASTE_UNIT_PRICE)
         waste_monthly = _waste_apt_monthly + _waste_shop_monthly
         waste_annual = waste_monthly * 12
+        _HELPER_FIGURES['waste'] = dict(apt_units=_waste_apt_units, shop_units=_waste_shop_units,
+                                        monthly=waste_monthly)
         _waste_total = sum(waste_monthly * v for v in _vat_factors(project))
         write_vat_monthly('waste_collection', waste_annual, remark=(
             f"= (Căn hộ: {_waste_apt_units} căn x {WASTE_APARTMENT_KG_PER_UNIT_DAY} kg/căn/ngày"
@@ -3933,6 +3948,8 @@ def fill_common_area_fund_sheet(wb, project):
         else:
             qty = (qty_per_tower * towers) if qty_per_tower is not None else flat_qty
         annual = rate * qty * 12
+        _HELPER_FIGURES.setdefault('ads', []).append(dict(item=item, item_vi=item_vi, rate=rate, qty=qty,
+                                                          note=assumption_vi))
         part = (f"{item_vi}: {rate:,.0f} VND/thiết bị/tháng x {qty:g} thiết bị x 12 = {annual:,.0f} "
                 f"({assumption_vi})")
         if 'inside elevator' in item.lower():
@@ -4057,6 +4074,395 @@ def fill_staff_cost_sheet(wb, project, demand, year):
     for name in _zero_pay_positions(demand, period):
         print(f"WARNING  A1 '{STAFF_COST_SHEET}': '{name}' has staff but a gross pay of 0 (daily rate blank or 0 in "
               f"Staffing Demand). The row is written at 0, not skipped — enter its daily rate.")
+
+
+# ---- Helper sheets A2-A4, B1-B5 (change apply-head-of-pm-decisions-2026-10, D15; spec deliverable-helper-sheets) ----
+# The form ships these sheets with sample posts, a sample reception calendar and sample helper figures. They now show
+# this project's own: the A2-A4 posts and rate ESS1/ESS4/ESS16 were priced on (each total x 12 = its line), the
+# reception calendar by the roster's rest rule, the B3 garbage, B4 advertising and B5 parking figures the fund lines
+# use, and "Chưa áp dụng" where the tool has no figure of its own (B2, B3 consumables). No formula outside these
+# sheets reads them, and A5 (EMH4) is not touched.
+
+def _post_persons(d):
+    """People a Staffing Demand row needs, relief for the weekly day off included (as ESS1/ESS4/ESS16 count them)."""
+    return math.ceil(d['StaffPerDay'] * 7 / 6) if d['CoverageDays'] >= 7 else d['StaffPerDay']
+
+
+def _record_contract_posts(cat, demand, matched, post_rate, roles, blend, qty):
+    """Kept by fill_management_fund_sheet()'s contract_cost(): the posts, rate and night blend one of ESS1/ESS4/ESS16
+    was priced on, plus the posts it leaves out (a supervisor), for the A2-A4 helper sheets."""
+    from generate_project_output import SERVICE_CATEGORY_KEYWORDS, SERVICE_EXCLUDE_KEYWORDS
+    kws = SERVICE_CATEGORY_KEYWORDS[cat]
+    excluded = [d for d in demand if any(kw in d['Position'].lower() for kw in kws)
+                and any(ex in d['Position'].lower() for ex in SERVICE_EXCLUDE_KEYWORDS)]
+    _HELPER_FIGURES.setdefault('contract', {})[cat] = dict(
+        post_rate=post_rate, roles=roles, blend=blend, qty=qty,
+        posts=[(d, _post_persons(d)) for d in matched if _post_persons(d)],
+        excluded=[(d, _post_persons(d)) for d in excluded if _post_persons(d)])
+
+
+# One entry per outsourced service sheet. `base_hours` is the hours the sheet's row price divides the rate cell by
+# (A2: $G$3/24*E, A3/A4: $J$3/8*E), so a person's row hours are base_hours / roles and the sheet total equals the
+# fund line by construction. `rows` places a post on its standard row by a keyword of its Staffing Demand name; a
+# post with no standard row goes on `main_row` with a note (the user's choice, 2026-10-19: the sheets have no blank
+# row). `unpriced_row` is the standard row without a price, for a post the line leaves out (a supervisor).
+_POST_SHEETS = {
+    'Security': dict(sheet='A2. Bảo vệ - Security', rate_cell='G3', rate_label='E3', price_col=7, line='ESS1',
+                     base_hours=24, shift_cols=None, qty_col=6, total_cell='H31', main_row=16, unpriced_row=None,
+                     note_col=3, note_row=37, conversion_hours_cell='E35', alloc_cols=('M', 'N', 'O', 'P'),
+                     rows=(('main gate', 14), ('side gate', 15), ('cctv', 12), ('fcc', 13), ('patrol', 16)),
+                     vi='bảo vệ'),
+    'Cleaning': dict(sheet='A3. Vệ sinh - Cleaning', rate_cell='J3', rate_label='H3', price_col=10, line='ESS4',
+                     base_hours=8, shift_cols={'S': 6, 'C': 7}, qty_col=8, total_cell='K23', main_row=12,
+                     unpriced_row=10, note_col=3, note_row=25, conversion_hours_cell=None,
+                     alloc_cols=('P', 'Q', 'R', 'S'),
+                     rows=(('common area', 12), ('clubhouse', 13), ('parking', 20)), vi='vệ sinh'),
+    'Landscape': dict(sheet='A4. Cây xanh - Landscape', rate_cell='J3', rate_label='H3', price_col=10, line='ESS16',
+                      base_hours=8, shift_cols={'S': 6, 'C': 7}, qty_col=8, total_cell='K11', main_row=10,
+                      unpriced_row=8, note_col=3, note_row=13, conversion_hours_cell=None,
+                      alloc_cols=('P', 'Q', 'R', 'S'), rows=(('gardener', 10), ('landscape', 10)), vi='cây xanh'),
+}
+_SHIFT_VI = {'HC': 'hành chính', 'S': 'ca sáng', 'C': 'ca chiều', 'D': 'ca đêm', '24H': 'trực 24/24'}
+_HELPER_NOTE_FONT = Font(italic=True, size=9)
+
+
+def _helper_note(ws, row, col, text):
+    cell = ws.cell(row=row, column=col, value=text)
+    cell.font = _HELPER_NOTE_FONT
+    cell.alignment = Alignment(wrap_text=False, vertical='top')
+    return cell
+
+
+def _fill_service_post_sheet(wb, project, cat):
+    """A2/A3/A4: this project's posts on the standard rows, the line's rate x night blend in the rate cell, every
+    other standard row at quantity 0 with its name and duty description kept, and the allocation basis filled."""
+    spec = _POST_SHEETS[cat]
+    ws = wb[spec['sheet']]
+    fig = (_HELPER_FIGURES.get('contract') or {}).get(cat)
+    if fig is None:
+        raise ValueError(f"{spec['line']} was not priced before its helper sheet '{spec['sheet']}' was filled.")
+    qty_cols = [spec['qty_col']] + sorted((spec['shift_cols'] or {}).values())
+    # Position rows: a name in D and working hours in E (group headers have neither hours nor a price).
+    total_row = ws[spec['total_cell']].row
+    position_rows = [r for r in range(8, total_row)
+                     if isinstance(ws.cell(row=r, column=5).value, (int, float))
+                     and isinstance(ws.cell(row=r, column=4).value, str)]
+    priced_rows = {r for r in position_rows
+                   if spec['rate_cell'].replace('G', '$G$').replace('J', '$J$')
+                   in str(ws.cell(row=r, column=spec['price_col']).value or '')}
+    if spec['main_row'] not in priced_rows:
+        raise ValueError(f"'{spec['sheet']}' row {spec['main_row']} no longer carries the sheet's price formula: "
+                         f"re-check _POST_SHEETS against the template.")
+    for r in position_rows:
+        for c in qty_cols:
+            ws.cell(row=r, column=c).value = None
+        ws.cell(row=r, column=spec['qty_col']).value = 0
+
+    hours = spec['base_hours'] / fig['roles']
+    placed = {}            # row -> {'shifts': {code: n}, 'merged': [(position, n)], 'night': n, 'unpriced': bool}
+    not_placed = []
+    for group, unpriced in ((fig['posts'], False), (fig['excluded'], True)):
+        for d, n in group:
+            if unpriced:
+                if spec['unpriced_row'] is None:
+                    not_placed.append((d['Position'], n))
+                    continue
+                r, matched = spec['unpriced_row'], True
+            else:
+                p = d['Position'].lower()
+                r = next((row for kw, row in spec['rows'] if kw in p and row in priced_rows), None)
+                matched = r is not None
+                r = r if matched else spec['main_row']
+            slot = placed.setdefault(r, dict(shifts={}, merged=[], night=0, unpriced=unpriced))
+            code = d['ShiftCode']
+            slot['shifts'][code] = slot['shifts'].get(code, 0) + n
+            if not matched:
+                slot['merged'].append((d['Position'], n))
+            if spec['shift_cols'] is not None and code not in spec['shift_cols'] and code != 'HC':
+                slot['night'] += n
+    for r, slot in placed.items():
+        ws.cell(row=r, column=5).value = hours
+        if spec['shift_cols'] is None:
+            ws.cell(row=r, column=spec['qty_col']).value = sum(slot['shifts'].values())
+        else:
+            ws.cell(row=r, column=spec['qty_col']).value = None
+            per_col = {}
+            for code, n in slot['shifts'].items():
+                col = spec['shift_cols'].get(code, spec['qty_col'])
+                per_col[col] = per_col.get(col, 0) + n
+            for col, n in per_col.items():
+                ws.cell(row=r, column=col).value = n
+
+    rate_cell = ws[spec['rate_cell']]
+    rate_cell.value = f"={fig['post_rate']:.0f}*{fig['blend']:g}"
+    rate_cell.number_format = '#,##0'
+    label = ws[spec['rate_label']]
+    if isinstance(label.value, str) and 'hệ số ca đêm' not in label.value:
+        label.value = label.value + '\n(đã gồm hệ số ca đêm)'
+    if spec['conversion_hours_cell'] and hours not in (24, 12):
+        ws[spec['conversion_hours_cell']] = hours       # the 24h-conversion block counts the hours the rows use
+
+    prods = project.get('products') or {}
+    basis = ((prods.get('Apartment') or {}).get('nfa') or 0, (prods.get('Shophouse') or {}).get('nfa') or 0,
+             (prods.get('Retail') or {}).get('nfa') or 0, project.get('car_slots') or 0)
+    for col, value in zip(spec['alloc_cols'], basis):
+        ws[f'{col}7'] = value
+
+    annual = fig['post_rate'] / fig['roles'] * fig['blend'] * fig['qty'] * 12
+    rate_ref = spec['rate_cell']
+    notes = []
+    if not fig['qty']:
+        notes.append(f"Staffing Demand của dự án không có vị trí {spec['vi']} thuê ngoài: các dòng ghi số lượng 0.")
+    notes.append(f"Số lượng là số người làm ca {hours:g} giờ, đã gồm người thay ca nghỉ hằng tuần của vị trí trực 7 "
+                 f"ngày/tuần (số người trực mỗi ngày x 7/6, làm tròn lên).")
+    if cat == 'Security':
+        notes.append(f"Đơn giá ô {rate_ref} = {fig['post_rate']:,.0f} VND/vị trí 24h/tháng x hệ số ca đêm "
+                     f"{fig['blend']:.4f} (đã gồm hệ số ca đêm); một người ca {hours:g} giờ bằng 1/{fig['roles']:g} "
+                     f"vị trí 24h.")
+    else:
+        notes.append(f"Đơn giá ô {rate_ref} = {fig['post_rate']:,.0f} VND/người/tháng x hệ số ca đêm "
+                     f"{fig['blend']:.4f} (đã gồm hệ số ca đêm)." if fig['blend'] != 1 else
+                     f"Đơn giá ô {rate_ref} = {fig['post_rate']:,.0f} VND/người/tháng (dự án không có ca đêm cho vị trí này).")
+    for r in sorted(placed):
+        slot = placed[r]
+        code_txt = ws.cell(row=r, column=3).value or ''
+        name_txt = str(ws.cell(row=r, column=4).value or '').split('/')[0].strip()
+        detail = ', '.join(f"{_SHIFT_VI.get(c, c)} {n:g}" for c, n in slot['shifts'].items())
+        line = f"{code_txt} {name_txt}: {sum(slot['shifts'].values()):g} người ({detail})"
+        if slot['unpriced']:
+            line += f", không tính giá trong khoản {spec['line']} (vị trí giám sát)"
+        if slot['merged']:
+            line += ('; gồm ' + ', '.join(f"{p} ({n:g} người)" for p, n in slot['merged'])
+                     + ': không có dòng chuẩn tương ứng nên gộp vào dòng này')
+        if slot['night']:
+            line += f"; {slot['night']:g} người ca đêm/24h ghi ở cột ca hành chính"
+        notes.append(line + '.')
+    for p, n in not_placed:
+        notes.append(f"Không ghi trên trang này: {p} ({n:g} người), vị trí giám sát không thuộc khoản {spec['line']}.")
+    notes.append(f"Tổng chi phí/tháng x 12 = {annual:,.0f} VND/năm, bằng dòng {spec['line']} trang "
+                 f"'2. Budget-Management Fund'.")
+    _helper_note(ws, spec['note_row'], spec['note_col'], 'Ghi chú:').font = Font(bold=True, italic=True, size=9)
+    for i, text in enumerate(notes, start=1):
+        _helper_note(ws, spec['note_row'] + i, spec['note_col'], f"{i}. {text}")
+
+
+_B1_SHEET = 'B1. Lịch Lễ tân'
+_B1_FIRST_ROW, _B1_ROWS = 7, 5           # the form's five staff rows
+_B1_DAY_COL = 4                          # D = day 1 ... AH = day 31
+_B1_COUNTER_COLS = {36: '=COUNTIF(D{r}:AH{r},"O")', 37: '=COUNTIF(D{r}:AH{r},$AK$6)', 38: '=COUNTIF(D{r}:AH{r},"PH")',
+                    39: '=COUNTIF($D{r}:$AH{r},$AM$6)', 40: '=COUNTIF(D{r}:AH{r},"N")'}   # AJ:AN
+_WEEKDAY_VI = ('Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật')
+_SHIFT_NAME_VI = {'HC': 'Hành chính', 'S': 'Ca sáng', 'C': 'Ca chiều', 'D': 'Ca đêm', '24H': 'Trực 24/24'}
+_B1_NOT_USED = 'Chưa áp dụng: xem lịch theo tháng ở mục A.'
+
+
+def _roster_month(project):
+    """(year, month, holiday days) of the roster: Roster Setup's month, or the budget's first month when blank."""
+    if project.get('roster_month'):
+        year, month = project['roster_month']
+    else:
+        bp = project.get('budget_period') or budget_period.default()
+        year, month = bp.start_year, bp.start_month
+    holidays = project.get('roster_holidays')
+    if holidays is None:
+        holidays = vn_holidays.holidays_in_month(year, month)
+    return year, month, sorted(holidays)
+
+
+def _reception_calendar(demand, year, month):
+    """[(demand row, [duty code per day])] for each reception person, by the roster's own rest rule: on a 7-day post
+    person s rests on the days d with (d - 1) mod 7 = s mod 7; on a shorter post every person rests on the weekdays
+    past the post's coverage days (build_roster's Generated Roster formulas)."""
+    days = cal.monthrange(year, month)[1]
+    people = []
+    for d in demand:
+        p = d['Position'].lower()
+        if 'reception' not in p and 'lễ tân' not in p:
+            continue
+        for s in range(int(_post_persons(d))):
+            codes = []
+            for day in range(1, days + 1):
+                if d['CoverageDays'] >= 7:
+                    codes.append('O' if (day - 1) % 7 == s % 7 else d['ShiftCode'])
+                else:
+                    on = datetime.date(year, month, day).isoweekday() <= d['CoverageDays']
+                    codes.append(d['ShiftCode'] if on else 'O')
+            people.append((d, codes))
+    return people
+
+
+def _fill_reception_calendar(wb, project, demand):
+    """B1: the reception duty calendar for the roster month in part A; parts B and C (by day, by week) say they are
+    not used. More than five people: the first five are shown and a note gives the rest (the user's choice,
+    2026-10-19: no rows are inserted into the form)."""
+    ws = wb[_B1_SHEET]
+    year, month, holidays = _roster_month(project)
+    days = cal.monthrange(year, month)[1]
+    people = _reception_calendar(demand, year, month)
+    for day in range(1, 32):
+        col = _B1_DAY_COL + day - 1
+        real = day <= days
+        ws.cell(row=5, column=col).value = _WEEKDAY_VI[datetime.date(year, month, day).weekday()] if real else None
+        ws.cell(row=6, column=col).value = day if real else None
+    for i in range(_B1_ROWS):
+        r = _B1_FIRST_ROW + i
+        for c in range(1, 43):                                   # A:AP
+            ws.cell(row=r, column=c).value = None
+        if i >= len(people):
+            continue
+        d, codes = people[i]
+        ws.cell(row=r, column=1).value = i + 1
+        ws.cell(row=r, column=2).value = f'Lễ tân {i + 1}'
+        ws.cell(row=r, column=3).value = _SHIFT_NAME_VI.get(d['ShiftCode'], d['ShiftCode'])
+        for day, code in enumerate(codes, start=1):
+            ws.cell(row=r, column=_B1_DAY_COL + day - 1).value = code
+        for c, f in _B1_COUNTER_COLS.items():
+            ws.cell(row=r, column=c).value = f.format(r=r)
+        ws.cell(row=r, column=42, value=f'={days}-AJ{r}-AK{r}-AM{r}/2')       # AP: days worked
+    for r in range(19, 23):
+        ws.cell(row=r, column=2).value = None
+    ws['A22'] = None
+    if not people:
+        ws.cell(row=_B1_FIRST_ROW, column=2).value = 'Dự án không có vị trí lễ tân.'
+        ws['B19'] = 'Dự án không có vị trí lễ tân trong Staffing Demand, nên không có lịch lễ tân.'
+    else:
+        by_shift = {}
+        for d, _codes in people:
+            by_shift[d['ShiftCode']] = by_shift.get(d['ShiftCode'], 0) + 1
+        ws['B19'] = (f"Lịch làm việc tháng {month:02d}/{year} ({days} ngày), lập theo lịch trực của dự án: "
+                     f"{len(people)} lễ tân (" + ', '.join(f"{n} {_SHIFT_VI.get(c, c)}" for c, n in by_shift.items())
+                     + ").")
+        rules = []
+        for cov in sorted({d['CoverageDays'] for d, _c in people}, reverse=True):
+            rules.append('vị trí trực 7 ngày/tuần: mỗi người nghỉ 1 ngày/tuần (O), xoay vòng' if cov >= 7 else
+                         f'vị trí trực {cov} ngày/tuần: nghỉ (O) các ngày còn lại trong tuần')
+        ws['B20'] = 'Ngày nghỉ theo lịch trực: ' + '; '.join(rules) + '.'
+        ws['B21'] = ('Ngày lễ trong tháng: ' + ', '.join(f"{h:02d}/{month:02d}" for h in holidays)
+                     + '; mã ca giữ nguyên như lịch trực.' if holidays else 'Tháng này không có ngày lễ.')
+        if len(people) > _B1_ROWS:
+            ws['A22'] = 4
+            ws['B22'] = (f"Dự án cần {len(people)} lễ tân; bảng trên ghi lịch {_B1_ROWS} người đầu, "
+                         f"{len(people) - _B1_ROWS} người còn lại xếp theo cùng quy tắc nghỉ.")
+    ws['Z20'], ws['Z21'] = 'S: 6h-15h', 'C: 13h-22h'        # the roster's shift hours (Shift Types)
+    # C. by week (rows 26-30) and B. by day (rows 38-48, hidden): sample codes cleared, the #REF! of B42/C42 with them.
+    for r in range(26, 31):
+        for c in range(1, 12):
+            ws.cell(row=r, column=c).value = None
+    ws['B26'] = _B1_NOT_USED
+    ws['C38'], ws['E38'] = _B1_NOT_USED, None
+    for r in range(42, 49):
+        for c in range(1, 35):
+            ws.cell(row=r, column=c).value = None
+
+
+def _fill_b2_b5(wb, project):
+    """B2 (scent) and B3 consumables: the tool has no figure, so the sample quantities and prices are cleared and the
+    sheet says "Chưa áp dụng" (norms, row names and column titles kept). B3 garbage: ESS9's units, rate and unit
+    price (its total x 12 = ESS9 before VAT). B4: the RA1.A/RA2 devices and rates. B5: the RP1/RP2 monthly prices for
+    this project; the reference-project part is not filled (it would name other projects)."""
+    na = 'Chưa áp dụng.'
+    # B2 scent
+    ws = wb['B2. Mùi hương - Scent']
+    for r in (6, 7, 8):
+        ws.cell(row=r, column=7).value = None
+        ws.cell(row=r, column=8).value = None
+    _helper_note(ws, 11, 1, 'Chưa áp dụng: công cụ chưa tính chi phí máy tạo mùi hương cho dự án này; số lượng và '
+                            'đơn giá mẫu của form đã được xoá.')
+
+    # B3 consumables
+    ws = wb['B3. Vật tư vệ sinh - Consumable']
+    for r in range(6, 12):
+        for c in (3, 11, 12, 13, 18):                          # C units, K:M unit prices, R notes on the sample
+            ws.cell(row=r, column=c).value = None
+    ws['R6'] = na
+    for coord in ('Q13', 'M42', 'R43', 'R44'):                 # Q13: the form's own #REF!; the rest stray sample cells
+        ws[coord] = None
+    _helper_note(ws, 14, 1, 'Chưa áp dụng: công cụ chưa tính chi phí vật tư vệ sinh cho dự án này; số căn, số người '
+                            'và đơn giá mẫu của form đã được xoá, giữ định mức.')
+
+    # B3 garbage collection (ESS9)
+    ws = wb['B3. Thu gom rác - Garbage coll ']
+    waste = _HELPER_FIGURES.get('waste')
+    for r, units_key, kg, product in ((5, 'apt_units', WASTE_APARTMENT_KG_PER_UNIT_DAY, 'Căn hộ'),
+                                      (6, 'shop_units', WASTE_SHOPHOUSE_KG_PER_UNIT_DAY, 'Shophouse')):
+        units = (waste or {}).get(units_key) or 0
+        ws.cell(row=r, column=3).value = units or None
+        ws.cell(row=r, column=5).value = 1 if units else None
+        if units:
+            k = ws.cell(row=r, column=11, value=f'={kg:g}*{WASTE_DAYS_PER_MONTH}*{WASTE_UNIT_PRICE}')
+            k.number_format = '#,##0'
+            ws.cell(row=r, column=13, value=(
+                f"{product}: {units:,.0f} căn x 100% x {kg:g} kg/căn/ngày x {WASTE_DAYS_PER_MONTH} ngày x "
+                f"{WASTE_UNIT_PRICE:,.0f} VND/kg (thu gom {WASTE_COLLECTION_PRICE:,.0f} + vận chuyển "
+                f"{WASTE_TRANSPORT_PRICE:,.0f} + xử lý {WASTE_TREATMENT_PRICE:,.0f}, Quyết định 65/2026/QĐ-UBND, "
+                f"trước VAT)."))
+        else:
+            ws.cell(row=r, column=11).value = None
+            ws.cell(row=r, column=13).value = na
+    for r in range(7, 11):
+        ws.cell(row=r, column=13).value = na
+    ws['J12'], ws['J49'], ws['A51'] = None, None, None
+    ws['A50'] = (f"Đơn giá theo Quyết định 65/2026/QĐ-UBND: {WASTE_UNIT_PRICE:,.0f} VND/kg trước VAT. Tổng chi phí/"
+                 f"tháng x 12 bằng dòng ESS9 trang '2. Budget-Management Fund' trước VAT." if waste else
+                 'Dự án không có căn hộ hoặc shophouse: chưa áp dụng.')
+
+    # B4 elevator and lobby advertising (RA1.A + RA2)
+    ws = wb['B4. DT Quảng cáo - Elevator adv']
+    for r in (5, 6):
+        for c in (3, 5, 6, 7, 9, 10, 13):
+            ws.cell(row=r, column=c).value = None
+    ws['F13'] = None
+    ws['B5'] = 'Sảnh tòa nhà/\nTower lobby'
+    ws['B6'] = 'Sảnh tầng hầm/\nBasement lobby'
+    place = {'Ad frame (tower lobby, inside elevator)': (5, 6, 7), 'LCD screen (tower lobby)': (5, 9, 10),
+             'LCD screen (basement lobby)': (6, 9, 10)}
+    ads = _HELPER_FIGURES.get('ads') or []
+    notes = {5: [], 6: []}
+    monthly = 0.0
+    for a in ads:
+        r, qc, pc = place[a['item']]
+        ws.cell(row=r, column=qc).value = a['qty']
+        ws.cell(row=r, column=pc, value=a['rate']).number_format = '#,##0'
+        notes[r].append(f"{a['item_vi']}: {a['note']}")
+        monthly += a['rate'] * a['qty']
+    for r in (5, 6):
+        ws.cell(row=r, column=13).value = '\n'.join(notes[r]) or na
+    if project.get('passenger_elevators_per_tower'):
+        ws['E5'] = project['passenger_elevators_per_tower'] * (project.get('towers') or 1)
+    ws['M7'] = (f"Tổng/tháng x 12 = {monthly * 12:,.0f} VND/năm, bằng RA1.A + RA2 trang '2.2 Common area Fund'."
+                if ads else na)
+
+    # B5 parking prices
+    ws = wb['B5. Đơn giá gửi xe - Parking pr']
+    ws['B7'] = 'Chưa áp dụng (đơn giá đề xuất cho dự án ở mục B).'
+    ws['B17'] = project['name']
+    parking = _HELPER_FIGURES.get('parking') or {}
+    parts = []
+    for key, col, code, vi in (('car', 3, 'RP2', 'ô tô'), ('moto', 5, 'RP1', 'xe máy')):
+        p = parking.get(key) or {}
+        if p.get('recorded') is not None:
+            ws.cell(row=17, column=col).value = na
+            parts.append(f"{vi}: doanh thu thực tế PM nhập {p['recorded']:,.0f} VND/tháng (dòng {code}), không có "
+                         f"đơn giá/xe")
+        elif p.get('slots'):
+            ws.cell(row=17, column=col, value=p['rate']).number_format = '#,##0'
+            parts.append(f"{vi}: {p['rate']:,.0f} VND/xe/tháng, đơn giá dòng {code}")
+        else:
+            ws.cell(row=17, column=col).value = na
+            parts.append(f"{vi}: dự án không có chỗ đậu")
+        ws.cell(row=17, column=col + 1, value=na)               # transit fare: the tool has no figure
+    ws['G17'], ws['H17'] = na, na                               # bicycle
+    ws['I17'] = ('Đơn giá tháng theo trang "2. Budget-Management Fund": ' + '; '.join(parts)
+                 + '. Giá vé lượt và xe đạp: chưa áp dụng.')
+
+
+def fill_helper_sheets(wb, project, demand):
+    """Fills the deliverable's helper sheets A2-A4 and B1-B5 from what fill_management_fund_sheet() and
+    fill_common_area_fund_sheet() priced (design D15). Must run after both."""
+    for cat in _POST_SHEETS:
+        _fill_service_post_sheet(wb, project, cat)
+    _fill_reception_calendar(wb, project, demand)
+    _fill_b2_b5(wb, project)
 
 
 def build_budget(project, demand, year):
@@ -4214,43 +4620,13 @@ def build_budget(project, demand, year):
     # across comparables (each real file's own parking fee differs and isn't NFA-comparable the
     # way the apartment fee is); PM to confirm before this line item is trusted.
 
-    # ---- A2/A3/A4: no formula anywhere in the deliverable reads these sheets (ESS1/4/16 are priced
-    # in Python, straight onto '2. Budget-Management Fund'), so the pipeline no longer writes their
-    # G3/K3 unit-rate cells (docs/09-template-map.md §9 finding 4; change
-    # reconcile-summary-with-detail-sheets, D4). What DOES need filling is each sheet's own
-    # allocation-split basis (A2!M7:P7, A3!P7:S7, A4!P7:S7 — Apartment/Shophouse/Retail/Parking):
-    # every position row's cost-split formula divides by SUM of these 4 cells, and the template ships
-    # them all at 0, so every row currently errors #DIV/0! (204 cells total — 114+70+20). Filling
-    # them with this project's real product NFA + car-slot count is the smaller of the two fixes
-    # design.md D4 allows (vs. blanking ~200 formulas), and leaves the sheets as a genuine, if
-    # unread, reference view of the outsourced contract's cost allocation.
-    def _alloc_basis():
-        prods = project.get('products') or {}
-        apt = (prods.get('Apartment') or {}).get('nfa') or 0
-        shop = (prods.get('Shophouse') or {}).get('nfa') or 0
-        retail = (prods.get('Retail') or {}).get('nfa') or 0
-        parking_n = project.get('car_slots') or 0
-        return apt, shop, retail, parking_n
-
-    apt_nfa, shop_nfa, retail_nfa, car_n = _alloc_basis()
-    a2 = wb['A2. Bảo vệ - Security']
-    a2['M7'], a2['N7'], a2['O7'], a2['P7'] = apt_nfa, shop_nfa, retail_nfa, car_n
-    for sheet_name in ('A3. Vệ sinh - Cleaning', 'A4. Cây xanh - Landscape'):
-        ws_alloc = wb[sheet_name]
-        ws_alloc['P7'], ws_alloc['Q7'], ws_alloc['R7'], ws_alloc['S7'] = apt_nfa, shop_nfa, retail_nfa, car_n
-
-    # ---- B2/B3(x2)/B4/B5: also no formula anywhere reads them (dead-end helper sheets — their real
-    # advertising/consumable figures are computed in Python and written straight to '2.2 Common area
-    # Fund' / the budget sheet). The pipeline stops writing rates/counts into them; any #REF! they
-    # carry (e.g. B3 Consumable!Q13) is a pre-existing template defect, not introduced here. Change
-    # reconcile-summary-with-detail-sheets, D4.
-
     # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
     _ZERO_REASONS.clear()
     _CATCH_ALL_REASONS.clear()
     _UNIT_RATES.clear()
     _ENTERED_RATE_VAT.clear()
+    _HELPER_FIGURES.clear()
     # Existing-project mode (change carry-forward-staffing): computed once here, before the fund
     # sheet, because EMH2's formula needs to know how many A1 rows go below the table.
     existing = existing_result(project, demand, _budget_year(wb, year))
@@ -4268,6 +4644,11 @@ def build_budget(project, demand, year):
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
     fill_common_area_fund_sheet(wb, project)
+
+    # ---- A2-A4, B1-B5 helper sheets: this project's own posts, reception calendar and helper figures, from what
+    # the two fund sheets just priced (change apply-head-of-pm-decisions-2026-10, D15). No formula outside these
+    # sheets reads them, so no fund figure can move. ----
+    fill_helper_sheets(wb, project, demand)
 
     # ---- 1. Staff cost: real per-position headcount/salary from Staffing Demand, mapped onto
     # the PM's own payroll-calculator sheet — see fill_staff_cost_sheet()'s docstring above. ----

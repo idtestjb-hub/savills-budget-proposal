@@ -125,9 +125,9 @@ A/B movements (design D16).
 
 ## 8. Helper sheets (D2)
 
-- [ ] 8.1 Fill `A2`–`A4` from the tool's post lists and rate, keeping the canonical duties and non-zero allocation
+- [x] 8.1 Fill `A2`–`A4` from the tool's post lists and rate, keeping the canonical duties and non-zero allocation
   bases. Verify with new checks that `A2`/`A3`/`A4` annual totals equal `ESS1`/`ESS4`/`ESS16`.
-- [ ] 8.2 Fill `B1` from the roster's Reception rows. In `B2`–`B5`, write the tool's figures where it has them;
+- [x] 8.2 Fill `B1` from the roster's Reception rows. In `B2`–`B5`, write the tool's figures where it has them;
   otherwise clear the sample values and write "chưa áp dụng". Verify with a COM read-back, and that `EMH4` is
   unchanged.
 
