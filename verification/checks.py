@@ -14,6 +14,7 @@ If Savills reshapes the template, this check SHOULD fail — that is the signal,
 Update the constants below deliberately, the same way REDIRECT_PLAN in isolation.py is updated.
 """
 import os
+import re
 import unicodedata
 
 
@@ -291,7 +292,7 @@ def check_revenue_agreement(paths, stable=False):
 # The Comparison sheet's PROPOSAL BENCHMARK own-project cells (column B) and the '1. Summary' cell
 # each one carries forward. Matched by an ASCII prefix of the row's column-A label (the full labels
 # carry an em dash and a curly apostrophe — matching a prefix avoids a brittle exact compare), not a
-# fixed row number: the section's position shifts with the number of comparables and note rows. See
+# fixed row number: the section's position shifts with the address and note rows. See
 # generate_project_budget.py add_comparison_sheet() and change benchmark-proposal-against-comparables.
 _BENCHMARK_RECONCILE = [
     ('Year-1 management-fee revenue (VND)',   'H14'),
@@ -300,20 +301,41 @@ _BENCHMARK_RECONCILE = [
     ('Year-1 operating surplus (VND)',        'H46'),
 ]
 _BENCHMARK_REVENUE_LABEL = 'Year-1 management-fee revenue (VND)'
+# The analysis Comparison sheet's per-comparable rate row: a cell starting 'BLANK' has no real rate.
+_PEER_RATE_LABEL = 'Real Apartment rate per comparable'
+
+
+def comparison_cells_past_column_b(ws):
+    """Coordinates of every non-empty cell in column C or beyond on the deliverable's Comparison
+    sheet (an openpyxl worksheet). The client sheet carries this project's figures only — the peer
+    columns moved to the internal analysis (change apply-head-of-pm-decisions-2026-10, D14) — so
+    anything here is a peer figure or name leaking back. Values only: fills, borders and merges are
+    ignored."""
+    found = []
+    for row in ws.iter_rows(min_col=3):
+        for cell in row:
+            v = cell.value
+            if v is not None and not (isinstance(v, str) and not v.strip()):
+                found.append(cell.coordinate)
+    return found
 
 
 def check_benchmark_reconciles(paths):
     """Confirm the client deliverable's Comparison-sheet PROPOSAL BENCHMARK section carries the
     deliverable's own '1. Summary' figures forward, rather than restating (and possibly drifting
-    from) them.
+    from) them, that the client sheet holds nothing past column B, and that the internal analysis
+    carries the peer projections.
 
     The benchmark's own-project revenue / operating income / operating cost / operating surplus
     cells are written as formulas into '1. Summary' (change benchmark-proposal-against-comparables,
     design D1), so this should hold by construction; the check fails if a reference has broken
-    (#REF!, wrong cell) or a cell evaluates to an error. It also confirms each "revenue if charged
-    at comparable X's rate" projection is a finite positive number, and — where that comparable's
-    rate equals this project's derived rate (the projection formula is a bare '1. Summary'!H14) —
-    that the projection equals the own-project revenue.
+    (#REF!, wrong cell) or a cell evaluates to an error.
+
+    The "revenue if charged at comparable X's rate" projections live on the analysis's Comparison
+    sheet since D14 (change apply-head-of-pm-decisions-2026-10). Each must be a finite positive
+    number, one per comparable with a real Apartment rate (none found where a rate exists fails, it
+    does not pass empty), and where that comparable's rate equals the derived rate (the formula is
+    a bare reference) the projection must equal the analysis's own revenue.
 
     Returns (ok, rows, differences, notes) where `rows` is [(label, benchmark_vnd, summary_vnd)].
     Raises BaselineUnavailable if Excel cannot be driven.
@@ -321,7 +343,24 @@ def check_benchmark_reconciles(paths):
     import shutil
     import tempfile
 
+    import openpyxl
+
     from verification.baseline import BaselineUnavailable
+
+    rows, differences, notes = [], [], []
+
+    # -- the client sheet holds this project's column only (openpyxl, values as written) --
+    owb = openpyxl.load_workbook(paths['deliverable'], data_only=False)
+    try:
+        cmp_name = next((n for n in owb.sheetnames if _nfc(n) == _nfc('Comparison')), None)
+        if cmp_name is not None:
+            extra = comparison_cells_past_column_b(owb[cmp_name])
+            if extra:
+                differences.append((f'deliverable Comparison has {len(extra)} cell(s) past column B '
+                                    f'({", ".join(extra[:6])}{"…" if len(extra) > 6 else ""}) — peer '
+                                    'figures belong in the analysis', None, None))
+    finally:
+        owb.close()
 
     try:
         import pythoncom
@@ -333,19 +372,34 @@ def check_benchmark_reconciles(paths):
 
     tmp = tempfile.mkdtemp(prefix='benchmark_recon_')
     dwork = os.path.join(tmp, 'deliverable_' + os.path.basename(paths['deliverable']))
+    awork = os.path.join(tmp, 'analysis_' + os.path.basename(paths['analysis']))
     shutil.copy(paths['deliverable'], dwork)
+    shutil.copy(paths['analysis'], awork)
 
     def _num(v):
         return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
+    def _labels(ws):
+        used = ws.UsedRange
+        last_row = used.Row + used.Rows.Count - 1
+        col_a = {}
+        for rr in range(1, last_row + 1):
+            a = ws.Cells(rr, 1).Value2
+            if isinstance(a, str) and a.strip():
+                col_a.setdefault(rr, a.strip())
+        return col_a
+
+    def _row_starting(col_a, prefix):
+        return next((rr for rr in sorted(col_a) if col_a[rr].startswith(prefix)), None)
+
     pythoncom.CoInitialize()
-    xl = dwb = None
-    rows, differences, notes = [], [], []
+    xl = dwb = awb = None
     try:
         xl = win32com.client.DispatchEx('Excel.Application')
         xl.Visible = False
         xl.DisplayAlerts = False
         dwb = xl.Workbooks.Open(dwork, UpdateLinks=0, ReadOnly=True)
+        awb = xl.Workbooks.Open(awork, UpdateLinks=0, ReadOnly=True)
         xl.CalculateFullRebuild()
         sheets = {ws.Name: ws for ws in dwb.Worksheets}
         cmp_ws = next((sheets[n] for n in sheets if _nfc(n) == _nfc('Comparison')), None)
@@ -353,19 +407,9 @@ def check_benchmark_reconciles(paths):
         if cmp_ws is None or sum_ws is None:
             raise RuntimeError("deliverable is missing the 'Comparison' or '1. Summary' sheet")
 
-        used = cmp_ws.UsedRange
-        last_row = used.Row + used.Rows.Count - 1
-        col_a = {}
-        for rr in range(1, last_row + 1):
-            a = cmp_ws.Cells(rr, 1).Value2
-            if isinstance(a, str) and a.strip():
-                col_a.setdefault(rr, a.strip())
-
-        def _row_starting(prefix):
-            return next((rr for rr in sorted(col_a) if col_a[rr].startswith(prefix)), None)
-
+        col_a = _labels(cmp_ws)
         for prefix, summary_cell in _BENCHMARK_RECONCILE:
-            rr = _row_starting(prefix)
+            rr = _row_starting(col_a, prefix)
             if rr is None:
                 differences.append((prefix, None, None))
                 notes.append(f'benchmark row not found: {prefix!r}')
@@ -379,38 +423,66 @@ def check_benchmark_reconciles(paths):
             elif abs(bench - summ) > max(5_000.0, abs(summ) * 5e-5):
                 differences.append((label, bench, summ))
 
-        # projections: the "revenue" row's columns C.. (one per comparable)
-        rr = _row_starting(_BENCHMARK_REVENUE_LABEL)
-        own_rev = _num(cmp_ws.Cells(rr, 2).Value2) if rr else None
-        if rr and own_rev is not None:
+        # projections: the analysis Comparison sheet's revenue row, columns C.. (one per comparable)
+        asheets = {ws.Name: ws for ws in awb.Worksheets}
+        acmp = next((asheets[n] for n in asheets if _nfc(n) == _nfc('Comparison')), None)
+        if acmp is None:
+            raise RuntimeError("analysis is missing the 'Comparison' sheet")
+        acol_a = _labels(acmp)
+        rate_rr = _row_starting(acol_a, _PEER_RATE_LABEL)
+        n_comp = n_rated = 0
+        if rate_rr:
             col = 3
             while True:
-                raw = cmp_ws.Cells(rr, col).Value2
+                raw = acmp.Cells(rate_rr, col).Value2
                 if raw is None or (isinstance(raw, str) and not raw.strip()):
                     break
+                n_comp += 1
+                if not (isinstance(raw, str) and raw.strip().startswith('BLANK')):
+                    n_rated += 1
+                col += 1
+        else:
+            differences.append((f'analysis Comparison row not found: {_PEER_RATE_LABEL!r}', None, None))
+        rr = _row_starting(acol_a, _BENCHMARK_REVENUE_LABEL)
+        own_rev = _num(acmp.Cells(rr, 2).Value2) if rr else None
+        if rr is None or own_rev is None:
+            if n_rated:
+                differences.append(('analysis Comparison has no evaluable year-1 revenue row', own_rev, None))
+        else:
+            n_proj = 0
+            for col in range(3, 3 + n_comp):
+                raw = acmp.Cells(rr, col).Value2
+                formula = str(acmp.Cells(rr, col).Formula or '')
+                if not formula.startswith('='):
+                    continue                              # '—': that comparable has no real rate
+                n_proj += 1
                 proj = _num(raw)
-                formula = str(cmp_ws.Cells(rr, col).Formula or '')
-                tail = formula.split('!')[-1] if '!' in formula else formula
+                tail = formula.split('!')[-1]
                 bare_ref = ('+' not in tail and '-' not in tail)  # rate == derived rate
-                label = f'projection column {col}'
+                label = f'analysis projection column {col}'
                 rows.append((label, proj, own_rev if bare_ref else None))
                 if proj is None or proj <= 0:
                     differences.append((label, proj, None))
                 elif bare_ref and abs(proj - own_rev) > max(5_000.0, abs(own_rev) * 5e-5):
                     differences.append((label, proj, own_rev))
-                col += 1
+            if n_proj != n_rated:
+                differences.append((f'analysis Comparison has {n_proj} revenue projection(s) for '
+                                    f'{n_rated} comparable(s) with a real Apartment rate', None, None))
         dwb.Close(SaveChanges=False)
         dwb = None
+        awb.Close(SaveChanges=False)
+        awb = None
     except Exception as exc:
         raise BaselineUnavailable(
             'Excel could not evaluate the deliverable for the proposal-benchmark reconciliation '
             f'check: {type(exc).__name__}: {exc}') from exc
     finally:
-        try:
-            if dwb is not None:
-                dwb.Close(SaveChanges=False)
-        except Exception:
-            pass
+        for wbk in (dwb, awb):
+            try:
+                if wbk is not None:
+                    wbk.Close(SaveChanges=False)
+            except Exception:
+                pass
         try:
             if xl is not None:
                 xl.Quit()
@@ -423,7 +495,8 @@ def check_benchmark_reconciles(paths):
         shutil.rmtree(tmp, ignore_errors=True)
 
     notes.append("PROPOSAL BENCHMARK own-project cells are formulas into '1. Summary' — this "
-                 'confirms none has broken (#REF!, wrong cell) and the projections evaluate.')
+                 'confirms none has broken (#REF!, wrong cell); the client sheet has nothing past '
+                 'column B; the analysis carries one evaluable projection per rated comparable.')
     return (len(differences) == 0), rows, differences, notes
 
 
@@ -798,24 +871,98 @@ _TEMPLATE_OWNED_TEXT_CELLS = {
 }
 
 
-def scan_internal_wording(wb, template_wb=None):
+# Other projects' names (decision D3: the client deliverable names no other project; change
+# apply-head-of-pm-decisions-2026-10, task 9.3). The list is built from the data each run, never written into the
+# repo: (data file under Budget_Agent/data, name column). A name made only of these generic words is left out, since it
+# would match ordinary text (the user's choice, 2026-10-19).
+_PROJECT_NAME_SOURCES = (
+    ('master_list_verified/Dim_Property_Residential.csv', 'Name'),
+    ('master_list_verified/Dim_Property_Commercial.csv', 'Name'),
+    ('master_list_verified/Fact_ProjectLocation.csv', 'asset_name'),
+    ('master_list_verified/Ref_ComparableVATBasis.csv', 'project_key'),
+    ('generation_A_star_schema/Dim_Project.csv', 'ProjectName'),
+    ('generation_A_star_schema/Fact_OPEX.csv', 'Project'),
+    ('generation_A_star_schema/Fact_Capex_Rescanned.csv', 'Project'),
+    ('generation_A_star_schema/Fact_CapexReserve.csv', 'Project'),
+    ('generation_B_verified/Dim_Property_v2_verified.csv', 'ProjectName'),
+)
+_GENERIC_NAME_WORDS = {'parking', 'building', 'tower', 'towers', 'block', 'residence', 'residences', 'apartment',
+                       'apartments', 'project', 'office', 'area', 'lot', 'house', 'the', 'and'}
+_MIN_NAME_LENGTH = 4
+
+
+def _norm_name_text(s):
+    return ' '.join(unicodedata.normalize('NFC', str(s)).casefold().split())
+
+
+def project_names_from_data(data_dir=None):
+    """Every project name the reference data carries (the comparables' master list, the hand-verified comparables,
+    locations, VAT bases, the cost and capital-expenditure tables), normalised (NFC, case-folded, single spaces).
+    Names shorter than four characters, and names made only of generic words, are left out."""
+    import csv
+    data_dir = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                        'data')
+    raw = set()
+    for rel, col in _PROJECT_NAME_SOURCES:
+        try:
+            with open(os.path.join(data_dir, *rel.split('/')), encoding='utf-8-sig') as fh:
+                for rec in csv.DictReader(ln for ln in fh if not ln.startswith('#')):
+                    if rec.get(col):
+                        raw.add(rec[col])
+        except OSError:
+            continue
+    try:
+        import master_comparables
+        raw.update(c['name'] for c in master_comparables.HAND_VERIFIED_COMPARABLES if c.get('name'))
+    except Exception:
+        pass
+    names = set()
+    for n in raw:
+        n = _norm_name_text(n)
+        words = re.findall(r'\w+', n)
+        if len(n) >= _MIN_NAME_LENGTH and words and not all(w in _GENERIC_NAME_WORDS for w in words):
+            names.add(n)
+    return names
+
+
+def _other_project_pattern(names, own_name):
+    """One word-bounded pattern over `names`, minus this project's own name (either contains the other)."""
+    own = _norm_name_text(own_name or '')
+    keep = sorted((n for n in names if not (own and (n in own or own in n))), key=len, reverse=True)
+    if not keep:
+        return None
+    return re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(n) for n in keep) + r')(?!\w)')
+
+
+def scan_internal_wording(wb, template_wb=None, project_names=None, own_name=None):
     """Scan every text cell of every sheet of `wb` (the generated client deliverable) for
-    `_INTERNAL_WORDING_DENYLIST`. Returns (cells_scanned, exempt_cells, failures) where failures are
-    (sheet, coordinate, reason). Formula cells are skipped; a text cell that merely starts with "="
-    (many remarks do) is still text and is scanned.
+    `_INTERNAL_WORDING_DENYLIST`, and every text and formula cell for another project's name from `project_names`
+    (normalised, project_names_from_data) other than `own_name`. Returns (cells_scanned, exempt_cells, failures)
+    where failures are (sheet, coordinate, reason). The word list skips formula cells; a text cell that merely starts
+    with "=" (many remarks do) is still text and is scanned.
     """
-    scanned, hits = 0, []
+    pattern = _other_project_pattern(project_names or (), own_name)
+    scanned, hits, name_hits = 0, [], []
     for ws in wb.worksheets:
         for row in ws.iter_rows(max_col=min(ws.max_column, 120)):
             for c in row:
                 v = c.value
-                if c.data_type == 'f' or not isinstance(v, str) or not v.strip():
+                if not isinstance(v, str) or not v.strip():
+                    continue
+                if pattern is not None:
+                    m = pattern.search(_norm_name_text(v))
+                    if m:
+                        name_hits.append((ws.title, c.coordinate, 'formula' if c.data_type == 'f' else 'text'))
+                if c.data_type == 'f':
                     continue
                 scanned += 1
                 word = next((w for w in _INTERNAL_WORDING_DENYLIST if w in v), None)
                 if word:
                     hits.append((ws.title, c.coordinate, word, v))
     failures, exempt = [], []
+    for sheet, coord, where in name_hits:
+        # The name itself is not repeated in the report: the run log and verify output stay free of it too.
+        failures.append((sheet, coord, f"another project's name in client-facing {where}"))
     for sheet, coord, word, text in hits:
         if (sheet, coord) not in _TEMPLATE_OWNED_TEXT_CELLS:
             failures.append((sheet, coord, f'internal wording {word!r} in client-facing text'))
@@ -1024,7 +1171,8 @@ def check_remark_content(paths):
     # The template is loaded to confirm each exempt cell still holds the template's own text.
     import openpyxl as _opx
     template_wb = _opx.load_workbook(_template_path(), data_only=False)
-    scanned, exempt_cells, wording_failures = scan_internal_wording(wb, template_wb)
+    scanned, exempt_cells, wording_failures = scan_internal_wording(
+        wb, template_wb, project_names_from_data(), wb['2. Budget-Management Fund']['AH5'].value)
     for sheet, coord, reason in wording_failures:
         fail(f"{sheet}!{coord}", reason)
     if not wording_failures:

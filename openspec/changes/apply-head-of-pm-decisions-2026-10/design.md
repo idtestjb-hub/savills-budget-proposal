@@ -666,3 +666,62 @@ data; `before` and `before2` agree on all 32 baseline figures.
   (`2026-10-18-p22-g5/verify_g_open.log`), so group 8 moves no recorded figure.
 - **Sign-off (group 8):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-19
   (lane B session P2).
+
+### Group 9: client wording, `Comparison` split, name scan (2026-10-19, lane B sessions P2-P3)
+
+Runs under `Savills-local\budget-test\lanes\B\ab\`: `g9before` (main `761aa37`, groups 1-8 and lane A's group 6) and
+`g9` (group 9), on the standard sample and the City Garden clone (`run_lane.py`). Rules the user approved on
+2026-10-19 (lane B session P2): every GPB site that names a source project says "dự án tham chiếu"; strings the
+analysis shares keep the names; the fill-up sheets' template names are overwritten by coordinate; the deliverable's
+`Comparison` keeps this project's column only and the peer columns move to the analysis; the name list is built from
+the data (NFC, casefold, word boundaries, names of 4 or more characters, generic-word-only names dropped), formula text
+is read, and this project's own name is excluded.
+
+**Built.**
+- **9.1:** remarks `ESS1/4/16`, `RM.*`, `RP1/RP2`, `EEW.C/EEE.C/EED.C`, `EMA15`, `ERM`, `EMB1/EMB4` (and their copies
+  on `2.2 Common area Fund` T76/T79), `EN1`-`EN4` say "dự án tham chiếu"; `ESM4` takes the new
+  `method_client`/`source_client` of `estimate_opex._pool_salt`. The four fill-up cells are overwritten (form-owner
+  list below).
+- **9.2:** `add_comparison_sheet` writes columns A-B only: this project's overview, the rate and how it is set (no raw
+  derivation note: it can name a comparable or quote its rate), fee per apartment, year-1 revenue, the
+  income-cost-surplus block and the verdict. The sheet states which line is the peer comparison (drawn from the
+  reference projects' real rates, listed in the analysis) and which is an internal check. `build_comparison_sheet`
+  (analysis) gains a PEER BENCHMARK block: each comparable's rate on one VAT basis, fee per apartment (approximation,
+  upper bound), year-1 revenue re-priced at its rate (labelled a projection), the range and the client verdict text.
+  `_benchmark_fee_clause` names no project and quotes no peer rate or range end; the basis stays the Apartment rate
+  (user, 2026-10-19; spec `proposal-benchmark` amended). `check_benchmark_reconciles` fails on any value past column B
+  of the deliverable's `Comparison`, and reads the projections from the analysis, failing when a rated comparable has
+  none. `EXPECTED_SHEETS` is unchanged (both workbooks keep `Comparison`).
+- **Found and fixed in 9.2:** the verdict compared the VAT-converted average (group 4) with the comparables' rates as
+  quoted. `resolve_product_rates` now returns `apartment_rates_on_basis`, and the verdict and projections use it.
+  Standard sample: "5% above the higher comparable" became "within the range" (18,892 against 17,985-19,800 on one
+  basis). City Garden: "37% above" is unchanged (PM-entered 23,000 against 11,000-16,800).
+- **9.3:** `checks.project_names_from_data` (179 names), `scan_internal_wording` reads formula text and the name list,
+  `check_remark_content` passes the list and this project's name (`2. Budget-Management Fund`!AH5).
+
+**Form-owner items from group 9 (template text the generator overwrites, D13).** The rest of the form-owner list: `1. Summary!K42`, `A5` and C1-C7 (Non-Goals, Open Questions) and the `#REF!` cells of group 8. `Tỷ lệ lấp đầy cư dân`!AO27, AO28, A38 and
+`Tiến độ lấp đầy bãi xe`!B42 ship text naming other projects (AO27 with a misspelt name found in no data file); the
+generator writes neutral text there (`_FILLUP_NOTE_*` in GPB). The form owner should remove the names from the
+template.
+
+**Measured.**
+- **Fund figures:** 0 of the 32 baseline figures move, on both samples (`compare_runs.py g9before g9`).
+- **Every cell** (formulas and constants as written, all three workbooks, `compare_cells_g9.py g9before g9`): 0
+  differences outside the expected places on both samples. Expected places: deliverable `Comparison` (96 cells
+  standard sample, 99 City Garden), remark column T (21 / 20 cells), fill-up sheets (4 / 4), analysis `Comparison` (36
+  / 36).
+- **Names in the deliverable** (`name_scan.py`): 27 -> 0 cells (standard sample), 26 -> 0 (City Garden). The analysis
+  still names the comparables (`analysis_names.py g9`: 22 cells standard sample, 29 City Garden; `Comparison`,
+  `OPEX`, `Capex`, `Management Fee`, `Additional Revenue` and others).
+- **Excel read-back (`cmp_read.py`):** the deliverable `Comparison` uses A1:B33 (standard) and A1:B34 (City Garden);
+  the verdicts are as above. Standard sample analysis: year-1 revenue 12,522,291,600 VND, re-priced at the two
+  comparables 13,088,883,600 and 11,956,323,600; fee per apartment 2,046,633 VND against 2,541,748 and 1,805,491
+  (approximations, upper bound).
+- **Checks:** 870 unit tests pass (`tests/test_client_wording.py` 10, rewritten `test_fee_clause_*`, 2 new in
+  `tests/test_rate_resolver.py`), 1 xfail as before; a name planted in a formula and a value planted in column C
+  each fail their unit test. `verify.py` with the two baseline gates opened (`lanes/B/ab/verify_gate_open.py`, log
+  `verify_g9.log`) exits 0: 5c reconciles 6 PROPOSAL BENCHMARK figures (4 own cells, 2 analysis projections), 5d and
+  sections 8-9 pass remark content with the name scan; the gates report the same 11 / 6 / 0 / 10 baseline
+  differences as at the end of group 8, so group 9 moves no recorded figure.
+- **Sign-off (group 9):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-19 (lane B
+  session P3), and accepted the VAT-basis fix to the verdict as a separate item.

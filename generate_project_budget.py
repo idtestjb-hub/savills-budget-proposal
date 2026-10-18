@@ -2,8 +2,9 @@
 Unified generator — reads the ONE merged input file (Project_Budget_Input.xlsx, built by
 build_project_input_form.py) and produces:
 
-  1. A filled budget workbook (from template 2026.xlsx) with a Comparison sheet showing the
-     2 nearest real comparable projects by Total building NFA, and the derived management-fee rate.
+  1. A filled budget workbook (from template 2026.xlsx) with a Comparison sheet showing this
+     project's derived management-fee rate and proposal benchmark; the reference projects it was
+     derived from are named only in the internal analysis (generate_project_output.py).
   2. A full calendar-month roster (same formula-driven engine as generate_roster.py), reading
      staffing ratios and demand from the same input file.
 
@@ -142,11 +143,15 @@ COVERAGE_BAND_LABEL = 'shortfall < 0%  ·  thin 0–5%  ·  normal 5–15%  ·  
 def _benchmark_fee_clause(derived_rate, comp_apt_rates, entered=False):
     """The fee-vs-comparable-range half of the PROPOSAL BENCHMARK verdict line, in plain language.
     `comp_apt_rates` is the real Apartment rate (VND/m²/month) of each comparable the rate was
-    derived from. Kept module-level so each branch is unit-testable (see the change's tasks 2.6)."""
+    derived from. Kept module-level so each branch is unit-testable (see the change's tasks 2.6).
+    The line goes to the client deliverable, so it names no reference project and quotes none of
+    their rates or the range's end points: only where the fee sits, and by how much in percent when
+    it is outside (change apply-head-of-pm-decisions-2026-10, D14). The basis is the Apartment rate
+    in VND/m²/month, not the fee per apartment (user, 2026-10-19)."""
     rates = [r for r in (comp_apt_rates or []) if r]
     if not rates:
-        return (f"No comparable with a verified Apartment rate - the {derived_rate:,.0f} "
-                f"VND/m2/month fee cannot be benchmarked against peers.")
+        return (f"No reference project with a verified Apartment rate - the {derived_rate:,.0f} "
+                f"VND/m2/month fee cannot be benchmarked against reference projects.")
     lo, hi = min(rates), max(rates)
     head = (f"Proposed Apartment fee {derived_rate:,.0f} VND/m2/month"
             + (" (PM-entered actual rate)" if entered else ""))
@@ -154,15 +159,16 @@ def _benchmark_fee_clause(derived_rate, comp_apt_rates, entered=False):
         d = (derived_rate - lo) / lo * 100
         where = ("matches" if abs(d) < 0.5
                  else f"is {abs(d):.0f}% {'above' if d > 0 else 'below'}")
-        return f"{head} {where} the one available comparable ({lo:,.0f}) - narrow base, treat as indicative."
+        return (f"{head} {where} the real Apartment rate of the one available reference project - "
+                f"narrow base, treat as indicative.")
     if lo <= derived_rate <= hi:
-        return (f"{head} sits within the {lo:,.0f}-{hi:,.0f} range of the two comparables - "
+        return (f"{head} sits within the range of the reference projects' real Apartment rates - "
                 f"in line with what Savills charges for comparable buildings.")
     if derived_rate < lo:
-        return (f"{head} is {(lo - derived_rate) / lo * 100:.0f}% below the lower comparable "
-                f"({lo:,.0f}) - review before the proposal goes out.")
-    return (f"{head} is {(derived_rate - hi) / hi * 100:.0f}% above the higher comparable "
-            f"({hi:,.0f}) - review before the proposal goes out.")
+        return (f"{head} is {(lo - derived_rate) / lo * 100:.0f}% below the lowest real Apartment rate "
+                f"of the reference projects - review before the proposal goes out.")
+    return (f"{head} is {(derived_rate - hi) / hi * 100:.0f}% above the highest real Apartment rate "
+            f"of the reference projects - review before the proposal goes out.")
 
 # Ratio-driven Staffing Demand rows — matches the ROUNDUP(...) formulas build_project_input_form.py
 # bakes into the Staffing Demand sheet's "Staff On Duty / Day" cells for these exact position
@@ -1679,6 +1685,19 @@ def _populate_fillup_sheets(wb, apt_units, shop_units, car_bays, moto_bays,
         # 'Stable Operation?' = Yes: the curves above are 100% flat; say why beside each title.
         res['G2'] = operating_inputs.FILL_SHEET_REASON_VI
         pk['F2'] = operating_inputs.FILL_SHEET_REASON_VI
+    # The form's own notes on these sheets name other projects (one of them misspelled, so no data-built name list
+    # finds it): replaced by fixed address with the same meaning, without the names (change
+    # apply-head-of-pm-decisions-2026-10, D13; listed for the form owner).
+    for ws, coord, text in ((res, 'AO27', _FILLUP_NOTE_BAD_DEBT), (res, 'AO28', _FILLUP_NOTE_UNOCCUPIED_DEBT),
+                            (res, 'A38', _FILLUP_NOTE_HANDOVER), (pk, 'B42', _FILLUP_NOTE_HANDOVER)):
+        ws[coord] = text
+
+
+_FILLUP_NOTE_BAD_DEBT = 'Căn cứ trên tỷ lệ nợ xấu PQL của các dự án tham chiếu: 8.7% và 10%'
+_FILLUP_NOTE_UNOCCUPIED_DEBT = 'Căn cứ trên tỷ lệ nợ khó thu của những căn chưa về ở của một dự án tham chiếu'
+_FILLUP_NOTE_HANDOVER = ('Note: \n- Năm 1 dự ước tiến độ bàn giao của CĐT trong 6 tháng (tương tự tiến độ bàn giao các '
+                         'dự án tham chiếu khoảng 1000 căn)\n- Tham khảo tỷ lệ lấp đầy cư dân của một dự án tham chiếu '
+                         '(gần 24 tháng mới full cư dân về ở + cho thuê)')
 
 
 def _write_ramped_row(ws, row, monthly_values, remark=None):
@@ -2508,7 +2527,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
 
     _CONTRACT_BASIS = (
         "Phương pháp: hợp đồng hàng tháng x 12, trong đó hợp đồng được tính theo số vị trí x đơn giá "
-        "vị trí theo mặt bằng chung thành phố (chỉ một dự án tham chiếu, A&K Tower). KHÔNG cộng thêm bảo hiểm người sử "
+        "vị trí theo mặt bằng chung thành phố (chỉ một dự án tham chiếu). KHÔNG cộng thêm bảo hiểm người sử "
         "dụng lao động: đơn giá vị trí của nhà thầu đã bao gồm chi phí nhân sự của chính nhà thầu.")
     write_even_monthly('security', security_cost, remark=(
         f"= {SERVICE_CITYWIDE_RATES['Security']:,.0f} VND/vị trí/tháng / {SERVICE_SHIFT_ROLES_PER_POST['Security']} "
@@ -2634,7 +2653,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
             continue
         _apt_entered = (operating_inputs.FALLBACK_ENTERED_APARTMENT_VI
                         if rates.get('apartment_entered') else '')
-        basis = (f"Nguồn đơn giá: {len(used)} dự án tham chiếu thực tế — " + ', '.join(c['name'] for c in used)
+        # The client deliverable names no other project (decision D3); the analysis lists them (change
+        # apply-head-of-pm-decisions-2026-10, D13).
+        basis = (f"Nguồn đơn giá: {len(used)} dự án tham chiếu thực tế."
                  if used else
                  f"DỰ PHÒNG — không có dự án tham chiếu nào trong danh sách chính có đơn giá thực tế "
                  f"cho {product_vi}, nên đơn giá Apartment của dự án này{_apt_entered} được dùng thay thế. Đây "
@@ -2726,14 +2747,14 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
 
     if _recorded.get('moto') is None:
         _write_ramped_row(ws, MGMT_FUND_ROWS['parking_moto'], [moto_full_monthly * f for f in moto_fills], (
-            f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
-            f"Tower) x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
+            f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của một dự án "
+            f"tham chiếu) x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
             f"VND/tháng{_full_clause} {_parking_note(moto_slots, units_for_parking, bool(moto_slots and units_for_parking and moto_slots < units_for_parking))} "
             f"Tổng năm 1: {sum(moto_full_monthly * f for f in moto_fills):,.0f} VND."))
     if _recorded.get('car') is None:
         _write_ramped_row(ws, MGMT_FUND_ROWS['parking_car'], [car_full_monthly * f for f in car_fills], (
-            f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của A&K "
-            f"Tower) x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng"
+            f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của một dự án "
+            f"tham chiếu) x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng"
             f"{_full_clause} {_parking_note(car_slots, units_for_parking, bool(car_slots and units_for_parking and car_slots < units_for_parking))} "
             f"Tổng năm 1: {sum(car_full_monthly * f for f in car_fills):,.0f} VND."))
 
@@ -2985,7 +3006,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         if entry.get('method'):
             # Pool Salt — a stated formula, not an A&K ratio. estimate_opex() owns both the
             # calculation and its caveats so this workbook and the analysis one cannot disagree.
-            return f"{entry['method']} {entry.get('source', '')}".strip()
+            # The client wording (no project name, decision D3) where estimate_opex gives one.
+            return (f"{entry.get('method_client', entry['method'])} "
+                    f"{entry.get('source_client', entry.get('source', ''))}").strip()
         if entry.get('tariff'):
             # Electricity / Water / Diesel — consumption x tariff (change
             # cost-energy-from-consumption-and-tariff), narrated in Vietnamese by the same helper
@@ -3009,14 +3032,14 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                     f" Đơn giá lập ngày {tariff_date}.")
             return (
                 _energy_narrative_vi(category, project, _opex_yr) + date_note +
-                f" Mức tiêu thụ lấy theo số liệu thực tế của A&K Tower (chỉ một dự án tham chiếu), "
+                f" Mức tiêu thụ lấy theo số liệu thực tế của một dự án tham chiếu (chỉ một dự án), "
                 f"nên đây là ước tính ban đầu; cần đối chiếu với số liệu của dự án này khi có.")
         cat_vi = _OPEX_CATEGORY_VI.get(category, category)
         if entry.get('ratio_per_m2') is not None:
-            return (f"= Tỷ lệ VND/m² NFA thực tế của A&K Tower cho {cat_vi} ({entry['ratio_per_m2']:,.2f} "
+            return (f"= Tỷ lệ VND/m² NFA thực tế của dự án tham chiếu cho {cat_vi} ({entry['ratio_per_m2']:,.2f} "
                     f"VND/m²/tháng, chỉ một dự án tham chiếu — dự án chung cư duy nhất có số liệu OPEX được kiểm chứng độc lập) "
                     f"x Tổng NFA của dự án này ({project['total_nfa']:,.0f} m²) x 12 = {annual:,.0f} VND/năm.")
-        return (f"= Số liệu tham chiếu cố định hàng tháng thực tế của A&K Tower cho {cat_vi} x 12 = "
+        return (f"= Số liệu cố định hàng tháng thực tế của dự án tham chiếu cho {cat_vi} x 12 = "
                 f"{annual:,.0f} VND/năm (không tính theo NFA).")
 
     # Water and electricity are occupancy-scaled (catalogue): a half-empty building uses less.
@@ -3081,7 +3104,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                                 " Bao gồm toàn bộ nhóm Chi phí hành chính (EMA) — điện thoại/internet văn "
                                 "phòng, văn phòng phẩm, mực in, thuê máy photocopy, bưu phí, nước uống, bảo "
                                 "trì thiết bị văn phòng và nhu yếu phẩm ca đêm, được liệt kê chi tiết trong "
-                                "ghi chú dòng nguồn của chính A&K Tower."))
+                                "ghi chú dòng nguồn của dự án tham chiếu."))
     # EMA1-EMA4 stay at zero and are disclosed on this catch-all (checks._REQUIRED_CODE_DISCLOSED_ON);
     # '2.2 Common area Fund' gets the same disclosure on its own EMA15 share, without this sheet's
     # amounts (change explain-common-area-fund-zero-lines, design D3).
@@ -3378,9 +3401,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                  "đêm/ngày lễ, nhưng hệ thống chưa có nguồn xác định vị trí nào làm ca đêm — mọi số "
                  "liệu trên trang đó hiện đang bằng 0. Cần khảo sát riêng, không tự đoán tại đây.",
         'EMB1':  "Định giá theo dự án tham chiếu, nhưng nguồn OPEX tham chiếu duy nhất hiện có "
-                 "(A&K Tower) không có dòng phí ngân hàng nào.",
+                 "không có dòng phí ngân hàng nào.",
         'EMB4':  "Định giá theo dự án tham chiếu, nhưng nguồn OPEX tham chiếu duy nhất hiện có "
-                 "(A&K Tower) không có dòng phí kiểm toán nào.",
+                 "không có dòng phí kiểm toán nào.",
         'EMO2':  "Phụ thuộc vào EMO1 (hỗ trợ lương Ban quản trị), khoản này thường bằng 0 trong năm "
                  "đầu theo hướng dẫn lập ngân sách của Savills — hợp lý khi bằng 0 cho ngân sách năm 1, không phải thiếu "
                  "phương pháp định giá.",
@@ -3442,7 +3465,6 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     for it in capex_items:
         capex_annual[it['category']] = capex_annual.get(it['category'], 0) + it['unit_price'] * it['qty']
         capex_counts[it['category']] = capex_counts.get(it['category'], 0) + 1
-    source_project = capex_source.get('source_project', 'the nearest real comparable') if capex_source else 'the nearest real comparable'
     scale_factor = capex_source.get('scale_factor') if capex_source else None
 
     _CAPEX_CATEGORY_VI = {
@@ -3456,7 +3478,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         cat_vi = _CAPEX_CATEGORY_VI.get(category, category)
         scale_note = f" (hệ số quy đổi theo NFA {scale_factor}x)" if scale_factor else ""
         return (f"= Tổng(Số lượng x Đơn giá thực tế) của {n} khoản mục {cat_vi}, quy đổi từ danh mục "
-                f"Capex thực tế của dự án tham chiếu gần nhất ({source_project}) theo tỷ lệ Tổng "
+                f"Capex thực tế của dự án tham chiếu gần nhất theo tỷ lệ Tổng "
                 f"NFA{scale_note} = {amount:,.0f} VND — ghi nhận trọn gói vào Năm 1 (theo nguyên tắc "
                 f"quỹ dự phòng bảo trì: 100% vào Năm 1, các năm sau là dự phòng).")
 
@@ -4742,28 +4764,36 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
         del wb['Comparison']
     ws = wb.create_sheet('Comparison')
 
-    from master_comparables import comparable_match_basis
+    # Client deliverable: this project's own figures only. No column past B, no reference project's
+    # name, rate or fee per apartment (change apply-head-of-pm-decisions-2026-10, D3/D14). The peer
+    # columns live on the internal analysis's Comparison sheet (generate_project_output.py
+    # build_comparison_sheet). check_benchmark_reconciles fails if anything is written past column B.
+    from master_comparables import comparable_match_basis, SIZE_SIMILARITY_BAND
+    # No input_nfa: with it the phrase names any badly-sized comparable; the neutral sentence below
+    # says the same without the name.
     match_basis = comparable_match_basis(comparables, project.get('district'), project.get('city'),
-                                          input_lat=project.get('lat'), input_lon=project.get('lon'),
-                                          input_nfa=project.get('total_nfa'))
+                                          input_lat=project.get('lat'), input_lon=project.get('lon'))
+    _n_ref = len(comparables)
+    _oversized = bool(project.get('total_nfa')) and any(
+        abs(c['nfa'] - project['total_nfa']) / project['total_nfa'] > SIZE_SIMILARITY_BAND for c in comparables)
 
-    ws['A1'] = (f"CROSS-PROJECT COMPARISON — {project['name']} vs. the {len(comparables)} nearest real "
-                f"comparables with a verified Apartment rate")
+    ws['A1'] = f"PROPOSAL BENCHMARK — {project['name']}"
     ws['A1'].font = Font(bold=True, size=13)
-    ws.merge_cells('A1:D1')
-    ws['A2'] = (f'Comparables are the real projects in the reference list ranked by {match_basis} '
-                'that have a verified Apartment management-fee rate — the same basis and the same selection the '
-                'internal analysis uses, so both reports show one rate and it is the rate the RM lines are priced at. '
-                'The MODEL-DERIVED rate below is the average of their real Apartment rates. The PROPOSAL BENCHMARK '
-                'section then sets this finished proposal — fee per apartment, year-1 revenue, whether the operating '
-                'budget balances — beside those comparables, for a competitive bid.')
+    ws.merge_cells('A1:B1')
+    ws['A2'] = (f'The Apartment management-fee rate is set from the real Apartment rates of {_n_ref} reference '
+                f'project(s) in Savills\' reference list, ranked by {match_basis}. The reference projects are not '
+                'named here; the internal analysis lists them. This sheet shows this proposal\'s own figures — '
+                'fee per apartment, year-1 revenue, whether the operating budget balances — and where the fee '
+                'sits against the reference projects.'
+                + (f' At least one reference project differs from this project\'s Total NFA by more than '
+                   f'{SIZE_SIMILARITY_BAND:.0%} — no closer-sized one exists in the current data.' if _oversized else ''))
     ws['A2'].font = Font(italic=True, color='595959')
-    ws.merge_cells('A2:D2')
-    ws.row_dimensions[2].height = 42
+    ws['A2'].alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    ws.merge_cells('A2:B2')
+    ws.row_dimensions[2].height = 72
 
-    headers = ['Metric', project['name']] + [c['name'] for c in comparables]
     r = 4
-    for c, h in enumerate(headers, start=1):
+    for c, h in enumerate(['Metric', project['name']], start=1):
         cell = ws.cell(row=r, column=c, value=h)
         cell.fill = header_fill
         cell.font = header_font
@@ -4773,14 +4803,13 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
 
     def section(row, label):
         ws.cell(row=row, column=1, value=label).font = section_font
-        for c in range(1, 5):
+        for c in range(1, 3):
             ws.cell(row=row, column=c).fill = section_fill
             ws.cell(row=row, column=c).border = border
         return row + 1
 
-    def data_row(row, label, values, fill=None):
-        cells = [label] + values
-        for col, v in enumerate(cells, start=1):
+    def data_row(row, label, value, fill=None):
+        for col, v in ((1, label), (2, value)):
             cell = ws.cell(row=row, column=col, value=v)
             cell.border = border
             cell.alignment = left if col == 1 else center
@@ -4788,91 +4817,60 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
                 cell.fill = fill
         return row + 1
 
-    def _pct_delta(cv, pv):
-        if not pv:
-            return '—'
-        return f"{(cv - pv) / pv * 100:+.0f}%"
-
     _proj_total_units = sum((p.get('units') or 0) for p in project['products'].values())
     _proj_products = [name for name in PRODUCT_ROWS if (project['products'].get(name) or {}).get('nfa')]
 
     def _density(units, nfa):
         return round(units / nfa * 1000, 1) if (units and nfa) else '—'
 
-    def _comp_source(c):
-        s = (c.get('source') or '')
-        if 'Master List' in s:
-            return '2026 Master List (auto-parsed, not individually verified)'
-        if 'not yet parsed' in s or 'not independently checked' in s:
-            return 'partly verified — see master_comparables.py'
-        return 'hand-verified from its real budget file'
-
-    def _other_rates(c):
-        other = {k: v for k, v in (c.get('rates') or {}).items() if k != 'Apartment' and v}
-        return ', '.join(f'{k} {v:,.0f}' for k, v in other.items()) if other else '—'
-
-    def _comp_products(c):
-        types = list(dict.fromkeys(['Apartment'] + list((c.get('rates') or {}).keys())))
-        return ', '.join(types)
-
-    r = section(r, 'OVERVIEW — how comparable are these projects?')
+    r = section(r, 'OVERVIEW — this project')
     if project.get('address'):
-        # Citation only — not a matching input (comparables don't carry a comparable field at all;
-        # see build_project_input_form.py's comment on this field for why it isn't geocoded).
-        r = data_row(r, 'Address', [project['address']] + ['—' for _ in comparables])
-    r = data_row(r, 'Total building NFA (m²) — the matching basis',
-                 [project['total_nfa']] + [c['nfa'] for c in comparables])
-    r = data_row(r, 'Size vs this project',
-                 ['—'] + [_pct_delta(c['nfa'], project['total_nfa']) for c in comparables])
-    r = data_row(r, 'Apartment NFA (m²)', [project['apartment_nfa']] + ['—' for _ in comparables])
-    r = data_row(r, 'Apartment units', [project['apartment_units']] + [c.get('units') or '—' for c in comparables])
-    r = data_row(r, 'Total units (all products)', [_proj_total_units] + [c.get('total_units') or '—' for c in comparables])
+        # Citation only — not a matching input (see build_project_input_form.py's comment on this
+        # field for why it isn't geocoded).
+        r = data_row(r, 'Address', project['address'])
+    r = data_row(r, 'Total building NFA (m²) — the matching basis', project['total_nfa'])
+    r = data_row(r, 'Apartment NFA (m²)', project['apartment_nfa'])
+    r = data_row(r, 'Apartment units', project['apartment_units'])
+    r = data_row(r, 'Total units (all products)', _proj_total_units)
     r = data_row(r, 'Density (apartment units per 1,000 m² NFA)',
-                 [_density(project['apartment_units'], project['total_nfa'])]
-                 + [_density(c.get('units'), c['nfa']) for c in comparables])
-    r = data_row(r, 'Product types (this project) / verified-rate types (comparables)',
-                 [', '.join(_proj_products) or '—'] + [_comp_products(c) for c in comparables])
-    r = data_row(r, 'Blended whole-property mgmt-fee rate (VND/m²/month)',
-                 ['—'] + [f"{c['mgmt_rate']:,.0f} ({c.get('mgmt_rate_vat','')})" if c.get('mgmt_rate') else '—'
-                          for c in comparables])
-    r = data_row(r, 'Other verified product rates on file (VND/m²/month)',
-                 ['—'] + [_other_rates(c) for c in comparables])
-    r = data_row(r, 'Data source', ['this project (from the input form)'] + [_comp_source(c) for c in comparables])
+                 _density(project['apartment_units'], project['total_nfa']))
+    r = data_row(r, 'Product types', ', '.join(_proj_products) or '—')
 
     r += 1
     r = section(r, 'APARTMENT MANAGEMENT FEE RATE')
-    r = data_row(r, 'Real Apartment rate per comparable (VND/m²/month)',
-                 ['—'] + [f"{(c['rates'].get('Apartment') or c['mgmt_rate']):,} ({c['mgmt_rate_vat']})"
-                          if (c['rates'].get('Apartment') or c['mgmt_rate']) else 'BLANK (no real rate)'
-                          for c in comparables])
     _entered = (rates or {}).get('apartment_entered')
+    _fallback = (rates or {}).get('apartment_source') == 'blended-fallback' or 'fell back to the whole-property' in (rate_note or '')
     if _entered:
-        # P1: the comparables and the rate they give stay for reference; the applied rate is the PM's.
+        # P1: the reference projects' rate stays for reference; the applied rate is the PM's.
         _model = rates.get('apartment_comparable_rate')
         r = data_row(r, 'MODEL-DERIVED Apartment rate (this project, reference only)',
-                     [f'{_model:,}' if _model else 'none (no comparable rate)', '', ''])
+                     f'{_model:,}' if _model else 'none (no reference rate)')
         r = data_row(r, f"APPLIED Apartment rate — PM-entered actual rate ({_entered['vat']})",
-                     [f'{derived_rate:,}', '', ''], fill=reality_fill)
+                     f'{derived_rate:,}', fill=reality_fill)
     else:
-        r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=reality_fill)
-    if rate_note:
-        r = data_row(r, 'Derivation note', [rate_note, '', ''])
+        r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', f'{derived_rate:,}', fill=reality_fill)
+    # The raw derivation note can name a reference project or quote its rate; it stays in the analysis.
+    _how = ('No reference project has a real Apartment rate — the model rate is the whole-property blended rate of '
+            'the reference projects.' if _fallback else
+            f'The model rate is the average of the real Apartment rates of {_n_ref} reference project(s), on one '
+            f'VAT basis.')
+    r = data_row(r, 'How the rate is set',
+                 ('The PM entered the actual rate, which is applied. ' if _entered else '') + _how)
     if own_real:
         real_apt = own_real['rates']['Apartment']
         gap = derived_rate - real_apt
         gap_pct = gap / real_apt * 100
         r = data_row(r, f"{project['name']}'s ACTUAL real Apartment rate (reality check)",
-                     [f"{real_apt:,} ({own_real['mgmt_rate_vat']})", '', ''], fill=reality_fill)
-        r = data_row(r, 'Gap (derived − real)', [f'{gap:+,} VND  ({gap_pct:+.0f}%)', '', ''], fill=reality_fill)
+                     f"{real_apt:,} ({own_real['mgmt_rate_vat']})", fill=reality_fill)
+        r = data_row(r, 'Gap (derived − real)', f'{gap:+,} VND  ({gap_pct:+.0f}%)', fill=reality_fill)
     else:
-        r = data_row(r, 'Reality check', ['Not applicable — new prospect, no independently known real rate', '', ''])
+        r = data_row(r, 'Reality check', 'Not applicable — new prospect, no independently known real rate')
 
-    # ---- PROPOSAL BENCHMARK — turns the derived rate into the figures a bid conversation uses:
-    # fee per apartment, year-1 revenue, revenue if charged at each comparable's rate, and whether
-    # the operating budget balances. The own-project money cells are FORMULAS into '1. Summary', so
-    # the benchmark carries the deliverable's own figures forward instead of restating them (change
-    # benchmark-proposal-against-comparables — design D1). Coverage is the operating fund only; the
-    # sinking fund / capex reserve is a separate ring-fenced fund and is left out of both sides. ----
+    # ---- PROPOSAL BENCHMARK — the figures a bid conversation uses: fee per apartment, year-1
+    # revenue, and whether the operating budget balances. The money cells are FORMULAS into
+    # '1. Summary', so the benchmark carries the deliverable's own figures forward instead of
+    # restating them (change benchmark-proposal-against-comparables — design D1). Coverage is the
+    # operating fund only; the sinking fund / capex reserve is a separate ring-fenced fund. ----
     _S = "'1. Summary'"
     _ratio = f"{_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}/{_S}!H{_SUMMARY_ROW_OPERATING_INCOME}"
 
@@ -4880,79 +4878,55 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
         cell = ws.cell(row=row, column=1, value=text)
         cell.font = Font(italic=True, color='595959')
         cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
         ws.cell(row=row, column=1).border = border
         ws.row_dimensions[row].height = height
         return row + 1
 
-    def money_row(row, label, values, fill=None):
-        nr = data_row(row, label, values, fill=fill)
-        for col in range(2, 5):
-            ws.cell(row=row, column=col).number_format = '#,##0'
+    def money_row(row, label, value, fill=None):
+        nr = data_row(row, label, value, fill=fill)
+        ws.cell(row=row, column=2).number_format = '#,##0'
         return nr
 
     r += 1
     r = section(r, 'PROPOSAL BENCHMARK — is the proposed fee defensible in a bid?')
     r = note_row(r,
-        "The FEE rows compare this proposal against the real Apartment rates of the comparable "
-        "projects above. The COVERAGE rows are an internal check on this project's own budget — "
-        "operating fund only; the sinking fund / capex reserve is a separate ring-fenced fund and "
-        "is not included. This project's costs are built from one reference property's ratios, so "
-        "coverage confirms the budget balances — it is not a second opinion from the market.",
-        height=58)
+        "PEER COMPARISON: where the proposed fee sits (verdict below) is drawn from the reference "
+        "projects' real Apartment rates, which the internal analysis lists. INTERNAL CHECK: the "
+        "coverage rows test this project's own budget — operating fund only; the sinking fund / capex "
+        "reserve is a separate ring-fenced fund and is not included. This project's operating cost is "
+        "its own estimate, built from reference-property ratios, so coverage confirms the budget "
+        "balances — it is a consistency check, not a market benchmark.",
+        height=86)
 
     apt_nfa = project.get('apartment_nfa') or 0
     apt_units = project.get('apartment_units') or 0
-    comp_apt_rates = [c['rates']['Apartment'] for c in comparables if c['rates'].get('Apartment')]
+    # On the basis the rate was averaged on (excl.-VAT rates converted, group 4), not as quoted.
+    comp_apt_rates = (rates or {}).get('apartment_rates_on_basis') or \
+        [(c.get('rates') or {}).get('Apartment') for c in comparables]
 
-    # -- Management fee per apartment (VND/month): exact for this project, upper bound for comparables --
     if apt_nfa and apt_units:
         this_fpa = round(derived_rate * apt_nfa / apt_units)
-        comp_fpa = []
-        for c in comparables:
-            cr, cu = c['rates'].get('Apartment'), (c.get('units') or 0)
-            comp_fpa.append(f"{round(cr * c['nfa'] / cu):,}  (approx — gross area/unit)"
-                            if (cr and cu) else '— (no unit count on file)')
-        r = data_row(r, 'Management fee per apartment (VND/month)', [f'{this_fpa:,}'] + comp_fpa)
+        r = data_row(r, 'Management fee per apartment (VND/month)', f'{this_fpa:,}')
         r = note_row(r,
-            f"This project: {derived_rate:,.0f} VND/m²/month × {apt_nfa / apt_units:,.0f} m² average "
-            f"apartment NFA. Comparables: real Apartment rate × (total building NFA ÷ apartment "
-            f"units) — an upper bound, total NFA includes shared and non-apartment area.")
+            f"{derived_rate:,.0f} VND/m²/month × {apt_nfa / apt_units:,.0f} m² average apartment NFA "
+            f"(apartment NFA ÷ apartment units).")
     else:
-        r = data_row(r, 'Management fee per apartment (VND/month)',
-                     ['— (this project has no apartments)', '', ''])
+        r = data_row(r, 'Management fee per apartment (VND/month)', '— (this project has no apartments)')
 
-    # -- Year-1 management-fee revenue: this project = the deliverable's own figure; each comparable
-    # column = that same revenue with only the Apartment lines re-priced at the comparable's rate. --
-    comp_rev = []
-    for c in comparables:
-        cr = c['rates'].get('Apartment')
-        if cr and apt_nfa:
-            d = round(apt_nfa * (cr - derived_rate) * 12)
-            comp_rev.append(f"={_S}!H{_SUMMARY_ROW_MGMT_FEE}"
-                            + (f"+{d}" if d > 0 else (f"-{abs(d)}" if d < 0 else "")))
-        else:
-            comp_rev.append('—')
-    r = money_row(r, 'Year-1 management-fee revenue (VND)',
-                  [f"={_S}!H{_SUMMARY_ROW_MGMT_FEE}"] + comp_rev)
-    r = note_row(r,
-        "Comparable columns are a projection — this project's year-1 revenue with only the Apartment "
-        "lines re-priced at that comparable's Apartment rate, not that comparable's own revenue.")
-
-    # -- Coverage (operating fund only, this-project column — formulas into '1. Summary') --
+    r = money_row(r, 'Year-1 management-fee revenue (VND)', f"={_S}!H{_SUMMARY_ROW_MGMT_FEE}")
     r = money_row(r, 'Year-1 total operating income (VND) — fee + parking + other',
-                  [f"={_S}!H{_SUMMARY_ROW_OPERATING_INCOME}", '', ''])
+                  f"={_S}!H{_SUMMARY_ROW_OPERATING_INCOME}")
     r = money_row(r, 'Year-1 total operating cost (VND) — before Savills’ fee',
-                  [f"={_S}!H{_SUMMARY_ROW_OPERATING_COST}", '', ''])
+                  f"={_S}!H{_SUMMARY_ROW_OPERATING_COST}")
     r = money_row(r, 'Year-1 operating surplus (VND) — before Savills’ fee & tax',
-                  [f"={_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}", '', ''], fill=reality_fill)
+                  f"={_S}!H{_SUMMARY_ROW_OPERATING_SURPLUS}", fill=reality_fill)
     _pct_r = r
-    r = data_row(r, 'Operating surplus as % of operating income',
-                 [f"={_ratio}", '', ''], fill=reality_fill)
+    r = data_row(r, 'Operating surplus as % of operating income', f"={_ratio}", fill=reality_fill)
     ws.cell(row=_pct_r, column=2).number_format = '0.0%'
     r = data_row(r, f'Coverage band  ({COVERAGE_BAND_LABEL})',
-                 [f'=IF({_ratio}<0,"shortfall",IF({_ratio}<{COVERAGE_BAND_THIN_MAX},"thin",'
-                  f'IF({_ratio}<{COVERAGE_BAND_NORMAL_MAX},"normal","generous")))', '', ''],
+                 f'=IF({_ratio}<0,"shortfall",IF({_ratio}<{COVERAGE_BAND_THIN_MAX},"thin",'
+                 f'IF({_ratio}<{COVERAGE_BAND_NORMAL_MAX},"normal","generous")))',
                  fill=reality_fill)
 
     # -- Verdict: one line. Fee-vs-range is known now; the balance clause is a live IF on H46. --
@@ -4967,22 +4941,21 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
     vcell = ws.cell(row=r, column=2, value=verdict)
     vcell.font = Font(bold=True)
     vcell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
-    ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
     ws.cell(row=r, column=1).fill = PatternFill('solid', start_color='FFF2CC', end_color='FFF2CC')
     ws.cell(row=r, column=1).border = border
     ws.cell(row=r, column=2).fill = PatternFill('solid', start_color='FFF2CC', end_color='FFF2CC')
     ws.cell(row=r, column=2).border = border
-    ws.row_dimensions[r].height = 46
+    ws.row_dimensions[r].height = 78
     r += 1
 
     r += 1
     # The file name is the analysis workbook's label; the client's Comparison sheet names the thing.
     r = section(r, f"SERVICE RATES ({RATE_CARD_SOURCE.replace('Fact_MasterRateCard.csv', 'standard rate card')})")
-    r = data_row(r, 'Security (VND/post/month)', [f'{SECURITY_RATE_CITYWIDE:,}'] * 3)
-    r = data_row(r, 'Cleaning (VND/post/month)', [f'{CLEANING_RATE_CITYWIDE:,}'] * 3)
-    r = data_row(r, 'Landscape (VND/post/month)', [f'{LANDSCAPE_RATE_CITYWIDE:,}'] * 3)
+    r = data_row(r, 'Security (VND/post/month)', f'{SECURITY_RATE_CITYWIDE:,}')
+    r = data_row(r, 'Cleaning (VND/post/month)', f'{CLEANING_RATE_CITYWIDE:,}')
+    r = data_row(r, 'Landscape (VND/post/month)', f'{LANDSCAPE_RATE_CITYWIDE:,}')
 
-    widths = {'A': 54, 'B': 26, 'C': 26, 'D': 26}
+    widths = {'A': 54, 'B': 60}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
 

@@ -487,11 +487,20 @@ def test_staff_pool_row_rounds_the_per_shift_figure_up():
 
 # ---------------------------------------------------------------- _benchmark_fee_clause
 # Rule: openspec proposal-benchmark ("inside, below or above the range ... by how much in
-# percentage terms"; "fewer than two comparables ... narrow base"; no invented rate).
+# percentage terms"; "fewer than two comparables ... narrow base"; no invented rate). Since D14
+# (change apply-head-of-pm-decisions-2026-10) the line goes to the client and SHALL NOT quote a
+# reference project's rate or the range's end points; the basis stays the Apartment rate (user,
+# 2026-10-19).
+def _no_peer_figures(text, *rates):
+    for rate in rates:
+        assert f'{rate:,}' not in text and str(rate) not in text
+
+
 def test_fee_clause_within_range():
     text = g._benchmark_fee_clause(50000, [40000, 60000])
-    assert 'within' in text and '40,000-60,000' in text
+    assert 'within the range of the reference projects' in text
     assert 'review' not in text
+    _no_peer_figures(text, 40000, 60000)
 
 
 @pytest.mark.parametrize('rate', [40000, 60000])
@@ -502,13 +511,15 @@ def test_fee_clause_range_ends_count_as_within(rate):
 
 def test_fee_clause_below_range_states_percentage():
     text = g._benchmark_fee_clause(30000, [40000, 60000])
-    assert '25% below the lower comparable (40,000)' in text
+    assert '25% below the lowest real Apartment rate of the reference projects' in text
     assert 'within' not in text
+    _no_peer_figures(text, 40000, 60000)
 
 
 def test_fee_clause_above_range_states_percentage():
     text = g._benchmark_fee_clause(72000, [40000, 60000])
-    assert '20% above the higher comparable (60,000)' in text
+    assert '20% above the highest real Apartment rate of the reference projects' in text
+    _no_peer_figures(text, 40000, 60000)
 
 
 def test_fee_clause_order_of_comparables_does_not_matter():
@@ -520,13 +531,14 @@ def test_fee_clause_order_of_comparables_does_not_matter():
 def test_fee_clause_without_verified_rate_cannot_be_benchmarked(rates):
     text = g._benchmark_fee_clause(50000, rates)
     assert 'cannot be benchmarked' in text
-    assert '50,000' in text
+    assert '50,000' in text                    # this project's own rate may be quoted
 
 
 def test_fee_clause_single_comparable_is_flagged_narrow():
     text = g._benchmark_fee_clause(55000, [50000])
     assert 'narrow base' in text
-    assert '10% above' in text and '(50,000)' in text
+    assert '10% above' in text
+    _no_peer_figures(text, 50000)
 
 
 def test_fee_clause_single_comparable_below():
@@ -541,7 +553,9 @@ def test_fee_clause_zero_rate_comparable_is_dropped_leaving_narrow_base():
 
 # Not settled: the "matches" tolerance for a single comparable (under 0.5 percent).
 def test_fee_clause_single_comparable_matches_within_half_percent():
-    assert 'matches the one available comparable' in g._benchmark_fee_clause(50100, [50000])
+    text = g._benchmark_fee_clause(50100, [50000])
+    assert 'matches the real Apartment rate of the one available reference project' in text
+    _no_peer_figures(text, 50000)
 
 
 # ---------------------------------------------------------------- _append_vat

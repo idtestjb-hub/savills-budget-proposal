@@ -197,3 +197,25 @@ def test_entered_non_apartment_rate_keeps_its_comparable_for_reference(mc, monke
     assert (sh['rate'], sh['source'], sh['comparable_rate']) == (99_000, 'entered',
                                                                   plain['products']['Shophouse']['rate'])
     assert res['apartment_rate'] == plain['apartment_rate'] and res['apartment_entered'] is None
+
+# Group 9 (change apply-head-of-pm-decisions-2026-10): the benchmark verdict compares the rate against the comparables'
+# rates on the basis the average used, so an excl.-VAT rate is converted there too (it read "above the highest" when
+# the average sat inside the converted range).
+def test_comparable_rates_on_basis_convert_an_excl_vat_rate(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    table = {('tower a', 'Apartment'): 'excl', ('tower b', 'Apartment'): 'incl'}
+    res = mc.resolve_product_rates(project({'Apartment': 50_000}), vat_table=table)
+    on_basis = dict(zip([c['name'] for c in res['comparables']], res['apartment_rates_on_basis']))
+    pct = res['vat_pct']
+    assert on_basis['Tower A'] == pytest.approx(15_000 * (1 + pct / 100))
+    assert on_basis['Tower B'] == 17_000
+    assert min(on_basis.values()) <= res['apartment_rate'] <= max(on_basis.values())
+
+
+def test_comparable_rates_on_basis_is_none_without_a_rate(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', [comp('Tower D', 50_000, rate=14_000, rates={}),
+                                                   comp('Tower E', 55_000, rate=16_000, rates={})])
+    res = mc.resolve_product_rates(project({'Apartment': 50_000}))
+    assert res['apartment_source'] == 'blended-fallback'
+    assert res['apartment_rates_on_basis'] == [None] * len(res['comparables'])
+
