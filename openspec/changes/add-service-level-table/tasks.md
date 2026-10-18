@@ -110,7 +110,8 @@ Values revised on 2026-10-18 (security upper cut-off 3.0, sanity bounds, form-on
   off (the user, for the Head of PM). Done 2026-10-18 on a clean copy (HEAD + this change, because another session's
   uncommitted group-2 edits sat in the live checkout): sample 32 figures and clone 32 figures 0 changed; analysis
   14 → 15 sheets, deliverable and roster unchanged (`diff_after.log`, `task_log.md` §4.1). Sign-off: the user, for the
-  Head of PM — pending.
+  Head of PM — given 2026-10-18 (session P2): the thresholds, the security upper cut-off 3.0 and the bounds confirmed;
+  recorded in `Ref_ServiceLevelThresholds.csv` (source column) and `docs/05-decisions.md`.
 - [x] 4.2 (done 2026-10-18: Active table row, decision section "Service levels: fixed thresholds...", RUNNING.md
   section "The Service Levels sheet" and the reads list; anonymous ids only) Update `docs/project-status.md`, `docs/05-decisions.md` (the thresholds and bounds, their approval dates, the
   2026-10-18 revisions with the reasons from `phan_bien_p1.md` in plain words, and the reasons for the choices in
