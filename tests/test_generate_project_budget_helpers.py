@@ -170,12 +170,13 @@ def test_coords_zero_is_treated_as_a_value_not_blank():
 
 
 # ---------------------------------------------------------------- _ratio_or_default / _ratio_note
-# Rule: docs/17-huong-dan-file-dau-vao.md: blank or 0 takes the standard (1, 5000, 3000, 2, 2000)
+# Rule: docs/17-huong-dan-file-dau-vao.md: blank or 0 takes the standard (1, 5000, 3300, 2, 2000; cleaning 3,300 m²
+# fee-paying NFA per person since change fix-cleaning-staffing-ratio)
 # and the row says "standard assumption".
 DEFAULTS = {
     'staff_per_gate': 1,
     'sqm_per_patrol': 5000,
-    'sqm_per_cleaner': 3000,
+    'nfa_per_cleaning_staff': 3300,
     'towers_per_supervisor': 2,
     'sqm_per_gardener': 2000,
 }
@@ -196,9 +197,9 @@ def test_ratio_positive_value_kept_without_note(key):
 
 
 def test_ratio_note_is_per_key():
-    g._ratio_or_default(0, 'sqm_per_cleaner')
+    g._ratio_or_default(0, 'nfa_per_cleaning_staff')
     g._ratio_or_default(2500, 'sqm_per_gardener')
-    assert 'standard assumption' in g._ratio_note('sqm_per_cleaner')
+    assert 'standard assumption' in g._ratio_note('nfa_per_cleaning_staff')
     assert g._ratio_note('sqm_per_gardener') == ''
 
 
@@ -381,7 +382,7 @@ def test_portfolio_headcount_basis_discloses_median_sample_and_non_standard(monk
 GATE = 'Security - Main Gate (Morning)'
 PROJECT = {'gate_count': 3, 'open_space': 12000, 'towers': 3, 'garden_area': 5000,
            'total_nfa': 50000}
-RATIOS = {'staff_per_gate': 1.5, 'sqm_per_patrol': 5000, 'sqm_per_cleaner': 3000,
+RATIOS = {'staff_per_gate': 1.5, 'sqm_per_patrol': 5000, 'nfa_per_cleaning_staff': 3300,
           'towers_per_supervisor': 2, 'sqm_per_gardener': 2000}
 GATE_FN = g.RATIO_DRIVEN_STAFFING[GATE]      # 3 gates x 1.5 = 4.5 -> 5
 
@@ -416,7 +417,7 @@ def test_staff_blank_or_zero_falls_back_to_ratio_and_says_so(cached):
 # Rule source: code comment only (ratio rows are ROUNDUP formulas in the form).
 @pytest.mark.parametrize('pos,expected', [
     ('Security - Patrol / Open Space', 3),    # 12000 / 5000 = 2.4 -> 3
-    ('Cleaning - Common Area', 4),            # 12000 / 3000 = 4.0 -> 4, exact stays exact
+    ('Cleaning - Common Area', 14),           # ROUNDUP(50000 / 3300) = 16 minus 2 supervisors (fix-cleaning-staffing-ratio)
     ('Cleaning - Supervisor', 2),             # 3 / 2 = 1.5 -> 2
     ('Gardener / Landscape', 3),              # 5000 / 2000 = 2.5 -> 3
 ])

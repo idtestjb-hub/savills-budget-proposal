@@ -338,6 +338,30 @@ class _NoPortfolioRatio(Exception):
     """Raised when a portfolio role cannot be estimated, so the form's own value stands."""
 
 
+def _cleaning_total(project, ratios):
+    """Cleaning people on duty per day, supervisors included: ROUNDUP(total fee-paying NFA ÷ ratio).
+
+    Change fix-cleaning-staffing-ratio (2026-10-19): the same measure the Service Levels sheet classifies
+    (service_levels.measure_cleaning), so the default ratio lands the project on the level it was chosen for."""
+    return math.ceil(float(project.get('total_nfa') or 0) / ratios['nfa_per_cleaning_staff'])
+
+
+def _cleaning_supervisors(project, ratios):
+    return math.ceil(float(project.get('towers') or 0) / ratios['towers_per_supervisor'])
+
+
+def _cleaners_on_duty(project, ratios):
+    """'Cleaning - Common Area': the cleaning total minus the supervisor rule, at least 1 (design D3). The
+    open-space area plays no part: no real source gives it, and it left ESS4 at 0 on real projects."""
+    total = _cleaning_total(project, ratios)
+    sup = _cleaning_supervisors(project, ratios)
+    value = max(1, total - sup)
+    return value, (
+        f"Fee-paying NFA ({float(project.get('total_nfa') or 0):,.0f} m²) ÷ m² Fee-paying NFA per Cleaning Staff "
+        f"({ratios['nfa_per_cleaning_staff']:g}{_ratio_note('nfa_per_cleaning_staff')}) = {total} on duty, "
+        f"supervisors included, minus {sup} supervisor(s) (Tower Count ÷ Towers per Supervisor), at least 1")
+
+
 RATIO_DRIVEN_STAFFING = {
     'Security - Main Gate (Morning)': lambda p, r: (
         p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
@@ -347,8 +371,7 @@ RATIO_DRIVEN_STAFFING = {
         p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
     'Security - Patrol / Open Space': lambda p, r: (
         p['open_space'] / r['sqm_per_patrol'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Patrol Staff ({r['sqm_per_patrol']:g}{_ratio_note('sqm_per_patrol')})"),
-    'Cleaning - Common Area': lambda p, r: (
-        p['open_space'] / r['sqm_per_cleaner'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Cleaner ({r['sqm_per_cleaner']:g}{_ratio_note('sqm_per_cleaner')})"),
+    'Cleaning - Common Area': lambda p, r: _cleaners_on_duty(p, r),
     'Cleaning - Supervisor': lambda p, r: (
         p['towers'] / r['towers_per_supervisor'], f"Tower Count ({p['towers']:g}) ÷ Towers per Supervisor ({r['towers_per_supervisor']:g}{_ratio_note('towers_per_supervisor')})"),
     'Gardener / Landscape': lambda p, r: (
@@ -474,15 +497,24 @@ def _resolve_coords(raw_lat, raw_lon):
 _RATIO_DEFAULTS = {
     'staff_per_gate': (1, 'Security: Staff per Gate'),
     'sqm_per_patrol': (5000, 'Security: m² Open Space per Patrol Staff'),
-    'sqm_per_cleaner': (3000, 'Cleaning: m² Open Space per Cleaner'),
+    # Change fix-cleaning-staffing-ratio (2026-10-19): the one ratio here that IS derived from data. 3,300 m² of
+    # fee-paying NFA per cleaning person on duty (supervisors included) = the median of the 30 form-read, classified
+    # real projects in data/service_levels/Ref_ServiceLevelProjects.csv (3,324), rounded; inside the Tiêu chuẩn band.
+    # It replaces 'Cleaning: m² Open Space per Cleaner', which is no longer read (design D4).
+    'nfa_per_cleaning_staff': (3300, 'Cleaning: m² Fee-paying NFA per Cleaning Staff'),
     'towers_per_supervisor': (2, 'Cleaning: Towers per Supervisor'),
     'sqm_per_gardener': (2000, 'Landscape: m² Garden per Gardener'),
 }
 _RATIO_DEFAULTED = set()      # which ratios fell back on this run, for the basis text
+_RATIO_NOT_ON_FORM = set()    # which of those had no field at all (a form older than the ratio)
 
 
-def _ratio_or_default(raw, key):
+def _ratio_or_default(raw, key, on_form=True):
     default, label = _RATIO_DEFAULTS[key]
+    if on_form:
+        _RATIO_NOT_ON_FORM.discard(key)
+    else:
+        _RATIO_NOT_ON_FORM.add(key)
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -496,7 +528,11 @@ def _ratio_or_default(raw, key):
 
 def _ratio_note(key):
     """' (standard assumption — cell left blank)' when this ratio fell back, else ''."""
-    return ' — standard assumption, the Roster Setup cell was blank or zero' if key in _RATIO_DEFAULTED else ''
+    if key not in _RATIO_DEFAULTED:
+        return ''
+    if key in _RATIO_NOT_ON_FORM:
+        return ' — standard default, the form has no such field on Roster Setup (an older form)'
+    return ' — standard assumption, the Roster Setup cell was blank or zero'
 
 
 def _staff_on_duty(pos, cached, formula_cell, ratio_fn, project, ratios, row):
@@ -767,8 +803,9 @@ def read_input(path):
             R.value('Security: Staff per Gate'), 'staff_per_gate'),
         sqm_per_patrol=_ratio_or_default(
             R.value('Security: m² Open Space per Patrol Staff'), 'sqm_per_patrol'),
-        sqm_per_cleaner=_ratio_or_default(
-            R.value('Cleaning: m² Open Space per Cleaner'), 'sqm_per_cleaner'),
+        nfa_per_cleaning_staff=_ratio_or_default(
+            R.value(_RATIO_DEFAULTS['nfa_per_cleaning_staff'][1]) if R.has(_RATIO_DEFAULTS['nfa_per_cleaning_staff'][1])
+            else None, 'nfa_per_cleaning_staff', on_form=R.has(_RATIO_DEFAULTS['nfa_per_cleaning_staff'][1])),
         towers_per_supervisor=_ratio_or_default(
             R.value('Cleaning: Towers per Supervisor'), 'towers_per_supervisor'),
         sqm_per_gardener=_ratio_or_default(
@@ -5061,7 +5098,7 @@ def build_roster(project, ratios, month, year, holiday_days, demand):
         ('Open Space / Common Outdoor Area (m²)', project['open_space']),
         ('Ratio — Security: Staff per Gate', ratios['staff_per_gate']),
         ('Ratio — Security: m² Open Space per Patrol Staff', ratios['sqm_per_patrol']),
-        ('Ratio — Cleaning: m² Open Space per Cleaner', ratios['sqm_per_cleaner']),
+        ('Ratio — Cleaning: m² Fee-paying NFA per Cleaning Staff', ratios['nfa_per_cleaning_staff']),
         ('Ratio — Cleaning: Towers per Supervisor', ratios['towers_per_supervisor']),
         ('Ratio — Landscape: m² Garden per Gardener', ratios['sqm_per_gardener']),
         ('Month', month), ('Year', year),

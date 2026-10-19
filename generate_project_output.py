@@ -592,7 +592,8 @@ def build_staffing_estimate_sheet(wb, project, ratios, demand):
     ratio_desc = [
         ('Security — Main Gate (×3 shifts)', f"Gate Count × Staff per Gate  ({ratios['staff_per_gate']:g} staff/gate)"),
         ('Security — Patrol / Open Space', f"Open Space ÷ m² per Patrol Staff  (1 per {ratios['sqm_per_patrol']:g} m²)"),
-        ('Cleaning — Common Area', f"Open Space ÷ m² per Cleaner  (1 per {ratios['sqm_per_cleaner']:g} m²)"),
+        ('Cleaning — Common Area', f"Fee-paying NFA ÷ m² per Cleaning Staff  (1 per {ratios['nfa_per_cleaning_staff']:g} m², "
+                                   f"supervisors included), minus the supervisors, at least 1"),
         ('Cleaning — Supervisor', f"Tower Count ÷ Towers per Supervisor  (1 per {ratios['towers_per_supervisor']:g} towers)"),
         ('Gardener / Landscape', f"Garden Area ÷ m² per Gardener  (1 per {ratios['sqm_per_gardener']:g} m²)"),
         ('Security — CCTV Room (×3 shifts), Reception', 'Fixed assumption — 1 staff, not scaled by project size'),

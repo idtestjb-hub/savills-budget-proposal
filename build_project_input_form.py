@@ -95,6 +95,9 @@ SHIFT_REF = [
 _TOWER_COUNT = "'Project Info'!$B$10"
 _GARDEN_AREA = "'Project Info'!$B$7"
 _OPEN_SPACE = "'Project Info'!$B$8"
+# Total fee-paying NFA: the NFA column of the nine Product Mix rows (22-30, built below). The cleaning crew is sized
+# from it (change fix-cleaning-staffing-ratio), the same total the Service Levels sheet measures.
+_FEE_NFA = "SUM('Project Info'!$C$22:$C$30)"
 _GATE_COUNT = "'Project Info'!$B$11"   # moved under Tower Count 2026-09-15, was $B$32
 _POOL_AREA = "'Project Info'!$B$39"    # shifted +6 then +1 (2026-09-16) by District/City/Lat/Lon/
                                         # Address/Passenger Elevators/Number of Basements moving into
@@ -108,7 +111,7 @@ _POOL_M2_PER_LIFEGUARD = 200
 # Cell refs into the Roster Setup sheet's Staffing Ratios block.
 _STAFF_PER_GATE = "'Roster Setup'!$B$4"
 _SQM_PER_PATROL = "'Roster Setup'!$B$5"
-_SQM_PER_CLEANER = "'Roster Setup'!$B$6"
+_NFA_PER_CLEANING_STAFF = "'Roster Setup'!$B$6"
 _TOWERS_PER_SUPERVISOR = "'Roster Setup'!$B$7"
 _SQM_PER_GARDENER = "'Roster Setup'!$B$8"
 
@@ -133,6 +136,10 @@ _SECURITY_NOTE = (
     f'{_SECURITY_MONTHLY_ALL_ROLES:,} VND/month covers all 3 shift roles for one post. '
     f'Split 3 ways = {_SECURITY_MONTHLY_ALL_ROLES // 3:,}/month per role ÷ {_WORKDAYS_TEXT} ≈ {_SECURITY_DAILY_PER_ROLE:,.0f}/day.'
 )
+_CLEANING_NOTE = ('Formula-driven from Roster Setup: ROUNDUP(total fee-paying NFA ÷ m² Fee-paying NFA per Cleaning Staff) '
+                  'cleaning people on duty, supervisors included, minus the Cleaning - Supervisor rule, at least 1. '
+                  'The default 3,300 is the median of the real Savills projects read from their own cleaning forms '
+                  '(service-level table), in the Tiêu chuẩn band. Adjust the ratio in Roster Setup, not this cell.')
 _RATIO_NOTE = ('Formula-driven from Roster Setup!Staffing Ratios — an editable PM assumption, not a real '
                'benchmark (no dataset joins staff headcount to property scale for the same properties; see '
                'Fact_Dim_Master_Mapping.md). Adjust the ratio in Roster Setup, not this cell, to change the suggestion.')
@@ -243,7 +250,9 @@ EXAMPLE_DEMAND = [
     ('Security - CCTV Room (Night)', 'D', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE),
     ('Security - Patrol / Open Space', 'S', f'=ROUNDUP({_OPEN_SPACE}/{_SQM_PER_PATROL},0)', 7, _SECURITY_DAILY_PER_ROLE,
      _SECURITY_NOTE + ' ' + _RATIO_NOTE + ' Shown for one shift only — for full 24h patrol coverage, copy this row for C and D shifts too.'),
-    ('Cleaning - Common Area', 'S', f'=ROUNDUP({_OPEN_SPACE}/{_SQM_PER_CLEANER},0)', 7, 340000, _RATIO_NOTE),
+    ('Cleaning - Common Area', 'S',
+     f'=MAX(1,ROUNDUP({_FEE_NFA}/{_NFA_PER_CLEANING_STAFF},0)-ROUNDUP({_TOWER_COUNT}/{_TOWERS_PER_SUPERVISOR},0))',
+     7, 340000, _CLEANING_NOTE),
     ('Cleaning - Supervisor', 'HC', f'=ROUNDUP({_TOWER_COUNT}/{_TOWERS_PER_SUPERVISOR},0)', 6, 480000, _RATIO_NOTE),
     # StaffPerDay seeded at 0, not 1 (change activate-dormant-staffing-ratios, 2026-09-17) — matching
     # the Assistant Property Manager / Accountant / Cashier pattern below: 0 is falsy, so
@@ -1060,11 +1069,16 @@ def main(force=False):
     ws2['A4'] = None  # placeholder, ratios start row 4 per _STAFF_PER_GATE etc. above
     labeled_input(ws2, 4, 'Security: Staff per Gate', 1)
     labeled_input(ws2, 5, 'Security: m² Open Space per Patrol Staff', 5000)
-    labeled_input(ws2, 6, 'Cleaning: m² Open Space per Cleaner', 3000)
+    c_cln = labeled_input(ws2, 6, 'Cleaning: m² Fee-paying NFA per Cleaning Staff', 3300)
+    c_cln.comment = Comment(
+        "m² of total fee-paying NFA (every product) per cleaning person on duty per day, supervisors included. "
+        "3,300 = the median of 30 real Savills projects read from their own cleaning forms (service-level table "
+        "Ref_ServiceLevelProjects.csv: 3,324, P25 2,822, P75 4,431), in the Tiêu chuẩn band 2,500-4,000. A lower "
+        "number means more cleaners. Blank or 0 means 3,300.", 'Budget Planning Agent')
     labeled_input(ws2, 7, 'Cleaning: Towers per Supervisor', 2)
     labeled_input(ws2, 8, 'Landscape: m² Garden per Gardener', 2000)
-    ws2['A9'] = ('These are editable assumptions, not a real benchmark — no dataset joins staff headcount to '
-                 'property scale for the same properties. Change to your own operational standard — '
+    ws2['A9'] = ('Editable assumptions. The cleaning ratio is measured on real Savills projects (see its note); the '
+                 'others are operational assumptions, not a real benchmark. Change to your own operational standard — '
                  'Staffing Demand recalculates automatically.')
     ws2['A9'].font = LEGEND_FONT
     ws2['A9'].alignment = LEFT
