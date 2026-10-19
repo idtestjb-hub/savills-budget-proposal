@@ -231,3 +231,48 @@ def test_name_scan_on_invented_names(tmp_path):
                      encoding='utf-8')
     assert name_leaks(names, [clean]) == (2, [])
     assert name_leaks(names, [clean, dirty]) == (2, ['dirty.csv row 2'])
+
+
+# ---- rate codes (change price-fee-and-parking-from-portfolio, task 2.1) ----
+
+def _rate_rows(values):
+    return _rows('RM.AP', values, basis=rbr.BASIS_APARTMENT_NFA)
+
+
+def test_rate_code_gives_a_rate_not_an_amount():
+    rows = _rate_rows([10000 + 500 * i for i in range(12)])          # 10,000 .. 15,500
+    res = rbr.price_line('RM.AP', rows, nfa=12345, vat_rate=0.1)
+    assert res.rate and res.usable and not res.cross_check and res.figure == 0 and res.remark == ''
+    assert res.median == pytest.approx(12750) and res.n_used == 12
+    assert rbr.applied_rate(res, 10) == 14025                         # median x 1.10, rounded to the VND
+    assert rbr.applied_rate(res, 8) == 13770
+    assert rbr.applied_rate(res, 10, vat_inclusive=False) == 12750
+    text = rbr.rate_remark_vi(res, 14025, 10)
+    assert '12 dự án' in text and '12,750' in text and '11,375–14,125' in text and '14,025' in text
+    assert 'chưa VAT' in text and '2027' in text and 'cộng VAT 10%' in text
+    assert all(w not in text.lower() for w in _INTERNAL_WORDING_DENYLIST)
+    khoan = rbr.rate_remark_vi(res, 12750, 10, vat_inclusive=False)
+    assert 'chưa cộng VAT' in khoan and '12,750' in khoan
+
+
+def test_rate_code_floor_self_and_outlier():
+    rows = _rate_rows([10000 + 500 * i for i in range(10)] + [90000])  # 11 values, one far outlier
+    rows[2]['name_key'] = rbr.name_key('Invented Harbour')
+    res = rbr.price_line('RM.AP', rows, nfa=12345, vat_rate=0.1, self_name='Invented Harbour')
+    assert res.n_used == 9 and not res.usable and rbr.applied_rate(res, 10) is None
+    assert 'chỉ 9 ngân sách' in res.reason
+    assert {w for _, _, w in res.left_out} == {rbr.OUT_SELF_NAME, rbr.OUT_HIGH}
+    res = rbr.price_line('RM.AP', rows, nfa=12345, vat_rate=0.1)      # not the project itself: 10 remain
+    assert res.n_used == 10 and res.usable
+
+
+def test_values_file_without_basis_column_loads(tmp_path):
+    import csv as _csv
+    p = tmp_path / 'old.csv'
+    with open(p, 'w', encoding='utf-8-sig', newline='') as fh:
+        w = _csv.writer(fh)
+        w.writerow([c for c in rbr.VALUE_COLUMNS if c != 'basis'])
+        w.writerow(['P001', '', 10000, 2027, 'ESS12', 'value', 1, 1, 1, ''])
+    rows = rbr.load_values(str(p))
+    assert rows[0]['basis'] == rbr.BASIS_FEE_NFA
+    assert 'RM.AP' in rbr.ALL_CODES and rbr.CODE_NAMES['RM.AP']

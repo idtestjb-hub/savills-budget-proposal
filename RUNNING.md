@@ -135,6 +135,7 @@ run without them.
 | `Stable Operation?` = Yes | 100% occupancy in all 12 months on every occupancy-scaled line, and `RM.0A` (developer top-up) = 0 |
 | `Actual Rate (VND/m²/month)` and `Rate VAT Basis`, two columns beside the `Product` header of Product Mix | The entered rate prices that product in both workbooks, in place of the comparables. `Rate VAT Basis` is `incl. VAT` or `excl. VAT`; a basis other than the deliverable's is stated in the remark, never converted |
 | `Actual Car Parking Revenue (VND/month)`, `Actual Motorbike Parking Revenue (VND/month)` | `RP2` (car) and `RP1` (motorbike) = the figure x 12, not slots x rate x occupancy. 0 is allowed and says so in the remark |
+| `Car Parking Price (VND/vehicle/month)`, `Motorbike Parking Price (VND/vehicle/month)` | Change `price-fee-and-parking-from-portfolio`: the monthly price per vehicle, incl. VAT, for a new or an operating building (no stable switch needed). Blank or 0 = the portfolio price: the median first-vehicle list price of the master list's residential projects (`parking_prices.py`: the project itself left out by name, IQR outliers dropped, at least 10 prices; as quoted, no CPI), else the former constants 1,100,000 / 110,000. A recorded revenue above still ranks first. The analysis's `Additional Revenue` lists every master-list row read with its parsed price or the reason it was not used |
 | `COLLECT ON BEHALF (THU HỘ CHI HỘ)` block: header row `Collect-on-behalf product` / `Water (VND/month)` / `Electricity (VND/month)`, then one row `Thu hộ chi hộ: <product>` per product | Water goes to `RO3.<x>`, electricity to `RO4.<x>`, each x 12, and the same amounts to `EEW.A` / `EEE.A`, so the surplus does not move. They stay out of `2.2 Common area Fund` |
 
 Rules the run enforces, each stopping with a message that names the field:
@@ -275,7 +276,14 @@ else reads it.
 Seven Required lines have no price in the input or the costing catalogue. They are priced from what Savills-managed
 projects actually budget (change `use-real-budget-ranges`): `EMB4` operation audit, `ESS12` pest control, `ESC5` Tết
 decoration, `ESS7` façade cleaning (only with at least one tower), `ESS23` outsourced pool staff (only with a pool and
-no in-house pool staff on A1), and `ESC1` events and `ESC2` fire drill as stand-ins for count x price.
+no in-house pool staff on A1), and `ESC1` events and `ESC2` fire drill as stand-ins for count x price. Since change
+`price-fee-and-parking-from-portfolio` the same file also carries `RM.AP`, the apartment management-fee **rate** of each
+real budget: (RM.AP + RM.0A, the developer's share on units not yet handed over) per month ÷ apartment NFA, excluding
+VAT, column `basis = apartment_nfa`. Its range (same leave-one-out, IQR and 10-project floor) gives the applied Apartment
+rate: median × (1 + VAT of the first budget month) on an inclusive deliverable, decided in
+`master_comparables.resolve_product_rates()` between the PM's entered rate and the two-comparable average; the two
+nearest comparables stay on the Comparison sheets and drive the benchmark verdict. Under 10 projects, or without the
+file, the Apartment rate comes from the comparables as before.
 
 - **The data** is `data/real_budget_ranges/Ref_RealBudgetValues.csv`: one anonymous row per project and code, VND per
   m² of fee-paying NFA per month, excluding VAT, at budget-year and 2027 prices (CPI from

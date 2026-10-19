@@ -158,6 +158,45 @@ _RM_PRODUCT_ROWS = {
 _RM_DEVELOPER_ROW = 23  # RM.0A — developer top-up on unsold units (info only here)
 
 
+def parking_prices_in_outputs(paths):
+    """({'car': price|None, 'moto': price|None} from the deliverable's helper sheet B5 row 17, the same from the
+    analysis's Additional Revenue parking table). A non-numeric cell (no bays, or a recorded revenue) reads None."""
+    import openpyxl
+    out_d, out_a = {}, {}
+    wb = openpyxl.load_workbook(paths['deliverable'], read_only=True)
+    try:
+        ws = next((wb[n] for n in wb.sheetnames if n.startswith('B5.')), None)
+        row = next(ws.iter_rows(min_row=17, max_row=17, max_col=6, values_only=True)) if ws is not None else ()
+        out_d['car'] = row[2] if len(row) > 2 and isinstance(row[2], (int, float)) else None
+        out_d['moto'] = row[4] if len(row) > 4 and isinstance(row[4], (int, float)) else None
+    finally:
+        wb.close()
+    wa = openpyxl.load_workbook(paths['analysis'], read_only=True)
+    try:
+        ws = wa['Additional Revenue'] if 'Additional Revenue' in wa.sheetnames else None
+        for r in (ws.iter_rows(min_row=1, max_row=40, max_col=2, values_only=True) if ws is not None else ()):
+            key = {'Car': 'car', 'Motorbike': 'moto'}.get(r[0] if isinstance(r[0], str) else '')
+            if key and key not in out_a:
+                out_a[key] = r[1] if isinstance(r[1], (int, float)) else None
+    finally:
+        wa.close()
+    return out_d, out_a
+
+
+def check_parking_price_agreement(paths):
+    """Change price-fee-and-parking-from-portfolio (task 6.1): the monthly parking price per vehicle the deliverable
+    quotes on helper sheet B5 equals the one the analysis's Additional Revenue table uses, per vehicle type; both
+    blank (no bays, or a recorded revenue) also agrees. Returns (ok, rows, differences, notes)."""
+    d, a = parking_prices_in_outputs(paths)
+    rows, diffs = [], []
+    for key, label in (('car', 'RP2 car price (VND/vehicle/month)'), ('moto', 'RP1 motorbike price (VND/vehicle/month)')):
+        dv, av = d.get(key), a.get(key)
+        rows.append((label, dv, av))
+        if (dv is None) != (av is None) or (dv is not None and abs(float(dv) - float(av)) > 0.5):
+            diffs.append((label, dv, av))
+    return not diffs, rows, diffs, ['Deliverable: helper sheet B5 row 17; analysis: Additional Revenue parking table.']
+
+
 def check_revenue_agreement(paths, stable=False):
     """Run the client deliverable and the internal analysis side by side and confirm they price
     management-fee revenue the same way — same full-year total, same figure per product.
@@ -1164,6 +1203,16 @@ def check_remark_content(paths):
             label = f"{sheet_label} T{r} ({code})"
 
             row_failed = False
+            # Change price-fee-and-parking-from-portfolio (spec deliverable-remarks): a revenue unit rate names its
+            # source — the portfolio median (with the number of Savills-managed projects), the PM's entered figure,
+            # the PM's recorded revenue, or the reference-project fallback — and never a project.
+            if sheet_label == '2. Budget-Management Fund' and code in ('RM.AP', 'RP1', 'RP2'):
+                if not any(w in t for w in ('trung vị', 'PM nhập', 'PM ghi nhận', 'dự án tham chiếu', 'DỰ PHÒNG')):
+                    fail(label, 'revenue unit rate states no source (portfolio median, PM figure or reference fallback)')
+                    row_failed = True
+                if 'trung vị' in t and 'dự án do Savills quản lý' not in t:
+                    fail(label, 'portfolio-median wording must give the number of Savills-managed projects')
+                    row_failed = True
             entered_rate_line = 'thực tế do PM nhập' in t and code.startswith('RM.')
             if entered_rate_line:
                 # W3 (2026-10-11): a line priced from an entered rate states its own VAT basis and ends

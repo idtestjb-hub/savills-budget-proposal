@@ -37,6 +37,7 @@ import vn_holidays
 import existing_utilities
 import existing_staffing
 import operating_inputs
+import parking_prices
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
     RATE_CARD_SOURCE, resolve_product_rates,
@@ -292,11 +293,12 @@ def build_management_fee_sheet(wb, project):
     # carries the within-1km ±20% rate-swing cap (task 2.5, 2026-09-16); when no comparable has an
     # Apartment rate at all it is the blended whole-property rate, which before P5 only the
     # deliverable had.
-    rates = resolve_product_rates(project)
+    rates = resolve_product_rates(project, vat_inclusive=template_vat_inclusive())
     apt_rate, apt_note = rates['apartment_rate'], rates['rate_note']
     # Which operating-project fields this run found, and the entered-vs-comparable rates (design D6).
     for line in operating_inputs.report_lines(
-            project.get('operating') or operating_inputs.blank_inputs(), rates):
+            project.get('operating') or operating_inputs.blank_inputs(), rates,
+            parking=parking_prices.resolved(project)):
         print(line)
     own_real = next((c for c in MASTER_COMPARABLES
                       if c['name'].strip().lower() in project['name'].strip().lower() and c['rates'].get('Apartment')), None)
@@ -317,15 +319,20 @@ def build_management_fee_sheet(wb, project):
 
     section(ws, r, 'DERIVED APARTMENT RATE (also the fallback for products with no real rate of their own)', ncols=5); r += 1
     apt_entered = rates.get('apartment_entered')     # P1: the PM's actual Apartment rate, when entered
+    # Change price-fee-and-parking-from-portfolio: the real-budget range as the Apartment source (design D3).
+    _apt_range = rates.get('apartment_range') if rates.get('apartment_source') == 'range' else None
     ws.cell(row=r, column=1, value=(f"Applied Apartment rate — PM-entered actual rate ({apt_entered['vat']}) "
                                     f"(VND/m²/month)" if apt_entered else
-                                    'Derived Apartment rate (VND/m²/month)')).font = Font(bold=True)
+                                    (f"Applied Apartment rate — median of the real-budget range of {_apt_range.n_used} "
+                                     f"Savills-managed projects ({_apt_range.median:,.0f} excl. VAT at 2027 prices, "
+                                     f"x VAT of the first budget month) (VND/m²/month)" if _apt_range else
+                                     'Derived Apartment rate (VND/m²/month)'))).font = Font(bold=True)
     rate_cell = ws.cell(row=r, column=2, value=apt_rate)
     rate_cell.fill = HIGHLIGHT_FILL
     rate_cell.number_format = MONEY_FMT
     rate_cell.border = BORDER
     r += 1
-    if apt_entered:
+    if apt_entered or _apt_range:
         ws.cell(row=r, column=1, value='Comparable-derived Apartment rate (reference only)').font = Font(italic=True, size=9)
         c = ws.cell(row=r, column=2, value=rates.get('apartment_comparable_rate'))
         c.number_format = MONEY_FMT
@@ -385,6 +392,10 @@ def build_management_fee_sheet(wb, project):
         if is_fallback:
             c3.font = Font(italic=True, color='C00000')
         source_label = (f"PM-entered actual rate ({_p_rate['vat']})" if _p_rate['source'] == 'entered' else
+                        (f"Real-budget range: median of {_apt_range.n_used} Savills-managed projects (P25–P75 "
+                         f"{_apt_range.p25:,.0f}–{_apt_range.p75:,.0f} excl. VAT); the {len(used)} comparable(s) "
+                         + ', '.join(c['name'] for c in used)
+                         + f" give {rates.get('apartment_comparable_rate') or 0:,.0f}") if _p_rate['source'] == 'range' else
                         (f"{len(used)} real comparable(s): " + ', '.join(c['name'] for c in used)) if used else
                         'Apartment rate (fallback — no product-specific comparable)')
         c4 = ws.cell(row=r, column=4, value=source_label)
@@ -427,7 +438,8 @@ def build_management_fee_sheet(wb, project):
                 vat_pct=rates.get('vat_pct'), vat_flags=rates.get('vat_flags') or {},
                 apartment_entered=rates.get('apartment_entered'),
                 apartment_comparable_rate=rates.get('apartment_comparable_rate'),
-                apartment_rates_on_basis=rates.get('apartment_rates_on_basis'))
+                apartment_rates_on_basis=rates.get('apartment_rates_on_basis'),
+                apartment_source=rates.get('apartment_source'), apartment_range=rates.get('apartment_range'))
 
 
 # ============================================================================================
@@ -486,6 +498,16 @@ def build_comparison_sheet(wb, project, mgmt):
         r = data_row(r, 'MODEL-DERIVED Apartment rate (this project, reference only)',
                      [f'{_model:,}' if _model else 'none (no comparable rate)', '', ''])
         r = data_row(r, f"APPLIED Apartment rate — PM-entered actual rate ({_entered['vat']})",
+                     [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
+    elif mgmt.get('apartment_source') == 'range' and mgmt.get('apartment_range') is not None:
+        # Change price-fee-and-parking-from-portfolio: the comparables stay for reference and the benchmark.
+        _rg = mgmt['apartment_range']
+        _model = mgmt.get('apartment_comparable_rate')
+        r = data_row(r, 'COMPARABLE-DERIVED Apartment rate (the nearest comparables, reference only)',
+                     [f'{_model:,}' if _model else 'none (no comparable rate)', '', ''])
+        r = data_row(r, f"APPLIED Apartment rate — median of the real-budget range ({_rg.n_used} Savills-managed "
+                        f"projects; median {_rg.median:,.0f}, P25–P75 {_rg.p25:,.0f}–{_rg.p75:,.0f} VND/m²/month excl. "
+                        f"VAT at 2027 prices, x VAT of the first budget month)",
                      [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
     else:
         r = data_row(r, 'MODEL-DERIVED Apartment rate (this project)', [f'{derived_rate:,}', '', ''], fill=HIGHLIGHT_FILL)
@@ -1651,6 +1673,71 @@ def _collect_on_behalf_table(ws, r, project):
     return r
 
 
+def _portfolio_parking_prices_block(ws, r, pp):
+    """PORTFOLIO PARKING PRICES (change price-fee-and-parking-from-portfolio, spec parking-revenue-pricing): per
+    vehicle type the rows read, the prices found, P25 / median / P75, the applied price and its source, then one row
+    per master-list project with the text read, the price parsed or the reason it was not used. Internal only: the
+    analysis may name the projects; the client deliverable never does."""
+    section(ws, r, 'PORTFOLIO PARKING PRICES — first-vehicle monthly list prices of Savills-managed residential '
+                   'projects (master list, incl. VAT, as quoted; no CPI step)', ncols=6)
+    r += 1
+    ws.cell(row=r, column=1, value=(
+        'Rules (user, 2026-10-20): the first number in the fee text inside the vehicle\'s band is the price; the '
+        'project itself is left out by name; values outside P25 - 1.5 x IQR .. P75 + 1.5 x IQR are left out once; '
+        f'the median is applied only when at least {parking_prices.MIN_PROJECTS} projects remain, else the former '
+        'constant. A recorded monthly revenue (stable project) or a price the PM entered ranks ahead.')
+            ).font = Font(italic=True, size=9, color='7F7F7F')
+    ws.cell(row=r, column=1).alignment = LEFT
+    ws.merge_cells(f'A{r}:F{r}')
+    ws.row_dimensions[r].height = 40
+    r += 1
+    heads = ['Vehicle', 'Rows read / with a price / used', 'P25 (VND)', 'Median (VND)', 'P75 (VND)',
+             'Applied price (VND/vehicle/month) and source']
+    for c, h in enumerate(heads, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    # Labels differ from the parking table's 'Car' / 'Motorbike' rows above: verification's hand check reads the
+    # rate beside the last row labelled exactly so.
+    for key, label in (('car', 'Car (portfolio range)'), ('moto', 'Motorbike (portfolio range)')):
+        e, pr = pp[key], pp[key]['range']
+        vals = [label, f'{pr.n_rows} / {pr.n_price} / {pr.n_used}', pr.p25, pr.median, pr.p75,
+                (f"{e['price']:,.0f} — " if e['price'] is not None else 'no per-vehicle price — ')
+                + parking_prices.source_label_en(e)]
+        for c, v in enumerate(vals, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = BORDER
+            if c in (3, 4, 5):
+                cell.number_format = MONEY_FMT
+            elif c in (2, 6):
+                cell.alignment = LEFT
+        r += 1
+    r += 1
+    for key, label in (('car', 'Car'), ('moto', 'Motorbike')):
+        pr = pp[key]['range']
+        section(ws, r, f'{label}: every master-list row read ({pr.n_rows})', ncols=6)
+        r += 1
+        for c, h in enumerate(['Project', 'Fee text as recorded', 'Price read (VND)', 'Status', 'Used / left out',
+                               ''], start=1):
+            cell = ws.cell(row=r, column=c, value=h)
+            cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+        r += 1
+        why = {name: w for name, _, w in pr.left_out}
+        used_names = {name for name, _ in pr.used}
+        for name, text, price, status in pr.parsed:
+            use = ('used' if name in used_names else why.get(name, '')) if price is not None else ''
+            for c, v in enumerate([name, ' '.join(str(text).split())[:200], price, status, use], start=1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.border = BORDER
+                if c == 3:
+                    cell.number_format = MONEY_FMT
+                elif c in (1, 2):
+                    cell.alignment = LEFT
+            r += 1
+        r += 1
+    return r
+
+
 def build_additional_revenue_sheet(wb, project):
     """Extra Revenue beyond the management fee — Parking Fee and Elevator Advertising. New
     category: A&K Tower's own real budget structure ("A1. Tổng hợp" sheet) explicitly separates
@@ -1677,8 +1764,10 @@ def build_additional_revenue_sheet(wb, project):
     question, checked with the PM rather than assumed."""
     ws = wb.create_sheet('Additional Revenue')
     title_block(ws, 'Additional Revenue — Beyond the Management Fee',
-                'Real data: A&K Tower\'s own proposed Parking Fee rate (informed by 6 real comparables) × this '
-                'project\'s real slot counts; Elevator Advertising\'s real per-device rates, Qty left for the PM to '
+                'Parking: the applied monthly price per vehicle (recorded revenue, the PM\'s entered price, the '
+                'portfolio median of Savills-managed projects\' list prices, or the former reference constant) × this '
+                'project\'s real slot counts — see the PORTFOLIO PARKING PRICES block at the bottom; Elevator '
+                'Advertising\'s real per-device rates, Qty left for the PM to '
                 'fill in. NOT included in Total Project Value (Net) yet — see this sheet\'s notes.', 'A1:F1')
 
     r = 4
@@ -1695,8 +1784,11 @@ def build_additional_revenue_sheet(wb, project):
     # P2 (use-operating-project-actuals): a recorded monthly figure the PM entered replaces rate x slots,
     # the same figure the deliverable writes on RP1/RP2.
     recorded = ((project.get('operating') or {}).get('parking')) or {}
-    for label, key, rate, slots in [('Car', 'car', PARKING_FEE_CAR_MONTHLY, project.get('car_slots') or 0),
-                                     ('Motorbike', 'moto', PARKING_FEE_MOTO_MONTHLY, project.get('moto_slots') or 0)]:
+    # Change price-fee-and-parking-from-portfolio (design D5): the same resolved price the deliverable writes.
+    _pp = parking_prices.resolved(project)
+    for label, key, slots in [('Car', 'car', project.get('car_slots') or 0),
+                              ('Motorbike', 'moto', project.get('moto_slots') or 0)]:
+        rate = _pp[key]['price']
         monthly = recorded.get(key)
         ws.cell(row=r, column=1, value=label).border = BORDER
         c2 = ws.cell(row=r, column=2, value=rate if monthly is None else None)
@@ -1711,9 +1803,7 @@ def build_additional_revenue_sheet(wb, project):
         c5 = ws.cell(row=r, column=5, value=f'=D{r}*12')
         c5.number_format = MONEY_FMT
         c5.border = BORDER
-        c6 = ws.cell(row=r, column=6, value=PARKING_FEE_SOURCE if monthly is None else (
-            'Recorded average monthly revenue entered by the PM (Project Info, project at stable operation); '
-            'not slots x rate.'))
+        c6 = ws.cell(row=r, column=6, value=parking_prices.source_label_en(_pp[key]))
         c6.border = BORDER
         c6.alignment = LEFT
         r += 1
@@ -1765,7 +1855,7 @@ def build_additional_revenue_sheet(wb, project):
         r += 1
     lease_avg_annual = round(est_parking_nfa * PARKING_LEASE_RATE_AVG * 12)
     ws.cell(row=r, column=1, value='Breakeven fill % — below this, LEASING beats per-vehicle billing').font = Font(bold=True)
-    car_fee_annual_100pct = PARKING_FEE_CAR_MONTHLY * car_slots * 12
+    car_fee_annual_100pct = (_pp['car']['price'] or PARKING_FEE_CAR_MONTHLY) * car_slots * 12
     breakeven_pct = (lease_avg_annual / car_fee_annual_100pct) if car_fee_annual_100pct else 0
     c2 = ws.cell(row=r, column=2, value=breakeven_pct)
     c2.number_format = '0.0%'
@@ -1865,6 +1955,7 @@ def build_additional_revenue_sheet(wb, project):
     ws.row_dimensions[r].height = 40
     r += 1
     _collect_on_behalf_table(ws, r + 1, project)
+    _portfolio_parking_prices_block(ws, ws.max_row + 2, _pp)
 
     for col, w in {'A': 40, 'B': 22, 'C': 20, 'D': 20, 'E': 20, 'F': 60}.items():
         ws.column_dimensions[col].width = w
@@ -4044,7 +4135,9 @@ def build_real_budget_ranges_sheet(wb, project, demand, staff):
     ws = wb.create_sheet(rbr.SHEET_NAME)
     title_block(ws, 'Real-Budget Ranges — lines priced from the real budgets of Savills-managed projects',
                 'Internal (change use-real-budget-ranges). Values are VND per m² of fee-paying NFA per month, excluding '
-                'VAT, at 2027 prices. Range rules: leave out the project itself (same name, or NFA within 0.5%), then '
+                'VAT, at 2027 prices; RM.AP (role Rate, change price-fee-and-parking-from-portfolio) is a rate per m² '
+                'of APARTMENT NFA (RM.AP + RM.0A of each real budget) and gives the applied Apartment rate, never an '
+                'amount. Range rules: leave out the project itself (same name, or NFA within 0.5%), then '
                 'values outside P25 - 1.5 x IQR .. P75 + 1.5 x IQR; priced only when at least 10 projects remain. '
                 'Percentiles as Excel PERCENTILE.INC. Project ids are anonymous.', 'A1:O1')
     incl_vat = template_vat_inclusive()
@@ -4096,10 +4189,16 @@ def build_real_budget_ranges_sheet(wb, project, demand, staff):
     else:
         tool_fig['EMH3'] = (0, 'No in-house position has a night shift.')
     for code, res in results.items():
-        role = 'Cross-check' if res.cross_check else ('Stand-in' if res.stand_in else 'Priced')
+        role = 'Rate' if res.rate else ('Cross-check' if res.cross_check else ('Stand-in' if res.stand_in else 'Priced'))
         self_out = [x for x in res.left_out if x[2] in (rbr.OUT_SELF_NAME, rbr.OUT_SELF_NFA)]
         outliers = [x for x in res.left_out if x not in self_out]
-        if res.cross_check:
+        if res.rate:
+            _applied = rbr.applied_rate(res, _general_vat_months(project)[0], incl_vat)
+            written, own = None, None
+            note = res.reason or (f"Rate per m² of apartment NFA. Applied Apartment rate on the deliverable: "
+                                  f"{_applied:,.0f} VND/m²/month ({'incl.' if incl_vat else 'excl.'} VAT), unless the PM "
+                                  f"entered a rate (Management Fee sheet).")
+        elif res.cross_check:
             written, (own, note) = None, tool_fig.get(code, (None, ''))
         else:
             written, own = (res.figure if res.usable else 0), None
@@ -4108,7 +4207,7 @@ def build_real_budget_ranges_sheet(wb, project, demand, staff):
                 ', '.join(f'{p} ({w})' for p, _, w in self_out), ', '.join(p for p, _, _ in outliers),
                 res.p25, res.median, res.p75,
                 (round(res.median * project['total_nfa'] * rbr.MONTHS)
-                 if res.median is not None and project['total_nfa'] else None),
+                 if res.median is not None and project['total_nfa'] and not res.rate else None),
                 written, own, note]
         for c, v in enumerate(vals, start=1):
             cell = ws.cell(row=r, column=c, value=v)

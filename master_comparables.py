@@ -709,7 +709,23 @@ def derive_product_rate_capped(project_nfa, exclude_name, product, input_distric
 BLENDED_FALLBACK_NOTE = 'No comparable has a real Apartment rate — fell back to the whole-property blended rate.'
 
 
-def resolve_product_rates(project, vat_table=None):
+def apartment_range(project, vat_pct, vat_inclusive=True):
+    """(RangeResult, applied rate or None) for the RM.AP real-budget range (change
+    price-fee-and-parking-from-portfolio, design D3/D4): the median apartment management-fee rate of the real budgets
+    of Savills-managed projects, the project itself left out by name key or NFA, converted to the deliverable's VAT
+    basis at the budget period's first month. None, None when the values file is absent (rollback)."""
+    import real_budget_ranges as rbr
+    rows = rbr.load_values()
+    res = rbr.price_line('RM.AP', rows, nfa=project.get('total_nfa') or 0, vat_rate=vat_pct / 100.0,
+                         vat_inclusive=vat_inclusive, self_name=project.get('name'))
+    return res, rbr.applied_rate(res, vat_pct, vat_inclusive)
+
+
+RANGE_SOURCE_NOTE = ('The Apartment rate is the median of the real-budget range of Savills-managed projects; the '
+                     'two nearest comparables are shown for reference and drive the benchmark verdict only.')
+
+
+def resolve_product_rates(project, vat_table=None, vat_inclusive=True):
     """The one place each product's applied management-fee rate (VND/m²/month) is decided — change
     `use-operating-project-actuals`, P5. Both generators call this once per run and read every rate
     they write or show from its result, so the deliverable's RM.* rows, its '0. Info' fee table and
@@ -771,6 +787,12 @@ def resolve_product_rates(project, vat_table=None):
         apt_source = 'blended-fallback'
     entered = ((project.get('operating') or {}).get('rates')) or {}
     apt_comparable_rate = apt_rate
+    # Change price-fee-and-parking-from-portfolio (design D3): the real-budget range ranks between the entered rate
+    # and the comparables. The comparables stay selected for the Comparison sheets and the benchmark verdict.
+    apt_range, range_rate = apartment_range(project, vat['pct'], vat_inclusive)
+    if range_rate is not None:
+        apt_rate, apt_source = range_rate, 'range'
+        rate_note = ((rate_note + '  ') if rate_note else '') + RANGE_SOURCE_NOTE
     apt_entered = entered.get('Apartment')
     if apt_entered:
         apt_rate, apt_source = apt_entered['rate'], 'entered'
@@ -802,7 +824,8 @@ def resolve_product_rates(project, vat_table=None):
     return dict(apartment_rate=apt_rate, apartment_used=apt_used, apartment_note=apt_note,
                 apartment_source=apt_source, comparables=comparables, rate_note=rate_note,
                 all_ranked=all_ranked, products=products, apartment_comparable_rate=apt_comparable_rate,
-                apartment_entered=apt_entered, vat_pct=vat['pct'],
+                apartment_entered=apt_entered, vat_pct=vat['pct'], vat_inclusive=vat_inclusive,
+                apartment_range=apt_range, apartment_range_rate=range_rate,
                 apartment_rates_on_basis=[_on_incl_vat(vat, c, 'Apartment', r) if r else None
                                           for c in comparables for r in [(c.get('rates') or {}).get('Apartment')]],
                 vat_flags=vat_flags_for(vat, {**{'Apartment': apt_used if apt_source == 'comparable' else comparables},
