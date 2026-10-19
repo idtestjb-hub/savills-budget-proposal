@@ -28,14 +28,13 @@ thành công hoặc bị từ chối).
 ## Ba tab và trang kết quả
 
 - **Nhập liệu:** form và nút Tạo ngân sách (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng; disabled xám).
-- **Hướng dẫn:** các bước dùng và ý nghĩa từng trường (rút từ RUNNING.md và docs/17).
-- **Kết quả** (mở tự động khi lượt chạy xong, dựng từ `summary` trong JSON của `api/runs/<id>`, `webapp/results.py`):
-  - thu, chi, chênh lệch năm đầu của quỹ quản lý: từ bản ghi run_log của lượt chạy (pipeline đo bằng Excel trên
+- **Hướng dẫn** (tab cuối)**:** các bước dùng và ý nghĩa từng trường (rút từ RUNNING.md và docs/17).
+- **Kết quả** (tab thứ hai, mở tự động khi lượt chạy xong, dựng từ `summary` trong JSON của `api/runs/<id>`, `webapp/results.py`):
+  - thu, chi, thặng dư/thâm hụt năm đầu của quỹ vận hành (không phải lợi nhuận Savills): từ bản ghi run_log của lượt chạy (pipeline đo bằng Excel trên
     '1. Summary'); máy không có Excel thì run_log ghi `excel_unavailable` và trang nói chưa đo được, không đoán;
   - mức dịch vụ vệ sinh và bảo vệ: sheet 'Service Levels' của bản phân tích (mức, chỉ số, percentile so với dự án
     tham chiếu);
-  - so sánh với dự án tham chiếu: sheet 'Comparison' của bản phân tích, tên dự án thật được thay bằng "Dự án tham chiếu
-    1, 2" và không bao giờ trả về trang;
+  - so sánh với dự án tham chiếu: sheet 'Comparison' của bản phân tích, có tên hai dự án tham chiếu (mọi vai trò);
   - nút tải file. Nguồn số ghi dưới mỗi bảng. Viewer thấy đủ phần tóm tắt, chỉ bị ẩn hai file nội bộ.
   Test: `tests/test_webapp_results.py`.
 

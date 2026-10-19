@@ -8,8 +8,7 @@ Nguồn số, và vì sao:
   không có giá trị cache; đọc thẳng bằng openpyxl ra None. Máy không có Excel thì bản ghi có status
   'excel_unavailable' và các số là null: trang nói rõ là chưa đo được, không đoán.
 - Mức dịch vụ: sheet 'Service Levels' của bản phân tích, pipeline ghi bằng giá trị.
-- So sánh: sheet 'Comparison' của bản phân tích. Sheet đó nêu tên dự án thật; trang chỉ hiện "Dự án tham chiếu 1, 2"
-  và không bao giờ trả tên.
+- So sánh: sheet 'Comparison' của bản phân tích, kể cả tên hai dự án tham chiếu (người dùng yêu cầu 19/10: hiện tên).
 """
 import glob
 import json
@@ -19,7 +18,7 @@ import openpyxl
 
 RUN_LOG_SOURCE = "Bản ghi run_log của lượt chạy (pipeline đo bằng Excel trên sheet '1. Summary' của bản giao)"
 SERVICE_SOURCE = "Sheet 'Service Levels' của bản phân tích nội bộ"
-COMPARE_SOURCE = "Sheet 'Comparison' của bản phân tích nội bộ; tên dự án tham chiếu được ẩn"
+COMPARE_SOURCE = "Sheet 'Comparison' của bản phân tích nội bộ"
 
 
 def _norm(value):
@@ -122,7 +121,7 @@ _COMPARE_ROWS = (
 
 
 def comparables(analysis_path):
-    """{'columns': ['Dự án này', 'Dự án tham chiếu 1', ...], 'rows': [{'label', 'values': [...]}], 'note', 'source'}."""
+    """{'columns': ['Dự án này', <tên tham chiếu 1>, ...], 'rows': [{'label', 'values': [...]}], 'note', 'source'}."""
     out = dict(columns=[], rows=[], count=0, note='', source=COMPARE_SOURCE)
     if not analysis_path or not os.path.exists(analysis_path):
         out['note'] = 'Chưa có bản phân tích.'
@@ -143,7 +142,7 @@ def comparables(analysis_path):
     header = rows[header_idx]
     ncomp = sum(1 for v in header[2:] if v not in (None, ''))
     out['count'] = ncomp
-    out['columns'] = ['Dự án này'] + [f'Dự án tham chiếu {i + 1}' for i in range(ncomp)]
+    out['columns'] = ['Dự án này'] + [str(v).strip() for v in header[2:2 + ncomp]]
     for prefix, label in _COMPARE_ROWS:
         for r in rows[header_idx + 1:]:
             if _norm(r[0]).startswith(prefix):

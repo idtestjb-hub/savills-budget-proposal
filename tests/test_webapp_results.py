@@ -1,6 +1,6 @@
 """Phần đọc số của trang kết quả (webapp/results.py) trên file giả dựng bằng openpyxl, và việc viewer vẫn thấy tóm tắt.
 
-Dữ liệu là bịa; tên dự án tham chiếu trong sheet Comparison giả KHÔNG được lọt ra JSON.
+Dữ liệu là bịa; tên dự án tham chiếu trong sheet Comparison giả phải xuất hiện làm tiêu đề cột (người dùng yêu cầu hiện tên).
 """
 import json
 import os
@@ -87,12 +87,10 @@ def test_service_levels(workdir):
     assert sec['near_cutoff'] == 'sát ngưỡng' and sec['level'] == 'Cơ bản'
 
 
-def test_comparables_are_anonymous(workdir):
+def test_comparables_named(workdir):
     c = results.comparables(str(workdir / 'Project_Budget_Output.xlsx'))
-    assert c['columns'] == ['Dự án này', 'Dự án tham chiếu 1', 'Dự án tham chiếu 2']
-    text = json.dumps(c, ensure_ascii=False)
-    for name in REF_NAMES:
-        assert name not in text
+    assert c['columns'] == ['Dự án này'] + REF_NAMES
+    assert c['count'] == 2
     by_label = {r['label']: r['values'] for r in c['rows']}
     assert by_label['Tổng NFA (m²), cơ sở so sánh'] == [78300, 92100.1, 75518.7]
     assert by_label['Số căn hộ'] == [600, 1251, 1048]
@@ -121,8 +119,7 @@ def test_viewer_gets_summary_but_not_internal_files(workdir):
             assert body['summary']['finance']['revenue'] == pytest.approx(17_727_293_098.6)
             assert len(body['summary']['service']['rows']) == 2
             assert body['summary']['compare']['count'] == 2
-            for name in REF_NAMES:
-                assert name not in json.dumps(body, ensure_ascii=False)
+            assert body['summary']['compare']['columns'][1:] == REF_NAMES   # viewer cũng thấy tên
         owner = client.get(f'/api/runs/{rid}').json()
         viewer = client.get(f'/api/runs/{rid}', headers={'X-Hub-Role': 'viewer'}).json()
         assert len(owner['outputs']) == 3 and [o['name'] for o in viewer['outputs']] == [deliverable]

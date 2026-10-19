@@ -124,8 +124,8 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
 
   <nav class="tabs" role="tablist">
     <button type="button" class="on" data-tab="nhap">Nhập liệu</button>
-    <button type="button" data-tab="huongdan">Hướng dẫn</button>
     <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả</button>
+    <button type="button" data-tab="huongdan">Hướng dẫn</button>
   </nav>
 
   <div class="panel on" id="panel-nhap">
@@ -182,7 +182,7 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
         <li>Ở tab <b>Nhập liệu</b>, sửa các ô theo dự án của bạn. Giá trị đang hiện là mẫu, dùng để chạy thử.</li>
         <li>Bảng <b>Cơ cấu sản phẩm</b>: điền GFA, NFA và số căn của loại sản phẩm dự án có; để 0 cho loại không có. Cần ít nhất một dòng có NFA.</li>
         <li>Bấm <b>Tạo ngân sách</b>. Thanh tiến trình và log chạy hiện ngay dưới nút; một lượt mất khoảng 45–80 giây. Chỉ một lượt chạy tại một thời điểm.</li>
-        <li>Khi xong, tab <b>Kết quả</b> mở: doanh thu, chi phí và chênh lệch năm đầu, mức dịch vụ, so sánh với dự án tham chiếu, và nút tải file.</li>
+        <li>Khi xong, tab <b>Kết quả</b> mở: doanh thu, chi phí và thặng dư quỹ vận hành năm đầu, mức dịch vụ, so sánh với dự án tham chiếu, và nút tải file.</li>
         <li>Tải <b>bản giao khách</b> (form chuẩn 25 sheet, có sheet "4. Điều chỉnh" để chỉnh số lượng, đơn giá, trượt giá ngay trong file). Người có quyền còn tải được bản phân tích nội bộ và lịch trực.</li>
       </ol>
       <p class="src">Mỗi lượt chạy được lưu thành một thư mục riêng trên máy chủ; chạy lại không ghi đè lượt trước.</p>
@@ -237,7 +237,7 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
     <p id="res-empty" class="status">Chưa có lượt chạy nào trong phiên này. Bấm "Tạo ngân sách" ở tab Nhập liệu.</p>
     <div id="res-body" class="hidden">
       <section>
-        <h2>Năm đầu: thu, chi, chênh lệch</h2>
+        <h2>Năm đầu: thu, chi, thặng dư quỹ vận hành</h2>
         <div class="kpis" id="kpis"></div>
         <p class="src" id="fin-src"></p>
       </section>
@@ -346,9 +346,10 @@ function renderSummary(run) {
   document.getElementById('kpis').innerHTML = [
     ['Doanh thu quỹ quản lý', f.revenue, 'hi', ''],
     ['Tổng chi quỹ quản lý', f.expense, '', ''],
-    ['Chênh lệch thu chi', f.surplus, '', f.surplus != null && f.surplus < 0 ? 'neg' : ''],
+    ['Thặng dư / thâm hụt quỹ vận hành', f.surplus, '', f.surplus != null && f.surplus < 0 ? 'neg' : ''],
   ].map(([t, v, hi, neg]) => `<div class="kpi ${hi}"><small>${t}</small><b class="${neg}">${money(v)}</b><i>${esc(year)}${vat ? ', ' + vat : ''}, VND/năm</i></div>`).join('');
   document.getElementById('fin-src').textContent = 'Nguồn: ' + (f.source || '') + (f.note ? '. ' + f.note : '') +
+    ' Thặng dư là thu trừ chi của quỹ vận hành dự án trong năm đầu, không phải lợi nhuận của Savills.' +
     (f.required_pct != null ? ` Dòng bắt buộc có số: ${Math.round(f.required_pct * 100)}%.` : '');
   const sv = s.service || {};
   document.querySelector('#svc tbody').innerHTML = (sv.rows || []).map(r => {
