@@ -60,10 +60,42 @@ tbody tr:nth-child(even) td { background: var(--sav-warm-grey); }
 td input { padding: 4px 6px; }
 tfoot td { background: var(--sav-total); font-weight: 700; text-align: right; padding: 6px 8px; }
 .actions { display: flex; gap: 16px; align-items: center; margin: 24px 0 18px; flex-wrap: wrap; }
-button { font: 700 16px var(--sav-font); background: var(--sav-navy); color: #FFFFFF; border: 0;
-  padding: 12px 26px; cursor: pointer; }
-button:hover { background: #000000; }
-button:disabled { background: var(--sav-grey); cursor: default; }
+/* Nút chính: vàng Savills với chữ đen (tương phản 15:1), viền navy để không chìm trên nền trắng và nổi trên nền navy.
+   Hover: đảo sang navy, chữ vàng. Disabled: xám, chữ đen. */
+button.cta { font: 700 17px var(--sav-font); background: var(--sav-yellow); color: var(--sav-on-yellow);
+  border: 2px solid var(--sav-navy); padding: 13px 30px; cursor: pointer; letter-spacing: .2px;
+  box-shadow: 0 2px 0 var(--sav-navy); }
+button.cta:hover { background: var(--sav-navy); color: var(--sav-yellow); border-color: var(--sav-yellow); }
+button.cta:focus-visible { outline: 3px solid var(--sav-teal); outline-offset: 2px; }
+button.cta:disabled { background: var(--sav-grey); color: #000000; border-color: var(--sav-grey); box-shadow: none; cursor: default; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.cta { border-color: var(--sav-yellow); box-shadow: 0 2px 0 #000000; }
+  :root:not([data-theme="light"]) button.cta:hover { background: #FFFFFF; color: var(--sav-navy); border-color: #FFFFFF; } }
+:root[data-theme="dark"] button.cta { border-color: var(--sav-yellow); box-shadow: 0 2px 0 #000000; }
+:root[data-theme="dark"] button.cta:hover { background: #FFFFFF; color: var(--sav-navy); border-color: #FFFFFF; }
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--sav-rule); margin: 0 0 20px; }
+.tabs button { font: 700 15px var(--sav-font); background: none; border: 0; border-bottom: 4px solid transparent;
+  color: var(--sav-muted); padding: 10px 16px; cursor: pointer; margin-bottom: -2px; }
+.tabs button:hover { color: var(--sav-text); }
+.tabs button.on { color: var(--sav-text); border-bottom-color: var(--sav-yellow); }
+.tabs button .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--sav-yellow); margin-left: 6px; vertical-align: middle; }
+.panel { display: none; } .panel.on { display: block; }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 6px 0 18px; }
+@media (max-width: 820px) { .kpis { grid-template-columns: 1fr; } }
+.kpi { border: 1px solid var(--sav-rule); border-left: 6px solid var(--sav-navy); padding: 12px 14px; }
+.kpi.hi { border-left-color: var(--sav-yellow); }
+.kpi small { display: block; color: var(--sav-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+.kpi b { display: block; font-size: 24px; font-weight: 400; margin-top: 2px; }
+.kpi b.neg { color: var(--sav-neg); }
+.kpi i { display: block; color: var(--sav-muted); font-size: 12px; font-style: normal; }
+.src { color: var(--sav-muted); font-size: 12.5px; margin: 6px 0 0; }
+.res section { margin-bottom: 18px; }
+.res table td, .res table th { padding: 6px 8px; }
+.res td.lvl { font-weight: 700; }
+.guide h3 { font-size: 15px; margin: 18px 0 6px; }
+.guide ol li, .guide ul li { margin: 4px 0; }
+.guide table th { text-align: left; }
+.guide table td { padding: 6px 8px; vertical-align: top; }
+.guide td:first-child { white-space: nowrap; font-weight: 700; }
 .status { color: var(--sav-muted); }
 .status.err { color: var(--sav-neg); }
 .status a { color: var(--sav-link); font-weight: 700; }
@@ -88,8 +120,15 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
     <span class="status">__USER__</span>
   </div>
   <h1>Nhập thông tin dự án, bấm <b>Tạo ngân sách</b></h1>
-  <p class="lead">Giá trị mặc định lấy từ mẫu nhập liệu hiện có. Sửa những ô cần, rồi bấm nút: công cụ tự động sinh bản giao khách, bản phân tích nội bộ và lịch trực trong khoảng một phút.</p>
+  <p class="lead">Giá trị mặc định lấy từ mẫu nhập liệu hiện có. Sửa những ô cần, rồi bấm nút: công cụ tự động sinh ngân sách trong khoảng một phút.</p>
 
+  <nav class="tabs" role="tablist">
+    <button type="button" class="on" data-tab="nhap">Nhập liệu</button>
+    <button type="button" data-tab="huongdan">Hướng dẫn</button>
+    <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả</button>
+  </nav>
+
+  <div class="panel on" id="panel-nhap">
   <form id="f" class="grid" autocomplete="off">
     <section>
       <h2>Quy mô dự án</h2>
@@ -128,13 +167,96 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
   </form>
 
   <div class="actions">
-    <button id="go" type="button">Tạo ngân sách</button>
+    <button id="go" type="button" class="cta">Tạo ngân sách</button>
     <div class="bar"><i id="bar"></i></div>
     <span id="status" class="status">Đang tải giá trị mặc định…</span>
   </div>
 
   <pre id="log" class="hidden"></pre>
-  <div id="files" class="files"></div>
+  </div>
+
+  <div class="panel guide" id="panel-huongdan">
+    <section>
+      <h2>Cách sử dụng</h2>
+      <ol>
+        <li>Ở tab <b>Nhập liệu</b>, sửa các ô theo dự án của bạn. Giá trị đang hiện là mẫu, dùng để chạy thử.</li>
+        <li>Bảng <b>Cơ cấu sản phẩm</b>: điền GFA, NFA và số căn của loại sản phẩm dự án có; để 0 cho loại không có. Cần ít nhất một dòng có NFA.</li>
+        <li>Bấm <b>Tạo ngân sách</b>. Thanh tiến trình và log chạy hiện ngay dưới nút; một lượt mất khoảng 45–80 giây. Chỉ một lượt chạy tại một thời điểm.</li>
+        <li>Khi xong, tab <b>Kết quả</b> mở: doanh thu, chi phí và chênh lệch năm đầu, mức dịch vụ, so sánh với dự án tham chiếu, và nút tải file.</li>
+        <li>Tải <b>bản giao khách</b> (form chuẩn 25 sheet, có sheet "4. Điều chỉnh" để chỉnh số lượng, đơn giá, trượt giá ngay trong file). Người có quyền còn tải được bản phân tích nội bộ và lịch trực.</li>
+      </ol>
+      <p class="src">Mỗi lượt chạy được lưu thành một thư mục riêng trên máy chủ; chạy lại không ghi đè lượt trước.</p>
+    </section>
+    <section>
+      <h2>Ý nghĩa từng thông số</h2>
+      <h3>Quy mô dự án</h3>
+      <table>
+        <thead><tr><th>Trường</th><th>Dùng để làm gì</th></tr></thead>
+        <tbody>
+        <tr><td>Tên dự án</td><td>Đặt tên file kết quả và ghi trên bản giao.</td></tr>
+        <tr><td>Quận / huyện, Tỉnh / thành phố</td><td>Xếp hạng dự án tham chiếu theo vị trí (gần hơn được ưu tiên). Để trống thì chỉ xếp theo quy mô. Giá nước lấy theo biểu giá TP. Hồ Chí Minh; dự án nơi khác có ghi chú nhắc kiểm tra hoá đơn nước địa phương.</td></tr>
+        <tr><td>Diện tích đất (m²)</td><td>Thông tin dự án trên bản giao.</td></tr>
+        <tr><td>Diện tích cây xanh (m²)</td><td>Quyết định số nhân viên cây xanh (m² vườn trên mỗi người, tỷ lệ trong Roster Setup).</td></tr>
+        <tr><td>Diện tích sân đường, lối đi (m²)</td><td>"Không gian mở": quyết định số bảo vệ tuần tra và nhân viên vệ sinh khu vực chung.</td></tr>
+        <tr><td>Số tầng</td><td>Thông tin dự án trên bản giao.</td></tr>
+        <tr><td>Số tháp</td><td>Quyết định số giám sát vệ sinh (số tháp trên mỗi giám sát) và các dòng tính theo tháp như vệ sinh mặt ngoài.</td></tr>
+        </tbody>
+      </table>
+      <h3>Cơ cấu sản phẩm</h3>
+      <table>
+        <thead><tr><th>Cột</th><th>Dùng để làm gì</th></tr></thead>
+        <tbody>
+        <tr><td>GFA (m²)</td><td>Diện tích sàn xây dựng, ghi trên bản giao.</td></tr>
+        <tr><td>NFA (m²)</td><td><b>Diện tích thu phí.</b> Căn cứ tính doanh thu phí quản lý, chọn dự án tham chiếu (theo tổng NFA mọi sản phẩm), và nhiều dòng chi phí tính theo m². Sản phẩm có NFA bằng 0 bị bỏ trống trên bản giao.</td></tr>
+        <tr><td>Số căn</td><td>Số căn hộ, số lô; dùng tính phí một căn, tổng số sản phẩm và doanh thu bãi xe.</td></tr>
+        <tr><td>Chín loại sản phẩm</td><td>Căn hộ, Officetel, Văn phòng, Trung tâm thương mại, Bán lẻ, Căn hộ thương mại, Shophouse, Biệt thự, Nhà trẻ: đúng thứ tự dòng doanh thu của form chuẩn. Văn phòng, Căn hộ thương mại, Nhà trẻ (và Officetel khi dự án tham chiếu không có giá) được tính theo đơn giá căn hộ của dự án, bản giao ghi rõ.</td></tr>
+        </tbody>
+      </table>
+      <h3>Bãi xe, tiện ích, kỳ ngân sách</h3>
+      <table>
+        <thead><tr><th>Trường</th><th>Dùng để làm gì</th></tr></thead>
+        <tbody>
+        <tr><td>Số chỗ đậu ô tô, xe máy</td><td>Doanh thu giữ xe (số chỗ × đơn giá × tỷ lệ lấp đầy) và sheet phân bổ bãi xe. Dự án không có bãi xe để 0.</td></tr>
+        <tr><td>Có hồ bơi?</td><td>Công tắc bật/tắt toàn bộ chi phí hồ bơi và nhân viên cứu hộ.</td></tr>
+        <tr><td>Diện tích hồ bơi (m²)</td><td>Số nhân viên cứu hộ mỗi ca: 1 người cho mỗi 200 m² mặt nước (Thông tư 03/2018/TT-BVHTTDL, Điều 5.3). Để trống thì 1 người mỗi ca.</td></tr>
+        <tr><td>Thể tích hồ bơi (m³)</td><td>Tổng thể tích nước của mọi hồ cộng lại; quyết định chi phí hoá chất. Để 0 thì dùng một số cố định từ một dự án thật và không đổi theo quy mô hồ.</td></tr>
+        <tr><td>Số cổng ra vào</td><td>Số bảo vệ cổng chính (người mỗi cổng, 3 ca).</td></tr>
+        <tr><td>Tháng bắt đầu ngân sách</td><td>Tháng đầu của 12 tháng ngân sách (MM/YYYY). Thuế GTGT, biểu giá và ngày lễ lấy theo đúng từng tháng. Để trống là 01/2027.</td></tr>
+        <tr><td>Tháng lập lịch trực mẫu</td><td>Tháng và năm để dựng lịch trực mẫu theo ngày; ngày lễ luật định của tháng đó được tự điền (Tết và Giỗ Tổ theo lịch âm).</td></tr>
+        </tbody>
+      </table>
+      <h3>Những gì trang chưa cho nhập</h3>
+      <ul>
+        <li>Phí quản lý của Savills (phí cố định hoặc % phí thu): để trống cho đến khi có hợp đồng thật, bản giao bỏ trống dòng EMH1.</li>
+        <li>Tỷ lệ nhân sự (Roster Setup), nhu cầu nhân sự từng vị trí (Staffing Demand), chế độ dự án đang vận hành và dự án Savills đã quản lý: giữ nguyên theo file mẫu. Cần sửa thì dùng file nhập liệu Excel theo tài liệu dự án.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="panel res" id="panel-ketqua">
+    <p id="res-empty" class="status">Chưa có lượt chạy nào trong phiên này. Bấm "Tạo ngân sách" ở tab Nhập liệu.</p>
+    <div id="res-body" class="hidden">
+      <section>
+        <h2>Năm đầu: thu, chi, chênh lệch</h2>
+        <div class="kpis" id="kpis"></div>
+        <p class="src" id="fin-src"></p>
+      </section>
+      <section>
+        <h2>Mức dịch vụ</h2>
+        <table id="svc"><thead><tr><th>Dịch vụ</th><th>Người trực / ngày</th><th>Chỉ số</th><th>Mức</th><th>Vị trí so với dự án tham chiếu</th></tr></thead><tbody></tbody></table>
+        <p class="src" id="svc-src"></p>
+      </section>
+      <section>
+        <h2>So sánh với dự án tham chiếu</h2>
+        <table id="cmp"><thead></thead><tbody></tbody></table>
+        <p class="src" id="cmp-src"></p>
+      </section>
+      <section>
+        <h2>Tải file</h2>
+        <div id="files" class="files"></div>
+      </section>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -202,6 +324,49 @@ function collect() {
   return { scalars, products: prods };
 }
 
+function showTab(id) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + id));
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+function money(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US') + ' VND'; }
+function num(v, d) { return v == null ? '—' : (typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: d == null ? 1 : d }) : String(v)); }
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+function renderSummary(run) {
+  const s = run.summary;
+  document.getElementById('tab-ketqua').innerHTML = 'Kết quả<span class="dot"></span>';
+  document.getElementById('res-empty').classList.add('hidden');
+  document.getElementById('res-body').classList.remove('hidden');
+  if (!s) return;
+  const f = s.finance || {};
+  const vat = f.vat_basis === 'inclusive' ? 'gồm VAT' : (f.vat_basis === 'exclusive' ? 'chưa VAT' : '');
+  const year = f.budget_year ? `năm ngân sách ${f.budget_year}` : 'năm đầu';
+  document.getElementById('kpis').innerHTML = [
+    ['Doanh thu quỹ quản lý', f.revenue, 'hi', ''],
+    ['Tổng chi quỹ quản lý', f.expense, '', ''],
+    ['Chênh lệch thu chi', f.surplus, '', f.surplus != null && f.surplus < 0 ? 'neg' : ''],
+  ].map(([t, v, hi, neg]) => `<div class="kpi ${hi}"><small>${t}</small><b class="${neg}">${money(v)}</b><i>${esc(year)}${vat ? ', ' + vat : ''}, VND/năm</i></div>`).join('');
+  document.getElementById('fin-src').textContent = 'Nguồn: ' + (f.source || '') + (f.note ? '. ' + f.note : '') +
+    (f.required_pct != null ? ` Dòng bắt buộc có số: ${Math.round(f.required_pct * 100)}%.` : '');
+  const sv = s.service || {};
+  document.querySelector('#svc tbody').innerHTML = (sv.rows || []).map(r => {
+    const pos = r.percentile == null ? '—' : `cao hơn hoặc bằng ${num(r.percentile, 0)}% trong ${num(r.compared, 0)} dự án tham chiếu`;
+    const near = r.near_cutoff ? ` <span style="color:var(--sav-muted)">(${esc(r.near_cutoff)})</span>` : '';
+    return `<tr><td>${esc(r.service)}</td><td>${num(r.people, 0)}</td><td>${num(r.measure, 2)} <small style="color:var(--sav-muted)">${esc(r.unit)}</small></td><td class="lvl">${esc(r.level)}${near}</td><td>${pos}</td></tr>`;
+  }).join('') || `<tr><td colspan="5">${esc(sv.note || 'Không có dữ liệu.')}</td></tr>`;
+  document.getElementById('svc-src').textContent = 'Nguồn: ' + (sv.source || '') +
+    '. Mức chỉ để tham khảo, không đổi con số nào trong ngân sách. Vệ sinh: m² NFA thu phí trên mỗi người trực (thấp hơn = dày hơn). Bảo vệ: chốt 24h quy đổi trên 10.000 m² (cao hơn = dày hơn).';
+  const c = s.compare || {};
+  const thead = document.querySelector('#cmp thead'), tbody = document.querySelector('#cmp tbody');
+  if (c.rows && c.rows.length) {
+    thead.innerHTML = '<tr><th>Chỉ tiêu</th>' + c.columns.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
+    tbody.innerHTML = c.rows.map(r => `<tr><td>${esc(r.label)}</td>` + r.values.map(v => `<td style="text-align:right">${esc(v == null ? '—' : (typeof v === 'number' ? num(v, 1) : v))}</td>`).join('') + '</tr>').join('');
+  } else { thead.innerHTML = ''; tbody.innerHTML = `<tr><td>${esc(c.note || 'Không có dữ liệu.')}</td></tr>`; }
+  document.getElementById('cmp-src').textContent = 'Nguồn: ' + (c.source || '') + '. Dự án tham chiếu là dự án Savills đang quản lý, chọn theo tổng NFA gần nhất; đơn giá đề xuất là trung bình đơn giá thực tế của chúng trên cùng cơ sở VAT.';
+}
+
 function renderFiles(run) {
   filesEl.innerHTML = '';
   run.outputs.forEach(o => {
@@ -234,8 +399,10 @@ async function poll(id, since, t0) {
   bar.style.width = '100%';
   go.disabled = false;
   if (run.status === 'done') {
-    setStatus(`Xong sau ${secs} giây. ${run.outputs.length} file kết quả bên dưới.`);
+    setStatus(`Xong sau ${secs} giây. Xem tab Kết quả.`);
     renderFiles(run);
+    renderSummary(run);
+    showTab('ketqua');
   } else {
     setStatus(`Thất bại sau ${secs} giây (mã ${run.rc}). Xem log bên dưới.`, true);
     renderFiles(run);
@@ -247,6 +414,7 @@ go.addEventListener('click', async () => {
   logEl.classList.remove('hidden');
   logEl.textContent = '';
   filesEl.innerHTML = '';
+  showTab('nhap');
   bar.style.width = '2%';
   setStatus('Đang ghi file nhập liệu…');
   const t0 = Date.now();

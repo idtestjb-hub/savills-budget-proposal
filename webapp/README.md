@@ -25,6 +25,20 @@ Rồi mở <http://127.0.0.1:8090/budget/> (chạy thử trên máy cá nhân: �
 Log ra stdout/stderr (uvicorn access log + một dòng `budget-web:` khi bắt đầu và kết thúc mỗi lượt, khi đăng nhập
 thành công hoặc bị từ chối).
 
+## Ba tab và trang kết quả
+
+- **Nhập liệu:** form và nút Tạo ngân sách (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng; disabled xám).
+- **Hướng dẫn:** các bước dùng và ý nghĩa từng trường (rút từ RUNNING.md và docs/17).
+- **Kết quả** (mở tự động khi lượt chạy xong, dựng từ `summary` trong JSON của `api/runs/<id>`, `webapp/results.py`):
+  - thu, chi, chênh lệch năm đầu của quỹ quản lý: từ bản ghi run_log của lượt chạy (pipeline đo bằng Excel trên
+    '1. Summary'); máy không có Excel thì run_log ghi `excel_unavailable` và trang nói chưa đo được, không đoán;
+  - mức dịch vụ vệ sinh và bảo vệ: sheet 'Service Levels' của bản phân tích (mức, chỉ số, percentile so với dự án
+    tham chiếu);
+  - so sánh với dự án tham chiếu: sheet 'Comparison' của bản phân tích, tên dự án thật được thay bằng "Dự án tham chiếu
+    1, 2" và không bao giờ trả về trang;
+  - nút tải file. Nguồn số ghi dưới mỗi bảng. Viewer thấy đủ phần tóm tắt, chỉ bị ẩn hai file nội bộ.
+  Test: `tests/test_webapp_results.py`.
+
 ## Vai trò viewer (tiêu đề `X-Hub-Role` do reverse proxy gắn)
 
 Reverse proxy xoá mọi tiêu đề `X-Hub-Role` trình duyệt tự gửi, rồi gắn `X-Hub-Role: viewer` cho tài khoản chỉ được

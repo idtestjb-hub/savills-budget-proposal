@@ -36,7 +36,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import auth, fill_input  # noqa: E402
+from webapp import auth, fill_input, results  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -87,6 +87,8 @@ def _worker(run_id):
             rc = proc.wait()
         run['rc'] = rc
         run['outputs'] = _outputs(run['workdir'])
+        # Tóm tắt kết quả (thu/chi, mức dịch vụ, so sánh ẩn danh) cho mọi vai trò, kể cả viewer; lỗi chỉ thành note.
+        run['summary'] = results.summarize(run['workdir'])
         complete = len(run['outputs']) == len(OUTPUT_KINDS)
         run['status'] = 'done' if (rc == 0 and complete) else 'failed'
         if rc == 0 and not complete:
@@ -147,7 +149,7 @@ def _public(run_id, since=0, role=None):
     return dict(id=run_id, status=run['status'], rc=run['rc'], started=run['started'],
                 finished=run['finished'], workdir=run['workdir'],
                 log=visible_log(run['log'][since:], run['outputs'], role), log_total=len(run['log']),
-                outputs=visible_outputs(run['outputs'], role))
+                outputs=visible_outputs(run['outputs'], role), summary=run.get('summary'))
 
 
 def _page(name, **fields):
@@ -266,7 +268,7 @@ def start_run(request: Request, values: dict, user=Depends(require_user)):
             raise HTTPException(400, f'Không ghi được file nhập liệu: {exc}')
         _runs[run_id] = dict(status='running', rc=None, log=[f'Thư mục chạy: {workdir}'],
                              started=datetime.datetime.now().isoformat(timespec='seconds'),
-                             finished=None, workdir=workdir, input=input_path, outputs=[])
+                             finished=None, workdir=workdir, input=input_path, outputs=[], summary=None)
         _active['id'] = run_id
     _log(f'run {run_id} started for project {name!r} by {user.get("email") or user.get("name")}')
     threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
