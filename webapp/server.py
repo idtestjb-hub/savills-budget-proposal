@@ -26,8 +26,9 @@ import subprocess
 import sys
 import threading
 
-from fastapi import APIRouter, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE_DIR = os.path.dirname(HERE)
@@ -35,7 +36,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import fill_input  # noqa: E402
+from webapp import auth, fill_input  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -108,17 +109,97 @@ def _public(run_id, since=0):
                 log=run['log'][since:], log_total=len(run['log']), outputs=run['outputs'])
 
 
+def _page(name, **fields):
+    with open(os.path.join(HERE, 'static', name), encoding='utf-8') as fh:
+        html = fh.read().replace('__PREFIX__', PREFIX)
+    for key, value in fields.items():
+        html = html.replace(f'__{key}__', value)
+    return html
+
+
+def _escape(text):
+    return (str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;'))
+
+
+def current_user(request: Request):
+    """Người đang đăng nhập (dict name/email), hoặc None. Chế độ off: một người dùng cục bộ."""
+    if not auth.enabled():
+        return dict(name='máy cá nhân', email='')
+    return request.session.get('user')
+
+
+def require_user(request: Request):
+    user = current_user(request)
+    if not user:
+        raise HTTPException(401, 'Chưa đăng nhập. Tải lại trang để đăng nhập.')
+    return user
+
+
 router = APIRouter()
 
 
 @router.get('/', response_class=HTMLResponse)
-def index():
-    with open(os.path.join(HERE, 'static', 'index.html'), encoding='utf-8') as fh:
-        return fh.read().replace('__PREFIX__', PREFIX)
+def index(request: Request):
+    """Trang nhập liệu khi đã đăng nhập; trang đăng nhập (vẫn 200, cho heartbeat) khi chưa."""
+    user = current_user(request)
+    if not user:
+        message = request.session.pop('auth_message', '') if auth.enabled() else ''
+        return _page('login.html', MESSAGE=_escape(message))
+    who = '' if not auth.enabled() else (
+        f'{_escape(user["name"])} · <a href="{PREFIX}/auth/logout">Đăng xuất</a>')
+    return _page('index.html', USER=who)
+
+
+@router.get('/auth/login')
+def auth_login(request: Request):
+    if not auth.enabled():
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    try:
+        flow = auth.begin_login()
+    except Exception as exc:  # tenant sai, mất mạng tới Microsoft...: nói trên trang thay vì lỗi 500
+        _log(f'login could not start: {type(exc).__name__}: {exc}')
+        request.session['auth_message'] = f'Không kết nối được dịch vụ đăng nhập Microsoft: {exc}'
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    request.session['auth_flow'] = flow
+    return RedirectResponse(flow['auth_uri'], status_code=302)
+
+
+@router.get('/auth/callback')
+def auth_callback(request: Request):
+    if not auth.enabled():
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    flow = request.session.pop('auth_flow', None)
+    if not flow:
+        request.session['auth_message'] = 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Bấm đăng nhập lại.'
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    try:
+        claims = auth.finish_login(flow, request.query_params)
+    except ValueError as exc:
+        _log(f'login failed: {exc}')
+        request.session['auth_message'] = f'Đăng nhập không thành công: {exc}'
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    email, name, _ = auth.identity_of(claims)
+    if not auth.is_allowed(claims):
+        _log(f'login refused: {email!r} is not in BUDGET_WEB_ALLOWED_USERS')
+        request.session['auth_message'] = (
+            f'Tài khoản {email or "(không rõ)"} chưa được cấp quyền dùng trang này. '
+            'Liên hệ người quản trị Budget Agent để được thêm vào danh sách.')
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    request.session['user'] = dict(name=name, email=email)
+    _log(f'login ok: {email}')
+    return RedirectResponse(PREFIX + '/', status_code=302)
+
+
+@router.get('/auth/logout')
+def auth_logout(request: Request):
+    request.session.clear()
+    if not auth.enabled():
+        return RedirectResponse(PREFIX + '/', status_code=302)
+    return RedirectResponse(auth.logout_url(), status_code=302)
 
 
 @router.get('/api/defaults')
-def defaults():
+def defaults(user=Depends(require_user)):
     data = fill_input.read_defaults()
     data['template'] = fill_input.TEMPLATE_INPUT
     data['runs_dir'] = RUNS_DIR
@@ -126,7 +207,7 @@ def defaults():
 
 
 @router.post('/api/runs')
-def start_run(values: dict):
+def start_run(values: dict, user=Depends(require_user)):
     with _lock:
         if _active['id']:
             raise HTTPException(409, 'Đang có một lượt tạo ngân sách chạy. Chờ xong rồi bấm lại.')
@@ -146,20 +227,20 @@ def start_run(values: dict):
                              started=datetime.datetime.now().isoformat(timespec='seconds'),
                              finished=None, workdir=workdir, input=input_path, outputs=[])
         _active['id'] = run_id
-    _log(f'run {run_id} started for project {name!r}')
+    _log(f'run {run_id} started for project {name!r} by {user.get("email") or user.get("name")}')
     threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
     return _public(run_id)
 
 
 @router.get('/api/runs/{run_id}')
-def get_run(run_id: str, since: int = 0):
+def get_run(run_id: str, since: int = 0, user=Depends(require_user)):
     if run_id not in _runs:
         raise HTTPException(404, 'Không có lượt chạy này.')
     return _public(run_id, since)
 
 
 @router.get('/api/runs/{run_id}/files/{name}')
-def get_file(run_id: str, name: str):
+def get_file(run_id: str, name: str, user=Depends(require_user)):
     if run_id not in _runs:
         raise HTTPException(404, 'Không có lượt chạy này.')
     if os.sep in name or '/' in name or '..' in name:
@@ -175,3 +256,7 @@ app = FastAPI(title='Budget Agent - nhập liệu', docs_url=None, redoc_url=Non
 app.include_router(router)                 # sau khi proxy bỏ tiền tố: "/"
 if PREFIX:
     app.include_router(router, prefix=PREFIX)   # mở trực tiếp, không qua proxy: "/budget/"
+# Cookie phiên đăng nhập, ký bằng BUDGET_WEB_SESSION_SECRET; chỉ gửi qua https khi địa chỉ công khai là https.
+app.add_middleware(SessionMiddleware, secret_key=auth.SESSION_SECRET, session_cookie='budget_web_session',
+                   max_age=auth.SESSION_HOURS * 3600, same_site='lax',
+                   https_only=auth.PUBLIC_URL.startswith('https://'))

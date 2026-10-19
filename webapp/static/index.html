@@ -66,6 +66,7 @@ button:hover { background: #000000; }
 button:disabled { background: var(--sav-grey); cursor: default; }
 .status { color: var(--sav-muted); }
 .status.err { color: var(--sav-neg); }
+.status a { color: var(--sav-link); font-weight: 700; }
 .bar { height: 6px; background: var(--sav-warm-grey); flex: 1 1 220px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--sav-yellow); transition: width .6s; }
 pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px solid var(--sav-navy);
@@ -82,7 +83,10 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
 <body>
 <div class="edge"></div>
 <div class="page">
-  <span class="eyebrow">Budget Agent · Bản demo</span>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span class="eyebrow">Budget Agent</span>
+    <span class="status">__USER__</span>
+  </div>
   <h1>Nhập thông tin dự án, bấm <b>Tạo ngân sách</b></h1>
   <p class="lead">Giá trị mặc định lấy từ mẫu nhập liệu hiện có. Sửa những ô cần, rồi bấm nút: công cụ tự động sinh bản giao khách, bản phân tích nội bộ và lịch trực trong khoảng một phút.</p>
 
@@ -177,6 +181,7 @@ function renderProducts() {
 
 async function loadDefaults() {
   const r = await fetch(`${PREFIX}/api/defaults`);
+  if (r.status === 401) { location.reload(); return; }
   const d = await r.json();
   for (const [k, v] of Object.entries(d.scalars)) {
     const el = form.elements[k];
@@ -210,6 +215,7 @@ function renderFiles(run) {
 
 async function poll(id, since, t0) {
   const r = await fetch(`${PREFIX}/api/runs/${id}?since=${since}`);
+  if (r.status === 401) { setStatus('Phiên đăng nhập đã hết hạn. Tải lại trang để đăng nhập.', true); go.disabled = false; return; }
   const run = await r.json();
   if (run.log.length) { logEl.textContent += run.log.join('\n') + '\n'; logEl.scrollTop = logEl.scrollHeight; }
   const secs = Math.round((Date.now() - t0) / 1000);

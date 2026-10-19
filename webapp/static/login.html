@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập</title>
+<style>
+:root {
+  --sav-bg: #FFFFFF; --sav-surface: #FFFFFF; --sav-panel: #F7F4F1;
+  --sav-text: #000000; --sav-muted: #595959; --sav-rule: #D9D9D9; --sav-link: #25273A;
+  --sav-yellow: #FFDF00; --sav-on-yellow: #000000; --sav-navy: #25273A; --sav-neg: #CE181E;
+  --sav-font: Arial, Helvetica, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+    --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00; --sav-neg: #D95F65;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+  --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00; --sav-neg: #D95F65;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sav-bg); color: var(--sav-text); font: 15px/1.5 var(--sav-font); }
+.edge { position: fixed; top: 0; right: 0; width: 7px; height: 100vh; background: var(--sav-yellow); }
+.page { max-width: 520px; margin: 12vh auto 0; padding: 0 24px; }
+.eyebrow { display: inline-block; font-size: 12px; letter-spacing: .7px; text-transform: uppercase;
+  background: var(--sav-yellow); color: var(--sav-on-yellow); padding: 3px 8px; }
+h1 { font-size: 32px; font-weight: 400; margin: 10px 0 8px; }
+p { color: var(--sav-muted); }
+.msg { border-left: 6px solid var(--sav-neg); background: var(--sav-panel); color: var(--sav-text); padding: 10px 14px; margin: 16px 0; }
+.msg:empty { display: none; }
+a.btn { display: inline-block; margin-top: 12px; font: 700 16px var(--sav-font); background: var(--sav-navy); color: #FFFFFF;
+  text-decoration: none; padding: 12px 26px; }
+a.btn:hover { background: #000000; }
+</style>
+</head>
+<body>
+<div class="edge"></div>
+<div class="page">
+  <span class="eyebrow">Budget Agent</span>
+  <h1>Đăng nhập để dùng trang nhập liệu</h1>
+  <p>Dùng tài khoản Microsoft của Savills. Chỉ những tài khoản đã được cấp quyền mới vào được.</p>
+  <div class="msg">__MESSAGE__</div>
+  <a class="btn" href="__PREFIX__/auth/login">Đăng nhập bằng tài khoản Savills</a>
+</div>
+</body>
+</html>
