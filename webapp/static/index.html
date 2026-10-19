@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nhập liệu ngân sách</title>
+<style>
+:root {
+  --sav-bg: #FFFFFF; --sav-surface: #FFFFFF; --sav-panel: #F7F4F1;
+  --sav-text: #000000; --sav-muted: #595959; --sav-rule: #D9D9D9; --sav-link: #25273A;
+  --sav-yellow: #FFDF00; --sav-on-yellow: #000000; --sav-navy: #25273A; --sav-red: #CE181E;
+  --sav-teal: #008493; --sav-grey: #79828C; --sav-warm-grey: #EEE8E3; --sav-total: #E4E6E8;
+  --sav-neg: #CE181E;
+  --sav-font: Arial, Helvetica, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+    --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00;
+    --sav-total: #303244; --sav-neg: #D95F65;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+  --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00;
+  --sav-total: #303244; --sav-neg: #D95F65;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sav-bg); color: var(--sav-text); font: 15px/1.5 var(--sav-font); }
+.edge { position: fixed; top: 0; right: 0; width: 7px; height: 100vh; background: var(--sav-yellow); }
+.page { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+.eyebrow { display: inline-block; font-size: 12px; letter-spacing: .7px; text-transform: uppercase;
+  background: var(--sav-yellow); color: var(--sav-on-yellow); padding: 3px 8px; }
+h1 { font-size: 32px; font-weight: 400; margin: 10px 0 4px; }
+h1 b { background: var(--sav-yellow); color: var(--sav-on-yellow); padding: 0 4px; }
+.lead { color: var(--sav-muted); margin: 0 0 24px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+@media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+section { background: var(--sav-surface); border: 1px solid var(--sav-rule); padding: 16px 18px; }
+section h2 { font-size: 16px; font-weight: 700; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .4px; }
+.field { display: grid; grid-template-columns: 1fr 160px; gap: 10px; align-items: center; padding: 5px 0;
+  border-bottom: 1px solid var(--sav-rule); }
+.field:last-child { border-bottom: 0; }
+.field label { color: var(--sav-text); }
+.field small { display: block; color: var(--sav-muted); font-size: 12px; }
+input, select { font: 15px var(--sav-font); color: var(--sav-text); background: var(--sav-surface);
+  border: 1px solid var(--sav-rule); padding: 6px 8px; width: 100%; text-align: right; }
+input[type=text] { text-align: left; }
+select { text-align: left; }
+input:focus, select:focus { outline: 2px solid var(--sav-navy); border-color: var(--sav-navy); }
+table { width: 100%; border-collapse: collapse; }
+th { background: var(--sav-yellow); color: var(--sav-on-yellow); font-weight: 400; text-align: right; padding: 6px 8px; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 3px 4px; }
+tbody tr:nth-child(even) td { background: var(--sav-warm-grey); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) tbody tr:nth-child(even) td { background: var(--sav-panel); } }
+td input { padding: 4px 6px; }
+tfoot td { background: var(--sav-total); font-weight: 700; text-align: right; padding: 6px 8px; }
+.actions { display: flex; gap: 16px; align-items: center; margin: 24px 0 18px; flex-wrap: wrap; }
+button { font: 700 16px var(--sav-font); background: var(--sav-navy); color: #FFFFFF; border: 0;
+  padding: 12px 26px; cursor: pointer; }
+button:hover { background: #000000; }
+button:disabled { background: var(--sav-grey); cursor: default; }
+.status { color: var(--sav-muted); }
+.status.err { color: var(--sav-neg); }
+.bar { height: 6px; background: var(--sav-warm-grey); flex: 1 1 220px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--sav-yellow); transition: width .6s; }
+pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px solid var(--sav-navy);
+  padding: 12px 14px; max-height: 320px; overflow: auto; font: 12.5px/1.45 Consolas, monospace; white-space: pre-wrap; }
+.files { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 10px; }
+@media (max-width: 820px) { .files { grid-template-columns: 1fr; } }
+.file { border: 1px solid var(--sav-rule); border-top: 6px solid var(--sav-yellow); padding: 12px 14px; }
+.file b { display: block; margin-bottom: 4px; }
+.file span { color: var(--sav-muted); font-size: 13px; word-break: break-all; }
+.file a { display: inline-block; margin-top: 8px; color: var(--sav-link); font-weight: 700; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="edge"></div>
+<div class="page">
+  <span class="eyebrow">Budget Agent · Bản demo</span>
+  <h1>Nhập thông tin dự án, bấm <b>Tạo ngân sách</b></h1>
+  <p class="lead">Giá trị mặc định lấy từ mẫu nhập liệu hiện có. Sửa những ô cần, rồi bấm nút: công cụ tự động sinh bản giao khách, bản phân tích nội bộ và lịch trực trong khoảng một phút.</p>
+
+  <form id="f" class="grid" autocomplete="off">
+    <section>
+      <h2>Quy mô dự án</h2>
+      <div class="field"><label>Tên dự án</label><input type="text" name="project_name"></div>
+      <div class="field"><label>Quận / huyện <small>để trống nếu chưa rõ</small></label><input type="text" name="district"></div>
+      <div class="field"><label>Tỉnh / thành phố <small>để trống nếu chưa rõ</small></label><input type="text" name="city"></div>
+      <div class="field"><label>Diện tích đất (m²)</label><input type="number" name="site_area" min="0" step="any"></div>
+      <div class="field"><label>Diện tích cây xanh (m²)</label><input type="number" name="garden_area" min="0" step="any"></div>
+      <div class="field"><label>Diện tích sân đường, lối đi (m²) <small>không gian mở cho lịch trực</small></label><input type="number" name="open_space" min="0" step="any"></div>
+      <div class="field"><label>Số tầng</label><input type="number" name="floor_count" min="0" step="1"></div>
+      <div class="field"><label>Số tháp</label><input type="number" name="tower_count" min="0" step="1"></div>
+    </section>
+
+    <section>
+      <h2>Bãi xe, tiện ích, kỳ ngân sách</h2>
+      <div class="field"><label>Số chỗ đậu ô tô</label><input type="number" name="car_slots" min="0" step="1"></div>
+      <div class="field"><label>Số chỗ đậu xe máy</label><input type="number" name="moto_slots" min="0" step="1"></div>
+      <div class="field"><label>Có hồ bơi?</label>
+        <select name="has_pool"><option value="Yes">Có</option><option value="No">Không</option></select></div>
+      <div class="field"><label>Diện tích hồ bơi (m²) <small>tuỳ chọn</small></label><input type="number" name="pool_area" min="0" step="any"></div>
+      <div class="field"><label>Thể tích hồ bơi (m³) <small>tổng mọi hồ; 0 = chưa có số</small></label><input type="number" name="pool_volume" min="0" step="any"></div>
+      <div class="field"><label>Số cổng ra vào</label><input type="number" name="gate_count" min="0" step="1"></div>
+      <div class="field"><label>Tháng bắt đầu ngân sách <small>MM/YYYY, 12 tháng từ đây</small></label><input type="text" name="budget_start" placeholder="01/2027" pattern="\d{2}/\d{4}"></div>
+      <div class="field"><label>Tháng lập lịch trực mẫu <small>tháng / năm</small></label>
+        <div style="display:flex;gap:6px"><input type="number" name="roster_month" min="1" max="12" step="1"><input type="number" name="roster_year" min="2024" max="2035" step="1"></div></div>
+    </section>
+
+    <section style="grid-column: 1 / -1">
+      <h2>Cơ cấu sản phẩm</h2>
+      <table id="products">
+        <thead><tr><th>Sản phẩm</th><th>GFA (m²)</th><th>NFA (m²)</th><th>Số căn</th></tr></thead>
+        <tbody></tbody>
+        <tfoot><tr><td style="text-align:left">Tổng</td><td id="t-gfa"></td><td id="t-nfa"></td><td id="t-units"></td></tr></tfoot>
+      </table>
+    </section>
+  </form>
+
+  <div class="actions">
+    <button id="go" type="button">Tạo ngân sách</button>
+    <div class="bar"><i id="bar"></i></div>
+    <span id="status" class="status">Đang tải giá trị mặc định…</span>
+  </div>
+
+  <pre id="log" class="hidden"></pre>
+  <div id="files" class="files"></div>
+</div>
+
+<script>
+const PRODUCT_VI = {
+  'Apartment': 'Căn hộ', 'Officetel': 'Officetel', 'Office': 'Văn phòng', 'Shopping Mall': 'Trung tâm thương mại',
+  'Retail': 'Bán lẻ', 'Shop Apartment': 'Căn hộ thương mại', 'Shophouse': 'Shophouse', 'Villas': 'Biệt thự',
+  'Nursery / Nhà trẻ': 'Nhà trẻ'
+};
+const PREFIX = '__PREFIX__';
+const form = document.getElementById('f');
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+const filesEl = document.getElementById('files');
+const bar = document.getElementById('bar');
+const go = document.getElementById('go');
+let products = [];
+
+function setStatus(text, err) { statusEl.textContent = text; statusEl.className = 'status' + (err ? ' err' : ''); }
+function fmt(n) { return Number(n || 0).toLocaleString('en-US'); }
+
+function totals() {
+  let g = 0, n = 0, u = 0;
+  document.querySelectorAll('#products tbody tr').forEach(tr => {
+    const v = k => Number(tr.querySelector(`input[data-k=${k}]`).value || 0);
+    g += v('gfa'); n += v('nfa'); u += v('units');
+  });
+  document.getElementById('t-gfa').textContent = fmt(g);
+  document.getElementById('t-nfa').textContent = fmt(n);
+  document.getElementById('t-units').textContent = fmt(u);
+}
+
+function renderProducts() {
+  const tb = document.querySelector('#products tbody');
+  tb.innerHTML = '';
+  products.forEach((p, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${PRODUCT_VI[p.name] || p.name} <small style="color:var(--sav-muted)">(${p.name})</small></td>` +
+      ['gfa', 'nfa', 'units'].map(k => `<td><input type="number" min="0" step="any" data-i="${i}" data-k="${k}" value="${p[k] || 0}"></td>`).join('');
+    tb.appendChild(tr);
+  });
+  tb.addEventListener('input', totals);
+  totals();
+}
+
+async function loadDefaults() {
+  const r = await fetch(`${PREFIX}/api/defaults`);
+  const d = await r.json();
+  for (const [k, v] of Object.entries(d.scalars)) {
+    const el = form.elements[k];
+    if (el) el.value = v == null ? '' : v;
+  }
+  products = d.products;
+  renderProducts();
+  setStatus('Sẵn sàng. Kết quả ghi vào ' + d.runs_dir);
+}
+
+function collect() {
+  const scalars = {};
+  for (const el of form.elements) if (el.name) scalars[el.name] = el.value;
+  const prods = products.map((p, i) => {
+    const v = k => document.querySelector(`input[data-i="${i}"][data-k=${k}]`).value;
+    return { name: p.name, gfa: v('gfa'), nfa: v('nfa'), units: v('units') };
+  });
+  return { scalars, products: prods };
+}
+
+function renderFiles(run) {
+  filesEl.innerHTML = '';
+  run.outputs.forEach(o => {
+    const div = document.createElement('div');
+    div.className = 'file';
+    div.innerHTML = `<b>${o.title}</b><span>${o.name} · ${(o.size / 1024).toFixed(0)} KB</span><br>` +
+      `<a href="${PREFIX}/api/runs/${run.id}/files/${encodeURIComponent(o.name)}" download>Tải xuống</a>`;
+    filesEl.appendChild(div);
+  });
+}
+
+async function poll(id, since, t0) {
+  const r = await fetch(`${PREFIX}/api/runs/${id}?since=${since}`);
+  const run = await r.json();
+  if (run.log.length) { logEl.textContent += run.log.join('\n') + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+  const secs = Math.round((Date.now() - t0) / 1000);
+  const last = run.log.length ? run.log[run.log.length - 1] : '';
+  if (run.status === 'running') {
+    let step = 'Đang chạy';
+    const all = logEl.textContent;
+    if (all.includes('[2/2]')) step = 'Bước 2/2: bản phân tích nội bộ';
+    else if (all.includes('[1/2]')) step = 'Bước 1/2: bản giao khách và lịch trực';
+    if (all.includes('Run log:')) step = 'Đang đo kết quả trong Excel (run log)';
+    bar.style.width = Math.min(95, secs * 1.3) + '%';
+    setStatus(`${step} · ${secs} giây`);
+    setTimeout(() => poll(id, run.log_total, t0), 1000);
+    return;
+  }
+  bar.style.width = '100%';
+  go.disabled = false;
+  if (run.status === 'done') {
+    setStatus(`Xong sau ${secs} giây. ${run.outputs.length} file kết quả bên dưới.`);
+    renderFiles(run);
+  } else {
+    setStatus(`Thất bại sau ${secs} giây (mã ${run.rc}). Xem log bên dưới.`, true);
+    renderFiles(run);
+  }
+}
+
+go.addEventListener('click', async () => {
+  go.disabled = true;
+  logEl.classList.remove('hidden');
+  logEl.textContent = '';
+  filesEl.innerHTML = '';
+  bar.style.width = '2%';
+  setStatus('Đang ghi file nhập liệu…');
+  const t0 = Date.now();
+  const r = await fetch(`${PREFIX}/api/runs`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(collect()) });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    setStatus(e.detail || `Lỗi ${r.status}`, true);
+    go.disabled = false;
+    return;
+  }
+  const run = await r.json();
+  poll(run.id, 0, t0);
+});
+
+loadDefaults().catch(e => setStatus('Không tải được giá trị mặc định: ' + e, true));
+</script>
+</body>
+</html>
