@@ -438,6 +438,29 @@ def add_existing_project_fields(ws, row):
     labeled_input(ws, row + 3, es.PRIOR_YEAR_LABEL + ' — the approved budget copied', None, fmt='0')
 
 
+def add_asset_insurance_fields(ws, row):
+    """ESI1 asset value and premium rate on Project Info, from `row` (change price-asset-insurance-from-asset-value).
+    Appended below every other section: the Existing and Operating sections are placed at fixed rows after the
+    fields above them, so a fixed row here could be overwritten."""
+    section(ws, row, 'ASSET INSURANCE (ESI1) — leave blank until the insured value is known')
+    c_esi1 = labeled_input(ws, row + 1, 'ESI1 Insured Asset Value (VND)', None, fmt='#,##0')
+    c_esi1.comment = Comment(
+        "The total insured asset value of the building in VND (the sum insured of the risk asset insurance, compulsory "
+        "fire and explosion cover included), from the developer or the insurer. ESI1 = this value x the premium rate "
+        "below, plus 10% insurance VAT, spread over the 12 months. Leave blank if not known yet: ESI1 then stays 0 and "
+        "its remark says so. Enter 0 to price nothing.", 'Budget Planning Agent')
+    c_esi1_rate = labeled_input(ws, row + 2, 'ESI1 Premium Rate', None, fmt='0.0000%')
+    dv_esi1 = DataValidation(type='decimal', operator='between', formula1='0.000001', formula2='0.01',
+                             allow_blank=True, showErrorMessage=True, errorTitle='ESI1 Premium Rate',
+                             error='Enter a rate above 0% and at most 1% (for example 0.05%), or leave blank for 0.05%')
+    ws.add_data_validation(dv_esi1)
+    dv_esi1.add(c_esi1_rate)
+    c_esi1_rate.comment = Comment(
+        "The annual premium rate of the risk asset insurance. Leave blank for 0.05%, the Savills costing guideline's "
+        "example for a commercial apartment building (Decree 105/2025/ND-CP). Enter the insurer's rate if it differs, "
+        "for example 0.0375% after the maximum 25% discount.", 'Budget Planning Agent')
+
+
 def add_product_rate_columns(ws, header_row, first_row, last_row):
     """'Actual Rate (VND/m²/month)' and 'Rate VAT Basis' beside the Product Mix block (change
     use-operating-project-actuals, P1). Read by their header text, so their letters may move."""
@@ -1052,6 +1075,7 @@ def main(force=False):
         "Savills' own fee (EMH1) and the residents' own water and electricity collected on their behalf (EEW.A, "
         "EEE.A). Enter 0% to budget no contingency; above 10% stops the run.", 'Budget Planning Agent')
 
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 
@@ -1270,6 +1294,8 @@ def main(force=False):
     add_existing_project_fields(ws1, 57)
     # Change use-operating-project-actuals: appended after every existing field, same no-row-shift rule.
     add_operating_project_fields(ws1, 62, products)
+    # Change price-asset-insurance-from-asset-value: below everything, found again by label.
+    add_asset_insurance_fields(ws1, ws1.max_row + 2)
     add_prior_year_roster_sheet(wb)
     add_prior_year_utilities_sheet(wb)
     add_demand_reason_columns(ws4, 5, last_row)

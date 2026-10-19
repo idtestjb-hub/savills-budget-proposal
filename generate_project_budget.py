@@ -712,6 +712,9 @@ def read_input(path):
         # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 3).
         esi2_premium_usd=(L.value(ESI2_PREMIUM_LABEL) if L.has(ESI2_PREMIUM_LABEL) else None),
         usd_rate=(L.value(USD_RATE_LABEL) if L.has(USD_RATE_LABEL) else None),
+        # Optional: absent on workbooks made before change price-asset-insurance-from-asset-value.
+        esi1_value=(L.value(ESI1_VALUE_LABEL) if L.has(ESI1_VALUE_LABEL) else None),
+        esi1_rate=(L.value(ESI1_RATE_LABEL) if L.has(ESI1_RATE_LABEL) else None),
         # Optional: absent on workbooks created before this field was added (change
         # rank-comparables-by-location, task 2.4, 2026-09-16). Refines ORDER within whatever tier
         # District/City above already placed a candidate in — never changes tiers. A lone value on
@@ -747,6 +750,7 @@ def read_input(path):
     project['budget_period'] = budget_period.from_value(
         L.value(budget_period.LABEL) if L.has(budget_period.LABEL) else None)
     project['esi2'] = _resolve_esi2(project['esi2_premium_usd'], project['usd_rate'])
+    project['esi1'] = _resolve_esi1(project['esi1_value'], project['esi1_rate'])
     # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 6). Blank or absent
     # means 2%; text, a negative rate or one above 10% stop the run (contingency.ContingencyRateError).
     project['contingency_rate'], project['contingency_rate_is_default'] = contingency.resolve_rate(
@@ -1309,6 +1313,12 @@ USD_RATE_DATE = '05/10/2026'
 ESI2_PREMIUM_LABEL = 'ESI2 Annual Premium (USD)'
 USD_RATE_LABEL = 'USD Exchange Rate (VND per USD)'
 
+# ESI1, risk asset insurance from the insured asset value (change price-asset-insurance-from-asset-value).
+ESI1_VALUE_LABEL = 'ESI1 Insured Asset Value (VND)'
+ESI1_RATE_LABEL = 'ESI1 Premium Rate'
+ESI1_DEFAULT_RATE = 0.0005             # the AI Guideline's example for a commercial apartment building, 0.05%/year
+ESI1_MAX_RATE = 0.01                   # above 1% is taken as a typing slip (0.05 meant as 0.05%)
+
 
 def _resolve_esi2(premium_raw, rate_raw):
     """The ESI2 inputs with their defaults. Blank premium = 1,000 USD (flagged as default); a 0 premium is the PM's
@@ -1334,6 +1344,31 @@ def _resolve_esi2(premium_raw, rate_raw):
     return dict(premium_usd=ESI2_DEFAULT_PREMIUM_USD if premium is None else premium,
                 premium_is_default=premium is None,
                 rate=USD_RATE_DEFAULT if rate is None else rate, rate_is_default=rate is None)
+
+
+def _resolve_esi1(value_raw, rate_raw):
+    """The ESI1 inputs (change price-asset-insurance-from-asset-value). Blank value = None (ESI1 stays 0 with a reason
+    naming the field); 0 = the PM's choice to price nothing; blank rate = 0.05%. Text or a negative value, and a rate
+    that is text, 0, negative or above 1%, stop the run and name the field."""
+    def number(raw, label):
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return None
+        try:
+            if isinstance(raw, bool):
+                raise ValueError
+            return float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Project Info '{label}' is {raw!r}, which is not a number. Enter a number, or clear "
+                             f"the cell.") from None
+    value = number(value_raw, ESI1_VALUE_LABEL)
+    if value is not None and value < 0:
+        raise ValueError(f"Project Info '{ESI1_VALUE_LABEL}' is {value_raw!r}. It must be zero or more, or blank.")
+    rate = number(rate_raw, ESI1_RATE_LABEL)
+    if rate is not None and not 0 < rate <= ESI1_MAX_RATE:
+        raise ValueError(f"Project Info '{ESI1_RATE_LABEL}' is {rate_raw!r}. Enter a rate above 0% and at most "
+                         f"{ESI1_MAX_RATE:.0%} (for example 0.05%), or clear the cell to use "
+                         f"{ESI1_DEFAULT_RATE:.2%}.")
+    return dict(value=value, rate=ESI1_DEFAULT_RATE if rate is None else rate, rate_is_default=rate is None)
 
 
 def _rate_phrase(months, rates):
@@ -2471,6 +2506,35 @@ def fill_existing_staff_sheets(wb, result, layout):
             a11.cell(row=r, column=15, value=d.day_holiday or None)
 
 
+def _write_asset_insurance(ws, project, write_vat_monthly):
+    """ESI1 risk asset insurance (change price-asset-insurance-from-asset-value): the insured asset value x the premium
+    rate, insurance VAT in each month as ESI2 (`write_vat_monthly` is fill_management_fund_sheet()'s own pricer), or 0
+    with the reason. Moved out of fill_management_fund_sheet(), which only calls it."""
+    esi1 = project.get('esi1') or _resolve_esi1(None, None)
+    value, rate = esi1['value'], esi1['rate']
+    rate_text = f"{rate * 100:.4f}".rstrip('0').rstrip('.').replace('.', ',') + '%/năm'
+    if not value:
+        _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
+            f"PM nhập giá trị tài sản bảo hiểm bằng 0 tại ô '{ESI1_VALUE_LABEL}' (Project Info), nên không tính khoản "
+            f"này." if value == 0 else
+            f"chưa có giá trị tài sản bảo hiểm. PM nhập giá trị tại ô '{ESI1_VALUE_LABEL}' (Project Info) để công cụ "
+            f"tính: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo hiểm cháy nổ bắt buộc), theo ví dụ của hướng dẫn lập "
+            f"ngân sách Savills và Nghị định 105/2025/NĐ-CP, cộng VAT bảo hiểm."))
+        return
+    annual_excl = round(value * rate)
+    bp = project.get('budget_period') or budget_period.default()
+    vat = (f"cộng VAT {_rate_phrase(bp.months, _general_vat_months(project, utility_tariffs.VAT_INSURANCE))}"
+           f" (bảo hiểm không thuộc diện giảm VAT xuống 8%)" if _ACTIVE_VAT_SENTENCE
+           else "chưa cộng VAT theo mô hình tài chính đã chọn")
+    total = sum(annual_excl / 12 * v for v in _vat_factors(project, utility_tariffs.VAT_INSURANCE))
+    write_vat_monthly('asset_insurance', annual_excl, kind=utility_tariffs.VAT_INSURANCE, remark=(
+        f"= {value:,.0f} VND (giá trị tài sản bảo hiểm do PM nhập) x {rate_text}"
+        + (f" (tỷ lệ mặc định theo ví dụ của hướng dẫn lập ngân sách Savills cho chung cư thương mại, Nghị định "
+           f"105/2025/NĐ-CP; PM nhập tỷ lệ thực tế, ví dụ sau giảm phí, tại ô '{ESI1_RATE_LABEL}')"
+           if esi1['rate_is_default'] else " (tỷ lệ do PM nhập)")
+        + f" = {annual_excl:,.0f} VND/năm trước VAT, {vat} = {total:,.0f} VND/năm. Đã gồm bảo hiểm cháy nổ bắt buộc."))
+
+
 def _parking_allocation_weights(ws, recorded, moto_full_monthly, car_full_monthly):
     """BM11/BN11 on '2. Budget-Management Fund': the monthly vs casual parking split the 351 allocation rows divide by.
     Moved out of fill_management_fund_sheet() unchanged except for the nominal weight of a project with no parking
@@ -3416,11 +3480,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # branch's own condition already is.
     if not savills_fee.basis(project):
         _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', savills_fee.ZERO_REASON_VI)
-    _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
-        "chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
-        "hệ thống. Căn cứ ví dụ theo hướng dẫn lập ngân sách của Savills: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
-        "hiểm cháy nổ bắt buộc), theo Nghị định 105/2025/NĐ-CP. Sẽ định giá khi có giá trị tài sản "
-        "thực tế hoặc giá trị hợp đồng do chủ đầu tư cung cấp."))
+    _write_asset_insurance(ws, project, write_vat_monthly)
 
     # ---- Required codes with genuinely no findable pricing method or real input (checked this
     # session — Costing_Method_Catalogue.csv either has no entry, or the one entry it has needs
