@@ -789,9 +789,11 @@ def read_input(path):
     # the 7 hand-verified ones). Apartment NFA above is still what management-fee REVENUE uses.
     project['total_nfa'] = sum(p['nfa'] for p in products.values())
     project['total_gfa'] = sum(p['gfa'] for p in products.values())
-    if not project['apartment_nfa']:
-        raise ValueError("Project Info!C14:D14 (Apartment GFA/NFA) must be filled in — comparable "
-                          "matching is by Apartment NFA.")
+    # A villa-only or other low-rise project has no Apartment NFA (change support-villa-only-and-no-parking):
+    # comparable matching is by total NFA, so only a form with no product area at all is refused.
+    if not project['total_nfa']:
+        raise ValueError("Project Info: the Product Mix has no NFA on any product row — fill in the NFA of at "
+                         "least one product (comparable matching is by total NFA).")
     # Operating-project fields (change use-operating-project-actuals): all optional and validated in
     # operating_inputs.py. A form without them reads as blank, and the run is the run before that change.
     project['operating'] = operating_inputs.read_operating_inputs(pi, L, products)
@@ -1439,6 +1441,8 @@ def _recipe_narrative(key, wb, project, demand, year, written):
             prod = code_to_prod.get(c, c)
             label = _PRODUCT_VI_LABEL.get(prod, w['name_vi'])
             nfa = ((project.get('products') or {}).get(prod) or {}).get('nfa') or 0
+            if c not in _UNIT_RATES and not nfa:
+                continue        # a product this project does not have (e.g. RM.AP of a villa-only project)
             if c not in _UNIT_RATES:
                 raise ValueError(f"No recorded unit rate for {c}: the fee narrative must quote the "
                                  f"rate the line is priced at, not revenue divided by area.")
@@ -1734,7 +1738,57 @@ def _populate_fillup_sheets(wb, apt_units, shop_units, car_bays, moto_bays,
         ws[coord] = text
 
 
-_FILLUP_NOTE_BAD_DEBT = 'Căn cứ trên tỷ lệ nợ xấu PQL của các dự án tham chiếu: 8.7% và 10%'
+def _apartment_column_weight(project):
+    """(weight, villas_used): the NFA the standard form's apartment allocation column carries. The form has no villa
+    column, so a project without apartments puts its villas there (change support-villa-only-and-no-parking, D1, D4)."""
+    prods = project.get('products') or {}
+    apartment = (prods.get('Apartment') or {}).get('nfa') or 0
+    if apartment:
+        return apartment, False
+    villas = (prods.get('Villas') or {}).get('nfa') or 0
+    return villas, bool(villas)
+
+
+def _villa_column_note(nfa):
+    return (f"Dự án không có căn hộ: diện tích biệt thự ({nfa:,.0f} m2 NFA) được tính vào cột căn hộ để phân bổ chi "
+            f"phí, vì mẫu chuẩn không có cột biệt thự.")
+
+
+_ZERO_BAY_NOTE = ("Dự án không có chỗ {kind}: tỷ lệ lấp đầy từ tháng 13 ghi 0, vì công thức của mẫu chia cho số "
+                  "chỗ {kind}.")
+
+
+def _fill_product_mix_fallbacks(wb, project):
+    """The standard form's allocation weights for a project without apartments or without parking bays (change
+    support-villa-only-and-no-parking, D2, D3). Runs after fill_management_fund_sheet(); a project with apartments
+    and bays is left exactly as that function wrote it."""
+    from common_utils_v2 import find_sheet_loose
+    weight, villas = _apartment_column_weight(project)
+    if villas:
+        # Every leaf row's BG<row> reads '=$BG$10'; '0. Info'!D8 stays empty so no fee table shows villas as apartments.
+        ws = wb['2. Budget-Management Fund']
+        ws['BG10'] = weight
+        ws['BG10'].comment = Comment(_villa_column_note(weight), 'Budget Planning Agent')
+        ws['BG9'] = 'Biệt thự (tính vào cột căn hộ)'
+
+    pk = wb[find_sheet_loose(wb, 'lấp đầy bãi xe')]
+    if not (project.get('apartment_units') or 0):
+        pk['D6'] = sum((p.get('units') or 0) for p in (project.get('products') or {}).values())
+    for row, slots, kind in ((9, project.get('car_slots'), 'ô tô'), (11, project.get('moto_slots'), 'xe máy')):
+        if slots:
+            continue
+        divides = re.compile(rf'/\s*\$?D\$?{row}(?![0-9])')
+        zeroed = 0
+        for c in range(1, pk.max_column + 1):
+            cell = pk.cell(row=row, column=c)
+            if isinstance(cell.value, str) and cell.value.startswith('=') and divides.search(cell.value):
+                cell.value = 0
+                zeroed += 1
+        if zeroed:
+            pk.cell(row=row, column=5).value = _ZERO_BAY_NOTE.format(kind=kind)
+
+
+_FILLUP_NOTE_BAD_DEBT ='Căn cứ trên tỷ lệ nợ xấu PQL của các dự án tham chiếu: 8.7% và 10%'
 _FILLUP_NOTE_UNOCCUPIED_DEBT = 'Căn cứ trên tỷ lệ nợ khó thu của những căn chưa về ở của một dự án tham chiếu'
 _FILLUP_NOTE_HANDOVER = ('Note: \n- Năm 1 dự ước tiến độ bàn giao của CĐT trong 6 tháng (tương tự tiến độ bàn giao các '
                          'dự án tham chiếu khoảng 1000 căn)\n- Tham khảo tỷ lệ lấp đầy cư dân của một dự án tham chiếu '
@@ -2486,6 +2540,67 @@ def fill_existing_staff_sheets(wb, result, layout):
             a11.cell(row=r, column=15, value=d.day_holiday or None)
 
 
+def _parking_allocation_weights(ws, recorded, moto_full_monthly, car_full_monthly):
+    """BM11/BN11 on '2. Budget-Management Fund': the monthly vs casual parking split the 351 allocation rows divide by.
+    Moved out of fill_management_fund_sheet() unchanged except for the nominal weight of a project with no parking
+    revenue weight at all (change support-villa-only-and-no-parking, D5)."""
+    # ---- Parking allocation weights (BM11/BN11) — change fix-parking-allocation-divide-by-zero.
+    # 351 rows on this sheet carry '=IF(BK>0, BK*BM11/SUM(BM11:BN11), 0)'-shaped formulas (monthly
+    # vs. casual/visitor parking split). Savills' template ships these two weight cells EMPTY, so
+    # the denominator is 0 the moment any of those rows' own BK goes positive — dormant today only
+    # because BK routes through '0. Info'!D12 (parking area), which this pipeline never fills; the
+    # one exception is ERM (row 485), whose BK bypasses that guard, which is why it already failed
+    # before this change (see design.md D1-D2 and this change's proposal.md for the full account).
+    #
+    # Monthly half: RP1+RP2, exactly what was just written above — no new derivation. Casual half:
+    # checked the reference data first (task 2.1) — Costing_Method_Catalogue.csv's own RP5/RP6
+    # entries require a "visitor volume assumption" nothing in this pipeline's real data supplies,
+    # so there is no basis to write anything but 0. A 100/0 split is arithmetically defined and
+    # honestly labelled; a guessed ratio would not be.
+    #
+    # Only written when both cells are genuinely empty — a project that already carries its own real
+    # weights (however they got there) is never overwritten.
+    _bm11, _bn11 = ws['BM11'], ws['BN11']
+    if _bm11.value in (None, '') and _bn11.value in (None, ''):
+        # P2 (design D4): a recorded monthly figure is the weight for its vehicle type. Only the ratio
+        # matters (BN11 = 0, so the split stays 100/0); when both recorded figures are 0 the weight falls
+        # back to bays x default rate so the divisor stays defined.
+        _weight = sum(recorded[k] if recorded.get(k) is not None else full
+                      for k, full in (('moto', moto_full_monthly), ('car', car_full_monthly)))
+        _bm11.value = _weight or (moto_full_monthly + car_full_monthly)
+        _bn11.value = 0
+        _nominal = not _bm11.value
+        if _nominal:
+            # No parking bays and no recorded parking revenue (D5): nothing to split, so every allocation
+            # row's BK is 0; a nominal 1 keeps SUM(BM11:BN11) defined.
+            _bm11.value = 1
+        _bm11.comment = Comment(
+            ("Nominal monthly-parking allocation weight (1): this project has no parking bays and no "
+             "recorded parking revenue, so there is no parking cost to split; the 1 only keeps the 351 "
+             "allocation formulas defined. " if _nominal else
+             "Monthly-parking allocation weight — RP1 (motorbike) + RP2 (car) monthly parking revenue, "
+             "the same figures written above. ") +
+            "Casual/visitor weight (BN11) is 0: no real basis exists "
+            "for that split (Costing_Method_Catalogue.csv's RP5/RP6 require a 'visitor volume "
+            "assumption' this pipeline has no data for) — 100% of the allocation therefore goes to "
+            "monthly parking, not a guessed ratio. Written only because these cells were empty; a "
+            "project's own real weights, if entered, are never overwritten.",
+            'Budget Planning Agent')
+    # Fail loudly rather than ship a workbook whose 351 allocation rows silently depend on whichever
+    # ones happened to be written this run (design.md D2) — this is the same class of guard as
+    # assert_row_code() elsewhere in this file, just for a template defect instead of a row-position
+    # drift.
+    if (_bm11.value or 0) + (_bn11.value or 0) == 0:
+        raise ValueError(
+            "'2. Budget-Management Fund'!BM11:BN11 (parking allocation weights) sum to zero. 351 rows "
+            "on this sheet divide by this sum whenever their own BK is positive — an undefined "
+            "denominator would reach the client the moment any of those rows fires. Refusing to "
+            "produce a deliverable rather than risk a #DIV/0! that depends on which cost rows this "
+            "particular run happened to write. See openspec/changes/fix-parking-allocation-divide-by-"
+            "zero for the full account."
+        )
+
+
 def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, existing_layout=None):
     """Populates the real computed OPEX/Capex/Staff/Parking/Management-Fee numbers this pipeline
     already derives elsewhere (generate_project_output.py) into '2. Budget-Management Fund''s
@@ -2865,52 +2980,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
             f"{_full_clause} {_parking_note(car_slots, units_for_parking, bool(car_slots and units_for_parking and car_slots < units_for_parking))} "
             f"Tổng năm 1: {sum(car_full_monthly * f for f in car_fills):,.0f} VND."))
 
-    # ---- Parking allocation weights (BM11/BN11) — change fix-parking-allocation-divide-by-zero.
-    # 351 rows on this sheet carry '=IF(BK>0, BK*BM11/SUM(BM11:BN11), 0)'-shaped formulas (monthly
-    # vs. casual/visitor parking split). Savills' template ships these two weight cells EMPTY, so
-    # the denominator is 0 the moment any of those rows' own BK goes positive — dormant today only
-    # because BK routes through '0. Info'!D12 (parking area), which this pipeline never fills; the
-    # one exception is ERM (row 485), whose BK bypasses that guard, which is why it already failed
-    # before this change (see design.md D1-D2 and this change's proposal.md for the full account).
-    #
-    # Monthly half: RP1+RP2, exactly what was just written above — no new derivation. Casual half:
-    # checked the reference data first (task 2.1) — Costing_Method_Catalogue.csv's own RP5/RP6
-    # entries require a "visitor volume assumption" nothing in this pipeline's real data supplies,
-    # so there is no basis to write anything but 0. A 100/0 split is arithmetically defined and
-    # honestly labelled; a guessed ratio would not be.
-    #
-    # Only written when both cells are genuinely empty — a project that already carries its own real
-    # weights (however they got there) is never overwritten.
-    _bm11, _bn11 = ws['BM11'], ws['BN11']
-    if _bm11.value in (None, '') and _bn11.value in (None, ''):
-        # P2 (design D4): a recorded monthly figure is the weight for its vehicle type. Only the ratio
-        # matters (BN11 = 0, so the split stays 100/0); when both recorded figures are 0 the weight falls
-        # back to bays x default rate so the divisor stays defined.
-        _weight = sum(_recorded[k] if _recorded.get(k) is not None else full
-                      for k, full in (('moto', moto_full_monthly), ('car', car_full_monthly)))
-        _bm11.value = _weight or (moto_full_monthly + car_full_monthly)
-        _bn11.value = 0
-        _bm11.comment = Comment(
-            "Monthly-parking allocation weight — RP1 (motorbike) + RP2 (car) monthly parking revenue, "
-            "the same figures written above. Casual/visitor weight (BN11) is 0: no real basis exists "
-            "for that split (Costing_Method_Catalogue.csv's RP5/RP6 require a 'visitor volume "
-            "assumption' this pipeline has no data for) — 100% of the allocation therefore goes to "
-            "monthly parking, not a guessed ratio. Written only because these cells were empty; a "
-            "project's own real weights, if entered, are never overwritten.",
-            'Budget Planning Agent')
-    # Fail loudly rather than ship a workbook whose 351 allocation rows silently depend on whichever
-    # ones happened to be written this run (design.md D2) — this is the same class of guard as
-    # assert_row_code() elsewhere in this file, just for a template defect instead of a row-position
-    # drift.
-    if (_bm11.value or 0) + (_bn11.value or 0) == 0:
-        raise ValueError(
-            "'2. Budget-Management Fund'!BM11:BN11 (parking allocation weights) sum to zero. 351 rows "
-            "on this sheet divide by this sum whenever their own BK is positive — an undefined "
-            "denominator would reach the client the moment any of those rows fires. Refusing to "
-            "produce a deliverable rather than risk a #DIV/0! that depends on which cost rows this "
-            "particular run happened to write. See openspec/changes/fix-parking-allocation-divide-by-"
-            "zero for the full account."
-        )
+    _parking_allocation_weights(ws, _recorded, moto_full_monthly, car_full_monthly)
 
     # ---- Per-row area-basis reference (BG<row>/BH<row>) — scope expanded into this same change
     # (2026-09-17) after proving the BM11/BN11 fix on the actual triggering state (a non-zero parking
@@ -4334,10 +4404,13 @@ def _fill_service_post_sheet(wb, project, cat):
         ws[spec['conversion_hours_cell']] = hours       # the 24h-conversion block counts the hours the rows use
 
     prods = project.get('products') or {}
-    basis = ((prods.get('Apartment') or {}).get('nfa') or 0, (prods.get('Shophouse') or {}).get('nfa') or 0,
+    apartment_weight, villas = _apartment_column_weight(project)
+    basis = (apartment_weight, (prods.get('Shophouse') or {}).get('nfa') or 0,
              (prods.get('Retail') or {}).get('nfa') or 0, project.get('car_slots') or 0)
     for col, value in zip(spec['alloc_cols'], basis):
         ws[f'{col}7'] = value
+    if villas:
+        ws[f"{spec['alloc_cols'][0]}7"].comment = Comment(_villa_column_note(apartment_weight), 'Budget Planning Agent')
 
     annual = fig['post_rate'] / fig['roles'] * fig['blend'] * fig['qty'] * 12
     rate_ref = spec['rate_cell']
@@ -4771,6 +4844,8 @@ def build_budget(project, demand, year):
     project['utilities_result'] = utilities_result(project, _budget_year(wb, year), bool(_ACTIVE_VAT_SENTENCE))
     fill_management_fund_sheet(wb, project, demand, year, rates,
                                existing=existing, existing_layout=existing_layout)
+    # A project without apartments or without parking bays (change support-villa-only-and-no-parking).
+    _fill_product_mix_fallbacks(wb, project)
 
     # ---- 2.2 Common area Fund: real elevator/lobby advertising revenue — see
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
