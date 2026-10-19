@@ -612,6 +612,72 @@ No literal line of `2. Fund` moves in any case (`lines_diff.py`, every twelve-mo
 three lines as `matches` (Head of PM decision B6).
 - **Sign-off (group 6):** the user, standing in for the Head of PM, accepted these measurements and the remark wording
   (the Project Info pointer kept) on 2026-10-19 (lane A session P2).
+
+### Group 7: Savills' fee `EMH1`, `ERCS1`, `BK507`/`BK511`, `1. Summary!K14` (2026-10-19, lane A session P3)
+
+Runs under `Savills-local\budget-test\2026-10-19-laneA-g7\`: `before` = code `761aa37` (main with groups 6 and 8),
+`after` = group 7, both on the standard sample, the City Garden clone, the Existing, lump and operating fixtures and
+four variants of the standard sample (`make_variants.py`): `fee_fixed` ('Fixed Monthly Fee' = 50,000,000 VND/month),
+`fee_pct` ('% of Collected Management Fee' = 10%), `fee_both` (both) and `fee_fixed_1026` (`fee_fixed` with 'Budget
+Start Month' = 10/2026, after only). Figures are Excel-recalculated
+(`g7_check.py`, `ab_table.py`, `ab_g7.json`); every cell as written is compared by `compare_cells.py`.
+
+**Built (rules D9c).**
+- New module `savills_fee.py`: the two labels, the basis, the stop message, the fixed-fee line (entered excl. VAT,
+  each budget month's VAT added, none under KHOÁN), the % line (% x the full annual fee at 100% occupancy, RM + RM.0A,
+  no VAT added), the zero reason, the `1. Summary` fee clause and the analysis rows. GPB `read_input` (stop message),
+  `fill_management_fund_sheet` (EMH1 write and zero reason) and `_recipe_narrative` ('EMH' fee clause; 'RM' revenue
+  sentence) call it. No remark or message cites a cell address any more (`Project Info!B36/B37`, `B34/B35`, "hàng 14-22").
+- `ERCS1_REASON_VI` (GPB): "Đang chờ báo giá dịch vụ cho chung cư; …chưa có đơn giá nào có nguồn trích dẫn…".
+- New module `breakeven_cells.py`: finds the BG labels "Gía dịch vụ quản lý cân bằng" / "… cần tăng / giảm" (once each,
+  else the run stops), checks the template's BK expressions and wraps them: `BK507 = IF(N(BK10)=0,"N/A",-BK505/BK10)`,
+  `BK511 = IF(ISNUMBER(BK507),BK507+BK509,"N/A")`. Called at the end of `fill_management_fund_sheet`.
+- `1. Summary!K14` ends with "Doanh thu hạng mục này dự ước tại năm 2027." on every run; `check_remark_content` checks
+  that (new `k14_revenue_sentence_problem`) instead of the generic VAT sentence there.
+- Analysis `Savills Fee Position`: a display-only block "SAVILLS' FEE ENTERED ON PROJECT INFO (EMH1)" (basis, entered
+  value, fee per year, and the computed profit beside it); "chưa nhập" when blank. Nothing sums it.
+- `METHOD_VERDICTS['EMH1']`: `mismatch` -> `matches` (Head of PM decision B1 sets the two bases). Input-form builder
+  source: the fixed-fee label and comment say excl. VAT (the builder was not run).
+
+**Measured.**
+- **Standard sample, City Garden, Existing, lump, operating (no fee entered):** 0 figure moves (total expense, surplus,
+  Total Profit Value, full package, EM# on both sheets). Cells as written: exactly 8 change on each deliverable
+  (`1. Summary` K14 and K22, `2. Fund` T82, T480, BK507, BK511, `2.2` T43, T441); on the analysis only
+  `Savills Fee Position` changes (the new block shifts the rows below it): 240 cells (196 on the clone and the
+  operating sample), per-sheet tally of `compare_cells.py` on all five cases.
+- **`fee_fixed`:** EMH1 600,000,000 -> 660,000,000 (55,000,000 a month: 10% VAT in every month of 2027); total expense
+  +60,000,000; surplus -59,688,387 (RI1 rises by the `2.2` share, 3,116,131 -> 3,427,744); Total Profit Value, the full
+  package and EM# unchanged (EMH1 is outside the EM# base). Analysis block: 50,000,000 / 600,000,000 excl. VAT.
+- **`fee_fixed_1026`** (VAT changes inside the period): EMH1 is written month by month (C = Schedule, G = SUM(H:S)):
+  10-12/2026 at 54,000,000 (8%), 01-09/2027 at 55,000,000 (10%), 657,000,000 a year; the remark says "cộng VAT 8% đến
+  hết tháng 12/2026 và 10% từ tháng 01/2027 theo từng tháng = 657,000,000 VND/năm" and the K22 clause quotes the same
+  657,000,000; EM# unchanged; no error cell.
+- **`fee_pct`:** EMH1 1,252,229,160 before and after (10% x 12,522,291,600, no VAT added); the analysis block shows
+  the same 1,252,229,160 from `'Management Fee'` at 100% fill, so the two workbooks agree.
+- **`fee_both`:** the run stops: "Project Info 'Fixed Monthly Fee' and '% of Collected Management Fee' are BOTH filled
+  in…" (was "Project Info!B34 … B35").
+- **BK507/BK511 (every case):** "N/A" at parking area 0; after typing 1,000 m2 into `'0. Info'!D12` on a copy, both
+  give numbers (standard sample BK507 = -8,400.57 = -BK505 / 1,000; BK511 = BK507 + BK509). Formula cells returning an
+  error on the deliverable: 2 -> 0 in every case (Excel `SpecialCells`); BJ untouched.
+- **Remarks:** K14 ends with the revenue sentence and has no generic VAT sentence; the EMH narrative names the basis
+  used ("cố định" only for a fixed fee); ERCS1 carries the new reason on both fund sheets.
+
+**Checks:** 879 unit tests pass (1 xfail as before; 21 new in `tests/test_savills_fee.py`, including no cell address
+in any EMH1 text, the both-filled stop through `read_input`, a changed or doubled break-even label stopping the run,
+and the K14 check). `verify.py` with the two baseline gates opened passes every check on all sections
+(`verify_g7_open.log`), the remark checks included on the standard, Existing, lump and operating samples; its GATE
+DIFF lines are identical to group 6's (`verify_g6_open.log`), so group 7 moves no gated figure. Errors inherited
+from the blank template: 5 (group 6) -> 0: the helper sheets' 3 went with group 8, BK507/BK511 with this group.
+
+**Catalogue.** `Costing_Method_Catalogue.csv` (shared data folder): the coordinator applies the EMH1 row with the
+lane-a merge (method: fixed fee excl. VAT + monthly VAT, or % of the full management fee, no VAT added; inputs by label).
+
+**Open points (not changed):** a PM-entered RM rate marked excl. VAT makes "the base already includes VAT" untrue for
+the % fee. K15 (parking revenue) still ends with the generic VAT sentence. The live input form gets the "excl. VAT"
+label only when the coordinator rebuilds it.
+- **Sign-off (group 7):** the user, standing in for the Head of PM, accepted these measurements, the remark wording,
+  the `EMH1` verdict `matches` and the new input-form label on 2026-10-19 (lane A session P3).
+
 ### Group 8: helper sheets A2-A4, B1-B5 (2026-10-19, lane B session P2)
 
 Runs under `Savills-local\budget-test\lanes\B\ab\` (`before2` = commit `239bbf3` from a detached worktree, `g8` = the

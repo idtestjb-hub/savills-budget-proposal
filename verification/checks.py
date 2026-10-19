@@ -867,6 +867,18 @@ _TEMPLATE_OWNED_T_ROWS = {
 _EXISTING_UTILITY_ANCHORS = {'EEE': ['kWh/tháng', 'đ/kWh', 'x 12 tháng'], 'EEW': ['m3/tháng', 'đ/m3', 'x 12 tháng']}
 
 
+def k14_revenue_sentence_problem(k, year, vat_vi):
+    """None when the '1. Summary' K14 fee narrative ends with "Doanh thu hạng mục này dự ước tại năm <year>." and does
+    not carry the generic VAT sentence (Head of PM decision K14-a, change apply-head-of-pm-decisions-2026-10, group 7);
+    else what is wrong. The rates in the narrative state their own VAT basis, so the generic sentence is not wanted."""
+    import operating_inputs
+    if not k.rstrip().endswith(operating_inputs.entered_rate_year_vi(year)):
+        return 'the management-fee narrative must end with the revenue sentence (decision K14-a)'
+    if vat_vi and vat_vi in k:
+        return 'the management-fee narrative carries the generic VAT sentence (decision K14-a)'
+    return None
+
+
 def check_remark_content(paths):
     """Confirm the client deliverable's remarks say what the AI Guideline instructs (change
     apply-guideline-remark-model). For the generated deliverable:
@@ -944,8 +956,12 @@ def check_remark_content(paths):
         if not has_vi:
             fail(label, 'narrative has no Vietnamese content')
 
-        # VAT sentence
-        if incl_vat and vat_vi not in k:
+        # VAT sentence. K14 (management-fee revenue) ends with the revenue sentence instead, on every run (K14-a).
+        if code == 'RM':
+            problem = k14_revenue_sentence_problem(k, year, vat_vi)
+            if problem:
+                fail(label, problem)
+        elif incl_vat and vat_vi not in k:
             fail(label, 'inclusive-of-VAT run but the K narrative has no VAT-treatment sentence')
 
         if kind == 'rollup':

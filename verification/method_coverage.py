@@ -241,16 +241,18 @@ METHOD_VERDICTS = {
     ),
 
     # ---- Management-fee expense / staff (EMH family) ----
+    # Updated 2026-10-19, change apply-head-of-pm-decisions-2026-10 (group 7): Head of PM decision B1 (design D9c).
     'EMH1': dict(
-        spec_method='contract-fixed-or-cpi-or-nfa',
-        actual_method='Written as a literal 0 — deliberately left blank until a real management-fee '
-                       'contract exists (docs/05-decisions.md: "Savills\' own management fee stays '
-                       'blank until contract terms arrive"). None of the three bases the spec states '
-                       '(fixed fee, CPI escalation, NFA x unit price) is computed.',
-        verdict='mismatch',
-        reasoning='Zero is a placeholder, not one of the three stated bases — flagged rather than '
-                   'silently counted as satisfying any of them. Surplus/EMH already carries this '
-                   'caveat on every deliverable (docs/project-status.md §5, item D1).',
+        spec_method='contract-fixed-or-percent-of-fee (Head of PM decision B1; catalogue entry with the lane-a merge)',
+        actual_method='Read by label from Project Info: \'Fixed Monthly Fee\' (entered excl. VAT) x 12 with each '
+                       'budget month\'s VAT added, or \'% of Collected Management Fee\' x the full annual '
+                       'management fee at 100% occupancy (residents + the developer\'s top-up; already incl. '
+                       'VAT, none added), spread evenly. Both filled stops the run; both blank leaves 0 with '
+                       'its reason, since no contract term exists yet.',
+        verdict='matches',
+        reasoning='Head of PM decision B1 sets the two bases (fixed fee or % of the fee), so the decision is '
+                   'the method. The guideline\'s CPI escalation and NFA x unit price bases are not built '
+                   '(decision B1 keeps the two bases above).',
     ),
     'EMH2': dict(
         spec_method='a1-live-formula-plus-unplaced-rows',

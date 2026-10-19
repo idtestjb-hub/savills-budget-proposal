@@ -114,13 +114,13 @@ A/B movements (design D16).
 
 ## 7. Savills fee cleanup, ERCS, break-even cells, fee narrative (B1, B7, B10, K14)
 
-- [ ] 7.1 Make the `EMH1` remarks and the guard message cite the inputs by label. Fix the %-basis narrative. Treat the
+- [x] 7.1 Make the `EMH1` remarks and the guard message cite the inputs by label. Fix the %-basis narrative. Treat the
   entered fee as excl. VAT and add VAT by month. Show the entered fee on `Savills Fee Position`. Update the method verdict
   and the catalogue. Verify with fixed-fee and %-fee fixtures and a remark test with no cell address.
-- [ ] 7.2 Reword the `ERCS1` reason (residential quotes awaited). Verify with a remark assertion.
-- [ ] 7.3 Write `BK507`/`BK511` as guarded live formulas, found by label. Verify with a COM read-back showing "N/A" at
+- [x] 7.2 Reword the `ERCS1` reason (residential quotes awaited). Verify with a remark assertion.
+- [x] 7.3 Write `BK507`/`BK511` as guarded live formulas, found by label. Verify with a COM read-back showing "N/A" at
   parking area 0 and a number after typing an area; the inherited error count falls.
-- [ ] 7.4 End `1. Summary!K14` with the revenue sentence and exempt it from the generic VAT-sentence check. Verify
+- [x] 7.4 End `1. Summary!K14` with the revenue sentence and exempt it from the generic VAT-sentence check. Verify
   that the remark checks pass on the standard and operating samples.
 
 ## 8. Helper sheets (D2)

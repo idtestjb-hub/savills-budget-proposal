@@ -52,6 +52,8 @@ import existing_staffing
 import existing_utilities
 import operating_inputs
 import contingency
+import savills_fee
+import breakeven_cells
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -633,8 +635,8 @@ def read_input(path):
         # Real, negotiated contract terms — see build_project_input_form.py's comment on these
         # cells. Both None (the real, honest default) until the PM enters the actual contract.
         # A blank cell here is an EMPTY FIELD, not a missing one — the resolver returns None.
-        savills_fee_fixed_monthly=L.value('Fixed Monthly Fee'),
-        savills_fee_pct=L.value('% of Collected Management Fee'),
+        savills_fee_fixed_monthly=L.value(savills_fee.FIXED_LABEL),
+        savills_fee_pct=L.value(savills_fee.PCT_LABEL),
         # Optional: absent on workbooks created before this field was added (change
         # apply-guideline-remark-model, docs/13-remark-case-model.md Group B). Remark-only — see
         # build_project_input_form.py's comment on this field; RM.0A's own figure never reads it.
@@ -710,10 +712,7 @@ def read_input(path):
     project['pool_count'], project['pool_count_stated'] = _resolve_pool_count(
         project['pool_count'], project['has_pool'])
     if project['savills_fee_fixed_monthly'] and project['savills_fee_pct']:
-        raise ValueError(
-            "Project Info!B34 (Fixed Monthly Fee) and B35 (% of Collected Fee) are BOTH filled in — "
-            "pick one basis for Savills' management fee, not both. Clear whichever doesn't apply."
-        )
+        raise ValueError(savills_fee.both_filled_message())
     # Existing-project mode (change carry-forward-staffing): the prior-year baseline and the PM's
     # changes, or None for a New-prospect workbook — every workbook made before that change.
     project['existing'] = existing_staffing.read_existing(wb, L)
@@ -905,6 +904,9 @@ _ENTERED_RATE_VAT = {}
 # instead of working them out again (change apply-head-of-pm-decisions-2026-10, D15). Cleared by build_budget().
 _HELPER_FIGURES = {}
 _VAT_SWITCH_DEFAULT = ('2. Budget-Management Fund', 'F7')
+# ERCS1 stays 0 until residential service quotes arrive (Head of PM decision B7, design D9c); '2.2' copies it.
+ERCS1_REASON_VI = ("Đang chờ báo giá dịch vụ cho chung cư; đến khi có báo giá, hệ thống chưa có đơn giá nào có nguồn "
+                   "trích dẫn để tính theo Tần suất x đơn giá.")
 
 
 def _catalogue_vat_rule():
@@ -1424,7 +1426,10 @@ def _recipe_narrative(key, wb, project, demand, year, written):
             f"2/ Mức phí quản lý " + '; '.join(rate_bits) + "\n"
             f"{point3}\n"
             f"{point4}\n"
-            f"=> Chi tiết xem tại trang 'Tỷ lệ lấp đầy cư dân'."
+            f"=> Chi tiết xem tại trang 'Tỷ lệ lấp đầy cư dân'.\n"
+            # K14-a (decision of 2026-10-19, design D9c): this is revenue, and each rate above states its own VAT
+            # basis, so the narrative always ends with the revenue sentence; _append_vat() adds nothing after it.
+            + operating_inputs.entered_rate_year_vi(yr)
         )
         return vi
 
@@ -1481,9 +1486,7 @@ def _recipe_narrative(key, wb, project, demand, year, written):
         payroll_clause = (f"lương gộp dự ước {emh2_value:,.0f} VND"
                           if emh2_value is not None else
                           "lương gộp theo bảng lương thực tế")
-        fee_clause = (f"Phí quản lý cố định của Savills dự ước {emh1:,.0f} VND/năm"
-                     if emh1 else
-                     "Phí quản lý cố định của Savills chưa dự ước — chờ điều khoản hợp đồng")
+        fee_clause = savills_fee.summary_clause_vi(project if emh1 else {}, emh1)
         vi = (
             "Chi phí hạng mục này dự ước bao gồm:\n"
             "- Chi phí quản lý của Công Ty Quản lý bao gồm chi phí thương hiệu, phần mềm, các hỗ "
@@ -2665,27 +2668,25 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # fee), which double-counted against every other cost line and produced a large fake "deficit"
     # (confirmed on Blue Skyline: 6.3bn of a ~7.5bn gap against the real Green Skyline back-test was
     # this one bug). The correct value is a real, negotiated, per-project contract term this
-    # pipeline cannot derive — see Project Info!B34/B35 (build_project_input_form.py's comment).
+    # pipeline cannot derive — see the Project Info fields savills_fee.FIXED_LABEL / PCT_LABEL.
     # Left BLANK, not defaulted to 0 or to the old wrong assumption, until the PM enters one.
-    if project.get('savills_fee_fixed_monthly'):
-        savills_fee_annual = project['savills_fee_fixed_monthly'] * 12
-        write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
-            # Cell reference corrected to B36 (was B34) — the field moved when Gate Count / Number
-            # of Pools were regrouped into their own sections (2026-09-15); this remark had not been
-            # updated to match. Also localized to Vietnamese in the same pass (localize-line-level-
-            # remarks) — this specific remark was not in that change's original 50-code inventory
-            # (it never fires for a project with no Savills contract entered, which every project
-            # scanned for that inventory was), but is the same class of client-facing English text
-            # the change exists to remove, so it is included here rather than left as a gap.
-            f"= Phí cố định thực tế (Project Info!B36) {project['savills_fee_fixed_monthly']:,.0f} "
-            f"VND/tháng x 12 = {savills_fee_annual:,.0f} VND/năm."))
-    elif project.get('savills_fee_pct'):
-        savills_fee_annual = mgmt_fee_annual * project['savills_fee_pct']
-        write_even_monthly('mgmt_fee_expense', savills_fee_annual, remark=(
-            f"= Tỷ lệ phí thực tế (Project Info!B37) {project['savills_fee_pct']:.1%} x TỔNG Doanh "
-            f"thu phí quản lý của mọi sản phẩm đã định giá ở trên (RM.AP/RM.OT/RM.SH/... hàng 14-22) "
-            f"{mgmt_fee_annual:,.0f} = {savills_fee_annual:,.0f} VND/năm."))
-    # else: left blank — no real contract term entered yet (Project Info!B34/B35 both empty).
+    # Group 7 (design D9c): the fixed fee is entered excl. VAT and gets each budget month's VAT (B1-a); the % fee
+    # is a share of the full fee at 100% occupancy (RM + RM.0A), which already includes VAT, so none is added.
+    _fee_basis = savills_fee.basis(project)
+    if _fee_basis:
+        if _fee_basis == savills_fee.FIXED:
+            _fee_bp = project.get('budget_period') or budget_period.default()
+            _fee_vat_text = (f"cộng VAT {_rate_phrase(_fee_bp.months, _general_vat_months(project))} theo từng tháng"
+                             if _ACTIVE_VAT_SENTENCE else "chưa cộng VAT theo mô hình tài chính đã chọn")
+            _fee_months, _fee_remark = savills_fee.fixed_line(project['savills_fee_fixed_monthly'],
+                                                               _vat_factors(project), _fee_vat_text)
+        else:
+            _fee_months, _fee_remark = savills_fee.percent_line(project['savills_fee_pct'], mgmt_fee_annual)
+        if len(set(_fee_months)) == 1:
+            write_even_monthly('mgmt_fee_expense', _fee_months[0] * 12, remark=_fee_remark)
+        else:
+            _write_ramped_row(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], _fee_months, _fee_remark)
+    # else: left blank — no real contract term entered yet (both fields empty).
 
     # ---- Monthly parking revenue (RP1 motorbike, RP2 car — the template subtotals these into RPa).
     # Occupancy-scaled (catalogue): bays x monthly rate x parking fill %(month). Parking fill tracks
@@ -3283,12 +3284,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # is exactly the case nobody had tested. Found by testing this change's own EMH1 translation
     # against a project with Fixed Monthly Fee filled in. Now guarded the same way the fixed-fee/%
     # branch's own condition already is.
-    if not (project.get('savills_fee_fixed_monthly') or project.get('savills_fee_pct')):
-        _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', (
-            "dự án này chưa có điều khoản hợp đồng phí quản lý của Savills (phí cố "
-            "định, điều chỉnh theo CPI, hay theo tỷ lệ NFA). Khi có hợp đồng, sẽ định giá theo căn "
-            "cứ đã xác nhận. Cho đến lúc đó, thặng dư/thâm hụt mà bản giao nộp này thể hiện CHƯA "
-            "bao gồm phí quản lý của chính Savills — không phải con số lợi nhuận thực tế."))
+    if not savills_fee.basis(project):
+        _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', savills_fee.ZERO_REASON_VI)
     _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
         "chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
         "hệ thống. Căn cứ ví dụ theo hướng dẫn lập ngân sách của Savills: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
@@ -3364,8 +3361,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         205: ('ESM13', "No pricing method recorded in Costing_Method_Catalogue.csv."),
         220: ('ESR',   "Section rollup row — no formula or basis stated anywhere this pipeline can "
                         "read."),
-        480: ('ERCS1', "Frequency x unit-cost, but the 'benchmark unit cost' has no real cited "
-                        "source anywhere in this pipeline."),
+        480: ('ERCS1', "Residential service quotes are awaited; until then the 'benchmark unit cost' has "
+                        "no real cited source anywhere in this pipeline (Head of PM decision B7)."),
     }
     # Vietnamese reason for each code above, keyed by code (not row, so the pairing survives a
     # template row-shift and _assert_row_code below still catches a real mismatch). Kept separate
@@ -3410,8 +3407,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         'ESM13': "Chưa có phương pháp định giá được ghi nhận.",
         'ESR':   "Dòng tổng hợp của nhóm — không có công thức hay căn cứ nào được nêu rõ mà hệ "
                  "thống có thể đọc được.",
-        'ERCS1': "Tính theo Tần suất x đơn giá, nhưng 'đơn giá tham chiếu' chưa có nguồn trích dẫn "
-                 "thực tế nào trong hệ thống.",
+        'ERCS1': ERCS1_REASON_VI,
     }
     for _row, (_code, _reason) in _FLAGGED_NO_METHOD.items():
         _found = ws.cell(row=_row, column=_CODE_COL).value
@@ -3471,6 +3467,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         _write_new_prospect_emh3(ws, demand, _period_of(project))
 
     _write_contingency_lines(ws, contingency.FUND_SHEET, project)
+    # BK507/BK511, the parking break-even cells: "N/A" instead of #DIV/0! at parking area 0 (decision B10).
+    breakeven_cells.guard(ws)
 
 
 _FUND_EMH3_ROW = 84

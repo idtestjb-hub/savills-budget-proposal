@@ -3387,6 +3387,21 @@ def build_savills_fee_position_sheet(wb, project, mgmt, summary):
     ws.row_dimensions[r].height = 55
     r += 2
 
+    # Head of PM decision B1-b (change apply-head-of-pm-decisions-2026-10, group 7): the fee the PM entered for EMH1,
+    # beside the profit this sheet computes. Display only — nothing above or below sums these rows.
+    section(ws, r, "SAVILLS' FEE ENTERED ON PROJECT INFO (EMH1) — beside the profit computed above", ncols=5); r += 1
+    import savills_fee
+    for label, value, fmt in savills_fee.analysis_rows(project, MGMT_100) + [
+            ("Computed: Savills' Own Service Fee / Profit, at 100% fill (VND)", f"={summary['profit_cell']}", 'money')]:
+        ws.cell(row=r, column=1, value=label).border = BORDER
+        ws.cell(row=r, column=1).alignment = LEFT
+        c2 = ws.cell(row=r, column=2, value=value)
+        c2.border = BORDER
+        if fmt:
+            c2.number_format = MONEY_FMT if fmt == 'money' else fmt
+        r += 1
+    r += 1
+
     section(ws, r, 'CASH COLLECTED vs. FULL PACKAGE OWED — THE ROLLOVER RECEIVABLE', ncols=6); r += 1
     ws.cell(row=r, column=1,
             value=('Same year path as above. The gap between what the building actually collects and Savills\' '

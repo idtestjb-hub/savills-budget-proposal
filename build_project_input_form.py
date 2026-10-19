@@ -899,7 +899,7 @@ def main(force=False):
         'Budget Planning Agent')
 
     section(ws1, 42, "SAVILLS' MANAGEMENT FEE (EMH1) — leave BOTH blank until this project's real contract terms are known")
-    c_fixed_fee = labeled_input(ws1, 43, 'Fixed Monthly Fee (VND) — leave blank if not fixed-fee', None)
+    c_fixed_fee = labeled_input(ws1, 43, 'Fixed Monthly Fee (VND, excl. VAT) — leave blank if not fixed-fee', None)
     c_fee_pct = labeled_input(ws1, 44, "% of Collected Management Fee — leave blank if not %-based", None, fmt='0.0%')
     fee_comment_text = (
         "Real, negotiated per-project contract terms — cannot be derived or assumed. Blank means "
@@ -907,9 +907,10 @@ def main(force=False):
         "blank on the real template rather than defaulting to the wrong assumption this pipeline "
         "used before 2026-08-28 (Savills keeping 100% of the collected management fee, which "
         "double-counts against the real staff/OPEX/Capex costs the fee is meant to cover). Fill in "
-        "ONE of these two fields once the real contract is known — a fixed VND/month amount (e.g. "
-        "Green Skyline's real 88,000,000/month), or a % of the collected management fee — never "
-        "both at once.")
+        "ONE of these two fields once the real contract is known — a fixed VND/month amount EXCLUDING "
+        "VAT (the generator adds each budget month's VAT; e.g. Green Skyline's real 88,000,000/month), "
+        "or a % of the full management fee (residents plus the developer's top-up, already incl. VAT, "
+        "so no VAT is added) — never both at once.")
     # Two separate Comment instances, not one shared object — openpyxl comments track their own
     # per-cell state, and reusing a single instance across cells risks corrupting the saved file.
     c_fixed_fee.comment = Comment(fee_comment_text, 'Budget Planning Agent')
