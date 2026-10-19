@@ -102,11 +102,52 @@ def _worker(run_id):
             _active['id'] = None
 
 
-def _public(run_id, since=0):
+# Vai trò do reverse proxy gắn vào yêu cầu (tiêu đề X-Hub-Role). Proxy xoá tiêu đề trình duyệt tự gửi và gắn
+# `viewer` cho tài khoản chỉ được xem; owner và yêu cầu từ loopback không có tiêu đề. Viewer chỉ thấy và tải được
+# bản giao khách; hai file nội bộ vẫn được sinh đủ trong thư mục chạy, chỉ bị ẩn khỏi danh sách và chặn tải.
+ROLE_HEADER = 'X-Hub-Role'
+ROLE_VIEWER = 'viewer'
+VIEWER_KINDS = {'deliverable'}
+_INTERNAL_LOG_MARKERS = ('[2/2]', 'generate_project_output', 'Internal analysis', '  analysis ', '  roster ')
+
+
+def role_of(request):
+    """'viewer' khi tiêu đề X-Hub-Role (không phân biệt hoa thường) là viewer; None khi vắng hoặc giá trị khác."""
+    value = (request.headers.get(ROLE_HEADER) or '').strip().lower()
+    return ROLE_VIEWER if value == ROLE_VIEWER else None
+
+
+def visible_outputs(outputs, role):
+    """Danh sách file người có vai trò `role` được thấy: viewer chỉ bản giao khách; ai khác đủ 3 file."""
+    if role == ROLE_VIEWER:
+        return [o for o in outputs if o['kind'] in VIEWER_KINDS]
+    return list(outputs)
+
+
+def may_download(run, name, role):
+    """Viewer chỉ tải được file có trong danh sách của mình; ai khác tải mọi file trong thư mục chạy."""
+    if role != ROLE_VIEWER:
+        return True
+    return any(o['name'] == name for o in visible_outputs(run['outputs'], role))
+
+
+def visible_log(lines, outputs, role):
+    """Log cho viewer: bỏ các dòng nêu tên hoặc đường dẫn của file bị ẩn và tiến trình của bước phân tích nội bộ."""
+    if role != ROLE_VIEWER:
+        return list(lines)
+    hidden = [o['name'] for o in outputs if o['kind'] not in VIEWER_KINDS] + ['Project_Budget_Output.xlsx',
+                                                                            'Roster_Demand_Model.xlsx']
+    return [ln for ln in lines
+            if not any(h in ln for h in hidden) and not any(m in ln for m in _INTERNAL_LOG_MARKERS)]
+
+
+def _public(run_id, since=0, role=None):
     run = _runs[run_id]
+    # `since` đếm trên log đầy đủ để trang không nhận trùng dòng; chỉ phần trả về được lọc theo vai trò.
     return dict(id=run_id, status=run['status'], rc=run['rc'], started=run['started'],
                 finished=run['finished'], workdir=run['workdir'],
-                log=run['log'][since:], log_total=len(run['log']), outputs=run['outputs'])
+                log=visible_log(run['log'][since:], run['outputs'], role), log_total=len(run['log']),
+                outputs=visible_outputs(run['outputs'], role))
 
 
 def _page(name, **fields):
@@ -207,7 +248,7 @@ def defaults(user=Depends(require_user)):
 
 
 @router.post('/api/runs')
-def start_run(values: dict, user=Depends(require_user)):
+def start_run(request: Request, values: dict, user=Depends(require_user)):
     with _lock:
         if _active['id']:
             raise HTTPException(409, 'Đang có một lượt tạo ngân sách chạy. Chờ xong rồi bấm lại.')
@@ -229,22 +270,25 @@ def start_run(values: dict, user=Depends(require_user)):
         _active['id'] = run_id
     _log(f'run {run_id} started for project {name!r} by {user.get("email") or user.get("name")}')
     threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
-    return _public(run_id)
+    return _public(run_id, role=role_of(request))
 
 
 @router.get('/api/runs/{run_id}')
-def get_run(run_id: str, since: int = 0, user=Depends(require_user)):
+def get_run(request: Request, run_id: str, since: int = 0, user=Depends(require_user)):
     if run_id not in _runs:
         raise HTTPException(404, 'Không có lượt chạy này.')
-    return _public(run_id, since)
+    return _public(run_id, since, role_of(request))
 
 
 @router.get('/api/runs/{run_id}/files/{name}')
-def get_file(run_id: str, name: str, user=Depends(require_user)):
+def get_file(request: Request, run_id: str, name: str, user=Depends(require_user)):
     if run_id not in _runs:
         raise HTTPException(404, 'Không có lượt chạy này.')
     if os.sep in name or '/' in name or '..' in name:
         raise HTTPException(400, 'Tên file không hợp lệ.')
+    if not may_download(_runs[run_id], name, role_of(request)):
+        _log(f'download refused for viewer: {run_id}/{name}')
+        raise HTTPException(403, 'Tài khoản của bạn chỉ được tải bản giao khách.')
     path = os.path.join(_runs[run_id]['workdir'], name)
     if not os.path.isfile(path):
         raise HTTPException(404, 'File không tồn tại.')

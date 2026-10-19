@@ -25,6 +25,14 @@ Rồi mở <http://127.0.0.1:8090/budget/> (chạy thử trên máy cá nhân: �
 Log ra stdout/stderr (uvicorn access log + một dòng `budget-web:` khi bắt đầu và kết thúc mỗi lượt, khi đăng nhập
 thành công hoặc bị từ chối).
 
+## Vai trò viewer (tiêu đề `X-Hub-Role` do reverse proxy gắn)
+
+Reverse proxy xoá mọi tiêu đề `X-Hub-Role` trình duyệt tự gửi, rồi gắn `X-Hub-Role: viewer` cho tài khoản chỉ được
+xem. Với tiêu đề đó (không phân biệt hoa thường) lượt chạy chỉ trả và cho tải **bản giao khách**: hai file nội bộ
+(bản phân tích, lịch trực) bị ẩn khỏi `outputs`, bị bỏ khỏi log hiển thị, và `files/<tên>` trả 403 dù đoán đúng
+tên. Vắng tiêu đề hoặc giá trị khác: đủ 3 file. Thư mục chạy vẫn luôn có đủ 3 file. Hàm: `role_of`,
+`visible_outputs`, `may_download`, `visible_log` trong `server.py`; test `tests/test_webapp_roles.py`.
+
 ## Đăng nhập SSO (Microsoft Entra ID)
 
 Mặc định (`BUDGET_WEB_AUTH=sso`) trang đòi đăng nhập bằng tài khoản Microsoft của Savills và chỉ cho những email
