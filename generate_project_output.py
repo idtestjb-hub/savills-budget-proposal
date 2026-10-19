@@ -426,7 +426,8 @@ def build_management_fee_sheet(wb, project):
                 derived_rate=apt_rate, top2=rates['comparables'], rate_note=apt_note, own_real=own_real,
                 vat_pct=rates.get('vat_pct'), vat_flags=rates.get('vat_flags') or {},
                 apartment_entered=rates.get('apartment_entered'),
-                apartment_comparable_rate=rates.get('apartment_comparable_rate'))
+                apartment_comparable_rate=rates.get('apartment_comparable_rate'),
+                apartment_rates_on_basis=rates.get('apartment_rates_on_basis'))
 
 
 # ============================================================================================
@@ -476,7 +477,8 @@ def build_comparison_sheet(wb, project, mgmt):
 
     section(ws, r, 'APARTMENT MANAGEMENT FEE RATE', ncols=4); r += 1
     r = data_row(r, 'Real Apartment rate per comparable (VND/m²/month)',
-                 ['—'] + [f"{c['rates']['Apartment']:,} ({c['mgmt_rate_vat']})" for c in top2])
+                 ['—'] + [f"{c['rates']['Apartment']:,} ({c['mgmt_rate_vat']})"
+                          if (c.get('rates') or {}).get('Apartment') else 'BLANK (no real rate)' for c in top2])
     _entered = mgmt.get('apartment_entered')
     if _entered:
         # P1: the comparables and the rate they give stay for reference; the applied rate is the PM's.
@@ -508,6 +510,52 @@ def build_comparison_sheet(wb, project, mgmt):
         r = data_row(r, 'Gap (derived − real)', [f'{gap:+,} VND  ({gap/own_real["rates"]["Apartment"]*100:+.0f}%)', '', ''], fill=HIGHLIGHT_FILL)
     else:
         r = data_row(r, 'Reality check', ['Not applicable — new prospect, no independently known real rate', '', ''])
+    r += 1
+
+    # ---- PEER BENCHMARK (change apply-head-of-pm-decisions-2026-10, D14): the peer columns the client
+    # deliverable's Comparison sheet no longer carries. Same comparables, same order as the rate above.
+    # The deliverable shows this project's column and a verdict that names no reference project. ----
+    from generate_project_budget import _benchmark_fee_clause
+    section(ws, r, 'PEER BENCHMARK — internal only; the client Comparison sheet names no reference project', ncols=4); r += 1
+    apt_nfa = project.get('apartment_nfa') or 0
+    apt_units = project.get('apartment_units') or 0
+    # On the basis the rate was averaged on (excl.-VAT rates converted, group 4), not as quoted.
+    comp_rates = mgmt.get('apartment_rates_on_basis') or [(c.get('rates') or {}).get('Apartment') for c in top2]
+    if mgmt.get('vat_pct') is not None:
+        r = data_row(r, 'Real Apartment rate on one VAT basis (VND/m²/month)',
+                     ['—'] + [f'{x:,.0f}' if x else '—' for x in comp_rates])
+    if apt_nfa and apt_units:
+        comp_fpa = [f"{round(cr * c['nfa'] / c['units']):,}  (approx, upper bound)" if (cr and c.get('units'))
+                    else '— (no rate or unit count on file)' for c, cr in zip(top2, comp_rates)]
+        r = data_row(r, 'Management fee per apartment (VND/month)',
+                     [f'{round(derived_rate * apt_nfa / apt_units):,}'] + comp_fpa)
+        r = data_row(r, 'How fee per apartment is computed',
+                     [f"This project: rate × {apt_nfa / apt_units:,.0f} m² average apartment NFA (apartment NFA ÷ "
+                      f"apartment units). Comparables: real Apartment rate × (Total building NFA ÷ apartment units) — "
+                      f"apartment-only area is not on file, so this is an approximation and an upper bound.", '', ''])
+    else:
+        r = data_row(r, 'Management fee per apartment (VND/month)', ['— (this project has no apartments)', '', ''])
+    _rev = f"'Management Fee'!{mgmt['annual_revenue_cell']}"
+    proj = []
+    for cr in comp_rates:
+        if cr and apt_nfa:
+            d = round(apt_nfa * (cr - derived_rate) * 12)
+            proj.append(f"={_rev}" + (f"+{d}" if d > 0 else (f"-{abs(d)}" if d < 0 else "")))
+        else:
+            proj.append('—')
+    _rev_row = r
+    r = data_row(r, 'Year-1 management-fee revenue (VND)', [f"={_rev}"] + proj)
+    for col in range(2, 3 + len(top2)):
+        ws.cell(row=_rev_row, column=col).number_format = MONEY_FMT
+    r = data_row(r, 'Revenue columns per comparable',
+                 ["A PROJECTION: this project's annual management-fee revenue (Management Fee sheet) with only the "
+                  "Apartment lines re-priced at that comparable's Apartment rate — not that comparable's own revenue.",
+                  '', ''])
+    _have = [x for x in comp_rates if x]
+    r = data_row(r, 'Range of the comparables\' real Apartment rates, one VAT basis (VND/m²/month)',
+                 [f'{min(_have):,.0f} – {max(_have):,.0f}' if _have else '— (no comparable rate)', '', ''])
+    r = data_row(r, 'Verdict wording on the client sheet (fee part)',
+                 [_benchmark_fee_clause(derived_rate, comp_rates, entered=bool(_entered)), '', ''])
     r += 1
 
     section(ws, r, f'SERVICE RATES ({RATE_CARD_SOURCE})', ncols=4); r += 1

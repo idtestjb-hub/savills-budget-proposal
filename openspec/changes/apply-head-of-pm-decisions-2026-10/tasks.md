@@ -133,13 +133,13 @@ A/B movements (design D16).
 
 ## 9. Client wording and the Comparison sheet (D3)
 
-- [ ] 9.1 Give each GPB site that names a source project client wording ("dự án tham chiếu"), without editing the
+- [x] 9.1 Give each GPB site that names a source project client wording ("dự án tham chiếu"), without editing the
   shared strings the analysis uses. Overwrite the fill-up sheets' template names with neutral text and add them to the
   form-owner list. Verify that the internal analysis still names the projects.
-- [ ] 9.2 Split the `Comparison` sheet: the deliverable keeps this project's figures and a verdict without peer
+- [x] 9.2 Split the `Comparison` sheet: the deliverable keeps this project's figures and a verdict without peer
   figures; the peer columns move to the analysis. Update `check_benchmark_reconciles`, `EXPECTED_SHEETS` and the
   `_benchmark_fee_clause` tests. Verify that the benchmark reconciliation passes.
-- [ ] 9.3 Extend `scan_internal_wording` with the data-built name list and formula text, excluding the project's own
+- [x] 9.3 Extend `scan_internal_wording` with the data-built name list and formula text, excluding the project's own
   name. Verify that it passes on every sample and fails on a planted name in a formula.
 
 ## 10. Close

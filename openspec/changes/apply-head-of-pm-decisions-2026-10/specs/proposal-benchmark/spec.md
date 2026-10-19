@@ -66,17 +66,19 @@ property ratios and is therefore not an independent second opinion.
 The proposal benchmark SHALL end with a single plain-language line that a non-technical reader can act on. It SHALL
 state whether the proposed management fee sits inside, below, or above the range set by the reference projects, without
 naming them or quoting their rates, and whether year-one operating income covers year-one operating cost (before
-Savills' fee).
+Savills' fee). The position is measured on the Apartment rate in VND per m² per month, not on the fee per apartment:
+a comparable's fee per apartment is only an upper-bound approximation, and a project without apartments has none (user,
+2026-10-19).
 
 #### Scenario: The proposed fee is inside the comparable range
 
-- **WHEN** this project's fee per apartment is between the lowest and highest comparable fee per apartment
+- **WHEN** this project's Apartment rate is between the lowest and highest comparable real Apartment rate
 - **THEN** the verdict line SHALL state that the proposed fee is within the range of the reference projects
 - **AND** SHALL NOT quote the range's end points
 
 #### Scenario: The proposed fee is outside the comparable range
 
-- **WHEN** this project's fee per apartment is below the lowest, or above the highest, comparable fee per apartment
+- **WHEN** this project's Apartment rate is below the lowest, or above the highest, comparable real Apartment rate
 - **THEN** the verdict line SHALL state that, and by how much in percentage terms, so a PM can decide whether to adjust
   before the proposal goes out
 

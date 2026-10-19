@@ -750,6 +750,9 @@ def resolve_product_rates(project, vat_table=None):
                                  of the budget period's first month), and {product: [comparable names used that are
                                  not in Ref_ComparableVATBasis.csv]}, which are treated as including VAT. A rate the
                                  PM entered is never converted.
+      apartment_rates_on_basis   (group 9) each of `comparables`' real Apartment rate on the basis the average used
+                                 (excl.-VAT rates converted as above), None where it has none; the benchmark verdict
+                                 and the peer projections compare against these, not the rates as quoted.
     Raises ValueError when no comparable has any management-fee rate."""
     loc = dict(input_district=project.get('district'), input_city=project.get('city'))
     bp = project.get('budget_period')
@@ -800,5 +803,7 @@ def resolve_product_rates(project, vat_table=None):
                 apartment_source=apt_source, comparables=comparables, rate_note=rate_note,
                 all_ranked=all_ranked, products=products, apartment_comparable_rate=apt_comparable_rate,
                 apartment_entered=apt_entered, vat_pct=vat['pct'],
+                apartment_rates_on_basis=[_on_incl_vat(vat, c, 'Apartment', r) if r else None
+                                          for c in comparables for r in [(c.get('rates') or {}).get('Apartment')]],
                 vat_flags=vat_flags_for(vat, {**{'Apartment': apt_used if apt_source == 'comparable' else comparables},
                                               **{k: v['used'] for k, v in products.items() if k != 'Apartment'}}))

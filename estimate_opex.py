@@ -253,6 +253,15 @@ def _pool_salt(pool_volume_m3, ak_flat_monthly):
                     f"{ak_flat_monthly / (POOL_SALT_KG_PER_M3_MONTH * POOL_SALT_PRICE_PER_KG):,.0f} m³."),
             source=(f"Số liệu thực tế của A&K Tower (tham chiếu cố định, KHÔNG tính theo NFA): "
                     f"{ak_flat_monthly:,.0f} VND/tháng."),
+            # The client deliverable's wording names no project (change apply-head-of-pm-decisions-2026-10, D13);
+            # the analysis keeps `method` / `source`.
+            method_client=(f"DỰ PHÒNG — chưa biết thể tích hồ bơi của dự án này, nên đây là số liệu cố định "
+                           f"thực tế của một dự án tham chiếu và KHÔNG thay đổi theo quy mô hồ bơi. Có phương pháp "
+                           f"tính theo thể tích: nhập Thể tích hồ bơi (m³) tại Project Info để áp dụng. Số liệu cố "
+                           f"định này tương ứng với một hồ bơi có thể tích khoảng "
+                           f"{ak_flat_monthly / (POOL_SALT_KG_PER_M3_MONTH * POOL_SALT_PRICE_PER_KG):,.0f} m³."),
+            source_client=(f"Số liệu thực tế của dự án tham chiếu (tham chiếu cố định, KHÔNG tính theo NFA): "
+                           f"{ak_flat_monthly:,.0f} VND/tháng."),
             reference_only=None, pool_volume_m3=None,
         )
     monthly = volume * POOL_SALT_KG_PER_M3_MONTH * POOL_SALT_PRICE_PER_KG
@@ -274,6 +283,16 @@ def _pool_salt(pool_volume_m3, ak_flat_monthly):
                 f"lít/năm cho hồ 440 m³ nhưng không có đơn giá. Để so sánh, số liệu cố định của A&K "
                 f"Tower mà phương pháp này thay thế là {ak_flat_monthly:,.0f} VND/tháng, theo hồ bơi "
                 f"thực tế của A&K."),
+        source_client=(f"Phương pháp và đơn giá theo đúng tiêu chuẩn định giá riêng của Savills cho hạng mục "
+                       f"này: hồ bơi điện phân muối duy trì ở mức {POOL_SALT_PPM:,} ppm tiêu thụ "
+                       f"{POOL_SALT_KG_RANGE[0]}-{POOL_SALT_KG_RANGE[1]} kg/m³/tháng với đơn giá "
+                       f"{POOL_SALT_PRICE_PER_KG:,} VND/kg. {POOL_SALT_KG_PER_M3_MONTH} kg là điểm giữa của "
+                       f"khoảng này, nên biên độ trung thực cho dự án này là {low * 12:,.0f} đến "
+                       f"{high * 12:,.0f} VND/năm — mức tiêu thụ thực tế phụ thuộc vào lượng người sử dụng, "
+                       f"tần suất xả rửa lọc và độ pha loãng do mưa, không có yếu tố nào trong số này được "
+                       f"thu thập làm đầu vào. Axit KHÔNG được tính vào đây: tiêu chuẩn nêu khoảng 60 "
+                       f"lít/năm cho hồ 440 m³ nhưng không có đơn giá. Để so sánh, số liệu cố định của dự án "
+                       f"tham chiếu mà phương pháp này thay thế là {ak_flat_monthly:,.0f} VND/tháng."),
         reference_only=None,
         pool_volume_m3=volume,
     )
