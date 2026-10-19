@@ -94,7 +94,8 @@ on the internal sheet.
 The range SHALL price these codes on `2. Budget-Management Fund`, in both project modes:
 - `EMB4` (operation audit), `ESS12` (pest control), `ESC5` (Tết decoration);
 - `ESS7` (façade cleaning), only when the input has at least one tower ("Tower Count" ≥ 1);
-- `ESS23` (outsourced pool staff), only when the input says the project has a swimming pool;
+- `ESS23` (outsourced pool staff), only when the input says the project has a swimming pool and the roster
+  employs no pool staff in-house;
 - `ESC1` (events) and `ESC2` (fire drill), as a flagged stand-in for the guideline's count × price per event.
 
 The figure SHALL be: median (VND per m² per month, 2027 prices, excluding VAT) × the project's fee-paying NFA × 12
@@ -110,6 +111,21 @@ A figure the tool already gets from the input or another source SHALL NOT be rep
 
 - **WHEN** the input says "Has Swimming Pool? = No"
 - **THEN** `ESS23` SHALL stay at 0 with its existing reason
+
+#### Scenario: Pool staff already on the roster
+
+- **WHEN** the project has a pool and its Staffing Demand has an in-house pool attendant
+- **THEN** `ESS23` SHALL stay at 0, and its reason SHALL say the pool staff are already on `A1. Staff Cost`
+
+#### Scenario: Staff cost carried as one approved lump
+
+- **WHEN** an Existing project with a pool has its staff cost as one approved lump and no A1 position rows
+- **THEN** `ESS23` SHALL stay at 0, and its reason SHALL say the approved lump may already include pool staff
+
+#### Scenario: The input name carries a trailing note
+
+- **WHEN** the input names the project "X (REBUILT AS NEW PROSPECT)" and the data file holds project X
+- **THEN** X's entry SHALL be left out as the project itself
 
 #### Scenario: A low-rise project
 

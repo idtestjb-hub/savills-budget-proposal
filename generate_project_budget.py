@@ -55,6 +55,7 @@ import operating_inputs
 import contingency
 import savills_fee
 import breakeven_cells
+import real_budget_ranges
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -2116,6 +2117,74 @@ def utilities_result(project, budget_year, incl_vat):
                                       months=period.months if period is not None else None)
 
 
+# Change use-real-budget-ranges: Required lines with no other price, priced from the range of real Savills budgets
+# (real_budget_ranges.py). Rows on '2. Budget-Management Fund', checked against column Y before any write.
+REAL_BUDGET_RANGE_ROWS = {'EMB4': 118, 'ESC1': 134, 'ESC2': 135, 'ESC5': 138, 'ESS7': 151, 'ESS12': 156,
+                          'ESS23': 167}
+
+
+def _inhouse_pool_staff(demand):
+    """Pool staff the roster employs in-house (A1. Staff Cost). ESS23, outsourced pool staff, is priced only
+    when there are none (user's rule, 2026-10-19)."""
+    return sum(_eff_headcount(d) for d in demand or ()
+               if 'pool' in str(d.get('Position', '')).lower() and not _is_outsourced(str(d['Position'])))
+
+
+def real_budget_range_results(project, demand, incl_vat, staff_lump=False):
+    """{code: RangeResult} for every code real_budget_ranges prices or cross-checks, on this project: its name and
+    fee-paying NFA (to leave it out of its own range), pool, towers, in-house pool staff, and the VAT of each
+    budget month (none when `incl_vat` is False, the KHOÁN model). `staff_lump`: an Existing project whose staff cost
+    is one approved lump (no A1 rows), so ESS23 stays at 0 (user's rule, 2026-10-19). Shared by the deliverable and
+    the analysis sheet, so both carry the same figures."""
+    bp = project.get('budget_period') or budget_period.default()
+    rates = _general_vat_months(project)
+    factors = [1 + r / 100 for r in rates] if incl_vat else [1.0] * 12
+    clause = (f"cộng VAT {_rate_phrase(bp.months, rates)} theo từng tháng" if incl_vat
+              else "chưa cộng VAT theo mô hình tài chính đã chọn")
+    return real_budget_ranges.price_all(
+        real_budget_ranges.load_values(), nfa=project['total_nfa'], vat_rate=rates[0] / 100,
+        vat_inclusive=incl_vat, budget_year=bp.start_year, self_name=project['name'],
+        has_pool=project.get('has_pool'), tower_count=project.get('towers'),
+        inhouse_pool_staff=_inhouse_pool_staff(demand), staff_lump=staff_lump, vat_factors=factors, vat_clause=clause)
+
+
+def _staff_is_lump(existing):
+    """True for an Existing project whose staff cost is one approved lump: A1 carries no position rows."""
+    return bool(existing) and existing.lines['EMH2'].kind == 'lump'
+
+
+def _row_has_figure(ws, row):
+    """True when another writer already put a figure on this fund row (F or a month in H:S)."""
+    return any(isinstance(ws.cell(row=row, column=c).value, (int, float)) and ws.cell(row=row, column=c).value
+               or (isinstance(ws.cell(row=row, column=c).value, str)
+                   and ws.cell(row=row, column=c).value.startswith('='))
+               for c in (6, *range(8, 20)))
+
+
+def _write_real_budget_range_lines(ws, project, demand, existing=None):
+    """Write each REAL_BUDGET_RANGE_ROWS code from its real-budget range: the twelve months and the Vietnamese
+    remark when the range is usable, else 0 with the reason (no pool, no tower, in-house pool staff, fewer than 10
+    projects, no values file). A row another writer already priced is left alone. Returns the codes written, for
+    the _FLAGGED_NO_METHOD loop to skip."""
+    _assert_leaf_rows(ws, '2. Budget-Management Fund', REAL_BUDGET_RANGE_ROWS,
+                      {c: c for c in REAL_BUDGET_RANGE_ROWS})
+    results = real_budget_range_results(project, demand, bool(_ACTIVE_VAT_SENTENCE), staff_lump=_staff_is_lump(existing))
+    done = set()
+    for code, row in REAL_BUDGET_RANGE_ROWS.items():
+        if _row_has_figure(ws, row):
+            continue
+        res = results[code]
+        if res.usable:
+            if len(set(res.months)) == 1:
+                _write_even_monthly_row(ws, row, sum(res.months), res.remark)
+            else:
+                _write_ramped_row(ws, row, res.months, res.remark)
+        else:
+            _write_zero_reason(ws, row, code, res.reason.removeprefix('Để 0: '))
+        done.add(code)
+    return done
+
+
 def template_vat_inclusive():
     """True unless the template's VAT switch ('2. Budget-Management Fund'!F7) reads KHOÁN — the same
     reading build_budget() makes, for generate_project_output.py's Utility Bridge."""
@@ -3469,6 +3538,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                  "thống có thể đọc được.",
         'ERCS1': ERCS1_REASON_VI,
     }
+    # Change use-real-budget-ranges: EMB4, ESC1, ESC2, ESC5, ESS7, ESS12, ESS23 from the real-budget range, or 0
+    # with the range's own reason; those codes skip the generic no-method reason below.
+    _range_codes = _write_real_budget_range_lines(ws, project, demand, existing)
     for _row, (_code, _reason) in _FLAGGED_NO_METHOD.items():
         _found = ws.cell(row=_row, column=_CODE_COL).value
         _found = _found.strip() if isinstance(_found, str) else _found
@@ -3478,6 +3550,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                 f"but carries {_found!r} — re-verify _FLAGGED_NO_METHOD against the current "
                 f"template rather than adjusting this check."
             )
+        if _code in _range_codes:
+            continue
         if _code == 'EMH3' and _existing_emh3_priced(existing):
             continue    # priced in Existing-project mode (_write_existing_staff_lines)
         if _code == 'EMH3' and not existing:

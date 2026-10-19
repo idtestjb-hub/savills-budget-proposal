@@ -76,6 +76,7 @@ EXPECTED_SHEETS = {
         'Year 1 Strategy',
         'Owner Operating Position',
         'Savills Fee Position',
+        'Real-Budget Ranges',
         'Service Levels',
     ],
     'roster': [
@@ -3025,6 +3026,167 @@ def check_service_levels(paths, input_path, names_list=None):
         notes.append('name scan skipped: the names list from the build step is not on this PC '
                      f'({names_path}); set SERVICE_LEVEL_NAMES to run it')
     _ = hashlib  # the key function lives in service_levels; kept importable here for a manual check
+    return not differences, rows, differences, notes
+
+
+_REAL_BUDGET_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07',
+                                          'final_v2', 'real_budget_ranges_names.txt')
+
+
+def read_real_budget_ranges_sheet(analysis_path):
+    """The 'Real-Budget Ranges' sheet as (info {label: value}, summary [{header: value}], used {code: [ids]}),
+    or None when the sheet is absent."""
+    import openpyxl
+    import real_budget_ranges as rbr
+    from generate_project_output import RBR_HEADERS
+    wb = openpyxl.load_workbook(analysis_path, read_only=True, data_only=True)
+    try:
+        if rbr.SHEET_NAME not in wb.sheetnames:
+            return None
+        table = [tuple(r) for r in wb[rbr.SHEET_NAME].iter_rows(values_only=True)]
+    finally:
+        wb.close()
+    info, summary, used = {}, [], {}
+    hdr = next(i for i, r in enumerate(table) if r and r[0] == RBR_HEADERS[0] and r[1] == RBR_HEADERS[1])
+    for r in table[3:hdr]:
+        if r and r[0]:
+            info[str(r[0]).strip()] = r[1]
+    for r in table[hdr + 1:]:
+        if not r or not r[0]:
+            break
+        summary.append(dict(zip(RBR_HEADERS, r)))
+    code = None
+    for r in table[hdr + len(summary) + 1:]:
+        first = str(r[0] or '') if r else ''
+        if ' — ' in first and first.endswith('every project with a value'):
+            code = first.split(' — ')[0].strip()
+            used[code] = []
+        elif code and re.fullmatch(r'P\d{3,}', first) and r[5] == 'used':
+            used[code].append(first)
+    return info, summary, used
+
+
+def name_leaks(names_path, data_paths):
+    """(names scanned, ['<file> row <i>', ...]): the rows of the data files holding any name of the names list
+    (one per line, compared NFC, case-folded, letters and digits only; names under 4 characters are skipped)."""
+    import csv
+
+    def norm(x):
+        return ''.join(ch for ch in unicodedata.normalize('NFC', str(x or '')).casefold() if ch.isalnum())
+    with open(names_path, encoding='utf-8') as fh:
+        tokens = {norm(line) for line in fh if len(norm(line)) >= 4}
+    leaked = []
+    for path in data_paths:
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding='utf-8-sig', newline='') as fh:
+            for i, r in enumerate(csv.reader(fh)):
+                if any(norm(c) and any(t in norm(c) for t in tokens) for c in r):
+                    leaked.append(f'{os.path.basename(path)} row {i}')
+    return len(tokens), leaked
+
+
+def real_budget_ranges_problems(info, summary, used, fund_sums, values_rows):
+    """Pure check of the 'Real-Budget Ranges' sheet against the deliverable (spec budget-workflow-verification).
+    fund_sums is {code: the sum of its twelve month cells on '2. Budget-Management Fund'}; values_rows is
+    real_budget_ranges.load_values(). Returns [(label, message)] for every problem; [] when the sheet ties."""
+    import real_budget_ranges as rbr
+    probs = []
+    name, nfa = info.get('Project'), info.get('Fee-paying NFA (m²)')
+    keys = rbr.self_keys(name)
+    by_id = {}
+    for x in values_rows or []:
+        by_id.setdefault(x['project_id'], x)
+    for s in summary:
+        code, role = s['Code'], s['Role']
+        if role == 'Cross-check':
+            if s['Written to the deliverable (VND/year)'] not in (None, ''):
+                probs.append((code, 'a cross-check code carries a figure written to the deliverable'))
+            continue
+        sheet = float(s['Written to the deliverable (VND/year)'] or 0)
+        got = float(fund_sums.get(code) or 0)
+        if abs(sheet - got) > 0.5:
+            probs.append((code, f'Real-Budget Ranges {sheet:,.0f} vs 2. Budget-Management Fund {got:,.0f}'))
+        if sheet and (s['Projects used'] or 0) < rbr.MIN_PROJECTS:
+            probs.append((code, f"priced from {s['Projects used']} projects, under the floor of {rbr.MIN_PROJECTS}"))
+        if len(used.get(code, [])) != (s['Projects used'] or 0):
+            probs.append((code, f"{len(used.get(code, []))} ids marked used vs {s['Projects used']} in the summary"))
+        for pid in used.get(code, []):
+            x = by_id.get(pid)
+            if x and rbr.is_self(x, keys, nfa):
+                probs.append((code, f'{pid} is the project itself but is among the values used'))
+    return probs
+
+
+def check_real_budget_ranges(paths, names_list=None):
+    """The 'Real-Budget Ranges' sheet (change use-real-budget-ranges, spec budget-workflow-verification):
+      - the analysis carries it and the client deliverable does not;
+      - every priced code's figure on the sheet equals the sum of its twelve months on '2. Budget-Management
+        Fund', and a cross-check code writes nothing;
+      - a priced code uses at least 10 projects, and none of them is the project itself (name or NFA within 0.5%);
+      - a negative probe: the same check on the deliverable with ESS12 1,000 VND off fails and names ESS12;
+      - the values file and its README carry no store project or file name (names list kept outside the
+        repository; absent on this PC -> noted, not failed).
+    Returns (ok, rows, differences, notes)."""
+    import csv
+    import sys
+    import unicodedata
+
+    import openpyxl
+
+    _src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _src not in sys.path:
+        sys.path.insert(0, _src)
+    import real_budget_ranges as rbr
+
+    rows, differences, notes = [], [], []
+
+    def check(label, ok, msg=''):
+        rows.append((label, 'ok' if ok else f'FAIL — {msg}'))
+        if not ok:
+            differences.append((label, msg))
+
+    check('client deliverable carries no Real-Budget Ranges sheet',
+          rbr.SHEET_NAME not in _sheet_names(paths['deliverable']), 'present')
+    got = read_real_budget_ranges_sheet(paths['analysis'])
+    if got is None:
+        check('Real-Budget Ranges sheet in the analysis workbook', False, 'absent')
+        return False, rows, differences, notes
+    info, summary, used = got
+    check('every code in scope on the sheet', [s['Code'] for s in summary] == list(rbr.ALL_CODES),
+          f"found {[s['Code'] for s in summary]}")
+
+    wb = openpyxl.load_workbook(paths['deliverable'], read_only=True, data_only=False)
+    try:
+        fund_sums = {}
+        for r in wb['2. Budget-Management Fund'].iter_rows(min_row=79, max_row=494, max_col=25, values_only=True):
+            code = str(r[24] or '').strip()
+            if code in rbr.ALL_CODES:
+                fund_sums[code] = sum(v for v in r[7:19] if isinstance(v, (int, float)))
+    finally:
+        wb.close()
+    values_rows = rbr.load_values()
+    probs = real_budget_ranges_problems(info, summary, used, fund_sums, values_rows)
+    for code, msg in probs:
+        check(f'{code} ties, floor and leave-one-out', False, msg)
+    priced = [s['Code'] for s in summary if s['Role'] != 'Cross-check' and s['Written to the deliverable (VND/year)']]
+    check(f'{len(priced)} priced code(s) tie to the deliverable, use 10+ projects, leave the project out', not probs,
+          f'{len(probs)} problem(s)')
+    probe = dict(fund_sums, ESS12=(fund_sums.get('ESS12') or 0) + 1000)
+    caught = [p for p in real_budget_ranges_problems(info, summary, used, probe, values_rows) if p[0] == 'ESS12']
+    check('negative probe: ESS12 1,000 VND off fails and names ESS12', bool(caught), 'not caught')
+    notes.append('Real-Budget Ranges: ' + ', '.join(
+        f"{s['Code']} {float(s['Written to the deliverable (VND/year)'] or 0):,.0f}" for s in summary
+        if s['Role'] != 'Cross-check'))
+
+    names_path = names_list or os.environ.get('REAL_BUDGET_NAMES') or _REAL_BUDGET_NAMES_DEFAULT
+    if os.path.exists(names_path) and os.path.exists(rbr.VALUES_CSV):
+        n_names, leaked = name_leaks(names_path, (rbr.VALUES_CSV, os.path.join(rbr.DATA_DIR, 'README.txt')))
+        check(f'no store project or file name in the values file ({n_names} names scanned)', not leaked,
+              '; '.join(leaked[:5]))
+    else:
+        notes.append('real-budget name scan skipped: the names list from the build step is not on this PC '
+                     f'({names_path}); set REAL_BUDGET_NAMES to run it')
     return not differences, rows, differences, notes
 
 

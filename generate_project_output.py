@@ -4023,6 +4023,164 @@ def build_service_levels_sheet(wb, project, demand):
     return ws
 
 
+RBR_HEADERS = ['Code', 'Line', 'Role', 'Projects with a value', 'Projects at 0 or blank', 'Projects used',
+               'Left out: the project itself', 'Left out: outliers', 'P25 (VND/m²/month)', 'Median (VND/m²/month)',
+               'P75 (VND/m²/month)', 'Median x NFA x 12, excl. VAT (VND/year)', 'Written to the deliverable (VND/year)',
+               "Tool's own figure, excl. VAT (VND/year)", 'Reason / note']
+RBR_NFA_LABEL = 'Fee-paying NFA (m²)'
+RBR_NAME_LABEL = 'Project'
+
+
+def build_real_budget_ranges_sheet(wb, project, demand, staff):
+    """'Real-Budget Ranges' (change use-real-budget-ranges, spec real-budget-ranges): for each code priced or
+    cross-checked from the range of real Savills budgets, the projects used and left out (anonymous ids), P25 /
+    median / P75, the CPI factors and their sources, the VAT, and the figure written to the deliverable. The figures
+    come from generate_project_budget.real_budget_range_results, the function the deliverable uses, so they tie.
+    Internal: the client deliverable never carries it. A cross-check code shows the range beside the tool's own
+    figure, both excluding VAT, and is never priced from it."""
+    import real_budget_ranges as rbr
+    from generate_project_budget import real_budget_range_results, template_vat_inclusive, _general_vat_months, _rate_phrase
+    import savills_fee
+    ws = wb.create_sheet(rbr.SHEET_NAME)
+    title_block(ws, 'Real-Budget Ranges — lines priced from the real budgets of Savills-managed projects',
+                'Internal (change use-real-budget-ranges). Values are VND per m² of fee-paying NFA per month, excluding '
+                'VAT, at 2027 prices. Range rules: leave out the project itself (same name, or NFA within 0.5%), then '
+                'values outside P25 - 1.5 x IQR .. P75 + 1.5 x IQR; priced only when at least 10 projects remain. '
+                'Percentiles as Excel PERCENTILE.INC. Project ids are anonymous.', 'A1:O1')
+    incl_vat = template_vat_inclusive()
+    staff_lump = False
+    if project.get('existing') is not None:
+        from generate_project_budget import _staff_is_lump
+        staff_lump = _staff_is_lump(existing_result(project, demand, project['budget_period'].start_year))
+    results = real_budget_range_results(project, demand, incl_vat, staff_lump=staff_lump)
+    rows = rbr.load_values()
+    bp = project.get('budget_period') or budget_period.default()
+    readme = os.path.join(rbr.DATA_DIR, 'README.txt')
+    built = ''
+    if os.path.exists(readme):
+        with open(readme, encoding='utf-8') as fh:
+            built = fh.readline().strip()
+    info = [(RBR_NAME_LABEL, project['name']), (RBR_NFA_LABEL, project['total_nfa']),
+            ('VAT', (f"cộng VAT {_rate_phrase(bp.months, _general_vat_months(project))} theo từng tháng"
+                     if incl_vat else 'chưa cộng VAT (mô hình KHOÁN)')),
+            ('Price year', rbr.TARGET_YEAR),
+            ('Values file', built or ('missing: every line stays at 0 with its reason' if rows is None else '')),
+            ('Projects in the values file', len({x['project_id'] for x in rows}) if rows else 0)]
+    r = 4
+    for label, value in info:
+        ws.cell(row=r, column=1, value=label).font = SECTION_FONT
+        c = ws.cell(row=r, column=2, value=value)
+        if isinstance(value, float):
+            c.number_format = MONEY_FMT
+        r += 1
+    r += 1
+
+    for c, h in enumerate(RBR_HEADERS, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    ws.row_dimensions[r].height = 45
+    r += 1
+    tool_fig = {'ESI1': (0, 'Để 0 trên bản giao khách: chưa có giá trị tài sản bảo hiểm.')}
+    b = savills_fee.basis(project)
+    if b == savills_fee.FIXED:
+        tool_fig['EMH1'] = (project['savills_fee_fixed_monthly'] * 12, "Fixed Monthly Fee x 12, excl. VAT.")
+    elif b == savills_fee.PERCENT:
+        tool_fig['EMH1'] = (None, "% of the management fee: see 'Savills Fee Position'.")
+    else:
+        tool_fig['EMH1'] = (0, 'Để 0 trên bản giao khách: chưa nhập điều khoản phí quản lý của Savills.')
+    if project.get('existing') is not None:
+        tool_fig['EMH3'] = (None, "Existing project: see the staff bridge sheet.")
+    elif staff and staff.get('allowance_total_cell'):
+        tool_fig['EMH3'] = (f"='Staff (Roster)'!{staff['allowance_total_cell']}", "Night and holiday allowance on "
+                            "'Staff (Roster)' (12 x the deliverable's EMH3).")
+    else:
+        tool_fig['EMH3'] = (0, 'No in-house position has a night shift.')
+    for code, res in results.items():
+        role = 'Cross-check' if res.cross_check else ('Stand-in' if res.stand_in else 'Priced')
+        self_out = [x for x in res.left_out if x[2] in (rbr.OUT_SELF_NAME, rbr.OUT_SELF_NFA)]
+        outliers = [x for x in res.left_out if x not in self_out]
+        if res.cross_check:
+            written, (own, note) = None, tool_fig.get(code, (None, ''))
+        else:
+            written, own = (res.figure if res.usable else 0), None
+            note = res.reason or (rbr.STAND_IN_NOTE.get(code, '') if res.stand_in else '')
+        vals = [code, rbr.CODE_NAMES.get(code, code), role, res.n_value, res.n_zero, res.n_used,
+                ', '.join(f'{p} ({w})' for p, _, w in self_out), ', '.join(p for p, _, _ in outliers),
+                res.p25, res.median, res.p75,
+                (round(res.median * project['total_nfa'] * rbr.MONTHS)
+                 if res.median is not None and project['total_nfa'] else None),
+                written, own, note]
+        for c, v in enumerate(vals, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = BORDER
+            if c in (9, 10, 11):
+                cell.number_format = '#,##0.0'
+            elif c in (12, 13, 14):
+                cell.number_format = MONEY_FMT
+            elif c in (2, 7, 8, 15):
+                cell.alignment = LEFT
+        r += 1
+    r += 1
+
+    section(ws, r, 'CPI: values brought to 2027 prices (product of 1 + the average CPI change of each later year)', ncols=6)
+    r += 1
+    for c, h in enumerate(['Budget year', 'Average CPI change', 'Status', 'Source', 'Factor to 2027',
+                           'Projects from this year'], start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+    r += 1
+    try:
+        cpi = rbr.load_cpi()
+    except OSError:
+        cpi = {}
+    years = sorted({x['budget_year'] for x in rows or [] if x['budget_year']} | set(cpi))
+    for y in years:
+        c = cpi.get(y)
+        try:
+            factor = rbr.cpi_factor(y, cpi)
+        except KeyError:
+            factor = None
+        n = len({x['project_id'] for x in rows or [] if x['budget_year'] == y})
+        for col, v in enumerate([y, c.rate if c else None, c.status if c else '', c.source if c else '', factor, n],
+                                start=1):
+            cell = ws.cell(row=r, column=col, value=v)
+            cell.border = BORDER
+            if col == 2:
+                cell.number_format = '0.00%'
+            elif col == 5:
+                cell.number_format = '0.000000'
+            elif col == 4:
+                cell.alignment = LEFT
+        r += 1
+    r += 1
+
+    for code, res in results.items():
+        section(ws, r, f'{code} — {rbr.CODE_NAMES.get(code, code)}: every project with a value', ncols=6)
+        r += 1
+        for c, h in enumerate(['Project id', 'Budget year', 'Value at budget-year prices', 'CPI factor',
+                               'Value at 2027 prices', 'Used / left out'], start=1):
+            cell = ws.cell(row=r, column=c, value=h)
+            cell.fill, cell.font, cell.alignment, cell.border = HEADER_FILL, HEADER_FONT, CENTER, BORDER
+        r += 1
+        why = {p: w for p, _, w in res.left_out}
+        for x in sorted((x for x in rows or [] if x['code'] == code and x['status'] == rbr.STATUS_VALUE),
+                        key=lambda x: x['project_id']):
+            for col, v in enumerate([x['project_id'], x['budget_year'], x['value_m2_month'], x['cpi_factor'],
+                                     x['value_m2_month_2027'], why.get(x['project_id'], 'used')], start=1):
+                cell = ws.cell(row=r, column=col, value=v)
+                cell.border = BORDER
+                if col in (3, 5):
+                    cell.number_format = '#,##0.00'
+                elif col == 4:
+                    cell.number_format = '0.000000'
+            r += 1
+        r += 1
+    for col, w in {'A': 26, 'B': 30, 'C': 18, 'D': 18, 'E': 22, 'F': 14, 'G': 30, 'H': 26, 'I': 14, 'J': 14,
+                   'K': 14, 'L': 20, 'M': 20, 'N': 20, 'O': 60}.items():
+        ws.column_dimensions[col].width = w
+    return ws
+
+
 def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
     if project.get('utilities') is not None:
@@ -4051,6 +4209,7 @@ def main():
         build_staff_bridge_sheet(wb, existing_result(project, demand, project['budget_period'].start_year))
     if project.get('utilities_result') is not None:
         build_utility_bridge_sheet(wb, project['utilities_result'])
+    build_real_budget_ranges_sheet(wb, project, demand, staff)
     # Last among the internal sheets and read-only (change add-service-level-table, design D9).
     build_service_levels_sheet(wb, project, demand)
 

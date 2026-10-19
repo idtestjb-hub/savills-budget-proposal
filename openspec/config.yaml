@@ -18,7 +18,9 @@ context: |
   - This `source_code/` folder is the live code. `legacy/` holds retired modules. The
     `PM/Project_Clone*` folders are copies: ask before changing one.
   - Costing follows the AI Guideline form and the logic file. Comparables used for estimating
-    come from the 8 detailed project budgets only.
+    come from the 8 detailed project budgets, except the Required lines with no other price
+    (EMB4, ESS12, ESC5, ESS7, ESS23, ESC1, ESC2), which are priced from the anonymous range of
+    real Savills budgets in data/real_budget_ranges/ (decided 2026-10-12, change use-real-budget-ranges).
 
   Conventions:
   - Write proposals and specs in plain, non-technical language a PM or Finance reader can review.

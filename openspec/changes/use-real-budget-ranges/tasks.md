@@ -5,9 +5,12 @@ repository and `docs/` carry anonymous ids only.
 
 ## 0. Before
 
-- [ ] 0.1 Precondition (design D7): `apply-head-of-pm-decisions-2026-10` is archived, or the user says to start
+- [x] 0.1 Precondition (design D7): `apply-head-of-pm-decisions-2026-10` is archived, or the user says to start
   before it. Then record the "before" outputs of the standard sample and the clone, and the unit-test count. Verify
   that the files exist and that `verify.py` passes on them.
+  - Done 2026-10-19 (lane A): the user chose to start before it and fold both into its group 10 record (D7, as
+    changed). "Before" = `4e06955` (groups 0-9 and `fix-cleaning-staffing-ratio` merged; a first round on
+    `f8238ea`), from a snapshot, on the standard sample, the clone and the three fixtures: 5 runs, RC 0.
 - [x] 0.2 Confirm the store still matches its sources: re-check every source file's modified time against
   `dim_file.modified`, and list any new file in `input/budget_planning/`. Verify: 0 changed, 0 new. If not, rerun the
   scan (`scan-2026-10-07\README.md`, "Bản v2") before the build.
@@ -60,35 +63,46 @@ repository and `docs/` carry anonymous ids only.
   - Done 2026-10-18 (lane C): sentences in `real_budget_ranges.py`; the test runs them through
     `_INTERNAL_WORDING_DENYLIST` and the Vietnamese check. The full `check_remark_content` on a deliverable
     runs in part 2, where the generic VAT sentence is appended as on other lines.
-- [ ] 2.3 Wire the figures into `generate_project_budget.py` for the codes in scope that have no other figure, and
+- [x] 2.3 Wire the figures into `generate_project_budget.py` for the codes in scope that have no other figure, and
   drop a code from `_FLAGGED_NO_METHOD` only when its range is usable. `2.2 Common area Fund` follows its existing
   allocation. Verify:
   - the standard sample shows the codes non-zero on their own leaf rows;
   - `ESI1`, `EMH1` and `EMH3` are unchanged;
   - `1. Summary` still ties to its detail sheets.
-- [ ] 2.4 Add the `Real-Budget Ranges` sheet to the analysis workbook (`generate_project_output.py`), cross-checks
+  - Done 2026-10-19 (lane A): `_write_real_budget_range_lines` (design "Measured"). Standard sample: six codes
+    non-zero, `ESS23` 0 (in-house pool staff); ESI1, EMH1, EMH3 unchanged; summary reconciliation passes in verify.
+- [x] 2.4 Add the `Real-Budget Ranges` sheet to the analysis workbook (`generate_project_output.py`), cross-checks
   for `ESI1`, `EMH1` and `EMH3` included. Verify that a COM read-back shows each priced figure equal to the
   deliverable's line.
+  - Done 2026-10-19 (lane A): equal on all five cases after Excel recalculation (`m2_check.py`).
 
 ## 3. Verification
 
-- [ ] 3.1 Add `check_real_budget_ranges` to `verification/checks.py` and a section to `verify.py` (spec
+- [x] 3.1 Add `check_real_budget_ranges` to `verification/checks.py` and a section to `verify.py` (spec
   `budget-workflow-verification`). Fixtures: an invented values file, a project that matches one entry, and a list of
   invented names. Verify that the check fails on a deliverable with `ESS12` typed 1,000 VND off and passes on the good
   one.
-- [ ] 3.2 Update `openspec/config.yaml` (the "8 detailed project budgets only" line), `RUNNING.md` (how to rebuild the
+  - Done 2026-10-19 (lane A): unit tests on invented fixtures (`test_verification_ties_floor_and_leave_one_out`,
+    `test_name_scan_on_invented_names`) and a negative probe inside the check on every verify run.
+- [x] 3.2 Update `openspec/config.yaml` (the "8 detailed project budgets only" line), `RUNNING.md` (how to rebuild the
   data file) and `README.md`'s module map. Verify by reading them back; the config validates (`openspec validate
   --strict`).
+  - Done 2026-10-19 (lane A).
 
 ## 4. Measurement and sign-off
 
-- [ ] 4.1 A/B on the standard sample and on the clone: each moved line, the total expense, the surplus. Each line comes
+- [x] 4.1 A/B on the standard sample and on the clone: each moved line, the total expense, the surplus. Each line comes
   with its median, range and project count. Verify that every changed cell is one of the codes in scope or a total that
   contains them. Record it in `docs/project-status.md`.
-- [ ] 4.2 Back-test on the clone: the tool's figures for the codes in scope against the real project's own budget lines,
+  - Done 2026-10-19 (lane A): design "Measured". `docs/project-status.md` is the coordinator's (lane rule).
+- [x] 4.2 Back-test on the clone: the tool's figures for the codes in scope against the real project's own budget lines,
   with the project left out of its own range. Report the gap per code in `Savills-local`, summarised without names in
   `docs/05-decisions.md`. Verify that the summary names no project.
-- [ ] 4.3 Sign-off: the user (for the Head of PM) approves the 4.1 movements and the 4.2 result. Verify that the approval
+  - Done 2026-10-19 (lane A): design "Measured"; the summary for `docs/05-decisions.md` goes to the coordinator.
+- [x] 4.3 Sign-off: the user (for the Head of PM) approves the 4.1 movements and the 4.2 result. Verify that the approval
   is recorded in `docs/05-decisions.md` with the date.
-- [ ] 4.4 Re-record the baseline once, with the user's approval, then run `python verification/verify.py` from
+  - Done 2026-10-19: signed by the user (for the Head of PM), recorded in design "Measured"; the line in
+    `docs/05-decisions.md` is the coordinator's.
+- [ ] 4.4 (Folded into group 10 of `apply-head-of-pm-decisions-2026-10`, design D7 as changed.) Re-record the
+  baseline once, with the user's approval, then run `python verification/verify.py` from
   `Budget_Agent/source_code/`. Verify: all sections pass.

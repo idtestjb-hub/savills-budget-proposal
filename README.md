@@ -22,6 +22,7 @@ This map was checked on 2026-10-05 against the `import` statements of every `*.p
 | `labor_law_params.py` | Reads the dated labour-law table `data/generation_B_verified/Ref_LaborLawParams.csv` (regional minimum wage, insurance base and caps, employer rates) and returns the values in force each month of a year |
 | `existing_staffing.py` | Existing-project mode: reads the prior-year baseline by label, recomputes the staff lines (EMH2/EMH3/EMH4) under law only, keeps a reason for every change, and replicates the template's A1/A1.1 formulas for the Staff Bridge |
 | `add_existing_project_sheets.py` | Adds the Existing-project fields to a dated copy of an already filled input workbook; the original is never touched |
+| `real_budget_ranges.py` | Prices the Required lines with no other source (EMB4, ESS12, ESC5, ESS7, ESS23, ESC1, ESC2) from the anonymous range of real Savills budgets in `data/real_budget_ranges/`: the project itself left out, outliers dropped, at least 10 projects, CPI to 2027; also the cross-check ranges of ESI1, EMH1 and EMH3 |
 | `common_utils_v2.py` | Shared workbook helpers, for example `repair_workbook` |
 
 ## 2. Scripts that prepared the reference data (run once; not part of a run)
@@ -30,6 +31,7 @@ Their output files are the data the live pipeline reads. They are not re-run per
 
 | Script | Writes |
 |---|---|
+| `build_real_budget_ranges.py` | `data/real_budget_ranges/Ref_RealBudgetValues.csv` and its `README.txt`, from the real-budget scan store in `Savills-local` (the name-to-id map stays there) |
 | `transform_master_list.py` | `data/master_list_verified/Dim_Property_Residential.csv` and `Dim_Property_Commercial.csv`, parsed from `input/project/2026_Master List.xlsx` |
 | `derive_position_staffing_ratios.py` | `data/master_list_verified/Fact_StaffingRatio_ByPosition.csv` (per-position staff per 1,000 m² NFA) |
 | `derive_staffing_benchmarks.py` | `Fact_StaffingBenchmark_Derived.csv` and `Staffing_Benchmark_Analysis.xlsx`, in the same folder |

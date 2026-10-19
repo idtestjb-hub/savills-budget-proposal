@@ -42,6 +42,10 @@ PRICED_CODES = ('EMB4', 'ESS12', 'ESC5', 'ESS7', 'ESS23', 'ESC1', 'ESC2')
 STAND_IN_CODES = ('ESC1', 'ESC2')          # stand-in for the guideline's count x price per event
 CROSS_CHECK_CODES = ('ESI1', 'EMH1', 'EMH3')  # shown next to the tool's own figure, never priced from the range
 ALL_CODES = PRICED_CODES + CROSS_CHECK_CODES
+CODE_NAMES = {'EMB4': 'Operation audit', 'ESS12': 'Pest control', 'ESC5': 'Lunar New Year decoration',
+              'ESS7': 'Façade cleaning', 'ESS23': 'Pool staff (outsourced)', 'ESC1': 'Events', 'ESC2': 'Fire drill',
+              'ESI1': 'Asset insurance', 'EMH1': "Savills' management fee", 'EMH3': 'Night and holiday allowance'}
+SHEET_NAME = 'Real-Budget Ranges'
 
 VALUE_COLUMNS = ['project_id', 'name_key', 'nfa_m2', 'budget_year', 'code', 'status', 'value_m2_month',
                  'cpi_factor', 'value_m2_month_2027', 'flag']
@@ -59,6 +63,17 @@ REASON_NO_DATA = 'Để 0: chưa có bảng giá từ ngân sách thực tế c�
 REASON_NO_NFA = 'Để 0: chưa có NFA thu phí của dự án để nhân với đơn giá trên m².'
 REASON_NO_POOL = 'Để 0: dự án không có hồ bơi, nên không có chi phí nhân sự hồ bơi thuê ngoài.'
 REASON_NO_TOWER = 'Để 0: dự án không có tòa tháp, nên không có chi phí vệ sinh mặt ngoài tòa nhà.'
+
+
+def reason_inhouse_pool(n):
+    """ESS23 when the roster already staffs the pool in-house (user's rule, 2026-10-19): no outsourced pool staff
+    on top of it."""
+    return (f'Để 0: dự án đã có {n:g} nhân viên hồ bơi do Ban quản lý tự tuyển trên trang A1. Staff Cost, '
+            f'nên không tính thêm nhân sự vận hành hồ bơi thuê ngoài.')
+
+
+REASON_LUMP_STAFF = ('Để 0: chi phí nhân sự của dự án là một khoản cả gói đã duyệt (EMH2), có thể đã gồm nhân viên '
+                     'hồ bơi, nên không tính thêm nhân sự vận hành hồ bơi thuê ngoài.')
 
 
 def reason_too_few(n):
@@ -102,6 +117,7 @@ class RangeResult:
     budget_year: int = TARGET_YEAR
     figure_excl_vat: float = 0.0
     figure: float = 0.0              # written to the deliverable (0 when not usable)
+    months: list = field(default_factory=list)     # the twelve month cells, when priced by month (month_values)
     remark: str = ''
 
     @property
@@ -177,9 +193,25 @@ def percentile_inc(values, p):
     return v[lo] + (v[hi] - v[lo]) * (h - lo)
 
 
+def self_keys(name):
+    """The name keys the project being budgeted may carry in the values file: its name as entered, and its name
+    without a trailing parenthesis, so that "CITY GARDEN (REBUILT AS NEW PROSPECT)" matches "CITY GARDEN"
+    (user's rule, 2026-10-19)."""
+    if not name:
+        return set()
+    text = str(name).strip()
+    keys = {name_key(text)}
+    while text.endswith(')') and '(' in text:
+        text = text[:text.rfind('(')].strip()
+        keys.add(name_key(text))
+    return {k for k in keys if k}
+
+
 def is_self(row, self_key, self_nfa):
-    """The reason an entry is the project being budgeted, or '' (design D2)."""
-    if self_key and row['name_key'] and row['name_key'] == self_key:
+    """The reason an entry is the project being budgeted, or '' (design D2). `self_key` is one key or a set of
+    keys (self_keys)."""
+    keys = self_key if isinstance(self_key, (set, frozenset)) else {self_key}
+    if row['name_key'] and row['name_key'] in keys:
         return OUT_SELF_NAME
     if self_nfa and row['nfa_m2'] and abs(self_nfa - row['nfa_m2']) <= SELF_NFA_TOLERANCE * row['nfa_m2']:
         return OUT_SELF_NFA
@@ -189,7 +221,7 @@ def is_self(row, self_key, self_nfa):
 def form_range(code, rows, self_name=None, self_nfa=None):
     """Leave-one-out, then IQR outliers once. Returns (used, left_out, p25, median, p75, n_value, n_zero);
     values are VND per m2 per month at 2027 prices, excluding VAT."""
-    self_key = name_key(self_name) if self_name else ''
+    self_key = self_keys(self_name)
     entries = [r for r in rows if r['code'] == code]
     n_value = sum(1 for r in entries if r['status'] == STATUS_VALUE)
     n_zero = sum(1 for r in entries if r['status'] == STATUS_ZERO)
@@ -226,25 +258,35 @@ def _pct(rate):
     return f'{rate * 100:g}%'.replace('.', ',')
 
 
-def remark_priced(res):
-    """Client remark for a line priced from the range (spec deliverable-remarks)."""
+def remark_priced(res, vat_clause=None, total=None):
+    """Client remark for a line priced from the range (spec deliverable-remarks). `vat_clause` replaces the
+    single-rate VAT wording when the caller adds VAT month by month at the dated rates; `total` is the annual
+    figure written, stated at the end."""
     text = (f'Ước tính từ ngân sách thực tế của {res.n_used} dự án do Savills quản lý: trung vị '
-            f'{res.median:,.0f} đ/m²/tháng (chưa VAT, theo giá năm {TARGET_YEAR}; khoảng giữa P25–P75: '
-            f'{res.p25:,.0f}–{res.p75:,.0f} đ/m²/tháng) × {res.nfa:,.0f} m² NFA thu phí × {MONTHS} tháng')
-    if res.vat_inclusive:
-        text += f', cộng VAT {_pct(res.vat_rate)} năm {res.budget_year}.'
+            f'{res.median:,.1f} đ/m²/tháng (chưa VAT, theo giá năm {TARGET_YEAR}; khoảng giữa P25–P75: '
+            f'{res.p25:,.1f}–{res.p75:,.1f} đ/m²/tháng) × {res.nfa:,.0f} m² NFA thu phí × {MONTHS} tháng')
+    if vat_clause:
+        text += f', {vat_clause}'
+    elif res.vat_inclusive:
+        text += f', cộng VAT {_pct(res.vat_rate)} năm {res.budget_year}'
     else:
-        text += ', chưa cộng VAT.'
+        text += ', chưa cộng VAT'
+    text += f' = {total:,.0f} VND/năm.' if total is not None else '.'
     if res.code in STAND_IN_NOTE:
         text += ' ' + STAND_IN_NOTE[res.code]
     return text
 
 
 def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TARGET_YEAR, self_name=None,
-               self_nfa=None, has_pool=None, tower_count=None):
+               self_nfa=None, has_pool=None, tower_count=None, inhouse_pool_staff=0, staff_lump=False,
+               vat_factors=None, vat_clause=None):
     """One RangeResult for `code`. `rows` is load_values(); None means no values file. `self_nfa` defaults to
     `nfa` (the input's total fee-paying NFA). A cross-check code gets its range and figure but is never usable
-    for pricing; the caller shows it next to the tool's own figure."""
+    for pricing; the caller shows it next to the tool's own figure.
+    `vat_factors`: twelve (1 + that month's VAT) factors, each month's twelfth taken at its own rate and rounded
+    as the deliverable writes it (VAT by month, group 2 of apply-head-of-pm-decisions-2026-10); without them the
+    single `vat_rate` applies. `vat_clause` is the remark's VAT wording for that case.
+    `staff_lump`: the staff cost is one approved lump (Existing mode without a roster), so ESS23 stays at 0."""
     res = RangeResult(code=code, stand_in=code in STAND_IN_CODES, cross_check=code in CROSS_CHECK_CODES,
                       nfa=nfa, vat_rate=vat_rate, vat_inclusive=vat_inclusive, budget_year=budget_year)
     if rows is None:
@@ -254,6 +296,12 @@ def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TAR
      res.n_value, res.n_zero) = form_range(code, rows, self_name, nfa if self_nfa is None else self_nfa)
     if code == 'ESS23' and has_pool is not True:
         res.reason = REASON_NO_POOL
+        return res
+    if code == 'ESS23' and staff_lump:
+        res.reason = REASON_LUMP_STAFF
+        return res
+    if code == 'ESS23' and inhouse_pool_staff and inhouse_pool_staff > 0:
+        res.reason = reason_inhouse_pool(inhouse_pool_staff)
         return res
     if code == 'ESS7' and not (tower_count and tower_count >= 1):
         res.reason = REASON_NO_TOWER
@@ -265,19 +313,34 @@ def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TAR
         res.reason = REASON_NO_NFA
         return res
     res.figure_excl_vat = res.median * nfa * MONTHS
-    gross = res.figure_excl_vat * (1.0 + vat_rate) if vat_inclusive else res.figure_excl_vat
+    if vat_factors is not None:
+        res.months = month_values(res.figure_excl_vat, vat_factors if vat_inclusive else [1.0] * MONTHS)
+        gross = sum(res.months)
+    else:
+        gross = res.figure_excl_vat * (1.0 + vat_rate) if vat_inclusive else res.figure_excl_vat
     if res.cross_check:
         res.figure = round(gross)      # for comparison only; never written to the deliverable
         return res
     res.usable = True
     res.figure = round(gross)
-    res.remark = remark_priced(res)
+    res.remark = remark_priced(res, vat_clause, res.figure if vat_factors is not None else None)
     return res
 
 
+def month_values(annual_excl, vat_factors):
+    """The twelve month cells the deliverable carries for an annual amount excluding VAT: one rounded value
+    repeated when every month has the same factor (an even Monthly row), else each month's own rounded value
+    (a Schedule row). Their sum is the line's annual figure."""
+    if len(set(vat_factors)) == 1:
+        return [round(annual_excl * vat_factors[0] / MONTHS)] * MONTHS
+    return [round(annual_excl / MONTHS * f) for f in vat_factors]
+
+
 def price_all(rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TARGET_YEAR, self_name=None,
-              has_pool=None, tower_count=None, codes=ALL_CODES):
+              has_pool=None, tower_count=None, inhouse_pool_staff=0, staff_lump=False, vat_factors=None,
+              vat_clause=None, codes=ALL_CODES):
     """{code: RangeResult} for every code in scope and every cross-check code."""
     return {c: price_line(c, rows, nfa=nfa, vat_rate=vat_rate, vat_inclusive=vat_inclusive,
                           budget_year=budget_year, self_name=self_name, has_pool=has_pool,
-                          tower_count=tower_count) for c in codes}
+                          tower_count=tower_count, inhouse_pool_staff=inhouse_pool_staff, staff_lump=staff_lump,
+                          vat_factors=vat_factors, vat_clause=vat_clause) for c in codes}

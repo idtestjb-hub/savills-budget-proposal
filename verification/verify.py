@@ -415,7 +415,10 @@ def main(argv=None):
         # The helper sheets explain their lines (change apply-head-of-pm-decisions-2026-10, D15): A2/A3/A4 x 12 =
         # ESS1/ESS4/ESS16, the B3 garbage sheet = ESS9 before VAT, B4 = RA1.A + RA2. Run on every sample below too.
         if not _run_sections([('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
-                               lambda: checks.check_helper_sheet_ties(paths))]):
+                               lambda: checks.check_helper_sheet_ties(paths)),
+                              # Change use-real-budget-ranges: the lines priced from real Savills budgets.
+                              ('Real-Budget Ranges ties to the deliverable, 10+ projects, project left out',
+                               lambda: checks.check_real_budget_ranges(paths))]):
             return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
@@ -458,6 +461,8 @@ def main(argv=None):
                  lambda: checks.check_service_levels(ex_paths, ex_sample)),
                 ('contingency lines are a rate of their own leaves, none depends on itself',
                  lambda: checks.check_contingency(ex_paths)),
+                ('Real-Budget Ranges ties to the deliverable, 10+ projects, project left out',
+                 lambda: checks.check_real_budget_ranges(ex_paths)),
             ]
             if not _run_sections(sections):
                 return 1

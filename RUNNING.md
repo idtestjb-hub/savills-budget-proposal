@@ -270,6 +270,33 @@ else reads it.
   land in the table. `verify.py` section 5h checks the sheet against the roster and both tables; the name scan
   needs the names list from the store folder and is noted as skipped on a PC without it.
 
+## Lines priced from real Savills budgets
+
+Seven Required lines have no price in the input or the costing catalogue. They are priced from what Savills-managed
+projects actually budget (change `use-real-budget-ranges`): `EMB4` operation audit, `ESS12` pest control, `ESC5` Tết
+decoration, `ESS7` façade cleaning (only with at least one tower), `ESS23` outsourced pool staff (only with a pool and
+no in-house pool staff on A1), and `ESC1` events and `ESC2` fire drill as stand-ins for count x price.
+
+- **The data** is `data/real_budget_ranges/Ref_RealBudgetValues.csv`: one anonymous row per project and code, VND per
+  m² of fee-paying NFA per month, excluding VAT, at budget-year and 2027 prices (CPI from
+  `data/generation_B_verified/Ref_CPI_VN.csv`). Its `README.txt` gives the build date and the counts.
+- **At run time** each code's range leaves out the project itself (same name, also without a trailing "(...)", or
+  NFA within 0.5%), then values outside P25 - 1.5 x IQR .. P75 + 1.5 x IQR. With at least 10 projects left, the line
+  = median x fee-paying NFA x 12, with each budget month's VAT added (none under KHOÁN), spread evenly. Otherwise the
+  line stays at 0 and its remark says why. A line another source already priced is never replaced.
+- **The analysis** shows each range on `Real-Budget Ranges`: ids used and left out, P25 / median / P75, CPI factors
+  and sources, the figure written, and the cross-check ranges of `ESI1`, `EMH1` and `EMH3` (never priced from them).
+  `verify.py` ties it to the deliverable on the standard and Existing samples.
+- **Rebuilding the data** (only after a new scan of `input/budget_planning/`, or a CPI change):
+
+  ```bash
+  python build_real_budget_ranges.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v2" --out "..\data\real_budget_ranges"
+  ```
+
+  It writes the name-to-id map and the names list next to the store, never into the repository, and refuses to write
+  if a project or file name would land in the data. Without the values file every line falls back to 0 with its
+  reason and the run still completes.
+
 ## If you run only one generator
 
 **The two outputs will describe different projects.**
@@ -315,6 +342,9 @@ Six reference files, plus the template and your input. This list comes from trac
 
 `data/generation_B_verified/Ref_LaborLawParams.csv` (the labour-law table) is read on every run for the
 analysis workbook's payroll caps and rates, and drives the staff lines in Existing-project mode.
+
+`data/real_budget_ranges/Ref_RealBudgetValues.csv` and `data/generation_B_verified/Ref_CPI_VN.csv` are read on every
+run for the seven lines priced from real Savills budgets and the analysis sheet `Real-Budget Ranges`.
 
 `data/service_levels/Ref_ServiceLevelThresholds.csv` and `Ref_ServiceLevelProjects.csv` are read on every run for
 the analysis workbook's `Service Levels` sheet only (display; no figure depends on them). A missing file gives a

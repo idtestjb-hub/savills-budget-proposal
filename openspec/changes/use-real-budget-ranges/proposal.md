@@ -76,7 +76,8 @@ estimating (`docs/05-decisions.md`, "Real-budget scan store replaces the 8-budge
 - **Figures:** standard-sample totals move. `verify.py` baselines are re-recorded once with the user's approval.
   New-prospect and Existing samples both change on these lines.
 - **Order with other changes:** `apply-head-of-pm-decisions-2026-10` also re-records the baseline (its group 10).
-  Build this change after that one is archived, or fold both into one re-record (design D7).
+  Decided 2026-10-19 (design D7): fold both into that one re-record, with this change's A/B measured and signed on
+  its own first.
 - **Docs:**
   - `openspec/config.yaml`: its context line "Comparables used for estimating come from the 8 detailed project
     budgets only" changes;
