@@ -110,7 +110,7 @@ _POOL_AREA = "'Project Info'!$B$39"    # shifted +6 then +1 (2026-09-16) by Dist
 _POOL_M2_PER_LIFEGUARD = 200
 # Cell refs into the Roster Setup sheet's Staffing Ratios block.
 _STAFF_PER_GATE = "'Roster Setup'!$B$4"
-_SQM_PER_PATROL = "'Roster Setup'!$B$5"
+_POSTS24_PER_10K_NFA = "'Roster Setup'!$B$5"   # was m² Open Space per Patrol Staff (change size-security-from-fee-nfa)
 _NFA_PER_CLEANING_STAFF = "'Roster Setup'!$B$6"
 _TOWERS_PER_SUPERVISOR = "'Roster Setup'!$B$7"
 _SQM_PER_GARDENER = "'Roster Setup'!$B$8"
@@ -140,6 +140,14 @@ _CLEANING_NOTE = ('Formula-driven from Roster Setup: ROUNDUP(total fee-paying NF
                   'cleaning people on duty, supervisors included, minus the Cleaning - Supervisor rule, at least 1. '
                   'The default 3,300 is the median of the real Savills projects read from their own cleaning forms '
                   '(service-level table), in the Tiêu chuẩn band. Adjust the ratio in Roster Setup, not this cell.')
+_SECURITY_PATROL_NOTE = (
+    'Formula-driven from Roster Setup: the 24-hour security posts = MAX(ROUNDUP(total fee-paying NFA ÷ 10,000 × 24h '
+    'Posts per 10,000 m²), gate posts + 1 CCTV post); this row = the posts minus the gate posts (Gate Count × Staff per '
+    'Gate) minus the CCTV post, at least 0, on each of the three shifts. The default 1.7 is the median of the real '
+    'Savills projects read from their own security forms (service-level table), in the Tiêu chuẩn band. Adjust the '
+    'ratio in Roster Setup, not this cell.')
+_SECURITY_PATROL_FORMULA = (f'=MAX(0,ROUNDUP({_FEE_NFA}/10000*{_POSTS24_PER_10K_NFA},0)'
+                            f'-ROUNDUP({_GATE_COUNT}*{_STAFF_PER_GATE},0)-1)')
 _RATIO_NOTE = ('Formula-driven from Roster Setup!Staffing Ratios — an editable PM assumption, not a real '
                'benchmark (no dataset joins staff headcount to property scale for the same properties; see '
                'Fact_Dim_Master_Mapping.md). Adjust the ratio in Roster Setup, not this cell, to change the suggestion.')
@@ -248,8 +256,9 @@ EXAMPLE_DEMAND = [
     ('Security - CCTV Room (Morning)', 'S', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' Not gate-scaled — a control room is normally 1 regardless of gate count.'),
     ('Security - CCTV Room (Afternoon)', 'C', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE),
     ('Security - CCTV Room (Night)', 'D', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE),
-    ('Security - Patrol / Open Space', 'S', f'=ROUNDUP({_OPEN_SPACE}/{_SQM_PER_PATROL},0)', 7, _SECURITY_DAILY_PER_ROLE,
-     _SECURITY_NOTE + ' ' + _RATIO_NOTE + ' Shown for one shift only — for full 24h patrol coverage, copy this row for C and D shifts too.'),
+    ('Security - Patrol (Morning)', 'S', _SECURITY_PATROL_FORMULA, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' ' + _SECURITY_PATROL_NOTE),
+    ('Security - Patrol (Afternoon)', 'C', _SECURITY_PATROL_FORMULA, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' ' + _SECURITY_PATROL_NOTE),
+    ('Security - Patrol (Night)', 'D', _SECURITY_PATROL_FORMULA, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' ' + _SECURITY_PATROL_NOTE),
     ('Cleaning - Common Area', 'S',
      f'=MAX(1,ROUNDUP({_FEE_NFA}/{_NFA_PER_CLEANING_STAFF},0)-ROUNDUP({_TOWER_COUNT}/{_TOWERS_PER_SUPERVISOR},0))',
      7, 340000, _CLEANING_NOTE),
@@ -1092,7 +1101,13 @@ def main(force=False):
     legend_row = 3
     ws2['A4'] = None  # placeholder, ratios start row 4 per _STAFF_PER_GATE etc. above
     labeled_input(ws2, 4, 'Security: Staff per Gate', 1)
-    labeled_input(ws2, 5, 'Security: m² Open Space per Patrol Staff', 5000)
+    c_sec = labeled_input(ws2, 5, 'Security: 24h Posts per 10,000 m² Fee-paying NFA', 1.7, fmt='0.0')
+    c_sec.comment = Comment(
+        "24-hour security posts (one post = 3 shift roles) per 10,000 m² of total fee-paying NFA (every product). "
+        "1.7 = the median of 32 real Savills projects read from their own security forms (service-level table "
+        "Ref_ServiceLevelProjects.csv: 1.719, P25 1.269, P75 2.325), in the Tiêu chuẩn band 1.5-3.0. A higher number "
+        "means more patrol posts; the gate posts and the CCTV room are the floor. Blank or 0 means 1.7.",
+        'Budget Planning Agent')
     c_cln = labeled_input(ws2, 6, 'Cleaning: m² Fee-paying NFA per Cleaning Staff', 3300)
     c_cln.comment = Comment(
         "m² of total fee-paying NFA (every product) per cleaning person on duty per day, supervisors included. "
@@ -1101,9 +1116,9 @@ def main(force=False):
         "number means more cleaners. Blank or 0 means 3,300.", 'Budget Planning Agent')
     labeled_input(ws2, 7, 'Cleaning: Towers per Supervisor', 2)
     labeled_input(ws2, 8, 'Landscape: m² Garden per Gardener', 2000)
-    ws2['A9'] = ('Editable assumptions. The cleaning ratio is measured on real Savills projects (see its note); the '
-                 'others are operational assumptions, not a real benchmark. Change to your own operational standard — '
-                 'Staffing Demand recalculates automatically.')
+    ws2['A9'] = ('Editable assumptions. The security and cleaning ratios are measured on real Savills projects (see '
+                 'their notes); the others are operational assumptions, not a real benchmark. Change to your own '
+                 'operational standard — Staffing Demand recalculates automatically.')
     ws2['A9'].font = LEGEND_FONT
     ws2['A9'].alignment = LEFT
     ws2.merge_cells('A9:D9')
