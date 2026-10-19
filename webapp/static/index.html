@@ -432,5 +432,7 @@ go.addEventListener('click', async () => {
 
 loadDefaults().catch(e => setStatus('Không tải được giá trị mặc định: ' + e, true));
 </script>
+<!-- Ô tên người đang đăng nhập, do cổng đăng nhập của Hub phục vụ qua Caddy (/_auth/*, đường dẫn tuyệt đối, không mang prefix). Mở trực tiếp không qua Caddy thì 404, vô hại. -->
+<script src="/_auth/badge.js" defer></script>
 </body>
 </html>

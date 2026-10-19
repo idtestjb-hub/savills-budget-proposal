@@ -270,7 +270,9 @@ def start_run(request: Request, values: dict, user=Depends(require_user)):
                              started=datetime.datetime.now().isoformat(timespec='seconds'),
                              finished=None, workdir=workdir, input=input_path, outputs=[], summary=None)
         _active['id'] = run_id
-    _log(f'run {run_id} started for project {name!r} by {user.get("email") or user.get("name")}')
+    # X-Hub-User: tên đăng nhập Windows do cổng đăng nhập của Hub chép sang qua Caddy; chỉ để ghi log, không phân quyền.
+    hub_user = (request.headers.get('X-Hub-User') or '').strip()
+    _log(f'run {run_id} started for project {name!r} by {hub_user or user.get("email") or user.get("name")}')
     threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
     return _public(run_id, role=role_of(request))
 
