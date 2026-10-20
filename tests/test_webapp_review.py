@@ -1,4 +1,4 @@
-"""Trang web: chế độ Review (api/reviews), Lịch sử dự án (api/history), Clone (api/runs/<id>/input), dựng lại lượt từ đĩa.
+"""Trang web: chế độ Review (api/reviews), Dự án đã tạo (api/history), Clone (api/runs/<id>/input), dựng lại lượt từ đĩa.
 
 Lượt chạy được dựng giả trong thư mục tạm (không chạy pipeline), trừ một test end-to-end chạy review_run.py thật trên
 file ngân sách bịa của tests/test_review_import.py (bỏ qua khi máy không có Excel). Dữ liệu và tên dự án đều bịa.

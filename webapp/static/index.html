@@ -212,7 +212,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
     <button type="button" class="on" data-tab="nhap">Nhập liệu dự án mới</button>
     <button type="button" data-tab="review" id="tab-review">Review dự án đang vận hành</button>
     <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả dự án mới</button>
-    <button type="button" data-tab="lichsu">Lịch sử dự án</button>
+    <button type="button" data-tab="lichsu">Dự án đã tạo</button>
     <button type="button" data-tab="huongdan">Hướng dẫn</button>
   </nav>
 
@@ -274,7 +274,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <li>Khi xong, tab <b>Kết quả</b> mở: doanh thu, chi phí và thặng dư quỹ vận hành năm đầu, mức dịch vụ, so sánh với dự án tham chiếu, và nút tải file.</li>
         <li>Tải <b>bản giao khách</b> (form chuẩn 25 sheet, có sheet "4. Điều chỉnh" để chỉnh số lượng, đơn giá, trượt giá ngay trong file). Người có quyền còn tải được bản phân tích nội bộ và lịch trực.</li>
       </ol>
-      <p>Dự án đang vận hành (đã có ngân sách được duyệt năm ngoái): dùng tab <b>Review</b>, xem <a href="#hd-review" style="color:var(--sav-link);font-weight:700">hướng dẫn riêng bên dưới</a>. Tab <b>Lịch sử dự án</b>: <b>Clone</b> một lượt để lập dự án tương tự; <b>Gen budget for new year</b> lấy bản giao của lượt cũ làm ngân sách năm ngoái; <b>Điều chỉnh</b> mở lại bảng điều chỉnh của lượt đó.</p>
+      <p>Dự án đang vận hành (đã có ngân sách được duyệt năm ngoái): dùng tab <b>Review</b>, xem <a href="#hd-review" style="color:var(--sav-link);font-weight:700">hướng dẫn riêng bên dưới</a>. Tab <b>Dự án đã tạo</b>: <b>Clone</b> một lượt để lập dự án tương tự; <b>Gen budget for new year</b> lấy bản giao của lượt cũ làm ngân sách năm ngoái; <b>Điều chỉnh</b> mở lại bảng điều chỉnh của lượt đó.</p>
       <p class="src">Mỗi lượt chạy được lưu thành một thư mục riêng trên máy chủ; chạy lại không ghi đè lượt trước.</p>
     </section>
 
@@ -284,7 +284,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       <h3>Sơ đồ các bước</h3>
       <div class="dg-wrap">
       <svg class="dg" viewBox="0 0 1000 304" role="img" aria-labelledby="dg-flow-t">
-        <title id="dg-flow-t">Các bước review: chọn ngân sách đã duyệt, điền dữ kiện, tạo ngân sách năm mới (công cụ chạy bốn bước), xem kết quả, điều chỉnh và tải file; năm sau tạo tiếp từ tab Lịch sử dự án.</title>
+        <title id="dg-flow-t">Các bước review: chọn ngân sách đã duyệt, điền dữ kiện, tạo ngân sách năm mới (công cụ chạy bốn bước), xem kết quả, điều chỉnh và tải file; năm sau tạo tiếp từ tab Dự án đã tạo.</title>
         <defs><marker id="ah-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
         <rect class="bx" x="8" y="16" width="176" height="88"/>
         <text class="t" x="96" y="40" text-anchor="middle">1. Chọn ngân sách</text>
@@ -334,7 +334,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <path class="ln" d="M490 210 H502" marker-end="url(#ah-flow)"/>
         <path class="ln" d="M659 210 H671" marker-end="url(#ah-flow)"/>
         <path class="ln dash" d="M912 104 V276 H96 V106" marker-end="url(#ah-flow)"/>
-        <text class="s" x="504" y="294" text-anchor="middle">Năm sau: tab Lịch sử dự án → Gen budget for new year (bản giao năm nay thành ngân sách năm ngoái)</text>
+        <text class="s" x="504" y="294" text-anchor="middle">Năm sau: tab Dự án đã tạo → Gen budget for new year (bản giao năm nay thành ngân sách năm ngoái)</text>
       </svg>
       </div>
       <ol>
@@ -342,7 +342,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
           <ul>
             <li><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không đọc được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ); tick "Hiện cả file không đọc được" để xem lý do. File có cảnh báo đỏ "đối chiếu tổng có thể LỆCH" vẫn chạy được, nhưng nên xem kỹ kết quả.</li>
             <li><b>Tải file lên:</b> file .xlsx theo form Savills 2026/2027 (hai sheet quỹ, cột năm, 12 tháng, sheet 0. Info).</li>
-            <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Lịch sử dự án.</li>
+            <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Dự án đã tạo.</li>
           </ul></li>
         <li><b>Điền dữ kiện file ngân sách không có</b> (mục 2). <b>Tỉnh / thành phố là bắt buộc</b> vì biểu giá nước lấy theo đó. Số tháp, số tầng, số cổng, hồ bơi, thể tích hồ, số chỗ đậu xe: điền nếu biết. Ô để trống được ghi 0 trên form và liệt kê trong ghi chú nhập để điền sau; số chỗ đậu để trống thì lấy theo sheet 0. Info của file.</li>
         <li><b>Bấm Tạo ngân sách năm mới.</b> Thanh tiến trình và log hiện ngay dưới nút, với bốn bước [1/4] … [4/4] như sơ đồ. Cả trang chỉ chạy một lượt tại một thời điểm; nếu trang báo "Đang có một lượt chạy", chờ một đến hai phút rồi bấm lại.</li>
@@ -439,7 +439,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <li>PM mở trang qua máy chủ Hub bằng trình duyệt và đăng nhập bằng tài khoản công ty. Không cần cài gì trên máy.</li>
         <li>Trang Budget Agent nhận yêu cầu, xếp một lượt tại một thời điểm, rồi chạy bộ sinh ngân sách và Excel ngay trên máy chủ.</li>
         <li>Danh sách dự án có sẵn đọc từ SharePoint. Khi chạy, một bản chụp file đã duyệt được chép vào thư mục của lượt, nên chạy lại cho ra cùng số. File trên SharePoint không bị sửa.</li>
-        <li>Mỗi lượt có thư mục riêng trên máy chủ; lượt sau không ghi đè lượt trước. Tab Lịch sử dự án đọc lại các thư mục này.</li>
+        <li>Mỗi lượt có thư mục riêng trên máy chủ; lượt sau không ghi đè lượt trước. Tab Dự án đã tạo đọc lại các thư mục này.</li>
       </ul>
     </section>
 
@@ -490,7 +490,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
   </div>
 
   <div class="panel res" id="panel-ketqua">
-    <p id="res-empty" class="status">Chưa có lượt dự án mới nào được mở. Bấm "Tạo ngân sách" ở tab Nhập liệu, hoặc "Xem" một lượt ở tab Lịch sử dự án.</p>
+    <p id="res-empty" class="status">Chưa có lượt dự án mới nào được mở. Bấm "Tạo ngân sách" ở tab Nhập liệu, hoặc "Xem" một lượt ở tab Dự án đã tạo.</p>
     <div id="res-body" class="hidden">
       <p class="src" id="res-head"></p>
       <div id="res-new">
@@ -672,7 +672,8 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 
   <div class="panel" id="panel-lichsu">
     <section>
-      <h2>Lịch sử dự án</h2>
+      <h2>Dự án đã tạo</h2>
+      <p style="margin:0 0 6px">Các lượt đã chạy trên trang này (Tạo ngân sách, Tạo ngân sách năm mới), mới nhất trước. Ngân sách thật đã duyệt của các dự án nằm ở tab <b>Review dự án đang vận hành</b>, mục <b>Dự án có sẵn</b>.</p>
       <p class="src" id="his-info">Đang tải…</p>
       <table class="his" id="his"><thead><tr><th>Dự án</th><th>Năm NS</th><th>Chế độ</th><th>Thời điểm</th><th>Người chạy</th><th>Trạng thái</th><th>File</th><th>Thao tác</th></tr></thead><tbody></tbody></table>
       <p class="src"><b>Clone</b>: điền sẵn tab Nhập liệu từ form của lượt đó (đổi tên dự án, năm rồi bấm Tạo ngân sách). <b>Gen budget for new year</b>: mở tab Review với bản giao của lượt đó làm ngân sách năm ngoái, dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới. <b>Điều chỉnh</b>: mở kết quả của lượt kèm bảng điều chỉnh.</p>
@@ -1052,7 +1053,7 @@ goReview.addEventListener('click', async () => {
     if (!libPick) { setStatus('Chưa chọn dự án trong danh sách có sẵn (bấm vào một dòng).', true, 'review'); return; }
     fd.append('library_id', libPick.id);
   } else if (srcMode === 'run') {
-    if (!reviewSource) { setStatus('Chưa có lượt cũ: dùng nút Gen budget for new year ở tab Lịch sử.', true, 'review'); return; }
+    if (!reviewSource) { setStatus('Chưa có lượt cũ: dùng nút Gen budget for new year ở tab Dự án đã tạo.', true, 'review'); return; }
     fd.append('source_run', reviewSource.id);
   } else {
     const f = document.getElementById('prior-file').files[0];
@@ -1315,7 +1316,7 @@ function renderAdjResult(last) {
     (adj && adj.data.kind === 'review' ? ' Sheet Review của bản phân tích vẫn so số công cụ trước điều chỉnh.' : '');
 }
 
-// ---- Lịch sử dự án ----
+// ---- Dự án đã tạo ----
 const KIND_VI = { new: 'Mới', review: 'Review' };
 const STATUS_VI = { done: 'Xong', failed: 'Thất bại', running: 'Đang chạy' };
 
@@ -1324,7 +1325,7 @@ async function loadHistory() {
   info.classList.remove('err'); info.textContent = 'Đang tải…';
   let d;
   try { d = await getJSON(`${PREFIX}/api/history`); }
-  catch (e) { showLoadError(info, `Không tải được lịch sử: ${e.message}`, loadHistory); return; }
+  catch (e) { showLoadError(info, `Không tải được danh sách dự án đã tạo: ${e.message}`, loadHistory); return; }
   historyLoaded = true;
   info.textContent = `${d.runs.length} lượt trong ${d.runs_dir}` + (d.active ? ` · đang chạy: ${d.active}` : '');
   const tb = document.querySelector('#his tbody');

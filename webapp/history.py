@@ -1,5 +1,5 @@
 """
-Các lượt chạy trên đĩa (thư mục runs) cho trang Lịch sử dự án, và dựng lại một lượt vào bộ nhớ sau khi server
+Các lượt chạy trên đĩa (thư mục runs) cho tab Dự án đã tạo, và dựng lại một lượt vào bộ nhớ sau khi server
 khởi động lại. Chỉ đọc file đã có; không chạy gì.
 
 Mỗi lượt là một thư mục <runs>\\<yyyymmdd-hhmmss>_<tên>\\ gồm:

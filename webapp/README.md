@@ -9,7 +9,7 @@ Một trang web, hai luồng:
   ngân sách năm mới**: công cụ chạy `review.py` (RUNNING.md mục 2d). Ngay bên dưới trên cùng tab: duyệt vs công cụ,
   rồi **bảng điều chỉnh** ngân sách năm mới (có cột số duyệt) để chỉnh trước khi giao. Khoảng 60–90 giây; **cần
   Excel** (sheet Review); máy không có Excel thì lượt dừng sau pipeline và trang nói rõ.
-- **Lịch sử dự án:** mọi lượt trong thư mục runs, với **Clone** (điền sẵn form từ lượt cũ) và **Gen budget for new
+- **Dự án đã tạo:** mọi lượt trong thư mục runs, với **Clone** (điền sẵn form từ lượt cũ) và **Gen budget for new
   year** (bản giao của lượt cũ làm ngân sách năm ngoái).
 - **Điều chỉnh:** sửa số lượng, đơn giá hoặc trượt giá từng mã của bản giao ngay trên trang (dòng chi tiết mở bên dưới
   từng mã), xem trước chênh lệch, rồi lưu vào bản giao; Excel tính lại và trang hiện thu / chi / thặng dư trước và sau.
@@ -62,7 +62,7 @@ nhập khác. Test: `tests/test_webapp_library.py`.
 
 ## Năm tab và trang kết quả
 
-Thứ tự tab: Nhập liệu dự án mới / Review dự án đang vận hành / Kết quả dự án mới / Lịch sử dự án / Hướng dẫn.
+Thứ tự tab: Nhập liệu dự án mới / Review dự án đang vận hành / Kết quả dự án mới / Dự án đã tạo / Hướng dẫn.
 Mỗi tab chạy có ô trạng thái, log và thanh tiến trình riêng.
 
 - **Nhập liệu dự án mới:** form và nút chính *Tạo ngân sách* (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng;
@@ -70,7 +70,7 @@ Mỗi tab chạy có ô trạng thái, log và thanh tiến trình riêng.
 - **Review dự án đang vận hành:** 1. ngân sách đã duyệt năm ngoái (Dự án có sẵn / Tải file lên / Bản giao của lượt cũ
   khi mở bằng Gen budget for new year); 2. dữ kiện; nút *Tạo ngân sách năm mới*; rồi trên cùng tab: kết quả review,
   tải file, và 3. bảng điều chỉnh ngân sách năm mới.
-- **Lịch sử dự án** (tab thứ ba, `api/history`, `webapp/history.py`): bảng mọi lượt trong thư mục runs kể cả lượt của
+- **Dự án đã tạo** (tab thứ ba, `api/history`, `webapp/history.py`): bảng mọi lượt trong thư mục runs kể cả lượt của
   phiên server trước (đọc từ đĩa: `web_meta.json` server ghi khi bắt đầu và khi xong; lượt cũ hơn suy từ run_log json
   / review_summary.json và tên thư mục): dự án, năm NS (lượt review: `2026 → 2027`), chế độ Mới / Review, thời điểm,
   người chạy (X-Hub-User hoặc email đăng nhập), trạng thái, link tải file (theo vai trò), và ba nút:
@@ -103,7 +103,7 @@ Mỗi tab chạy có ô trạng thái, log và thanh tiến trình riêng.
 
 Không còn tab riêng (người dùng yêu cầu 20/10/2026 gộp vào Review để điều chỉnh trước khi giao): bảng mở ngay dưới kết
 quả của lượt, trong tab Review (lượt review, mục "3. Điều chỉnh ngân sách năm mới trước khi giao") hoặc tab Kết quả dự
-án mới; nút *Điều chỉnh* ở tab Lịch sử mở lượt đó và cuộn tới bảng. Dùng cho mọi lượt có bản giao. Trang đọc sheet **4. Điều chỉnh** của bản giao (`budget_adjustment.py` dựng sheet này: một dòng Tổng mỗi mã, các
+án mới; nút *Điều chỉnh* ở tab Dự án đã tạo mở lượt đó và cuộn tới bảng. Dùng cho mọi lượt có bản giao. Trang đọc sheet **4. Điều chỉnh** của bản giao (`budget_adjustment.py` dựng sheet này: một dòng Tổng mỗi mã, các
 dòng Chi tiết bên dưới, công thức của template) và chỉ ghi lại các ô nhập; mọi con số khác vẫn do công thức trong file
 tính (`webapp/adjust.py`).
 
@@ -191,7 +191,7 @@ sang Microsoft (authorization code + PKCE, thư viện MSAL); `/auth/callback` n
 | `auth.py` | SSO Entra ID: danh sách email được phép, khởi tạo và hoàn tất auth code flow (MSAL), đăng xuất |
 | `static/login.html` | Trang đăng nhập (cùng token màu), hiện lý do khi bị từ chối |
 | `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt dự án mới), `api/reviews` (tạo lượt review; nguồn `library_id`, `source_run` hoặc file tải lên), `api/library` (dự án có sẵn), `api/runs/<id>/adjust` (GET: các mã của sheet 4; POST: lưu điều chỉnh), `api/runs/<id>` (trạng thái + log + tóm tắt; lượt của phiên server trước được dựng lại từ thư mục), `api/runs/<id>/input` (giá trị form của lượt, cho Clone và Gen), `api/runs/<id>/files/<tên>` (tải file), `api/history` (danh sách lượt). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 |
-| `history.py` | Đọc thư mục runs cho tab Lịch sử: `outputs_of` (3 file kết quả ở thư mục lượt hoặc `run\`), `describe` / `scan` (loại, dự án, năm, trạng thái từ `web_meta.json` hoặc suy từ file), `write_meta`, `read_log` |
+| `history.py` | Đọc thư mục runs cho tab Dự án đã tạo: `outputs_of` (3 file kết quả ở thư mục lượt hoặc `run\`), `describe` / `scan` (loại, dự án, năm, trạng thái từ `web_meta.json` hoặc suy từ file), `write_meta`, `read_log` |
 | `review_run.py` | Tiến trình con của lượt review: Excel tính lại bản giao lượt cũ khi `--recalc`, gọi `review.run`, ghi `review_notes.json` |
 | `library.py` | Danh sách ngân sách đã duyệt có sẵn từ kho quét, đường dẫn file sống trên SharePoint, lý do không chọn được |
 | `adjust.py` | Đọc sheet 4. Điều chỉnh thành các mã kèm dòng chi tiết (`read_items`), công thức xem trước (`new_amount`), ghi ô nhập theo khoá mã + sheet quỹ (`apply_edits`), số duyệt theo mã từ sheet Review (`approved_by_key`) |
@@ -219,4 +219,4 @@ khách hàng nước, ESI2, dự phòng...) giữ nguyên giá trị trong file 
 - Các trường khác của chế độ dự án đang vận hành (lịch trực năm cũ từng vị trí, 12 tháng hoá đơn) chưa có trên trang;
   chế độ Review lấy lương và điện nước đã duyệt theo dòng tổng năm.
 - Clone một lượt review tạo form dự án mới từ quy mô của lượt đó (không mang theo phần dự án đang vận hành).
-- Lịch sử chưa có lọc, tìm kiếm hay xoá lượt.
+- Tab Dự án đã tạo chưa có lọc, tìm kiếm hay xoá lượt.

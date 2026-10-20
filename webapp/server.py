@@ -9,11 +9,11 @@ Hai luồng, cùng một hàng đợi (một lượt tại một thời điểm,
    <runs>\\<timestamp>_<tên>\\Project_Budget_Input.xlsx, ghi giá trị form theo nhãn (fill_input.py; file mẫu chỉ
    được đọc), rồi chạy run.py trong tiến trình con với mọi đường dẫn đổi hướng về thư mục lượt (run_budget.py).
 2. Review ngân sách dự án đang vận hành, POST api/reviews (multipart): file ngân sách đã duyệt năm ngoái tải lên
-   (hoặc bản giao của một lượt cũ, "Gen budget for new year" trên tab Lịch sử) + dữ kiện file không có
+   (hoặc bản giao của một lượt cũ, "Gen budget for new year" trên tab Dự án đã tạo) + dữ kiện file không có
    (facts.json) → review.py trong tiến trình con (review_run.py): đổ form Existing project, hai generator cô lập,
    Excel tính lại, sheet Review cuối bản phân tích, review_summary.json.
 
-Cả hai phát log theo thời gian thực (api/runs/<id>) và cho tải 3 file kết quả. Tab Lịch sử dự án (api/history)
+Cả hai phát log theo thời gian thực (api/runs/<id>) và cho tải 3 file kết quả. Tab Dự án đã tạo (api/history)
 liệt kê mọi lượt trong thư mục runs kể cả của phiên server trước (history.py), với Clone (api/runs/<id>/input:
 giá trị form của lượt đó) và Gen budget for new year. Thư mục runs mặc định là ..\\reports\\web_runs (bên trong
 bản đóng băng trên Hub; BUDGET_WEB_RUNS để đổi).
