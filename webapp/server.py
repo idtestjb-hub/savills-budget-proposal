@@ -4,29 +4,33 @@ Trang nhập liệu + nút "Tạo ngân sách" cho Budget Agent (FastAPI).
     cd source_code
     python -m webapp              # xem webapp/__main__.py cho biến môi trường
 
-Mỗi lần bấm nút:
-  1. chép mẫu ..\\reports\\Project_Budget_Input.xlsx sang <runs>\\<timestamp>\\Project_Budget_Input.xlsx và ghi
-     giá trị form vào đúng ô theo nhãn (fill_input.py; file mẫu chỉ được đọc);
-  2. chạy run.py trong tiến trình con (sys.executable, cwd = source_code) với mọi đường dẫn vào/ra đổi hướng
-     về thư mục của lần chạy (run_budget.py);
-  3. phát log theo thời gian thực và cho tải 3 file kết quả.
+Hai luồng, cùng một hàng đợi (một lượt tại một thời điểm, vì hai pipeline dùng chung file tạm của lịch trực):
+1. Tạo ngân sách (dự án mới), POST api/runs: chép mẫu ..\\reports\\Project_Budget_Input.xlsx sang
+   <runs>\\<timestamp>_<tên>\\Project_Budget_Input.xlsx, ghi giá trị form theo nhãn (fill_input.py; file mẫu chỉ
+   được đọc), rồi chạy run.py trong tiến trình con với mọi đường dẫn đổi hướng về thư mục lượt (run_budget.py).
+2. Review ngân sách dự án đang vận hành, POST api/reviews (multipart): file ngân sách đã duyệt năm ngoái tải lên
+   (hoặc bản giao của một lượt cũ, "Gen budget for new year" trên tab Lịch sử) + dữ kiện file không có
+   (facts.json) → review.py trong tiến trình con (review_run.py): đổ form Existing project, hai generator cô lập,
+   Excel tính lại, sheet Review cuối bản phân tích, review_summary.json.
 
-Chỉ một lượt chạy tại một thời điểm: cả hai generator dùng một file tạm cố định cho lịch trực. Thư mục
-runs mặc định là ..\\reports\\web_runs (bên trong bản đóng băng trên Hub; BUDGET_WEB_RUNS để đổi).
+Cả hai phát log theo thời gian thực (api/runs/<id>) và cho tải 3 file kết quả. Tab Lịch sử dự án (api/history)
+liệt kê mọi lượt trong thư mục runs kể cả của phiên server trước (history.py), với Clone (api/runs/<id>/input:
+giá trị form của lượt đó) và Gen budget for new year. Thư mục runs mặc định là ..\\reports\\web_runs (bên trong
+bản đóng băng trên Hub; BUDGET_WEB_RUNS để đổi).
 
 Tiền tố (BUDGET_WEB_PREFIX, mặc định /budget): reverse proxy chuyển /budget/* về app và BỎ tiền tố, nên app
 nhận "/" ; mọi link và fetch trên trang mang tiền tố. Các route được đăng ký hai lần, ở gốc và ở tiền tố, để
 mở trực tiếp http://host:port/budget/ (không qua proxy) cũng chạy. GET / trả 200 cho heartbeat.
 """
 import datetime
-import glob
+import json
 import os
 import re
 import subprocess
 import sys
 import threading
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -36,7 +40,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import auth, fill_input, results  # noqa: E402
+from webapp import auth, fill_input, history, results  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -44,40 +48,47 @@ PREFIX = ('/' + (os.environ.get('BUDGET_WEB_PREFIX', '/budget') or '').strip('/'
 RUNS_DIR = os.path.abspath(os.environ.get('BUDGET_WEB_RUNS') or os.path.join(BUDGET_AGENT, 'reports', 'web_runs'))
 
 _lock = threading.Lock()
-_runs = {}          # run_id -> dict(status, log, rc, started, finished, workdir, outputs)
+_runs = {}          # run_id -> dict(kind, status, log, rc, started, finished, workdir, outputs, summary, ...)
 _active = {'id': None}
 
-OUTPUT_KINDS = (
-    ('deliverable', '* - Sample Consulting Budget.xlsx', 'Bản giao khách (form chuẩn 25 sheet)'),
-    ('analysis', 'Project_Budget_Output.xlsx', 'Bản phân tích nội bộ'),
-    ('roster', 'Roster_Demand_Model.xlsx', 'Lịch trực'),
-)
+OUTPUT_KINDS = history.OUTPUT_KINDS
+_outputs = history.outputs_of          # [{kind, title, name, size, path}]; `path` không ra khỏi server
+
+# Ô dữ kiện của chế độ Review (file ngân sách không có) -> nhãn trên Project Info (review_import.write_form đọc
+# facts theo nhãn). Tỉnh / thành phố bắt buộc: biểu giá nước lấy theo đó.
+FACT_LABELS = {
+    'city': ('City / Province', 'text'),
+    'district': ('District', 'text'),
+    'tower_count': ('Tower Count', 'number'),
+    'floor_count': ('Floor Count', 'number'),
+    'gate_count': ('Gate / Entrance Count', 'number'),
+    'has_pool': ('Has Swimming Pool?', 'yesno'),
+    'pool_area': ('Pool Area', 'number'),
+    'pool_volume': ('Pool Volume', 'number'),
+    'car_slots': ('Car Parking Slots', 'number'),
+    'moto_slots': ('Moto Parking Slots', 'number'),
+    'site_area': ('Site Area', 'number'),
+    'garden_area': ('Garden / Landscape Area', 'number'),
+    'open_space': ('Circulation / Hardscape Area', 'number'),
+}
+MAX_UPLOAD = 60 * 1024 * 1024
 
 
 def _log(message):
     print(f'{datetime.datetime.now():%Y-%m-%d %H:%M:%S} budget-web: {message}', flush=True)
 
 
-def _outputs(workdir):
-    found = []
-    for kind, pattern, title in OUTPUT_KINDS:
-        matches = glob.glob(os.path.join(workdir, pattern))
-        if matches:
-            path = max(matches, key=os.path.getmtime)
-            found.append(dict(kind=kind, title=title, name=os.path.basename(path),
-                              size=os.path.getsize(path)))
-    return found
+def _now():
+    return datetime.datetime.now().isoformat(timespec='seconds')
 
 
 def _worker(run_id):
     run = _runs[run_id]
-    cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'run_budget.py'),
-           '--input', run['input'], '--workdir', run['workdir']]
     log_path = os.path.join(run['workdir'], 'run.log')
     env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1')
     try:
         with open(log_path, 'w', encoding='utf-8') as log_file:
-            proc = subprocess.Popen(cmd, cwd=SOURCE_DIR, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(run['cmd'], cwd=SOURCE_DIR, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, env=env)
             assert proc.stdout is not None
             for raw in proc.stdout:
@@ -87,10 +98,18 @@ def _worker(run_id):
             rc = proc.wait()
         run['rc'] = rc
         run['outputs'] = _outputs(run['workdir'])
-        # Tóm tắt kết quả (thu/chi, mức dịch vụ, so sánh ẩn danh) cho mọi vai trò, kể cả viewer; lỗi chỉ thành note.
-        run['summary'] = results.summarize(run['workdir'])
+        # Tóm tắt kết quả cho mọi vai trò, kể cả viewer; lỗi chỉ thành note.
+        run['summary'] = results.summarize_run(run['workdir'], run['kind'])
         complete = len(run['outputs']) == len(OUTPUT_KINDS)
-        run['status'] = 'done' if (rc == 0 and complete) else 'failed'
+        if run['kind'] == 'review':
+            # rc 1 = một phép đối chiếu lệch: vẫn có đủ file và sheet Review, trang nói rõ LỆCH.
+            ok = rc in (0, 1) and complete and bool(run['summary'].get('summary'))
+            meta = run['summary'].get('meta') or {}
+            run['project'] = meta.get('project') or run['project']
+            run['budget_year'], run['prior_year'] = meta.get('budget_year'), meta.get('prior_year')
+        else:
+            ok = rc == 0 and complete
+        run['status'] = 'done' if ok else 'failed'
         if rc == 0 and not complete:
             run['log'].append('Thiếu file kết quả trong thư mục chạy.')
     except Exception as exc:  # the page must always learn why a run stopped
@@ -98,7 +117,10 @@ def _worker(run_id):
         run['rc'] = -1
         run['status'] = 'failed'
     finally:
-        run['finished'] = datetime.datetime.now().isoformat(timespec='seconds')
+        run['finished'] = _now()
+        history.write_meta(run['workdir'], status=run['status'], rc=run['rc'], finished=run['finished'],
+                           project=run.get('project'), budget_year=run.get('budget_year'),
+                           prior_year=run.get('prior_year'))
         _log(f'run {run_id} {run["status"]} rc={run["rc"]} outputs={len(run["outputs"])}')
         with _lock:
             _active['id'] = None
@@ -110,7 +132,8 @@ def _worker(run_id):
 ROLE_HEADER = 'X-Hub-Role'
 ROLE_VIEWER = 'viewer'
 VIEWER_KINDS = {'deliverable'}
-_INTERNAL_LOG_MARKERS = ('[2/2]', 'generate_project_output', 'Internal analysis', '  analysis ', '  roster ')
+_INTERNAL_LOG_MARKERS = ('[2/2]', 'generate_project_output', 'Internal analysis', '  analysis ', '  roster ',
+                         'phân tích:', "Sheet 'Review'")
 
 
 def role_of(request):
@@ -119,11 +142,15 @@ def role_of(request):
     return ROLE_VIEWER if value == ROLE_VIEWER else None
 
 
+def _strip(outputs):
+    return [{k: v for k, v in o.items() if k != 'path'} for o in outputs]
+
+
 def visible_outputs(outputs, role):
     """Danh sách file người có vai trò `role` được thấy: viewer chỉ bản giao khách; ai khác đủ 3 file."""
     if role == ROLE_VIEWER:
-        return [o for o in outputs if o['kind'] in VIEWER_KINDS]
-    return list(outputs)
+        return _strip(o for o in outputs if o['kind'] in VIEWER_KINDS)
+    return _strip(outputs)
 
 
 def may_download(run, name, role):
@@ -146,10 +173,30 @@ def visible_log(lines, outputs, role):
 def _public(run_id, since=0, role=None):
     run = _runs[run_id]
     # `since` đếm trên log đầy đủ để trang không nhận trùng dòng; chỉ phần trả về được lọc theo vai trò.
-    return dict(id=run_id, status=run['status'], rc=run['rc'], started=run['started'],
-                finished=run['finished'], workdir=run['workdir'],
+    return dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'), source=run.get('source', ''),
+                status=run['status'], rc=run['rc'], started=run['started'], finished=run['finished'],
+                workdir=run['workdir'],
                 log=visible_log(run['log'][since:], run['outputs'], role), log_total=len(run['log']),
                 outputs=visible_outputs(run['outputs'], role), summary=run.get('summary'))
+
+
+def _ensure_run(run_id):
+    """Lượt trong bộ nhớ; lượt của phiên server trước được dựng lại từ thư mục của nó (history.describe)."""
+    if run_id in _runs:
+        return _runs[run_id]
+    if not history.RUN_ID_RE.match(run_id or ''):
+        raise HTTPException(404, 'Không có lượt chạy này.')
+    workdir = os.path.join(RUNS_DIR, run_id)
+    if not os.path.isdir(workdir):
+        raise HTTPException(404, 'Không có lượt chạy này.')
+    d = history.describe(workdir, run_id)
+    run = dict(kind=d['kind'], project=d['project'], source=d['source'], status=d['status'], rc=d['rc'],
+               started=d['started'], finished=d['finished'], workdir=workdir, input=d['input_form'],
+               outputs=d['outputs'], log=history.read_log(workdir),
+               summary=results.summarize_run(workdir, d['kind']), budget_year=d['budget_year'],
+               prior_year=d['prior_year'], cmd=None)
+    _runs[run_id] = run
+    return run
 
 
 def _page(name, **fields):
@@ -162,6 +209,19 @@ def _page(name, **fields):
 
 def _escape(text):
     return (str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;'))
+
+
+def _safe(name, fallback='project'):
+    return (re.sub(r'[^A-Za-z0-9]+', '-', str(name)).strip('-') or fallback)[:40]
+
+
+def _new_run_id(tag):
+    return datetime.datetime.now().strftime('%Y%m%d-%H%M%S') + '_' + tag
+
+
+def _who(request, user):
+    # X-Hub-User: tên đăng nhập Windows do cổng đăng nhập của Hub chép sang qua Caddy; chỉ để ghi log, không phân quyền.
+    return (request.headers.get('X-Hub-User') or '').strip() or user.get('email') or user.get('name') or ''
 
 
 def current_user(request: Request):
@@ -249,16 +309,26 @@ def defaults(user=Depends(require_user)):
     return JSONResponse(data)
 
 
+def _start(run_id, run, who, what):
+    """Ghi lượt vào bộ nhớ + web_meta.json và chạy tiến trình con. Gọi khi đang giữ _lock."""
+    _runs[run_id] = run
+    _active['id'] = run_id
+    history.write_meta(run['workdir'], kind=run['kind'], project=run.get('project'), user=who,
+                       started=run['started'], status='running', source=run.get('source', ''),
+                       facts=run.get('facts'))
+    _log(f'run {run_id} started {what} by {who}')
+    threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
+
+
 @router.post('/api/runs')
 def start_run(request: Request, values: dict, user=Depends(require_user)):
     with _lock:
         if _active['id']:
-            raise HTTPException(409, 'Đang có một lượt tạo ngân sách chạy. Chờ xong rồi bấm lại.')
+            raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')
         name = str(values.get('scalars', {}).get('project_name') or '').strip()
         if not name:
             raise HTTPException(400, 'Tên dự án không được để trống.')
-        safe = re.sub(r'[^A-Za-z0-9]+', '-', name).strip('-') or 'project'
-        run_id = datetime.datetime.now().strftime('%Y%m%d-%H%M%S') + '_' + safe[:40]
+        run_id = _new_run_id(_safe(name))
         workdir = os.path.join(RUNS_DIR, run_id)
         os.makedirs(workdir, exist_ok=True)
         input_path = os.path.join(workdir, 'Project_Budget_Input.xlsx')
@@ -266,38 +336,149 @@ def start_run(request: Request, values: dict, user=Depends(require_user)):
             fill_input.write_input(values, input_path)
         except Exception as exc:
             raise HTTPException(400, f'Không ghi được file nhập liệu: {exc}')
-        _runs[run_id] = dict(status='running', rc=None, log=[f'Thư mục chạy: {workdir}'],
-                             started=datetime.datetime.now().isoformat(timespec='seconds'),
-                             finished=None, workdir=workdir, input=input_path, outputs=[], summary=None)
-        _active['id'] = run_id
-    # X-Hub-User: tên đăng nhập Windows do cổng đăng nhập của Hub chép sang qua Caddy; chỉ để ghi log, không phân quyền.
-    hub_user = (request.headers.get('X-Hub-User') or '').strip()
-    _log(f'run {run_id} started for project {name!r} by {hub_user or user.get("email") or user.get("name")}')
-    threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
+        cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'run_budget.py'),
+               '--input', input_path, '--workdir', workdir]
+        run = dict(kind='new', project=name, source='', status='running', rc=None, log=[f'Thư mục chạy: {workdir}'],
+                   started=_now(), finished=None, workdir=workdir, input=input_path, outputs=[], summary=None, cmd=cmd)
+        _start(run_id, run, _who(request, user), f'for project {name!r}')
+    return _public(run_id, role=role_of(request))
+
+
+def _facts_from_form(raw):
+    """{'city': ..., 'tower_count': ...} từ trang -> {nhãn Project Info: giá trị, '_sources': {...}}. Ô trống bị bỏ
+    (review_import ghi 0 và liệt kê 'để trống, PM điền'). Tỉnh / thành phố bắt buộc."""
+    facts, sources = {}, {}
+    for key, (label, kind) in FACT_LABELS.items():
+        value = raw.get(key)
+        if value is None or not str(value).strip():
+            continue
+        if kind == 'number':
+            try:
+                value = fill_input._to_number(value)
+            except ValueError:
+                raise HTTPException(400, f'Ô {label} phải là số.')
+        elif kind == 'yesno':
+            value = 'Yes' if str(value).strip().lower() in ('yes', 'có', 'co', 'true', '1') else 'No'
+        else:
+            value = str(value).strip()
+        facts[label] = value
+        sources[label] = 'nhập trên trang web'
+    if not facts.get('City / Province'):
+        raise HTTPException(400, 'Tỉnh / thành phố không được để trống: biểu giá nước lấy theo đó.')
+    facts['_sources'] = sources
+    return facts
+
+
+@router.post('/api/reviews')
+async def start_review(request: Request, prior: UploadFile | None = File(None), source_run: str = Form(''),
+                       facts: str = Form('{}'), user=Depends(require_user)):
+    """Lượt review: `prior` (file .xlsx tải lên) HOẶC `source_run` (id lượt cũ, lấy bản giao của nó làm ngân sách
+    năm ngoái, Excel tính lại trước khi đọc); `facts` là JSON các ô dữ kiện của trang."""
+    try:
+        raw = json.loads(facts or '{}')
+        if not isinstance(raw, dict):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(400, 'Dữ kiện gửi lên không đúng dạng.')
+    fact_map = _facts_from_form(raw)
+    source_run = (source_run or '').strip()
+    upload = None
+    if source_run:
+        src = _ensure_run(source_run)
+        deliverable = next((o for o in src['outputs'] if o['kind'] == 'deliverable'), None)
+        if not deliverable:
+            raise HTTPException(400, f'Lượt {source_run} không có bản giao để lấy làm ngân sách năm ngoái.')
+        prior_src, recalc, stem = deliverable['path'], True, ''
+        tag, source, what = 'review-' + _safe(src.get('project') or source_run), f'lượt {source_run}', f'from run {source_run}'
+        project = src.get('project') or ''
+    else:
+        if prior is None or not prior.filename:
+            raise HTTPException(400, 'Chưa chọn file ngân sách đã duyệt (.xlsx).')
+        if not prior.filename.lower().endswith('.xlsx'):
+            raise HTTPException(400, 'File ngân sách đã duyệt phải là .xlsx trên form Savills (PDF, xlsb không đọc được).')
+        upload = await prior.read()
+        if len(upload) > MAX_UPLOAD:
+            raise HTTPException(400, 'File lớn hơn 60 MB.')
+        stem = os.path.splitext(os.path.basename(prior.filename))[0]
+        prior_src, recalc = None, False
+        tag, source, what = 'review-' + _safe(stem, 'file'), f'file {os.path.basename(prior.filename)}', f'from file {prior.filename!r}'
+        project = ''
+    with _lock:
+        if _active['id']:
+            raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')
+        run_id = _new_run_id(tag)
+        workdir = os.path.join(RUNS_DIR, run_id)
+        os.makedirs(os.path.join(workdir, 'prior'), exist_ok=True)
+        if upload is not None:
+            prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
+            with open(prior_src, 'wb') as fh:
+                fh.write(upload)
+        facts_path = os.path.join(workdir, 'facts.json')
+        with open(facts_path, 'w', encoding='utf-8') as fh:
+            json.dump(fact_map, fh, ensure_ascii=False, indent=1)
+        cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'review_run.py'),
+               '--prior', prior_src, '--facts', facts_path, '--workdir', workdir] + (['--recalc'] if recalc else [])
+        run = dict(kind='review', project=project, source=source, status='running', rc=None,
+                   log=[f'Thư mục chạy: {workdir}', f'Ngân sách năm ngoái: {source}'], started=_now(), finished=None,
+                   workdir=workdir, input=None, outputs=[], summary=None, cmd=cmd, facts=raw)
+        _start(run_id, run, _who(request, user), what)
     return _public(run_id, role=role_of(request))
 
 
 @router.get('/api/runs/{run_id}')
 def get_run(request: Request, run_id: str, since: int = 0, user=Depends(require_user)):
-    if run_id not in _runs:
-        raise HTTPException(404, 'Không có lượt chạy này.')
+    _ensure_run(run_id)
     return _public(run_id, since, role_of(request))
+
+
+@router.get('/api/runs/{run_id}/input')
+def get_run_input(request: Request, run_id: str, user=Depends(require_user)):
+    """Giá trị form của lượt đó (Clone, và dữ kiện cho Gen budget for new year), đọc theo nhãn như api/defaults."""
+    run = _ensure_run(run_id)
+    path = run.get('input') or history.input_form_of(run['workdir'], run.get('kind', 'new'))
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, 'Lượt này không còn file nhập liệu.')
+    try:
+        data = fill_input.read_defaults(path)
+    except Exception as exc:
+        raise HTTPException(400, f'Không đọc được form của lượt: {exc}')
+    data['id'] = run_id
+    data['kind'] = run.get('kind', 'new')
+    data['project'] = run.get('project')
+    return JSONResponse(data)
 
 
 @router.get('/api/runs/{run_id}/files/{name}')
 def get_file(request: Request, run_id: str, name: str, user=Depends(require_user)):
-    if run_id not in _runs:
-        raise HTTPException(404, 'Không có lượt chạy này.')
+    run = _ensure_run(run_id)
     if os.sep in name or '/' in name or '..' in name:
         raise HTTPException(400, 'Tên file không hợp lệ.')
-    if not may_download(_runs[run_id], name, role_of(request)):
+    if not may_download(run, name, role_of(request)):
         _log(f'download refused for viewer: {run_id}/{name}')
         raise HTTPException(403, 'Tài khoản của bạn chỉ được tải bản giao khách.')
-    path = os.path.join(_runs[run_id]['workdir'], name)
+    known = next((o['path'] for o in run['outputs'] if o['name'] == name), None)
+    path = known or os.path.join(run['workdir'], name)
     if not os.path.isfile(path):
         raise HTTPException(404, 'File không tồn tại.')
     return FileResponse(path, filename=name,
                         media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@router.get('/api/history')
+def get_history(request: Request, user=Depends(require_user)):
+    """Mọi lượt trong thư mục runs, mới nhất trước; file theo vai trò (viewer chỉ bản giao)."""
+    role = role_of(request)
+    rows = []
+    for e in history.scan(RUNS_DIR, _active['id']):
+        live = _runs.get(e['id'])
+        if live:
+            e['status'], e['project'] = live['status'], live.get('project') or e['project']
+        rows.append(dict(id=e['id'], kind=e['kind'], project=e['project'], budget_year=e['budget_year'],
+                         prior_year=e['prior_year'], started=e['started'], finished=e['finished'], user=e['user'],
+                         status=e['status'], source=e['source'], outputs=visible_outputs(e['outputs'], role),
+                         can_clone=bool(e['input_form']),
+                         can_gen=any(o['kind'] == 'deliverable' for o in e['outputs'])))
+    return JSONResponse(dict(runs=rows, runs_dir=RUNS_DIR, active=_active['id']))
 
 
 app = FastAPI(title='Budget Agent - nhập liệu', docs_url=None, redoc_url=None)

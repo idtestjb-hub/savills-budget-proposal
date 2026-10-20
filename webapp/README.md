@@ -1,8 +1,15 @@
 # Trang nhập liệu + nút "Tạo ngân sách"
 
-Một trang web: điền thông tin dự án, bấm **Tạo ngân sách**, công cụ tự động chạy pipeline (`run.py`) và cho
-tải 3 file kết quả (bản giao khách, bản phân tích nội bộ, lịch trực). Một lượt mất khoảng 45–80 giây
-(trong đó 15–40 giây là bước run log mở Excel; máy không có Excel thì bước này bỏ qua và lượt chạy vẫn xong).
+Một trang web, hai luồng:
+- **Lập ngân sách dự án mới:** điền thông tin dự án, bấm **Tạo ngân sách**, công cụ tự động chạy pipeline (`run.py`)
+  và cho tải 3 file kết quả (bản giao khách, bản phân tích nội bộ, lịch trực). Một lượt mất khoảng 45–80 giây
+  (trong đó 15–40 giây là bước run log mở Excel; máy không có Excel thì bước này bỏ qua và lượt chạy vẫn xong).
+- **Review ngân sách dự án đang vận hành:** tải lên file ngân sách đã duyệt năm ngoái (.xlsx form Savills), điền
+  Tỉnh / thành phố và vài dữ kiện file không có, bấm **Tạo ngân sách năm mới**: công cụ chạy `review.py` (RUNNING.md
+  mục 2d) và cho xem duyệt vs công cụ từng dòng. Khoảng 60–90 giây; **cần Excel** (sheet Review); máy không có Excel
+  thì lượt dừng sau pipeline và trang nói rõ.
+- **Lịch sử dự án:** mọi lượt trong thư mục runs, với **Clone** (điền sẵn form từ lượt cũ) và **Gen budget for new
+  year** (bản giao của lượt cũ làm ngân sách năm ngoái).
 
 ## Chạy
 
@@ -25,9 +32,19 @@ Rồi mở <http://127.0.0.1:8090/budget/> (chạy thử trên máy cá nhân: �
 Log ra stdout/stderr (uvicorn access log + một dòng `budget-web:` khi bắt đầu và kết thúc mỗi lượt, khi đăng nhập
 thành công hoặc bị từ chối).
 
-## Ba tab và trang kết quả
+## Bốn tab và trang kết quả
 
-- **Nhập liệu:** form và nút Tạo ngân sách (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng; disabled xám).
+- **Nhập liệu:** nhóm nút chọn chế độ *Lập ngân sách dự án mới* / *Review ngân sách dự án đang vận hành*, form của chế
+  độ đang chọn, và nút chính (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng; disabled xám): *Tạo ngân sách*
+  hoặc *Tạo ngân sách năm mới*.
+- **Lịch sử dự án** (tab thứ ba, `api/history`, `webapp/history.py`): bảng mọi lượt trong thư mục runs kể cả lượt của
+  phiên server trước (đọc từ đĩa: `web_meta.json` server ghi khi bắt đầu và khi xong; lượt cũ hơn suy từ run_log json
+  / review_summary.json và tên thư mục): dự án, năm NS (lượt review: `2026 → 2027`), chế độ Mới / Review, thời điểm,
+  người chạy (X-Hub-User hoặc email đăng nhập), trạng thái, link tải file (theo vai trò), và ba nút:
+  *Xem* (mở tab Kết quả của lượt đó), *Clone* (`api/runs/<id>/input`: đọc form `Project_Budget_Input.xlsx` của lượt
+  theo nhãn, điền vào tab Nhập liệu chế độ dự án mới; lượt review thì đọc form trong `input\`), *Gen budget for new
+  year* (chuyển sang chế độ Review, nguồn = bản giao của lượt, các ô dữ kiện điền sẵn từ form của lượt; Tỉnh / thành
+  phố trống thì trang bắt điền).
 - **Hướng dẫn** (tab cuối)**:** các bước dùng và ý nghĩa từng trường (rút từ RUNNING.md và docs/17).
 - **Kết quả** (tab thứ hai, mở tự động khi lượt chạy xong, dựng từ `summary` trong JSON của `api/runs/<id>`, `webapp/results.py`):
   - thu, chi, thặng dư/thâm hụt năm đầu của quỹ vận hành (không phải lợi nhuận Savills): từ bản ghi run_log của lượt chạy (pipeline đo bằng Excel trên
@@ -37,6 +54,32 @@ thành công hoặc bị từ chối).
   - so sánh với dự án tham chiếu: sheet 'Comparison' của bản phân tích, có tên hai dự án tham chiếu (mọi vai trò);
   - nút tải file. Nguồn số ghi dưới mỗi bảng. Viewer thấy đủ phần tóm tắt, chỉ bị ẩn hai file nội bộ.
   Test: `tests/test_webapp_results.py`.
+- **Kết quả của lượt review** (`results.review_summary`, từ `review_summary.json` + `review_notes.json` trong thư mục
+  lượt): bảng Tổng thu / Tổng chi / Thặng dư cho từng quỹ, "Duyệt NS <năm cũ> (quy đổi)" vs "Công cụ NS <năm mới>",
+  chênh và % (triệu VND/năm, cơ sở VAT của bản giao); số dòng so sánh, mã không có trên form 2027, chưa có phương
+  pháp; tám phép đối chiếu KHỚP / LỆCH (công cụ = bản giao, duyệt = file nguồn, cho R và E của hai quỹ); 10 dòng lệch
+  lớn nhất với "cách công cụ ra số"; ghi chú nhập (để trống PM điền, không có trên form, cần PM xác nhận, từ dữ kiện);
+  nút tải file. Phép đối chiếu lệch (review.py trả 1) vẫn là lượt *xong*, trạng thái ghi rõ LỆCH.
+  Mọi lượt còn có mục "Điều chỉnh ngân sách trong bản giao" nhắc cách dùng sheet 4. Điều chỉnh (số lượng / đơn giá /
+  trượt giá). Test: `tests/test_webapp_review.py`.
+
+## Chế độ Review: cách chạy
+
+`POST api/reviews` (multipart): `prior` = file .xlsx tải lên **hoặc** `source_run` = id lượt cũ; `facts` = JSON các ô
+dữ kiện (`city` bắt buộc; `district`, `tower_count`, `floor_count`, `gate_count`, `has_pool`, `pool_volume`,
+`car_slots`, `moto_slots`; ô trống không thành dữ kiện, review_import ghi 0 và liệt kê). Server ghi file vào
+`<lượt>\prior\`, dữ kiện thành `<lượt>\facts.json` theo nhãn Project Info (`FACT_LABELS` trong `server.py`), rồi
+chạy `webapp/review_run.py --prior ... --facts ... --workdir <lượt> [--recalc]` trong tiến trình con. `review.run`
+viết form vào `input\`, ba file kết quả vào `run\`, `deliverable_recalc.xlsx`, `review_summary.md/json`;
+`review_run.py` ghi thêm `review_notes.json` (ghi chú nhập, những gì đã điền).
+
+`--recalc` (Gen budget for new year): bản giao do openpyxl ghi không có giá trị cache nên review_import đọc thẳng
+bị dừng "no month columns"; Excel tính lại một bản sao (`prior_recalc.xlsx`) trước, rồi đọc bản đó. Kiểm tra
+20/10/2026 trên bản giao của một lượt mẫu: đọc đủ hai sheet quỹ, R/E khớp dòng tổng, tên dự án, năm, sheet
+0. Info (ba sản phẩm kèm đơn giá); 8/8 phép đối chiếu khớp.
+
+Cùng một hàng đợi với lượt thường: đang có lượt chạy (bất kể loại) thì `api/reviews` và `api/runs` trả 409, vì hai
+pipeline dùng chung file tạm của lịch trực.
 
 ## Vai trò viewer (tiêu đề `X-Hub-Role` do reverse proxy gắn)
 
@@ -78,13 +121,17 @@ sang Microsoft (authorization code + PKCE, thư viện MSAL); `/auth/callback` n
 | `__main__.py` | `python -m webapp`: đọc biến môi trường, kiểm tra cấu hình SSO, chạy uvicorn |
 | `auth.py` | SSO Entra ID: danh sách email được phép, khởi tạo và hoàn tất auth code flow (MSAL), đăng xuất |
 | `static/login.html` | Trang đăng nhập (cùng token màu), hiện lý do khi bị từ chối |
-| `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt), `api/runs/<id>` (trạng thái + log), `api/runs/<id>/files/<tên>` (tải file). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 "đang chạy" |
+| `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt dự án mới), `api/reviews` (tạo lượt review), `api/runs/<id>` (trạng thái + log + tóm tắt; lượt của phiên server trước được dựng lại từ thư mục), `api/runs/<id>/input` (giá trị form của lượt, cho Clone và Gen), `api/runs/<id>/files/<tên>` (tải file), `api/history` (danh sách lượt). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 |
+| `history.py` | Đọc thư mục runs cho tab Lịch sử: `outputs_of` (3 file kết quả ở thư mục lượt hoặc `run\`), `describe` / `scan` (loại, dự án, năm, trạng thái từ `web_meta.json` hoặc suy từ file), `write_meta`, `read_log` |
+| `review_run.py` | Tiến trình con của lượt review: Excel tính lại bản giao lượt cũ khi `--recalc`, gọi `review.run`, ghi `review_notes.json` |
 | `fill_input.py` | Đọc mặc định và ghi giá trị form vào bản sao của `..\reports\Project_Budget_Input.xlsx`, **theo nhãn** cột A (`input_labels.SheetLabels`), không theo ô. Nhãn mẫu chưa có (`Budget Start Month`, `District`, `City / Province`) được thêm dưới dòng cuối |
 | `run_budget.py` | Tiến trình con (`sys.executable`, cwd = `source_code`) chạy `run.main()` với mọi đường dẫn vào/ra đổi hướng về thư mục của lượt chạy bằng `verification/isolation.redirected_paths` (cơ chế sẵn có của verify.py). Không sửa `run.py` |
 | `static/index.html` | Trang một màn, tiếng Việt, Arial, palette Savills (token CSS mục 8.4 của brand guide), không logo. `__PREFIX__` được server thay bằng tiền tố |
 
-Mỗi lượt tạo một thư mục `<runs>\<yyyymmdd-hhmmss>_<tên dự án>\` chứa file nhập liệu đã điền, 3 file kết quả,
-`run.log` và `run_log\` (bản ghi của pipeline). File mẫu `..\reports\Project_Budget_Input.xlsx` chỉ được đọc;
+Mỗi lượt tạo một thư mục `<runs>\<yyyymmdd-hhmmss>_<tên dự án>\` (lượt review: `..._review-<tên file hoặc dự án>`)
+chứa `web_meta.json`, `run.log`, và: lượt dự án mới = file nhập liệu đã điền, 3 file kết quả, `run_log\`; lượt review
+= `prior\` hoặc `prior_recalc.xlsx`, `facts.json`, `input\`, `run\` (3 file), `deliverable_recalc.xlsx`,
+`review_summary.md/json`, `review_notes.json`. File mẫu `..\reports\Project_Budget_Input.xlsx` chỉ được đọc;
 `..\reports\*.xlsx` và `..\sample_output\` không bị ghi đè.
 
 ## Trường trên trang
@@ -96,5 +143,8 @@ khách hàng nước, ESI2, dự phòng...) giữ nguyên giá trị trong file 
 
 ## Chưa làm
 
-- Chưa có hàng đợi: một lượt tại một thời điểm.
-- Các trường của chế độ dự án đang vận hành / dự án đã quản lý chưa có trên trang.
+- Chưa có hàng đợi: một lượt tại một thời điểm (cả hai loại).
+- Các trường khác của chế độ dự án đang vận hành (lịch trực năm cũ từng vị trí, 12 tháng hoá đơn) chưa có trên trang;
+  chế độ Review lấy lương và điện nước đã duyệt theo dòng tổng năm.
+- Clone một lượt review tạo form dự án mới từ quy mô của lượt đó (không mang theo phần dự án đang vận hành).
+- Lịch sử chưa có lọc, tìm kiếm hay xoá lượt.

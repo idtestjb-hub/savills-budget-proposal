@@ -9,6 +9,7 @@ Nguồn số, và vì sao:
   'excel_unavailable' và các số là null: trang nói rõ là chưa đo được, không đoán.
 - Mức dịch vụ: sheet 'Service Levels' của bản phân tích, pipeline ghi bằng giá trị.
 - So sánh: sheet 'Comparison' của bản phân tích, kể cả tên hai dự án tham chiếu (người dùng yêu cầu 19/10: hiện tên).
+- Lượt review (webapp/review_run.py): review_summary.json và review_notes.json mà review.py ghi trong thư mục lượt.
 """
 import glob
 import json
@@ -164,6 +165,40 @@ def _clean(value):
     return value
 
 
+# ---- 4. Lượt review: ngân sách đã duyệt năm ngoái so với công cụ ----------------------------
+
+REVIEW_SOURCE = ("review_summary.json của lượt review: sheet 'Review' cuối bản phân tích nội bộ; số công cụ đo bằng Excel "
+                 "trên bản giao, số duyệt đọc từ file ngân sách đã duyệt và quy đổi về cơ sở VAT của bản giao")
+_REVIEW_META_KEYS = ('prior_year', 'budget_year', 'deliverable_incl', 'file_incl', 'file_name', 'period_text',
+                     'project', 'ran_at')
+
+
+def review_summary(workdir):
+    """{'kind': 'review', 'meta', 'summary' {MF/CA: {R, E, S}}, 'counts', 'ties', 'top', 'notes', 'filled', 'note',
+    'source'}: review_summary.json và review_notes.json của lượt review. Thiếu file thì có note, không đoán."""
+    out = dict(kind='review', meta={}, summary={}, counts={}, ties=[], top=[], notes=[], filled={}, note='',
+               source=REVIEW_SOURCE)
+    path = os.path.join(workdir, 'review_summary.json')
+    if not os.path.exists(path):
+        out['note'] = 'Chưa có review_summary.json: lượt review dừng trước khi ghi sheet Review (xem log).'
+    else:
+        with open(path, encoding='utf-8') as fh:
+            data = json.load(fh)
+        meta = data.get('meta') or {}
+        out['meta'] = {k: meta.get(k) for k in _REVIEW_META_KEYS}
+        out['summary'] = data.get('summary') or {}
+        out['counts'] = data.get('counts') or {}
+        out['ties'] = data.get('ties') or []
+        out['top'] = data.get('top') or []
+    notes_path = os.path.join(workdir, 'review_notes.json')
+    if os.path.exists(notes_path):
+        with open(notes_path, encoding='utf-8') as fh:
+            notes = json.load(fh)
+        out['notes'] = notes.get('notes') or []
+        out['filled'] = notes.get('filled') or {}
+    return out
+
+
 # ---- Tổng hợp --------------------------------------------------------------------------------
 
 def summarize(workdir, analysis_path=None):
@@ -180,7 +215,18 @@ def summarize(workdir, analysis_path=None):
     return summary
 
 
+def summarize_run(workdir, kind='new'):
+    """Tóm tắt theo loại lượt: 'review' đọc review_summary.json; 'new' như summarize()."""
+    if kind == 'review':
+        try:
+            return review_summary(workdir)
+        except Exception as exc:
+            return dict(kind='review', note=f'Không đọc được: {type(exc).__name__}: {exc}')
+    return summarize(workdir)
+
+
 if __name__ == '__main__':
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
-    print(json.dumps(summarize(sys.argv[1]), ensure_ascii=False, indent=1, default=str))
+    kind = sys.argv[2] if len(sys.argv) > 2 else 'new'
+    print(json.dumps(summarize_run(sys.argv[1], kind), ensure_ascii=False, indent=1, default=str))
