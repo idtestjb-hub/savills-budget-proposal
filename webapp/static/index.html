@@ -117,7 +117,8 @@ button.cta:disabled { background: var(--sav-grey); color: #000000; border-color:
 :root[data-theme="dark"] .dg .bx, :root[data-theme="dark"] .dg .ln { stroke: var(--sav-muted); }
 :root[data-theme="dark"] .dg .ah { fill: var(--sav-muted); }
 .status { color: var(--sav-muted); }
-.status.err { color: var(--sav-neg); }
+.status.err, .src.err { color: var(--sav-neg); }
+.src a { color: var(--sav-link); font-weight: 700; }
 .status a { color: var(--sav-link); font-weight: 700; }
 .bar { height: 6px; background: var(--sav-warm-grey); flex: 1 1 220px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--sav-yellow); transition: width .6s; }
@@ -774,11 +775,30 @@ function setReviewSource(src) {
 }
 
 const VAT_VI = { incl: 'gồm VAT', excl: 'chưa VAT' };
+// Gọi API có hạn chờ. Lỗi mạng, hết giờ hay mã lỗi đều thành một thông báo đọc được, để trang không đứng mãi ở "Đang tải…".
+async function getJSON(url, ms = 20000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  let r;
+  try { r = await fetch(url, { signal: ctl.signal }); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? `Máy chủ không trả lời sau ${ms / 1000} giây.` : 'Không kết nối được máy chủ (có thể đang khởi động lại).'); }
+  finally { clearTimeout(timer); }
+  if (r.status === 401) throw new Error('Phiên đăng nhập đã hết hạn. Tải lại trang.');
+  if (!r.ok) { let m = ''; try { m = (await r.json()).detail || ''; } catch (_) {} throw new Error(m || `Máy chủ báo lỗi ${r.status}.`); }
+  return r.json();
+}
+function showLoadError(info, message, retry) {
+  info.classList.add('err');
+  info.innerHTML = `${esc(message)} <a href="#">Thử lại</a>`;
+  info.querySelector('a').addEventListener('click', e => { e.preventDefault(); retry(); });
+}
+
 async function loadLibrary() {
   const info = document.getElementById('lib-info');
-  const r = await fetch(`${PREFIX}/api/library`);
-  if (!r.ok) { info.textContent = 'Không tải được danh sách.'; return; }
-  const d = await r.json();
+  info.classList.remove('err'); info.textContent = 'Đang tải danh sách…';
+  let d;
+  try { d = await getJSON(`${PREFIX}/api/library`); }
+  catch (e) { showLoadError(info, `Không tải được danh sách: ${e.message}`, loadLibrary); return; }
   libEntries = d.entries;
   const years = [...new Set(libEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a);
   document.getElementById('lib-year').innerHTML = '<option value="">Mọi năm</option>' + years.map(y => `<option>${y}</option>`).join('');
@@ -1301,9 +1321,10 @@ const STATUS_VI = { done: 'Xong', failed: 'Thất bại', running: 'Đang chạy
 
 async function loadHistory() {
   const info = document.getElementById('his-info');
-  const r = await fetch(`${PREFIX}/api/history`);
-  if (r.status === 401) { info.textContent = 'Phiên đăng nhập đã hết hạn. Tải lại trang.'; return; }
-  const d = await r.json();
+  info.classList.remove('err'); info.textContent = 'Đang tải…';
+  let d;
+  try { d = await getJSON(`${PREFIX}/api/history`); }
+  catch (e) { showLoadError(info, `Không tải được lịch sử: ${e.message}`, loadHistory); return; }
   historyLoaded = true;
   info.textContent = `${d.runs.length} lượt trong ${d.runs_dir}` + (d.active ? ` · đang chạy: ${d.active}` : '');
   const tb = document.querySelector('#his tbody');
