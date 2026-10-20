@@ -159,6 +159,48 @@ Each choice made for this change sits in one named place in `operating_inputs.py
 - which expense line pairs with each revenue line: `paired_with` in `Costing_Method_Catalogue.csv`;
 - how a VAT-basis mismatch is shown: `DELIVERABLE_VAT_BASIS` and `vat_mismatch_vi()`.
 
+### 2d. Budget Review of an operating project: start from last year's approved budget
+
+For a building Savills already runs, the PM team's job is a **review**: read last year's approved budget, produce
+this year's, and see line by line how the new figure compares with the approved one (change
+`add-budget-renewal-mode`, MVP of 2026-10-20). One command does the whole thing, in a work folder of its own:
+
+```bash
+python review.py "<last year's approved budget>.xlsx" [--input form.xlsx] [--facts facts.json] [--workdir DIR]
+```
+
+What it does, in order:
+1. **Import** (`review_import.py`): reads the approved workbook on the Savills form (2026 or 2027 layout) by content,
+   not by fixed addresses: both fund sheets, every leaf line of sections R and E with the year column as the approved
+   figure, the twelve months, the VAT basis, the source row; and the scale from `0. Info` (NFA and units per product,
+   parking bays, the applied fee rate per product). It then writes a filled form in Existing-project mode: `Project
+   Mode`, `Prior Budget Year`, `Budget Start Month` (the file's first month plus twelve), the `STAFF LINES` approved
+   EMH2/EMH3/EMH4, the `UTILITY LINES` approved EEE.C/EEW.C (no monthly bills, so the utilities module starts from the
+   approved amount and says so), the fee rate per product and its VAT basis, `Stable Operation?` = Yes, parking revenue
+   (RP1/RP2 ÷ 12) and collect-on-behalf water/electricity (RO3.x/RO4.x ÷ 12), and a new sheet **`Prior-Year Budget`**
+   with every line read plus an `IMPORT NOTES` block. Facts the file does not carry (towers, floors, gates, pools,
+   district, site and garden area) are **never invented**: numeric ones are written as 0, text ones left blank, all of
+   them listed in the notes, unless `--facts` (a JSON of `Project Info` label → value, with an optional `_sources`
+   map) supplies them. `City / Province` is one of them, and the water tariff stops without it, naming the field: give
+   it in `--facts`. With `--input`, a dated copy of your form is used and the original is not changed.
+2. **Generate**: both generators run through `verification/isolation.py`, so the live `reports/` and `sample_output/`
+   are never written. Staff and utilities move by law and tariff as in 2b; everything else is estimated as for a new
+   building.
+3. **Review sheet**: Excel recalculates a copy of the deliverable, and a sheet **`Review`** is added at the end of the
+   work folder's `Project_Budget_Output.xlsx`: a summary (revenue, expense, surplus: approved vs tool), then per fund
+   sheet and section one row per code with the approved figure as read, the VAT factor, the approved figure on the
+   deliverable's basis, the tool's figure, the difference, and **how the tool got its figure**: `Mang sang theo luật`
+   (EMH2–4), `Mang sang theo biểu giá` (EEE.C, EEW.C), `PM nhập` (lines fed by an operating input the import filled),
+   `Ước lượng: <method>`, `Chưa có phương pháp` (the file has a figure, the tool has no method; the tool column shows 0,
+   the approved figure is never copied), `Công cụ ra 0`, `Chỉ công cụ`. Codes the 2027 form does not carry are listed
+   under their own heading and stay in the approved totals. The command prints and writes `review_summary.md` /
+   `.json`, and exits 1 when either of two ties fails: tool column R/E = the deliverable's own R/E rows; approved
+   column R/E = the source file's own R/E rows.
+
+Not in this first version, said plainly: the per-position roster from the file's staff sheet, the twelve monthly
+bills, and carry-forward rules for lines other than staff and utilities. PDF and xlsb files are refused with a message;
+Excel is needed for step 3 (without it the three workbooks are still written and the command says why it stopped).
+
 ### 3. Run the pipeline
 
 **The easy way — the launcher.** Fill the yellow cells, **save and close** the workbook, then

@@ -23,6 +23,8 @@ This map was checked on 2026-10-05 against the `import` statements of every `*.p
 | `existing_staffing.py` | Existing-project mode: reads the prior-year baseline by label, recomputes the staff lines (EMH2/EMH3/EMH4) under law only, keeps a reason for every change, and replicates the template's A1/A1.1 formulas for the Staff Bridge |
 | `add_existing_project_sheets.py` | Adds the Existing-project fields to a dated copy of an already filled input workbook; the original is never touched |
 | `real_budget_ranges.py` | Prices the Required lines with no other source (EMB4, ESS12, ESC5, ESS7, ESS23, ESC1, ESC2) from the anonymous range of real Savills budgets in `data/real_budget_ranges/`: the project itself left out, outliers dropped, at least 10 projects, CPI to 2027; also the cross-check ranges of ESI1, EMH1 and EMH3 |
+| `review_import.py` | Budget Review, step 1: reads last year's approved budget workbook by line code (both fund sheets, year column, twelve months, VAT basis) and the scale from `0. Info`, and fills the Existing-project form plus the `Prior-Year Budget` sheet |
+| `review.py` | Budget Review in one command: import, both generators in an isolated work folder, Excel recalculation, and the `Review` sheet (approved vs tool per line, with how the tool got each figure, two ties) |
 | `common_utils_v2.py` | Shared workbook helpers, for example `repair_workbook` |
 
 ## 2. Scripts that prepared the reference data (run once; not part of a run)

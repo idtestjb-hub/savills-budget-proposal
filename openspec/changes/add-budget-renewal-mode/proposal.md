@@ -1,84 +1,77 @@
 ## Status
 
-**Explore, not approved (2026-10-20).** Written after the user's survey `docs/36-khao-sat-che-do-gia-han-ngan-sach-2026-10-20.md`
-(Vietnamese). No specs, design or tasks yet: the open questions in "Decisions needed" go to the Head of PM first. Nothing
-here moves a figure until a change is proposed from it and signed off. Planned after core v1 (group 10 of
-`apply-head-of-pm-decisions-2026-10`), independent of `add-multiyear-preopening-budget-phases`.
+**MVP built 2026-10-20, rules chosen by the user the same day; demo figures signed off by the user the same day.** The PM team calls this job "Budget Review". The change
+keeps its folder name. It grew out of the survey `docs/36-khao-sat-che-do-gia-han-ngan-sach-2026-10-20.md` and the
+explore proposal of commit 7907742 (six open questions for the Head of PM). The user decided on 2026-10-20 to build a
+first version on the same core, in parallel with Budget Propose, for the PM presentation of 2026-10-21. The demo
+project is a real operating building whose approved 2026 budget sits in the scan store; its name stays out of the
+repository.
+
+Not in this MVP, said plainly: the per-position roster from the file's staff sheet, the twelve monthly bills, and the
+carry-forward rules for lines other than staff and utilities (the explore's change 2). Those stay as the next step.
 
 ## Why
 
-The tool builds a budget proposal for a **new** property. The PM team reads it as a tool to **renew the budget of a
-property Savills already runs**: take last year's approved budget, adjust it, and produce this year's. The two are
-different jobs, and the second one is only partly built:
+The tool builds a budget proposal for a **new** property (Budget Propose). The PM team reads it as a tool to
+**review the budget of a property Savills already runs** for the coming year: take last year's approved budget, read
+the project's scale from it, produce this year's budget, and see line by line how the new figure compares with the
+approved one and where it came from.
 
-- Existing-project mode already exists (`Project Mode` on Project Info). It carries forward staff cost (EMH2, EMH3,
-  EMH4) from a prior-year roster, moving figures by state law only, with a reason code on every changed line and a
-  `Staff Bridge`; and common-area electricity and water (EEE.C, EEW.C) from twelve months of actual bills, repriced at
-  the budget year's tariff and VAT, with a `Utility Bridge`. Both were decided by the Head of PM (docs/05, 2026-10-10
-  and 2026-10-11) and back-tested on one real project.
-- Every other line of an existing project is still estimated as if the building were new (ratios, real-budget ranges,
-  citywide contract rates). Last year's approved figure is not read and not used as the starting point.
-- Prior-year figures are typed by hand into `Prior-Year Roster` and `Prior-Year Utilities`. No step reads last year's
-  approved budget file, although the real-budget scan store already reads 62 of 87 files by line code, and 97% of the
-  lines with a figure on their main fund sheet match a code of the 2027 form (docs/34).
-- The PM's own logic for operating buildings exists as a file, `Operation Budget logic (1).xlsx` (492 codes, "take
-  the prior year / ask the user" wording, no formulas), scanned on 2026-10-04 and not used (docs/21, section D).
+What exists today (docs/36, section 1): Existing-project mode on `Project Info` carries staff cost (EMH2, EMH3, EMH4)
+and common-area electricity and water (EEE.C, EEW.C) forward from figures the PM **types** into `Prior-Year Roster`
+and `Prior-Year Utilities`; every other line is estimated as for a new building; and there is no sheet that sets the
+approved figure beside the new one. The scan store outside the repository already reads 62 of the 87 real budget files
+by line code, and 97% of the lines with a figure on their main fund sheet match a code of the 2027 form (docs/34), but
+that reader has no tests and is not part of the pipeline.
 
-Cloning the core into a second tool for this job would copy the same template, verification, reference data and web
-page, and would have to re-apply every Head-of-PM decision taken since; the two copies would drift. The job fits as a
-second mode of the one core.
+## What Changes
 
-## What Changes (proposed shape, to be confirmed)
+One command, `python review.py <last year's approved budget .xlsx> [--input form] [--facts facts.json]`, does
+three things in an isolated work folder (never the live `reports/`):
 
-Three changes, in order, each with its own A/B and sign-off:
-
-1. **`import-prior-year-budget`.** A reader that takes last year's approved budget workbook (the standard form or one
-   of the real-budget forms the scan store already reads) and fills a new input sheet `Prior-Year Budget`: line code,
-   name, approved annual amount, the twelve monthly amounts, VAT basis, source sheet and row. Lines that cannot be
-   read, and lines whose code does not exist on the 2027 form, are listed on the sheet rather than dropped. New-prospect
-   mode does not change by a single VND.
-2. **`carry-forward-all-lines`.** For every line of the management fund and the common-area fund, one of four
-   treatments, chosen per code group and recorded in `Costing_Method_Catalogue.csv` (or a new column of it):
-   (a) indexed: the approved amount moved only by law, tariff, VAT (8% → 10% from 2027) or a dated index;
-   (b) kept: the approved amount as it is;
-   (c) re-estimated: priced as a new building, because the driver changed (area, headcount, scope);
-   (d) entered: the PM's figure with one of the approved reason codes.
-   The `Staff Bridge` and `Utility Bridge` become one `Budget Bridge` covering every line: approved → law/tariff/index
-   → PM reason → budget year, and `verify.py` ties the bridge's total to the deliverable.
-3. **`renewal-deliverable`.** The prior-year approved figure and the difference beside each line, on the internal
-   analysis or on the client deliverable (the Head of PM decides which), and a Vietnamese remark that states the reason
-   for every changed line.
-
-## Decisions needed (Head of PM, before any change is proposed)
-
-- [ ] What "review" means: (a) copy the approved figures and adjust them with a reason, or (b) regenerate from scratch
-      and compare with the approved figures. (a) is the shape above; (b) is today's tool plus a comparison sheet.
-- [ ] Which file is "last year's approved budget": the delivered form, the internal detail workbook, or the figure in
-      the financial system; and in which format (12 of 87 real files are PDF).
-- [ ] The treatment (a–d) for each code group, starting from the `Operation Budget logic` file; which groups may move
-      only by law like staff cost.
-- [ ] Whether the reason-code list of the staffing change (8 Vietnamese codes) applies to every line.
-- [ ] Where the prior-year comparison shows: analysis only, or the client deliverable.
-- [ ] Whether the 2027 budget of an existing project keeps the fill-up curve off (`Stable Operation? = Yes` as today).
-
-## Impact (expected)
-
-- Input form: one new sheet `Prior-Year Budget`; `Project Mode` unchanged. `add_existing_project_sheets.py` learns the
-  new sheet.
-- Code: a new reader module built from the scan store's readers (`Savills-local\budget-test\scan-2026-10-07\build_final.py`,
-  outside the repo today, no tests), a treatment table per code, a bridge builder generalising `existing_staffing.py`
-  and `existing_utilities.py`, verification checks for the bridge.
-- Not touched: every New-prospect figure; the 2027 template; the real-budget ranges and service-level tables.
-- Risks: input formats vary (old-form `ESA*` codes, PDFs, files whose fund sheet does not reconcile); the Head of PM's
-  "law only" rule was decided for staff cost and may not extend to contracts; the user has not yet confirmed with the
-  PM team which of (a) and (b) they expect.
+1. **Import.** Reads the approved budget workbook (the Savills form, 2026 or 2027 layout) with a new, tested module
+   `review_import.py` ported from the scan store's rules: both fund sheets, the leaf lines by code, the approved
+   annual figure, the twelve months, the VAT basis, the source sheet and row. Reads the project's scale from `0. Info`
+   (fee-paying area and units per product, parking bays, fee rate per product). Writes a filled input form in
+   Existing-project mode: `Project Info` (mode, prior budget year, budget start month, scale, fee rates, stable
+   operation, parking revenue, collect-on-behalf amounts), the `Prior-Year Roster` staff lines, the `Prior-Year Utilities` approved lines, and
+   a new sheet **`Prior-Year Budget`** holding every line read plus an `IMPORT NOTES` block listing what could not be
+   read, what is not on the 2027 form, and which scale fields were left blank for the PM. Facts the file does not
+   carry (towers, floors, gates, pools, district) come from an optional `--facts` JSON or stay blank.
+2. **Generate.** Runs the existing pipeline (`run.py`'s two generators) on that form. Staff and utilities move by law
+   and tariff as today; every other line is estimated as today. No generator reads the new sheet. New-prospect mode
+   does not change by a single VND (A/B on the standard sample and the five fixtures).
+3. **Review sheet.** After Excel recalculates the deliverable, a sheet **`Review`** is added at the end of
+   `Project_Budget_Output.xlsx`: a summary (revenue, expense, surplus: approved vs tool), then for each fund sheet and
+   section one row per code with the item name in Vietnamese, the approved figure as read, the VAT factor, the
+   approved figure on the deliverable's basis, the tool's figure, the difference in VND and %, how the tool got its
+   figure (carried forward by law / by tariff / entered by the PM / estimated, with the method / no method), and a
+   remark. Section and fund totals. Two ties are checked and printed, and the command exits non-zero if either fails:
+   the tool column's section totals equal the deliverable's own R and E rows; the approved column's section totals
+   equal the source file's own R and E rows.
 
 ## Capabilities
 
 ### New Capabilities
-- `budget-renewal-mode` (name provisional): how an operating project's budget for the next year is derived from its
-  approved prior-year budget.
+- `budget-review-workflow`: how last year's approved budget is read into the input form, how the tool's new-year
+  figures are set beside the approved ones, and what must tie.
 
 ### Modified Capabilities
-- `existing-project-staffing`, `existing-project-utilities` (their bridges fold into the budget bridge), `input-workbook-reading`
-  (the new sheet), `budget-workflow-verification` (the bridge tie). None modified until the change is proposed.
+- None in this MVP. `existing-project-staffing` and `existing-project-utilities` are used as they are (the import
+  fills their approved-amount baselines). `input-workbook-reading` is not changed: the new sheet is read only by
+  `review.py`, not by the generators.
+
+## Impact
+
+- New: `review_import.py` (reader and form filler), `review.py` (the command and the Review sheet),
+  `tests/test_review_import.py`, `tests/test_review_sheet.py`, this change's artifacts.
+- Unchanged: both generators, the 2027 template, the reference CSVs, `verify.py`, `build_project_input_form.py`.
+- Data files read: the approved budget workbook the user names; the input form (or a fresh one built by the form
+  builder); `Costing_Method_Catalogue.csv` (method text per code); the 2027 template (which codes exist on each fund
+  sheet). Written: the work folder only (filled form, the three output workbooks, `review_summary.md` and `.json`).
+- Recorded baselines: none move. The standard sample is a new prospect and never reaches the new code.
+- Risks: input formats vary (PDF and xlsb are refused with a message; a fund sheet that does not tie to its own R
+  and E rows is read and flagged); old-form codes that the 2027 template does not carry are listed, not mapped; the
+  tool's non-staff lines are estimates, so the Review sheet will show large differences on lines where the approved
+  budget carries a negotiated contract. That is the point of the sheet, and the next change decides which of those
+  lines should be carried forward instead.
