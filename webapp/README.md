@@ -4,10 +4,11 @@ Một trang web, hai luồng:
 - **Lập ngân sách dự án mới:** điền thông tin dự án, bấm **Tạo ngân sách**, công cụ tự động chạy pipeline (`run.py`)
   và cho tải 3 file kết quả (bản giao khách, bản phân tích nội bộ, lịch trực). Một lượt mất khoảng 45–80 giây
   (trong đó 15–40 giây là bước run log mở Excel; máy không có Excel thì bước này bỏ qua và lượt chạy vẫn xong).
-- **Review ngân sách dự án đang vận hành:** tải lên file ngân sách đã duyệt năm ngoái (.xlsx form Savills), điền
-  Tỉnh / thành phố và vài dữ kiện file không có, bấm **Tạo ngân sách năm mới**: công cụ chạy `review.py` (RUNNING.md
-  mục 2d) và cho xem duyệt vs công cụ từng dòng. Khoảng 60–90 giây; **cần Excel** (sheet Review); máy không có Excel
-  thì lượt dừng sau pipeline và trang nói rõ.
+- **Review dự án đang vận hành** (tab riêng): chọn ngân sách đã duyệt năm ngoái trong **danh sách dự án có sẵn** (kho
+  quét ngân sách thật, 87 dòng) hoặc tải file .xlsx lên, điền Tỉnh / thành phố và vài dữ kiện file không có, bấm **Tạo
+  ngân sách năm mới**: công cụ chạy `review.py` (RUNNING.md mục 2d). Ngay bên dưới trên cùng tab: duyệt vs công cụ,
+  rồi **bảng điều chỉnh** ngân sách năm mới (có cột số duyệt) để chỉnh trước khi giao. Khoảng 60–90 giây; **cần
+  Excel** (sheet Review); máy không có Excel thì lượt dừng sau pipeline và trang nói rõ.
 - **Lịch sử dự án:** mọi lượt trong thư mục runs, với **Clone** (điền sẵn form từ lượt cũ) và **Gen budget for new
   year** (bản giao của lượt cũ làm ngân sách năm ngoái).
 - **Điều chỉnh:** sửa số lượng, đơn giá hoặc trượt giá từng mã của bản giao ngay trên trang (dòng chi tiết mở bên dưới
@@ -34,11 +35,41 @@ Rồi mở <http://127.0.0.1:8090/budget/> (chạy thử trên máy cá nhân: �
 Log ra stdout/stderr (uvicorn access log + một dòng `budget-web:` khi bắt đầu và kết thúc mỗi lượt, khi đăng nhập
 thành công hoặc bị từ chối).
 
+## Danh sách dự án có sẵn (tab Review, `webapp/library.py`, `api/library`)
+
+Người dùng yêu cầu 20/10/2026: chọn ngân sách đã duyệt từ những dự án đã có thay vì tải file lên; hiện đủ 87 dòng của
+kho, file không đọc được hiện xám kèm lý do.
+
+- **Danh sách** đọc từ kho quét ngân sách thật (`final_v2\`: `dim_file.csv`, `project_map.csv`, `file_profile.csv`):
+  tên dự án đọc trong file (không có thì theo tên file, ghi rõ), năm ngân sách theo nội dung, VAT, NFA, độ tin cậy sheet
+  quỹ chính (Khớp tổng / Lệch tổng / Chưa đối soát được). Bộ nhớ đệm theo thời điểm sửa của ba CSV.
+- **File được đọc** là file sống trên SharePoint (`input\budget_planning`, qua junction): nhóm cũ ở gốc, nhóm mới trong
+  thư mục "Ngân sách thực tế dự án lập hằng năm (có số liệu báo cáo)"; bản xlsx chuyển từ xlsb / zip lấy trong kho.
+  Khi chạy, một bản chụp được chép vào `<lượt>\prior\` để chạy lại ra cùng số.
+- **Chọn được:** .xlsx có trên đĩa và có sheet quỹ quản lý (62 / 87 ngày 20/10/2026: 54 khớp tổng, 3 lệch tổng, 5 chưa
+  đối soát được; file không khớp tổng có cảnh báo "đối chiếu tổng có thể LỆCH"). Không chọn được: 12 PDF ảnh quét,
+  2 xlsb và 1 zip gốc (bản chuyển đổi của chúng có trong danh sách), 10 file không có sheet quỹ quản lý.
+- Lọc theo tên dự án / tên file, năm, "chỉ file khớp tổng", "hiện cả file không đọc được".
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `BUDGET_WEB_LIBRARY_STORE` | `%USERPROFILE%\Savills-local\budget-test\scan-2026-10-07\final_v2` | Thư mục bảng của kho quét. Không có thì danh sách trống và trang chuyển sang "Tải file lên". Trên Hub phải đặt biến này |
+| `BUDGET_WEB_LIBRARY_ROOT` | `..\..\input\budget_planning` | Thư mục SharePoint chứa file ngân sách đã duyệt |
+
+Kiểm tra 20/10/2026: chọn CITY GARDEN 2026 trong danh sách, 91 giây, rc 0, 8/8 phép đối chiếu khớp; số duyệt (thu
+48.895,3 tr, chi 46.708,3 tr gồm VAT) trùng bản demo của lane C. Số công cụ khác lane C vì nhánh adjust-demo và dữ kiện
+nhập khác. Test: `tests/test_webapp_library.py`.
+
 ## Năm tab và trang kết quả
 
-- **Nhập liệu:** nhóm nút chọn chế độ *Lập ngân sách dự án mới* / *Review ngân sách dự án đang vận hành*, form của chế
-  độ đang chọn, và nút chính (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng; disabled xám): *Tạo ngân sách*
-  hoặc *Tạo ngân sách năm mới*.
+Thứ tự tab: Nhập liệu dự án mới / Review dự án đang vận hành / Kết quả dự án mới / Lịch sử dự án / Hướng dẫn.
+Mỗi tab chạy có ô trạng thái, log và thanh tiến trình riêng.
+
+- **Nhập liệu dự án mới:** form và nút chính *Tạo ngân sách* (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng;
+  disabled xám).
+- **Review dự án đang vận hành:** 1. ngân sách đã duyệt năm ngoái (Dự án có sẵn / Tải file lên / Bản giao của lượt cũ
+  khi mở bằng Gen budget for new year); 2. dữ kiện; nút *Tạo ngân sách năm mới*; rồi trên cùng tab: kết quả review,
+  tải file, và 3. bảng điều chỉnh ngân sách năm mới.
 - **Lịch sử dự án** (tab thứ ba, `api/history`, `webapp/history.py`): bảng mọi lượt trong thư mục runs kể cả lượt của
   phiên server trước (đọc từ đĩa: `web_meta.json` server ghi khi bắt đầu và khi xong; lượt cũ hơn suy từ run_log json
   / review_summary.json và tên thư mục): dự án, năm NS (lượt review: `2026 → 2027`), chế độ Mới / Review, thời điểm,
@@ -65,10 +96,11 @@ thành công hoặc bị từ chối).
   Mọi lượt còn có mục "Điều chỉnh ngân sách trong bản giao" nhắc cách dùng sheet 4. Điều chỉnh (số lượng / đơn giá /
   trượt giá). Test: `tests/test_webapp_review.py`.
 
-## Tab Điều chỉnh (chức năng "Budget Adjustment – Dynamic Detail Sub-Rows")
+## Bảng điều chỉnh (chức năng "Budget Adjustment – Dynamic Detail Sub-Rows")
 
-Mở từ tab Kết quả ("Mở tab Điều chỉnh cho lượt này") hoặc nút *Điều chỉnh* ở tab Lịch sử; dùng cho mọi lượt có bản
-giao. Trang đọc sheet **4. Điều chỉnh** của bản giao (`budget_adjustment.py` dựng sheet này: một dòng Tổng mỗi mã, các
+Không còn tab riêng (người dùng yêu cầu 20/10/2026 gộp vào Review để điều chỉnh trước khi giao): bảng mở ngay dưới kết
+quả của lượt, trong tab Review (lượt review, mục "3. Điều chỉnh ngân sách năm mới trước khi giao") hoặc tab Kết quả dự
+án mới; nút *Điều chỉnh* ở tab Lịch sử mở lượt đó và cuộn tới bảng. Dùng cho mọi lượt có bản giao. Trang đọc sheet **4. Điều chỉnh** của bản giao (`budget_adjustment.py` dựng sheet này: một dòng Tổng mỗi mã, các
 dòng Chi tiết bên dưới, công thức của template) và chỉ ghi lại các ô nhập; mọi con số khác vẫn do công thức trong file
 tính (`webapp/adjust.py`).
 
@@ -155,9 +187,10 @@ sang Microsoft (authorization code + PKCE, thư viện MSAL); `/auth/callback` n
 | `__main__.py` | `python -m webapp`: đọc biến môi trường, kiểm tra cấu hình SSO, chạy uvicorn |
 | `auth.py` | SSO Entra ID: danh sách email được phép, khởi tạo và hoàn tất auth code flow (MSAL), đăng xuất |
 | `static/login.html` | Trang đăng nhập (cùng token màu), hiện lý do khi bị từ chối |
-| `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt dự án mới), `api/reviews` (tạo lượt review), `api/runs/<id>/adjust` (GET: các mã của sheet 4; POST: lưu điều chỉnh), `api/runs/<id>` (trạng thái + log + tóm tắt; lượt của phiên server trước được dựng lại từ thư mục), `api/runs/<id>/input` (giá trị form của lượt, cho Clone và Gen), `api/runs/<id>/files/<tên>` (tải file), `api/history` (danh sách lượt). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 |
+| `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt dự án mới), `api/reviews` (tạo lượt review; nguồn `library_id`, `source_run` hoặc file tải lên), `api/library` (dự án có sẵn), `api/runs/<id>/adjust` (GET: các mã của sheet 4; POST: lưu điều chỉnh), `api/runs/<id>` (trạng thái + log + tóm tắt; lượt của phiên server trước được dựng lại từ thư mục), `api/runs/<id>/input` (giá trị form của lượt, cho Clone và Gen), `api/runs/<id>/files/<tên>` (tải file), `api/history` (danh sách lượt). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 |
 | `history.py` | Đọc thư mục runs cho tab Lịch sử: `outputs_of` (3 file kết quả ở thư mục lượt hoặc `run\`), `describe` / `scan` (loại, dự án, năm, trạng thái từ `web_meta.json` hoặc suy từ file), `write_meta`, `read_log` |
 | `review_run.py` | Tiến trình con của lượt review: Excel tính lại bản giao lượt cũ khi `--recalc`, gọi `review.run`, ghi `review_notes.json` |
+| `library.py` | Danh sách ngân sách đã duyệt có sẵn từ kho quét, đường dẫn file sống trên SharePoint, lý do không chọn được |
 | `adjust.py` | Đọc sheet 4. Điều chỉnh thành các mã kèm dòng chi tiết (`read_items`), công thức xem trước (`new_amount`), ghi ô nhập theo khoá mã + sheet quỹ (`apply_edits`), số duyệt theo mã từ sheet Review (`approved_by_key`) |
 | `adjust_run.py` | Tiến trình con của lần lưu điều chỉnh: backup, ghi đè bản giao, Excel tính lại, đo trước / sau, `adjust_result.json` |
 | `fill_input.py` | Đọc mặc định và ghi giá trị form vào bản sao của `..\reports\Project_Budget_Input.xlsx`, **theo nhãn** cột A (`input_labels.SheetLabels`), không theo ô. Nhãn mẫu chưa có (`Budget Start Month`, `District`, `City / Province`) được thêm dưới dòng cuối |

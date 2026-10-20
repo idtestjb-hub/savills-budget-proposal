@@ -26,6 +26,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -40,7 +41,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import adjust, auth, fill_input, history, results  # noqa: E402
+from webapp import adjust, auth, fill_input, history, library, results  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -378,9 +379,10 @@ def _facts_from_form(raw):
 
 @router.post('/api/reviews')
 async def start_review(request: Request, prior: UploadFile | None = File(None), source_run: str = Form(''),
-                       facts: str = Form('{}'), user=Depends(require_user)):
-    """Lượt review: `prior` (file .xlsx tải lên) HOẶC `source_run` (id lượt cũ, lấy bản giao của nó làm ngân sách
-    năm ngoái, Excel tính lại trước khi đọc); `facts` là JSON các ô dữ kiện của trang."""
+                       library_id: str = Form(''), facts: str = Form('{}'), user=Depends(require_user)):
+    """Lượt review, ngân sách năm ngoái lấy từ một trong ba nguồn: `library_id` (dự án có sẵn trong kho, file sống
+    trên SharePoint, chép một bản vào thư mục prior của lượt), `source_run` (bản giao của lượt cũ, Excel tính lại trước khi
+    đọc), hoặc `prior` (file .xlsx tải lên). `facts` là JSON các ô dữ kiện của trang."""
     try:
         raw = json.loads(facts or '{}')
         if not isinstance(raw, dict):
@@ -388,9 +390,20 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
     except ValueError:
         raise HTTPException(400, 'Dữ kiện gửi lên không đúng dạng.')
     fact_map = _facts_from_form(raw)
-    source_run = (source_run or '').strip()
-    upload = None
-    if source_run:
+    source_run, library_id = (source_run or '').strip(), (library_id or '').strip()
+    upload, copy_from = None, None
+    if library_id:
+        entry = library.find(library_id)
+        if entry is None:
+            raise HTTPException(404, 'Không có dự án này trong danh sách có sẵn.')
+        if not entry['selectable']:
+            raise HTTPException(400, f"Không dùng được file này: {entry['reason']}.")
+        stem, recalc, copy_from = os.path.splitext(entry['file_name'])[0], False, entry['path']
+        tag = 'review-' + _safe(entry['project'], 'du-an')
+        source, what = f"dự án có sẵn {entry['project']} ({entry['file_name']})", f'from library {library_id}'
+        project = entry['project']
+        prior_src = None
+    elif source_run:
         src = _ensure_run(source_run)
         deliverable = next((o for o in src['outputs'] if o['kind'] == 'deliverable'), None)
         if not deliverable:
@@ -416,6 +429,9 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         run_id = _new_run_id(tag)
         workdir = os.path.join(RUNS_DIR, run_id)
         os.makedirs(os.path.join(workdir, 'prior'), exist_ok=True)
+        if copy_from is not None:      # bản chụp của file sống: lượt chạy lại sau vẫn ra cùng số
+            prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
+            shutil.copy2(copy_from, prior_src)
         if upload is not None:
             prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
             with open(prior_src, 'wb') as fh:
@@ -543,6 +559,14 @@ def start_adjust(request: Request, run_id: str, body: dict, user=Depends(require
                    cmd=cmd, log_name='adjust.log')
         _start(job_id, run, _who(request, user), f'adjust of {run_id} ({len(edits)} codes)')
     return _public(job_id, role=role_of(request))
+
+
+@router.get('/api/library')
+def get_library(user=Depends(require_user)):
+    """Ngân sách đã duyệt có sẵn (kho quét) cho tab Review; không trả đường dẫn."""
+    rows = [{k: v for k, v in e.items() if k != 'path'} for e in library.entries()]
+    return JSONResponse(dict(entries=rows, total=len(rows), selectable=sum(e['selectable'] for e in rows),
+                             root=library.root_dir(), store=library.store_dir()))
 
 
 @router.get('/api/history')
