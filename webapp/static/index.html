@@ -96,6 +96,26 @@ button.cta:disabled { background: var(--sav-grey); color: #000000; border-color:
 .guide table th { text-align: left; }
 .guide table td { padding: 6px 8px; vertical-align: top; }
 .guide td:first-child { white-space: nowrap; font-weight: 700; }
+.guide section + section { margin-top: 18px; }
+.guide .jump { font-size: 14px; margin: 0 0 14px; }
+.guide .jump a { color: var(--sav-link); font-weight: 700; margin-right: 14px; }
+/* Sơ đồ trong tab Hướng dẫn: SVG vẽ tay, màu theo token nên đổi theo chế độ sáng / tối. */
+.dg-wrap { overflow-x: auto; margin: 6px 0 14px; }
+.dg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--sav-font); }
+.dg .bx { fill: var(--sav-surface); stroke: var(--sav-navy); stroke-width: 1.5; }
+.dg .bx.hi { fill: var(--sav-yellow); }
+.dg .bx.st { fill: var(--sav-panel); stroke: var(--sav-grey); }
+.dg .grp { fill: none; stroke: var(--sav-grey); stroke-width: 1.2; stroke-dasharray: 6 4; }
+.dg .t { fill: var(--sav-text); font-size: 14px; font-weight: 700; }
+.dg .s { fill: var(--sav-muted); font-size: 12px; }
+.dg .oy { fill: #000000; }
+.dg .ln { stroke: var(--sav-navy); stroke-width: 1.5; fill: none; }
+.dg .ln.dash { stroke-dasharray: 5 4; }
+.dg .ah { fill: var(--sav-navy); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dg .bx, :root:not([data-theme="light"]) .dg .ln { stroke: var(--sav-muted); }
+  :root:not([data-theme="light"]) .dg .ah { fill: var(--sav-muted); } }
+:root[data-theme="dark"] .dg .bx, :root[data-theme="dark"] .dg .ln { stroke: var(--sav-muted); }
+:root[data-theme="dark"] .dg .ah { fill: var(--sav-muted); }
 .status { color: var(--sav-muted); }
 .status.err { color: var(--sav-neg); }
 .status a { color: var(--sav-link); font-weight: 700; }
@@ -243,7 +263,8 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
   </div>
 
   <div class="panel guide" id="panel-huongdan">
-    <section>
+    <p class="jump">Đi tới: <a href="#hd-new">Dự án mới</a><a href="#hd-review">Review dự án đang vận hành</a><a href="#hd-arch">Hệ thống chạy thế nào</a><a href="#hd-fields">Ý nghĩa từng thông số</a></p>
+    <section id="hd-new">
       <h2>Cách sử dụng</h2>
       <ol>
         <li>Ở tab <b>Nhập liệu</b>, sửa các ô theo dự án của bạn. Giá trị đang hiện là mẫu, dùng để chạy thử.</li>
@@ -252,17 +273,176 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <li>Khi xong, tab <b>Kết quả</b> mở: doanh thu, chi phí và thặng dư quỹ vận hành năm đầu, mức dịch vụ, so sánh với dự án tham chiếu, và nút tải file.</li>
         <li>Tải <b>bản giao khách</b> (form chuẩn 25 sheet, có sheet "4. Điều chỉnh" để chỉnh số lượng, đơn giá, trượt giá ngay trong file). Người có quyền còn tải được bản phân tích nội bộ và lịch trực.</li>
       </ol>
-      <h3>Dự án đang vận hành: tab Review</h3>
-      <ol>
-        <li><b>Ngân sách đã duyệt năm ngoái:</b> chọn dự án trong danh sách có sẵn (kho ngân sách thật; lọc theo tên, năm, "chỉ file khớp tổng"), hoặc tải file .xlsx lên. File PDF, xlsb hiện xám, không chọn được.</li>
-        <li><b>Dữ kiện:</b> điền Tỉnh / thành phố (bắt buộc) và các dữ kiện file không có, bấm <b>Tạo ngân sách năm mới</b>.</li>
-        <li>Ngay bên dưới hiện kết quả: thu, chi, thặng dư đã duyệt (quy đổi) so với công cụ, 8 phép đối chiếu, 10 dòng lệch lớn nhất, ghi chú nhập, nút tải file.</li>
-        <li><b>Điều chỉnh</b> (cùng màn): chọn Số lượng / Đơn giá / Trượt giá cho từng mã, sửa ở dòng chi tiết, có cột số duyệt năm cũ để so; bấm <b>Lưu điều chỉnh vào bản giao</b>, Excel tính lại và hiện tổng trước và sau. Tải bản giao sau khi lưu là bản cuối.</li>
-        <li>Tab <b>Lịch sử dự án</b>: <b>Clone</b> một lượt để lập dự án tương tự; <b>Gen budget for new year</b> lấy bản giao của lượt cũ làm ngân sách năm ngoái; <b>Điều chỉnh</b> mở lại bảng điều chỉnh của lượt đó.</li>
-      </ol>
+      <p>Dự án đang vận hành (đã có ngân sách được duyệt năm ngoái): dùng tab <b>Review</b>, xem <a href="#hd-review" style="color:var(--sav-link);font-weight:700">hướng dẫn riêng bên dưới</a>. Tab <b>Lịch sử dự án</b>: <b>Clone</b> một lượt để lập dự án tương tự; <b>Gen budget for new year</b> lấy bản giao của lượt cũ làm ngân sách năm ngoái; <b>Điều chỉnh</b> mở lại bảng điều chỉnh của lượt đó.</p>
       <p class="src">Mỗi lượt chạy được lưu thành một thư mục riêng trên máy chủ; chạy lại không ghi đè lượt trước.</p>
     </section>
-    <section>
+
+    <section id="hd-review">
+      <h2>Review dự án đang vận hành</h2>
+      <p>Dùng khi dự án đã có ngân sách được duyệt năm ngoái và cần lập ngân sách năm mới. Công cụ đọc số đã duyệt theo từng mã dòng, lập ngân sách năm mới theo phương pháp hiện hành, so từng dòng với số đã duyệt, rồi cho điều chỉnh ngay trên trang trước khi giao. Mỗi lượt khoảng 60–90 giây.</p>
+      <h3>Sơ đồ các bước</h3>
+      <div class="dg-wrap">
+      <svg class="dg" viewBox="0 0 1000 304" role="img" aria-labelledby="dg-flow-t">
+        <title id="dg-flow-t">Các bước review: chọn ngân sách đã duyệt, điền dữ kiện, tạo ngân sách năm mới (công cụ chạy bốn bước), xem kết quả, điều chỉnh và tải file; năm sau tạo tiếp từ tab Lịch sử dự án.</title>
+        <defs><marker id="ah-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect class="bx" x="8" y="16" width="176" height="88"/>
+        <text class="t" x="96" y="40" text-anchor="middle">1. Chọn ngân sách</text>
+        <text class="t" x="96" y="58" text-anchor="middle">đã duyệt năm ngoái</text>
+        <text class="s" x="96" y="80" text-anchor="middle">Dự án có sẵn · Tải file lên</text>
+        <text class="s" x="96" y="95" text-anchor="middle">· Bản giao lượt cũ</text>
+        <rect class="bx" x="214" y="16" width="176" height="88"/>
+        <text class="t" x="302" y="40" text-anchor="middle">2. Điền dữ kiện</text>
+        <text class="t" x="302" y="58" text-anchor="middle">file không có</text>
+        <text class="s" x="302" y="80" text-anchor="middle">Tỉnh / thành phố bắt buộc</text>
+        <text class="s" x="302" y="95" text-anchor="middle">ô trống ghi 0, có ghi chú</text>
+        <rect class="bx hi" x="420" y="16" width="176" height="88"/>
+        <text class="t oy" x="508" y="40" text-anchor="middle">3. Bấm Tạo ngân</text>
+        <text class="t oy" x="508" y="58" text-anchor="middle">sách năm mới</text>
+        <text class="s oy" x="508" y="80" text-anchor="middle">khoảng 60–90 giây</text>
+        <text class="s oy" x="508" y="95" text-anchor="middle">một lượt tại một thời điểm</text>
+        <rect class="bx" x="626" y="16" width="176" height="88"/>
+        <text class="t" x="714" y="40" text-anchor="middle">4. Xem kết quả</text>
+        <text class="t" x="714" y="58" text-anchor="middle">review</text>
+        <text class="s" x="714" y="80" text-anchor="middle">thu, chi, thặng dư · 8 đối chiếu</text>
+        <text class="s" x="714" y="95" text-anchor="middle">10 dòng lệch · ghi chú nhập</text>
+        <rect class="bx" x="832" y="16" width="160" height="88"/>
+        <text class="t" x="912" y="40" text-anchor="middle">5. Điều chỉnh,</text>
+        <text class="t" x="912" y="58" text-anchor="middle">lưu, tải file</text>
+        <text class="s" x="912" y="80" text-anchor="middle">Excel tính lại,</text>
+        <text class="s" x="912" y="95" text-anchor="middle">hiện trước / sau</text>
+        <path class="ln" d="M184 60 H212" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M390 60 H418" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M596 60 H624" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M802 60 H830" marker-end="url(#ah-flow)"/>
+        <path class="ln dash" d="M508 104 V146" marker-end="url(#ah-flow)"/>
+        <rect class="grp" x="150" y="150" width="700" height="100"/>
+        <text class="s" x="164" y="170">Công cụ tự động chạy (log dưới nút hiện [1/4] … [4/4])</text>
+        <rect class="bx st" x="166" y="182" width="155" height="56"/>
+        <text class="t" x="243" y="204" text-anchor="middle" style="font-size:13px">[1/4] Đọc file</text>
+        <text class="s" x="243" y="222" text-anchor="middle">số duyệt theo mã dòng</text>
+        <rect class="bx st" x="335" y="182" width="155" height="56"/>
+        <text class="t" x="412" y="204" text-anchor="middle" style="font-size:13px">[2/4] Đổ form</text>
+        <text class="s" x="412" y="222" text-anchor="middle">dự án đang vận hành</text>
+        <rect class="bx st" x="504" y="182" width="155" height="56"/>
+        <text class="t" x="581" y="204" text-anchor="middle" style="font-size:13px">[3/4] Lập ngân sách</text>
+        <text class="s" x="581" y="222" text-anchor="middle">bản giao + phân tích</text>
+        <rect class="bx st" x="673" y="182" width="155" height="56"/>
+        <text class="t" x="750" y="204" text-anchor="middle" style="font-size:13px">[4/4] Excel tính lại</text>
+        <text class="s" x="750" y="222" text-anchor="middle">ghi sheet Review</text>
+        <path class="ln" d="M321 210 H333" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M490 210 H502" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M659 210 H671" marker-end="url(#ah-flow)"/>
+        <path class="ln dash" d="M912 104 V276 H96 V106" marker-end="url(#ah-flow)"/>
+        <text class="s" x="504" y="294" text-anchor="middle">Năm sau: tab Lịch sử dự án → Gen budget for new year (bản giao năm nay thành ngân sách năm ngoái)</text>
+      </svg>
+      </div>
+      <ol>
+        <li><b>Chọn ngân sách đã duyệt năm ngoái</b> (mục 1 của tab Review), một trong ba cách:
+          <ul>
+            <li><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không đọc được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ); tick "Hiện cả file không đọc được" để xem lý do. File có cảnh báo đỏ "đối chiếu tổng có thể LỆCH" vẫn chạy được, nhưng nên xem kỹ kết quả.</li>
+            <li><b>Tải file lên:</b> file .xlsx theo form Savills 2026/2027 (hai sheet quỹ, cột năm, 12 tháng, sheet 0. Info).</li>
+            <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Lịch sử dự án.</li>
+          </ul></li>
+        <li><b>Điền dữ kiện file ngân sách không có</b> (mục 2). <b>Tỉnh / thành phố là bắt buộc</b> vì biểu giá nước lấy theo đó. Số tháp, số tầng, số cổng, hồ bơi, thể tích hồ, số chỗ đậu xe: điền nếu biết. Ô để trống được ghi 0 trên form và liệt kê trong ghi chú nhập để điền sau; số chỗ đậu để trống thì lấy theo sheet 0. Info của file.</li>
+        <li><b>Bấm Tạo ngân sách năm mới.</b> Thanh tiến trình và log hiện ngay dưới nút, với bốn bước [1/4] … [4/4] như sơ đồ. Cả trang chỉ chạy một lượt tại một thời điểm; nếu trang báo "Đang có một lượt chạy", chờ một đến hai phút rồi bấm lại.</li>
+        <li><b>Đọc kết quả</b> hiện ngay bên dưới trên cùng tab (xem bảng "Đọc kết quả").</li>
+        <li><b>Điều chỉnh</b> ngân sách năm mới nếu cần (mục 3, cùng màn), rồi <b>tải file</b>.</li>
+      </ol>
+      <h3>Đọc kết quả</h3>
+      <table>
+        <thead><tr><th>Khối</th><th>Ý nghĩa</th></tr></thead>
+        <tbody>
+        <tr><td>Duyệt so với công cụ</td><td>Tổng thu, tổng chi, thặng dư của quỹ quản lý vận hành và quỹ khu vực chung. "Duyệt NS năm cũ (quy đổi)" là số đã duyệt quy về cùng cơ sở VAT với bản giao; "Công cụ NS năm mới" là số công cụ lập; kèm chênh lệch và %. Đơn vị triệu VND/năm.</td></tr>
+        <tr><td>Đối chiếu tổng</td><td>Tám phép: với mỗi quỹ và mỗi mục thu / chi, cột công cụ cộng lại phải bằng dòng tổng của bản giao, và cột duyệt cộng lại phải bằng dòng tổng của file nguồn. <b>KHỚP</b>: số đã đọc đủ. <b>LỆCH</b>: lượt vẫn xong, nhưng có dòng chưa đọc được hoặc file nguồn tự lệch tổng; mở bản phân tích, sheet Review để xem.</td></tr>
+        <tr><td>10 dòng lệch lớn nhất</td><td>Mã, hạng mục, số duyệt, số công cụ, chênh lệch, và cột "Cách công cụ ra số" giải thích vì sao khác.</td></tr>
+        <tr><td>Ghi chú nhập</td><td>Ô để trống cần điền; mã có trong file cũ nhưng không có trên form 2027 (chỉ liệt kê, không tự gán sang mã khác); mục cần PM xác nhận; dữ kiện đã dùng.</td></tr>
+        </tbody>
+      </table>
+      <h3>Điều chỉnh trước khi giao</h3>
+      <ol>
+        <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá hoặc Trượt giá. Chọn Số lượng hoặc Đơn giá thì các dòng chi tiết mở ngay bên dưới.</li>
+        <li>Sửa ô vàng. Thành tiền mới, chênh lệch và % tính ngay; cột <b>Duyệt</b> cho thấy số năm cũ để so.</li>
+        <li><b>Trượt giá hàng loạt:</b> lọc (ví dụ gõ ES), bấm "Chọn mọi mã đang hiện", nhập %, bấm "Áp cho các mã đã chọn".</li>
+        <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>. Bản giao được ghi đè, bản cũ giữ làm backup có ngày giờ; Excel tính lại và trang hiện thu, chi, thặng dư trước và sau. Bản giao tải sau khi lưu mới là bản cuối.</li>
+      </ol>
+      <p class="src">Không có trên bảng điều chỉnh: dự phòng (EM#, ES#, EE#) và phần chia sang quỹ khu vực chung tự chạy theo công thức; EMH3, EMH4, RI1 tính từ sheet chi tiết riêng.</p>
+      <h3>Tải file</h3>
+      <ul>
+        <li><b>Bản giao khách:</b> form chuẩn, có sheet "4. Điều chỉnh".</li>
+        <li><b>Bản phân tích nội bộ:</b> có sheet Review so từng dòng duyệt với công cụ và ghi cách công cụ ra số.</li>
+        <li><b>Lịch trực.</b> Tài khoản chỉ xem chỉ tải được bản giao khách.</li>
+      </ul>
+      <h3>Lưu ý khi đọc số</h3>
+      <ul>
+        <li>Lấy thẳng từ file đã duyệt: đơn giá phí quản lý, doanh thu giữ xe, thu hộ chi hộ, lương và điện nước. Các dòng khác được ước lượng lại theo phương pháp năm mới.</li>
+        <li>Dòng có số duyệt mà công cụ chưa có phương pháp sẽ ra 0 và ghi "Chưa có phương pháp"; công cụ không chép số cũ sang.</li>
+        <li>Chế độ Review coi dự án đã vận hành ổn định: phần chủ đầu tư bù (RM.0A) bằng 0 và phí quản lý tính theo 100% lấp đầy. Khi Gen budget for new year từ lượt của một dự án mới, các dòng này có thể khác nhiều so với năm đầu.</li>
+        <li>Sheet Review trong bản phân tích so số công cụ <b>trước</b> điều chỉnh. Tổng sau điều chỉnh xem ở bảng "Kết quả lần lưu gần nhất".</li>
+      </ul>
+      <h3>Khi gặp lỗi</h3>
+      <table>
+        <thead><tr><th>Trang báo</th><th>Cách xử lý</th></tr></thead>
+        <tbody>
+        <tr><td>Đang có một lượt chạy</td><td>Người khác đang chạy. Chờ một đến hai phút rồi bấm lại.</td></tr>
+        <tr><td>Thiếu Tỉnh / thành phố</td><td>Điền ô này ở mục 2 rồi bấm lại.</td></tr>
+        <tr><td>Dòng xám, không chọn được</td><td>File không đọc được. Nếu có bản .xlsx của file đó, dùng "Tải file lên".</td></tr>
+        <tr><td>Bản giao đang mở trong Excel</td><td>File đang được mở trên máy chủ. Báo nhóm IT đóng file rồi lưu lại.</td></tr>
+        <tr><td>Đối chiếu LỆCH</td><td>Kết quả vẫn dùng được. Mở bản phân tích, sheet Review, xem các dòng lệch và ghi chú nhập.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="hd-arch">
+      <h2>Hệ thống chạy thế nào</h2>
+      <div class="dg-wrap">
+      <svg class="dg" viewBox="0 0 1000 300" role="img" aria-labelledby="dg-arch-t">
+        <title id="dg-arch-t">Kiến trúc tổng quan: trình duyệt của PM vào máy chủ Hub qua cổng đăng nhập; trang Budget Agent chạy bộ sinh ngân sách và Excel; đọc ngân sách đã duyệt trên SharePoint; ghi mỗi lượt vào thư mục riêng trên máy chủ.</title>
+        <defs><marker id="ah-arch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect class="bx" x="8" y="112" width="150" height="80"/>
+        <text class="t" x="83" y="140" text-anchor="middle">Trình duyệt</text>
+        <text class="t" x="83" y="158" text-anchor="middle">của PM</text>
+        <text class="s" x="83" y="178" text-anchor="middle">Edge / Chrome</text>
+        <rect class="grp" x="196" y="16" width="568" height="276"/>
+        <text class="s" x="210" y="36">Máy chủ Hub (mạng Savills)</text>
+        <rect class="bx" x="214" y="112" width="150" height="80"/>
+        <text class="t" x="289" y="140" text-anchor="middle">Cổng vào trang</text>
+        <text class="s" x="289" y="162" text-anchor="middle">đăng nhập tài khoản</text>
+        <text class="s" x="289" y="177" text-anchor="middle">công ty · /budget/</text>
+        <rect class="bx hi" x="404" y="112" width="160" height="80"/>
+        <text class="t oy" x="484" y="140" text-anchor="middle">Trang Budget Agent</text>
+        <text class="s oy" x="484" y="162" text-anchor="middle">5 tab · xếp một lượt</text>
+        <text class="s oy" x="484" y="177" text-anchor="middle">tại một thời điểm</text>
+        <rect class="bx" x="604" y="112" width="144" height="80"/>
+        <text class="t" x="676" y="140" text-anchor="middle">Bộ sinh ngân</text>
+        <text class="t" x="676" y="158" text-anchor="middle">sách + Excel</text>
+        <text class="s" x="676" y="178" text-anchor="middle">lập, so sánh, tính lại</text>
+        <rect class="bx st" x="404" y="226" width="344" height="54"/>
+        <text class="t" x="576" y="248" text-anchor="middle">Thư mục lượt chạy (mỗi lượt một thư mục)</text>
+        <text class="s" x="576" y="268" text-anchor="middle">bản chụp file duyệt · form · 3 file kết quả · backup điều chỉnh</text>
+        <rect class="bx st" x="806" y="112" width="186" height="80"/>
+        <text class="t" x="899" y="140" text-anchor="middle">SharePoint (PM)</text>
+        <text class="s" x="899" y="162" text-anchor="middle">ngân sách đã duyệt thật</text>
+        <text class="s" x="899" y="177" text-anchor="middle">+ danh sách đã quét</text>
+        <path class="ln" d="M158 152 H212" marker-start="url(#ah-arch)" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M364 152 H402" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M564 152 H602" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M676 192 V224" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M484 192 V224" marker-start="url(#ah-arch)" marker-end="url(#ah-arch)"/>
+        <path class="ln dash" d="M899 112 V80 H484 V110" marker-end="url(#ah-arch)"/>
+        <text class="s" x="692" y="72" text-anchor="middle">chỉ đọc: danh sách dự án, chép bản chụp file khi chạy</text>
+        <text class="s" x="686" y="214">ghi kết quả</text>
+        <text class="s" x="494" y="214">đọc, tải file</text>
+      </svg>
+      </div>
+      <ul>
+        <li>PM mở trang qua máy chủ Hub bằng trình duyệt và đăng nhập bằng tài khoản công ty. Không cần cài gì trên máy.</li>
+        <li>Trang Budget Agent nhận yêu cầu, xếp một lượt tại một thời điểm, rồi chạy bộ sinh ngân sách và Excel ngay trên máy chủ.</li>
+        <li>Danh sách dự án có sẵn đọc từ SharePoint. Khi chạy, một bản chụp file đã duyệt được chép vào thư mục của lượt, nên chạy lại cho ra cùng số. File trên SharePoint không bị sửa.</li>
+        <li>Mỗi lượt có thư mục riêng trên máy chủ; lượt sau không ghi đè lượt trước. Tab Lịch sử dự án đọc lại các thư mục này.</li>
+      </ul>
+    </section>
+
+    <section id="hd-fields">
       <h2>Ý nghĩa từng thông số</h2>
       <h3>Quy mô dự án</h3>
       <table>
@@ -353,6 +533,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
   <div class="panel" id="panel-review">
     <section>
       <h2>1. Ngân sách đã duyệt năm ngoái</h2>
+      <p class="src" style="margin:-4px 0 12px">Lần đầu dùng: xem <a href="#hd-review" id="rv-guide" style="color:var(--sav-link);font-weight:700">hướng dẫn và sơ đồ các bước</a>.</p>
       <div class="modes" role="radiogroup" aria-label="Nguồn ngân sách đã duyệt">
         <button type="button" class="on" data-src="lib" role="radio" aria-checked="true">Dự án có sẵn</button>
         <button type="button" data-src="upload" role="radio" aria-checked="false">Tải file lên</button>
@@ -654,6 +835,9 @@ function showTab(id) {
   if (id === 'review' && !libEntries.length) loadLibrary();
 }
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.getElementById('rv-guide').addEventListener('click', e => {
+  e.preventDefault(); showTab('huongdan'); document.getElementById('hd-review').scrollIntoView({ behavior: 'smooth' });
+});
 
 function money(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US') + ' VND'; }
 function num(v, d) { return v == null ? '—' : (typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: d == null ? 1 : d }) : String(v)); }

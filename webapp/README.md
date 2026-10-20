@@ -78,7 +78,10 @@ Mỗi tab chạy có ô trạng thái, log và thanh tiến trình riêng.
   theo nhãn, điền vào tab Nhập liệu chế độ dự án mới; lượt review thì đọc form trong `input\`), *Gen budget for new
   year* (chuyển sang chế độ Review, nguồn = bản giao của lượt, các ô dữ kiện điền sẵn từ form của lượt; Tỉnh / thành
   phố trống thì trang bắt điền).
-- **Hướng dẫn** (tab cuối)**:** các bước dùng và ý nghĩa từng trường (rút từ RUNNING.md và docs/17).
+- **Hướng dẫn** (tab cuối)**:** các bước dùng và ý nghĩa từng trường (rút từ RUNNING.md và docs/17); mục riêng
+  "Review dự án đang vận hành" (sơ đồ các bước, đọc kết quả, điều chỉnh, tải file, lưu ý khi đọc số, khi gặp lỗi) và
+  "Hệ thống chạy thế nào" (sơ đồ kiến trúc tổng quan). Hai sơ đồ là SVG viết thẳng trong trang, màu theo token nên
+  đổi theo chế độ sáng / tối. Tab Review có link "hướng dẫn và sơ đồ các bước" mở thẳng mục này.
 - **Kết quả** (tab thứ hai, mở tự động khi lượt chạy xong, dựng từ `summary` trong JSON của `api/runs/<id>`, `webapp/results.py`):
   - thu, chi, thặng dư/thâm hụt năm đầu của quỹ vận hành (không phải lợi nhuận Savills): từ bản ghi run_log của lượt chạy (pipeline đo bằng Excel trên
     '1. Summary'); máy không có Excel thì run_log ghi `excel_unavailable` và trang nói chưa đo được, không đoán;
