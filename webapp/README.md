@@ -10,6 +10,8 @@ Một trang web, hai luồng:
   thì lượt dừng sau pipeline và trang nói rõ.
 - **Lịch sử dự án:** mọi lượt trong thư mục runs, với **Clone** (điền sẵn form từ lượt cũ) và **Gen budget for new
   year** (bản giao của lượt cũ làm ngân sách năm ngoái).
+- **Điều chỉnh:** sửa số lượng, đơn giá hoặc trượt giá từng mã của bản giao ngay trên trang (dòng chi tiết mở bên dưới
+  từng mã), xem trước chênh lệch, rồi lưu vào bản giao; Excel tính lại và trang hiện thu / chi / thặng dư trước và sau.
 
 ## Chạy
 
@@ -32,7 +34,7 @@ Rồi mở <http://127.0.0.1:8090/budget/> (chạy thử trên máy cá nhân: �
 Log ra stdout/stderr (uvicorn access log + một dòng `budget-web:` khi bắt đầu và kết thúc mỗi lượt, khi đăng nhập
 thành công hoặc bị từ chối).
 
-## Bốn tab và trang kết quả
+## Năm tab và trang kết quả
 
 - **Nhập liệu:** nhóm nút chọn chế độ *Lập ngân sách dự án mới* / *Review ngân sách dự án đang vận hành*, form của chế
   độ đang chọn, và nút chính (vàng Savills, chữ đen, viền navy; hover đảo navy/vàng; disabled xám): *Tạo ngân sách*
@@ -62,6 +64,38 @@ thành công hoặc bị từ chối).
   nút tải file. Phép đối chiếu lệch (review.py trả 1) vẫn là lượt *xong*, trạng thái ghi rõ LỆCH.
   Mọi lượt còn có mục "Điều chỉnh ngân sách trong bản giao" nhắc cách dùng sheet 4. Điều chỉnh (số lượng / đơn giá /
   trượt giá). Test: `tests/test_webapp_review.py`.
+
+## Tab Điều chỉnh (chức năng "Budget Adjustment – Dynamic Detail Sub-Rows")
+
+Mở từ tab Kết quả ("Mở tab Điều chỉnh cho lượt này") hoặc nút *Điều chỉnh* ở tab Lịch sử; dùng cho mọi lượt có bản
+giao. Trang đọc sheet **4. Điều chỉnh** của bản giao (`budget_adjustment.py` dựng sheet này: một dòng Tổng mỗi mã, các
+dòng Chi tiết bên dưới, công thức của template) và chỉ ghi lại các ô nhập; mọi con số khác vẫn do công thức trong file
+tính (`webapp/adjust.py`).
+
+- **Bảng:** mỗi mã một dòng (mã, quỹ, hạng mục, loại điều chỉnh, trượt giá %, thành tiền gốc, mới, chênh lệch, %);
+  lượt review thêm cột *Duyệt NS <năm cũ>* (số đã quy đổi, đọc từ sheet Review). Nút +/− mở hoặc thu gọn dòng chi tiết
+  ngay dưới mã (nội dung, ĐVT, SL gốc, đơn giá gốc, thành tiền gốc, SL mới, đơn giá mới, thành tiền mới, chênh lệch,
+  %). Chọn Số lượng hoặc Đơn giá thì dòng chi tiết tự mở. Lọc theo mã / hạng mục, quỹ, thu / chi, "chỉ mã đã điều chỉnh".
+- **Ô sửa được** theo loại: Số lượng → SL mới; Đơn giá → đơn giá mới; Trượt giá → % trên dòng mã. Dòng gộp ("khoản",
+  cột J là công thức) khoá SL. Mã không có dòng chi tiết chỉ có trượt giá. SL và đơn giá không âm; trượt giá > −100%.
+- **Công thức** (đúng công thức của template): SL mới × đơn giá gốc; SL gốc × đơn giá mới; thành tiền gốc × (1 + %);
+  thành tiền mới của mã = tổng các dòng chi tiết; chênh lệch % = "N/A" khi gốc bằng 0.
+- **Trượt giá hàng loạt:** tick mã (hoặc lọc rồi "Chọn mọi mã đang hiện", ví dụ gõ `ES`), nhập %, "Áp cho các mã đã
+  chọn".
+- **Xem trước** tổng thu / chi các mã trên bảng, mỗi quỹ. Không có trên bảng: dự phòng EM#/ES#/EE# và phần chia sang
+  quỹ khu vực chung (tự chạy theo), EMH3/EMH4/RI1 (tính từ sheet chi tiết riêng).
+- **Lưu** (`POST api/runs/<id>/adjust`, chỉ gửi các mã có thay đổi; viewer bị 403): người dùng chọn 20/10/2026 **ghi đè
+  bản giao**, giữ backup `<tên>_BACKUP_<yyyymmdd-hhmmss>.xlsx` bên cạnh. Chạy `webapp/adjust_run.py` trong cùng hàng đợi
+  (409 khi đang có lượt khác): dừng nếu bản giao đang mở trong Excel (file `~$`), kiểm tra mọi mã trước khi ghi,
+  backup, ghi, Excel tính lại bản sao `adjust_recalc.xlsx`, đo R / E của hai sheet quỹ trước (bản gốc, chỉ lần lưu đầu;
+  lượt review dùng lại `deliverable_recalc.xlsx`) và sau, đếm ô lỗi trên sheet 4, hai sheet quỹ và 1. Summary. Kết quả
+  `adjust_result.json`, lịch sử lưu `adjust_state.json`, log `adjust.log` (không đè `run.log` và `web_meta.json` của
+  lượt gốc).
+- Lượt review: sheet Review của bản phân tích vẫn so số công cụ **trước** điều chỉnh; trang ghi rõ.
+
+Kiểm tra 20/10/2026 trên một lượt review mẫu: ESS1 SL cổng chính ca sáng 3 → 4 (+77 tr), EMA7 và EMA15 trượt giá 3%
+hàng loạt; Excel đo chi quỹ vận hành +82,4 tr (80,8 tr ba mã + dự phòng theo), quỹ khu vực chung +0,57 tr đúng bằng RI1;
+0 ô lỗi; bản giao sau khi ghi giữ nguyên số sheet, ô chọn, khoá sheet, nhóm dòng, hình. Test: `tests/test_webapp_adjust.py`.
 
 ## Chế độ Review: cách chạy
 
@@ -121,9 +155,11 @@ sang Microsoft (authorization code + PKCE, thư viện MSAL); `/auth/callback` n
 | `__main__.py` | `python -m webapp`: đọc biến môi trường, kiểm tra cấu hình SSO, chạy uvicorn |
 | `auth.py` | SSO Entra ID: danh sách email được phép, khởi tạo và hoàn tất auth code flow (MSAL), đăng xuất |
 | `static/login.html` | Trang đăng nhập (cùng token màu), hiện lý do khi bị từ chối |
-| `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt dự án mới), `api/reviews` (tạo lượt review), `api/runs/<id>` (trạng thái + log + tóm tắt; lượt của phiên server trước được dựng lại từ thư mục), `api/runs/<id>/input` (giá trị form của lượt, cho Clone và Gen), `api/runs/<id>/files/<tên>` (tải file), `api/history` (danh sách lượt). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 |
+| `server.py` | FastAPI: trang, `api/defaults` (giá trị mặc định đọc từ mẫu), `api/runs` (tạo lượt dự án mới), `api/reviews` (tạo lượt review), `api/runs/<id>/adjust` (GET: các mã của sheet 4; POST: lưu điều chỉnh), `api/runs/<id>` (trạng thái + log + tóm tắt; lượt của phiên server trước được dựng lại từ thư mục), `api/runs/<id>/input` (giá trị form của lượt, cho Clone và Gen), `api/runs/<id>/files/<tên>` (tải file), `api/history` (danh sách lượt). Một lượt tại một thời điểm; bấm khi đang chạy trả 409 |
 | `history.py` | Đọc thư mục runs cho tab Lịch sử: `outputs_of` (3 file kết quả ở thư mục lượt hoặc `run\`), `describe` / `scan` (loại, dự án, năm, trạng thái từ `web_meta.json` hoặc suy từ file), `write_meta`, `read_log` |
 | `review_run.py` | Tiến trình con của lượt review: Excel tính lại bản giao lượt cũ khi `--recalc`, gọi `review.run`, ghi `review_notes.json` |
+| `adjust.py` | Đọc sheet 4. Điều chỉnh thành các mã kèm dòng chi tiết (`read_items`), công thức xem trước (`new_amount`), ghi ô nhập theo khoá mã + sheet quỹ (`apply_edits`), số duyệt theo mã từ sheet Review (`approved_by_key`) |
+| `adjust_run.py` | Tiến trình con của lần lưu điều chỉnh: backup, ghi đè bản giao, Excel tính lại, đo trước / sau, `adjust_result.json` |
 | `fill_input.py` | Đọc mặc định và ghi giá trị form vào bản sao của `..\reports\Project_Budget_Input.xlsx`, **theo nhãn** cột A (`input_labels.SheetLabels`), không theo ô. Nhãn mẫu chưa có (`Budget Start Month`, `District`, `City / Province`) được thêm dưới dòng cuối |
 | `run_budget.py` | Tiến trình con (`sys.executable`, cwd = `source_code`) chạy `run.main()` với mọi đường dẫn vào/ra đổi hướng về thư mục của lượt chạy bằng `verification/isolation.redirected_paths` (cơ chế sẵn có của verify.py). Không sửa `run.py` |
 | `static/index.html` | Trang một màn, tiếng Việt, Arial, palette Savills (token CSS mục 8.4 của brand guide), không logo. `__PREFIX__` được server thay bằng tiền tố |

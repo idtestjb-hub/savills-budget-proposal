@@ -1,0 +1,193 @@
+"""Điều chỉnh ngân sách trên web (webapp/adjust.py, api/runs/<id>/adjust): đọc sheet '4. Điều chỉnh', công thức xem trước,
+ghi ô nhập theo khoá mã + sheet quỹ, kiểm tra giá trị, số duyệt từ sheet Review, API và quyền viewer.
+
+Sheet 4 được dựng bằng chính budget_adjustment.build_sheet trên dữ liệu bịa; không chạy pipeline, không cần Excel.
+"""
+import json
+import os
+
+import openpyxl
+import pytest
+
+os.environ['BUDGET_WEB_AUTH'] = 'off'
+pytest.importorskip('fastapi')
+from fastapi.testclient import TestClient  # noqa: E402
+
+import budget_adjustment as ba  # noqa: E402
+import review  # noqa: E402
+from webapp import adjust, history, server  # noqa: E402
+from tests.test_review_sheet import _ctx, _data  # noqa: E402
+
+MF, CA = '2. Budget-Management Fund', '2.2 Common area Fund'
+DELIV = 'Khu Thu Nghiem - Sample Consulting Budget.xlsx'
+
+ITEMS = [
+    dict(code='ESS1', sheet=MF, row=20, name_vi='Dịch vụ bảo vệ', freq='Yearly', months=[100.0] * 12, annual=1200.0, subs=[
+        dict(desc_vi='Cổng chính (ca sáng)', unit_vi='người', qty=3, unit_price=200.0, amount=600.0, qty_editable=True),
+        dict(desc_vi='CCTV', unit_vi='người', qty=2, unit_price=300.0, amount=600.0, qty_editable=True)]),
+    dict(code='EMA7', sheet=MF, row=21, name_vi='Nước uống', freq='Yearly', months=[10.0] * 12, annual=120.0, subs=[
+        dict(desc_vi='Nước uống', unit_vi='khoản', qty=1, unit_price=120.0, amount=120.0, qty_editable=False)]),
+    dict(code='RM.AP', sheet=MF, row=10, name_vi='Phí quản lý căn hộ', freq='Monthly', months=[50.0] * 12, annual=600.0, subs=[
+        dict(desc_vi='NFA căn hộ', unit_vi='m²', qty=100, unit_price=6.0, amount=600.0, qty_editable=True)]),
+    dict(code='ESS4', sheet=CA, row=30, name_vi='Vệ sinh', freq='Yearly', months=[5.0] * 12, annual=60.0, subs=[]),
+]
+
+
+def _deliverable(path):
+    wb = openpyxl.Workbook()
+    wb.active.title = '1. Summary'
+    for name in (MF, CA):
+        wb.create_sheet(name)
+    wb.create_sheet('3.1 Report-Sinking Fund')
+    ba.build_sheet(wb, ITEMS)
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
+def deliv(tmp_path):
+    return _deliverable(str(tmp_path / DELIV))
+
+
+def test_read_items_keys_and_subs(deliv):
+    items = {i['key']: i for i in adjust.read_items(deliv)}
+    assert list(items) == ['MF|ESS1', 'MF|EMA7', 'MF|RM.AP', 'CA|ESS4']
+    e = items['MF|ESS1']
+    assert e['section'] == 'E' and e['amount'] == 1200.0 and e['adj_type'] == '' and e['has_subs']
+    assert [s['qty'] for s in e['subs']] == [3, 2] and e['subs'][0]['qty_editable']
+    assert items['MF|EMA7']['subs'][0]['qty_editable'] is False          # dòng gộp: SL khoá (cột J là công thức)
+    assert items['MF|RM.AP']['section'] == 'R'
+    assert items['CA|ESS4']['has_subs'] is False and items['CA|ESS4']['amount'] == 60.0
+    assert all(abs(adjust.new_amount(i) - i['amount']) < 1e-9 for i in items.values())   # chưa chỉnh = số gốc
+
+
+def test_new_amount_follows_the_spec_formulas(deliv):
+    e = {i['key']: i for i in adjust.read_items(deliv)}['MF|ESS1']
+    e['subs'][0]['new_qty'] = 4                                   # 4.1: SL mới × đơn giá gốc
+    assert adjust.new_amount(e, adj_type='Số lượng') == 4 * 200 + 2 * 300
+    e['subs'][1]['new_price'] = 330                                # 4.2: SL gốc × đơn giá mới
+    assert adjust.new_amount(e, adj_type='Đơn giá') == 3 * 200 + 2 * 330
+    assert adjust.new_amount(e, adj_type='Trượt giá', inflation=0.05) == pytest.approx(1260.0)   # 4.3
+    assert adjust.new_amount(e, adj_type='') == 1200.0             # để trống: số gốc
+    lump = {i['key']: i for i in adjust.read_items(deliv)}['MF|EMA7']
+    lump['subs'][0]['new_qty'] = 9                                  # SL khoá: bỏ qua
+    assert adjust.new_amount(lump, adj_type='Số lượng') == 120.0
+
+
+def test_apply_edits_writes_input_cells_by_key(deliv, tmp_path):
+    wb = openpyxl.load_workbook(deliv)
+    written = adjust.apply_edits(wb, [
+        dict(key='MF|ESS1', adj_type='Số lượng', inflation=0, subs=[dict(idx=0, new_qty=4, new_price=200)]),
+        dict(key='MF|EMA7', adj_type='Số lượng', inflation=0, subs=[dict(idx=0, new_qty=9, new_price=120)]),
+        dict(key='CA|ESS4', adj_type='Trượt giá', inflation=0.03, subs=[])])
+    assert written == ['ESS1', 'EMA7', 'ESS4']
+    out = str(tmp_path / 'out.xlsx')
+    wb.save(out)
+    items = {i['key']: i for i in adjust.read_items(out)}
+    assert items['MF|ESS1']['adj_type'] == 'Số lượng' and items['MF|ESS1']['subs'][0]['new_qty'] == 4
+    assert items['MF|ESS1']['subs'][1]['new_qty'] == 2                 # dòng không gửi giữ nguyên
+    assert items['MF|EMA7']['subs'][0]['qty_editable'] is False        # công thức =G không bị ghi đè
+    assert items['CA|ESS4']['adj_type'] == 'Trượt giá' and items['CA|ESS4']['inflation'] == 0.03
+    assert items['MF|RM.AP']['adj_type'] == ''                          # mã không gửi giữ nguyên
+    ws = openpyxl.load_workbook(out)[ba.SHEET_NAME]
+    assert str(ws.cell(row=5, column=ba.COL['new_amount']).value).startswith('=SUM(')   # công thức template còn nguyên
+    wb2 = openpyxl.load_workbook(out)                                   # để trống = bỏ điều chỉnh
+    adjust.apply_edits(wb2, [dict(key='MF|ESS1', adj_type='', inflation=0, subs=[])])
+    assert wb2[ba.SHEET_NAME].cell(row=5, column=ba.COL['adj_type']).value is None
+
+
+@pytest.mark.parametrize('edit, message', [
+    (dict(key='MF|KHONGCO', adj_type='Số lượng'), 'Không có mã'),
+    (dict(key='MF|ESS1', adj_type='Tăng'), 'không hợp lệ'),
+    (dict(key='CA|ESS4', adj_type='Đơn giá'), 'chỉ điều chỉnh được bằng trượt giá'),
+    (dict(key='MF|ESS1', adj_type='Số lượng', subs=[dict(idx=0, new_qty=-1)]), 'không được âm'),
+    (dict(key='MF|ESS1', adj_type='Số lượng', subs=[dict(idx=5, new_qty=1)]), 'không có dòng chi tiết thứ 6'),
+    (dict(key='MF|ESS1', adj_type='Trượt giá', inflation=-1.2), 'lớn hơn -100%'),
+])
+def test_apply_edits_rejects_bad_input_and_writes_nothing(deliv, edit, message):
+    wb = openpyxl.load_workbook(deliv)
+    good = dict(key='MF|EMA7', adj_type='Trượt giá', inflation=0.1, subs=[])
+    with pytest.raises(adjust.AdjustError, match=message):
+        adjust.apply_edits(wb, [good, edit])
+    assert wb[ba.SHEET_NAME].cell(row=7, column=ba.COL['adj_type']).value is None    # mã hợp lệ cũng chưa được ghi
+
+
+def test_approved_by_key_from_review_sheet(tmp_path):
+    prior_lines, anchors, tool, meta = _data()
+    data = review.assemble(prior_lines, anchors, tool, meta, _ctx(), template={'MF': {}})
+    wb = openpyxl.Workbook()
+    review.build_review_sheet(wb, data, meta)
+    p = str(tmp_path / 'analysis.xlsx')
+    wb.save(p)
+    ap = adjust.approved_by_key(p)
+    assert ap['MF|RM.AP'] == pytest.approx(2_592_000_000.0)            # đã quy đổi (×1.08)
+    assert ap['MF|EMH2'] == 1_200_000_000.0                         # lương: không VAT
+    assert ap['MF|ESS1'] == pytest.approx(1_080_000_000.0)            # hai dòng cộng lại, ×1.08
+    assert adjust.review_years(p) == (2026, 2027)
+    assert adjust.approved_by_key(str(tmp_path / 'khong-co.xlsx')) == {}
+
+
+# ---- API ---------------------------------------------------------------------------------------
+
+@pytest.fixture
+def run_id(tmp_path, monkeypatch):
+    runs = tmp_path / 'web_runs'
+    wd = runs / '20261020-110000_Khu-Thu-Nghiem'
+    wd.mkdir(parents=True)
+    _deliverable(str(wd / DELIV))
+    for name in ('Project_Budget_Output.xlsx', 'Roster_Demand_Model.xlsx'):
+        (wd / name).write_bytes(b'PK')
+    history.write_meta(str(wd), kind='new', project='Khu Thu Nghiem', status='done', rc=0, user='pm.test')
+    monkeypatch.setattr(server, 'RUNS_DIR', str(runs))
+    server._runs.clear()
+    server._active['id'] = None
+    yield wd.name
+    server._runs.clear()
+    server._active['id'] = None
+
+
+@pytest.fixture
+def client():
+    return TestClient(server.app)
+
+
+def test_get_adjust(client, run_id):
+    body = client.get(f'/api/runs/{run_id}/adjust').json()
+    assert body['deliverable'] == DELIV and len(body['items']) == 4 and body['can_save']
+    assert body['has_approved'] is False and body['last'] is None
+    assert client.get(f'/api/runs/{run_id}/adjust', headers={'X-Hub-Role': 'viewer'}).json()['can_save'] is False
+
+
+def test_post_adjust_queues_a_job_without_touching_run_meta(client, run_id, monkeypatch):
+    seen = {}
+
+    def worker(job_id):
+        seen['job'] = server._runs[job_id]
+        server._runs[job_id]['status'] = 'done'
+        server._active['id'] = None
+
+    monkeypatch.setattr(server, '_worker', worker)
+    edits = [dict(key='MF|ESS1', adj_type='Số lượng', inflation=0, subs=[dict(idx=0, new_qty=4, new_price=200)])]
+    r = client.post(f'/api/runs/{run_id}/adjust', json=dict(edits=edits))
+    assert r.status_code == 200, r.text
+    job = seen['job']
+    assert r.json()['kind'] == 'adjust' and r.json()['id'].startswith(run_id + '__adjust-')
+    cmd = job['cmd']
+    assert cmd[3].endswith('adjust_run.py') and cmd[cmd.index('--deliverable') + 1].endswith(DELIV)
+    assert job['log_name'] == 'adjust.log'
+    saved = json.load(open(cmd[cmd.index('--edits') + 1], encoding='utf-8'))
+    assert saved == edits
+    meta = history.read_meta(os.path.join(server.RUNS_DIR, run_id))
+    assert meta['kind'] == 'new' and meta['status'] == 'done' and meta['user'] == 'pm.test'   # lượt gốc không đổi
+
+
+def test_post_adjust_refusals(client, run_id, monkeypatch):
+    monkeypatch.setattr(server, '_worker', lambda job_id: None)
+    ok = dict(edits=[dict(key='MF|ESS1', adj_type='Trượt giá', inflation=0.05, subs=[])])
+    assert client.post(f'/api/runs/{run_id}/adjust', json=ok, headers={'X-Hub-Role': 'viewer'}).status_code == 403
+    assert client.post(f'/api/runs/{run_id}/adjust', json=dict(edits=[])).status_code == 400
+    r = client.post(f'/api/runs/{run_id}/adjust', json=dict(edits=[dict(key='MF|ESS1', adj_type='Số lượng',
+                                                                          subs=[dict(idx=0, new_qty=-3)])]))
+    assert r.status_code == 400 and 'không được âm' in r.json()['detail']
+    assert client.post(f'/api/runs/{run_id}/adjust', json=ok).status_code == 200
+    assert client.post(f'/api/runs/{run_id}/adjust', json=ok).status_code == 409    # một lượt tại một thời điểm

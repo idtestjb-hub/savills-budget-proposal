@@ -135,6 +135,31 @@ button.sm:disabled { color: var(--sav-grey); border-color: var(--sav-rule); back
 .rv td.neg, .kpi b.neg { color: var(--sav-neg); }
 .notes td { font-size: 13px; }
 details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
+/* Điều chỉnh: dòng Tổng (mã) và dòng Chi tiết thụt lề ngay bên dưới. */
+.adj-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 0 0 12px; }
+.adj-tools label { display: flex; gap: 6px; align-items: center; font-size: 14px; }
+.adj-tools input[type=text], .adj-tools input[type=number], .adj-tools select { width: auto; text-align: left; padding: 5px 7px; font-size: 14px; }
+.adj-tools input[type=number] { width: 80px; text-align: right; }
+.adj-tools input[type=checkbox], #adj input[type=checkbox] { width: auto; }
+#adj td, #adj th { padding: 5px 6px; font-size: 14px; vertical-align: middle; }
+#adj tr.par td { background: var(--sav-surface); border-top: 1px solid var(--sav-rule); }
+#adj tr.par.dirty td { background: #FFF8CC; }
+#adj tr.par.saved td:nth-child(3) { box-shadow: inset 4px 0 0 var(--sav-teal); }
+#adj select, #adj input { font-size: 14px; padding: 3px 5px; }
+#adj select { width: 120px; }
+#adj input.pct { width: 76px; }
+#adj button.tg { background: none; border: 0; font: 700 15px var(--sav-font); color: var(--sav-navy); cursor: pointer; width: 24px; }
+#adj button.tg:disabled { color: var(--sav-rule); cursor: default; }
+#adj tr.sub > td { background: var(--sav-panel) !important; padding: 4px 6px 10px 46px; }
+#adj table.subs { width: 100%; border-collapse: collapse; }
+#adj table.subs th { background: var(--sav-warm-grey); color: var(--sav-text); font-size: 12.5px; padding: 4px 6px; }
+#adj table.subs td { font-size: 13px; padding: 3px 6px; background: var(--sav-surface); }
+#adj table.subs input { width: 110px; text-align: right; }
+#adj table.subs input:disabled, #adj input.pct:disabled { background: transparent; border-color: transparent; color: var(--sav-text); }
+#adj input.edit:not(:disabled) { background: #FFF2CC; border-color: var(--sav-navy); color: #000; }
+#adj tfoot td { text-align: right; }
+.adj-sum td, .adj-sum th { padding: 6px 8px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #adj tr.par.dirty td { background: #4A4630; } }
 </style>
 </head>
 <body>
@@ -150,6 +175,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
   <nav class="tabs" role="tablist">
     <button type="button" class="on" data-tab="nhap">Nhập liệu</button>
     <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả</button>
+    <button type="button" data-tab="dieuchinh" id="tab-dieuchinh">Điều chỉnh</button>
     <button type="button" data-tab="lichsu">Lịch sử dự án</button>
     <button type="button" data-tab="huongdan">Hướng dẫn</button>
   </nav>
@@ -350,7 +376,12 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <div id="files" class="files"></div>
       </section>
       <section>
-        <h2>Điều chỉnh ngân sách trong bản giao</h2>
+        <h2>Điều chỉnh ngân sách</h2>
+        <p>Điều chỉnh số lượng, đơn giá hoặc trượt giá từng mã ngay trên trang, rồi lưu vào bản giao của lượt này.</p>
+        <button type="button" class="sm pri" id="res-adjust">Mở tab Điều chỉnh cho lượt này</button>
+      </section>
+      <section>
+        <h2>Điều chỉnh ngay trong file Excel</h2>
         <p>Mở bản giao khách, sheet <b>4. Điều chỉnh</b>: mỗi mã ngân sách là một dòng tổng, bên dưới là các dòng chi tiết (vị trí, thiết bị, sản phẩm...). Chọn loại điều chỉnh ở dòng tổng rồi sửa ô vàng của dòng chi tiết:</p>
         <table>
           <thead><tr><th>Loại điều chỉnh</th><th>Ô sửa được</th><th>Thành tiền mới</th></tr></thead>
@@ -361,6 +392,60 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
           </tbody>
         </table>
         <p class="src">Chênh lệch và % tính ngay tại dòng; dòng tổng, sheet quỹ, 1. Summary và dự phòng chạy theo. Liên kết theo mã dòng, không theo số dòng Excel. Chưa sửa gì thì bản giao giữ nguyên số gốc.</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-dieuchinh">
+    <p id="adj-empty" class="status">Chọn một lượt: bấm "Mở tab Điều chỉnh" ở tab Kết quả, hoặc nút Điều chỉnh ở tab Lịch sử dự án.</p>
+    <div id="adj-body" class="hidden">
+      <section>
+        <h2>Điều chỉnh ngân sách</h2>
+        <p class="src" id="adj-head"></p>
+        <ol style="margin:6px 0 12px;padding-left:20px;font-size:14px">
+          <li>Chọn <b>loại điều chỉnh</b> trên dòng của mã: Số lượng, Đơn giá hoặc Trượt giá. Chọn Số lượng hoặc Đơn giá thì các dòng chi tiết mở ngay bên dưới.</li>
+          <li>Sửa ô vàng: SL mới (Số lượng), Đơn giá mới (Đơn giá), hoặc Trượt giá % trên dòng mã. Thành tiền mới và chênh lệch tính ngay.</li>
+          <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>: bản giao được ghi đè (bản cũ giữ làm backup có ngày), Excel tính lại và trang hiện thu, chi, thặng dư trước và sau.</li>
+        </ol>
+        <div class="adj-tools">
+          <label>Tìm <input type="text" id="adj-q" placeholder="mã hoặc hạng mục" size="18"></label>
+          <label>Quỹ <select id="adj-fund"><option value="">Tất cả</option><option value="MF">Quỹ quản lý vận hành</option><option value="CA">Quỹ khu vực chung</option></select></label>
+          <label>Mục <select id="adj-sec"><option value="">Thu và chi</option><option value="R">Thu</option><option value="E">Chi</option></select></label>
+          <label><input type="checkbox" id="adj-only"> Chỉ mã đã điều chỉnh</label>
+        </div>
+        <div class="adj-tools" style="border-top:1px solid var(--sav-rule);padding-top:10px">
+          <b style="font-size:14px">Trượt giá hàng loạt:</b>
+          <button type="button" class="sm" id="adj-selall">Chọn mọi mã đang hiện</button>
+          <button type="button" class="sm" id="adj-selnone">Bỏ chọn</button>
+          <label><input type="number" id="adj-bulk" step="0.1" value="5"> %</label>
+          <button type="button" class="sm pri" id="adj-bulk-go">Áp cho các mã đã chọn</button>
+          <span class="status" id="adj-sel"></span>
+        </div>
+        <div style="overflow-x:auto">
+        <table id="adj">
+          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        </div>
+        <p class="src">Đơn vị VND/năm, cơ sở VAT của bản giao. Không có trên bảng: dự phòng (EM#, ES#, EE#) và phần chia sang quỹ khu vực chung tự chạy theo công thức; EMH3, EMH4, RI1 tính từ sheet chi tiết riêng. Dòng gộp ("khoản") chỉ sửa được đơn giá hoặc trượt giá.</p>
+      </section>
+      <section>
+        <h2>Xem trước tổng các mã trên bảng</h2>
+        <table class="adj-sum" id="adj-prev"><thead><tr><th>Quỹ / mục</th><th class="num">Gốc</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table>
+        <p class="src">Cộng các mã trên bảng, tính trên trang. Tổng chính thức (gồm dự phòng và phần chia quỹ) do Excel đo sau khi lưu.</p>
+      </section>
+      <div class="actions">
+        <button id="adj-save" type="button" class="cta">Lưu điều chỉnh vào bản giao</button>
+        <a href="#" id="adj-reset" style="color:var(--sav-link);font-weight:700">Bỏ thay đổi chưa lưu</a>
+        <div class="bar"><i id="adj-bar"></i></div>
+        <span id="adj-status" class="status"></span>
+      </div>
+      <pre id="adj-log" class="hidden"></pre>
+      <section id="adj-res" class="hidden">
+        <h2>Kết quả lần lưu gần nhất (Excel đo)</h2>
+        <p class="src" id="adj-res-head"></p>
+        <table class="adj-sum" id="adj-res-t"><thead><tr><th>Quỹ / mục</th><th class="num">Trước điều chỉnh</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table>
+        <p class="src" id="adj-res-note"></p>
       </section>
     </div>
   </div>
@@ -632,7 +717,9 @@ async function poll(id, since, t0) {
   }
 }
 
+let currentRunId = null;
 function showRun(run) {
+  currentRunId = run.id;
   renderFiles(run);
   if (run.kind === 'review') renderReview(run); else renderSummary(run);
 }
@@ -671,6 +758,253 @@ goReview.addEventListener('click', async () => {
   await startRun(`${PREFIX}/api/reviews`, fd);
 });
 
+// ---- Điều chỉnh ngân sách (sheet 4. Điều chỉnh của bản giao) ----
+const T_QTY = 'Số lượng', T_PRICE = 'Đơn giá', T_INF = 'Trượt giá';
+let adj = null;          // {id, items, orig: {key: json}, open: Set, sel: Set}
+const adjTbody = document.querySelector('#adj tbody');
+
+function itemNew(it) {
+  if (!it.has_subs) return it.adj_type === T_INF ? it.amount * (1 + it.inflation) : it.amount;
+  let t = 0;
+  for (const s of it.subs) {
+    if (it.adj_type === T_QTY) t += (s.qty_editable ? s.new_qty : s.qty) * s.unit_price;
+    else if (it.adj_type === T_PRICE) t += s.qty * s.new_price;
+    else if (it.adj_type === T_INF) t += s.amount * (1 + it.inflation);
+    else t += s.amount;
+  }
+  return t;
+}
+function subNew(it, s) {
+  if (it.adj_type === T_QTY) return (s.qty_editable ? s.new_qty : s.qty) * s.unit_price;
+  if (it.adj_type === T_PRICE) return s.qty * s.new_price;
+  if (it.adj_type === T_INF) return s.amount * (1 + it.inflation);
+  return s.amount;
+}
+function vnd(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US'); }
+function vpct(diff, base) { return Math.abs(base) < 0.5 ? 'N/A' : (diff >= 0 ? '+' : '') + (diff / base * 100).toFixed(1) + '%'; }
+function snap(it) { return JSON.stringify([it.adj_type, it.inflation, it.subs.map(s => [s.new_qty, s.new_price])]); }
+function isDirty(it) { return snap(it) !== adj.orig[it.key]; }
+function isAdjusted(it) { return !!it.adj_type; }
+
+async function openAdjust(id) {
+  showTab('dieuchinh');
+  document.getElementById('adj-empty').textContent = 'Đang đọc sheet 4. Điều chỉnh của bản giao…';
+  const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(id)}/adjust`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { document.getElementById('adj-empty').textContent = 'Không mở được: ' + (d.detail || r.status); return; }
+  adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set() };
+  d.items.forEach(it => { adj.orig[it.key] = snap(it); });
+  document.getElementById('adj-empty').classList.add('hidden');
+  document.getElementById('adj-body').classList.remove('hidden');
+  document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
+    (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
+  document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
+  const save = document.getElementById('adj-save');
+  save.disabled = !d.can_save;
+  setAdjStatus(d.can_save ? 'Chưa có thay đổi.' : 'Tài khoản chỉ xem: xem được, không lưu được.');
+  renderAdjust();
+  renderAdjResult(d.last);
+}
+document.getElementById('res-adjust').addEventListener('click', () => { if (currentRunId) openAdjust(currentRunId); });
+
+function setAdjStatus(t, err) { const el = document.getElementById('adj-status'); el.textContent = t; el.className = 'status' + (err ? ' err' : ''); }
+
+function visible(it) {
+  const q = document.getElementById('adj-q').value.trim().toLowerCase();
+  const f = document.getElementById('adj-fund').value, sc = document.getElementById('adj-sec').value;
+  if (q && !(it.code.toLowerCase().includes(q) || it.name.toLowerCase().includes(q))) return false;
+  if (f && it.fund !== f) return false;
+  if (sc && it.section !== sc) return false;
+  if (document.getElementById('adj-only').checked && !isAdjusted(it) && !isDirty(it)) return false;
+  return true;
+}
+
+function typeOptions(it) {
+  const opts = it.has_subs ? ['', T_QTY, T_PRICE, T_INF] : ['', T_INF];
+  return opts.map(o => `<option value="${o}" ${o === it.adj_type ? 'selected' : ''}>${o || '(giữ số gốc)'}</option>`).join('');
+}
+
+function subTable(it) {
+  const q = it.adj_type === T_QTY, p = it.adj_type === T_PRICE;
+  return `<table class="subs"><thead><tr><th>Nội dung chi tiết</th><th>ĐVT</th><th class="num">SL gốc</th><th class="num">Đơn giá gốc</th><th class="num">Thành tiền gốc</th><th class="num">SL mới</th><th class="num">Đơn giá mới</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody>` +
+    it.subs.map(s => {
+      const nw = subNew(it, s), df = nw - s.amount;
+      return `<tr><td>${esc(s.desc)}</td><td>${esc(s.unit)}</td><td class="num">${num(s.qty, 2)}</td><td class="num">${vnd(s.unit_price)}</td><td class="num">${vnd(s.amount)}</td>` +
+        `<td class="num">${q && s.qty_editable ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_qty" value="${s.new_qty}">` : `<span title="${s.qty_editable ? 'Chọn loại Số lượng để sửa' : 'Dòng gộp: số lượng khoá'}">${num(s.qty_editable ? s.new_qty : s.qty, 2)}</span>`}</td>` +
+        `<td class="num">${p ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_price" value="${s.new_price}">` : `<span title="Chọn loại Đơn giá để sửa">${vnd(s.new_price)}</span>`}</td>` +
+        `<td class="num">${vnd(nw)}</td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, s.amount)}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function renderAdjust() {
+  if (!adj) return;
+  const ap = adj.data.has_approved;
+  let html = '';
+  for (const it of adj.items) {
+    if (!visible(it)) continue;
+    const nw = itemNew(it), df = nw - it.amount;
+    const open = adj.open.has(it.key) && it.has_subs;
+    const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
+    html += `<tr class="${cls}" data-k="${esc(it.key)}"><td><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
+      `<td><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
+      `<td><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td>${esc(it.name)}</td>` +
+      (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
+      `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
+      `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
+      `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td></tr>`;
+    if (open) html += `<tr class="sub"><td colspan="${ap ? 11 : 10}">${subTable(it)}</td></tr>`;
+  }
+  adjTbody.innerHTML = html || `<tr><td colspan="11">Không có mã nào khớp bộ lọc.</td></tr>`;
+  renderAdjPreview();
+}
+
+function renderAdjPreview() {
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  let rows = '', dirty = 0;
+  for (const fund of ['MF', 'CA']) {
+    const its = adj.items.filter(i => i.fund === fund);
+    if (!its.length) continue;
+    rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
+    const t = {};
+    for (const sec of ['R', 'E']) {
+      const o = its.filter(i => i.section === sec).reduce((a, i) => a + i.amount, 0);
+      const n = its.filter(i => i.section === sec).reduce((a, i) => a + itemNew(i), 0);
+      t[sec] = [o, n];
+      rows += `<tr><td>${sec === 'R' ? 'Thu' : 'Chi'} (các mã trên bảng)</td><td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td></tr>`;
+    }
+  }
+  adj.items.forEach(i => { if (isDirty(i)) dirty++; });
+  document.querySelector('#adj-prev tbody').innerHTML = rows;
+  document.getElementById('adj-sel').textContent = adj.sel.size ? `${adj.sel.size} mã đã chọn` : '';
+  if (adj.data.can_save && !document.getElementById('adj-save').dataset.busy)
+    setAdjStatus(dirty ? `${dirty} mã có thay đổi chưa lưu.` : 'Chưa có thay đổi.');
+}
+
+function itemOf(key) { return adj.items.find(i => i.key === key); }
+
+adjTbody.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.type) {
+    const it = itemOf(t.dataset.type);
+    it.adj_type = t.value;
+    if (it.adj_type === T_QTY || it.adj_type === T_PRICE) adj.open.add(it.key);
+    renderAdjust();
+  } else if (t.dataset.sel) {
+    t.checked ? adj.sel.add(t.dataset.sel) : adj.sel.delete(t.dataset.sel);
+    renderAdjPreview();
+  }
+});
+adjTbody.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.pct) {
+    const it = itemOf(t.dataset.pct);
+    it.inflation = (Number(t.value) || 0) / 100;
+    refreshRow(it);
+  } else if (t.dataset.f) {
+    const it = itemOf(t.dataset.k), s = it.subs[Number(t.dataset.i)];
+    const v = Number(t.value);
+    if (t.value === '' || v < 0 || !isFinite(v)) { t.setCustomValidity('Không được âm'); return; }
+    t.setCustomValidity('');
+    s[t.dataset.f] = v;
+    refreshRow(it);
+  }
+});
+// Gõ trong ô không vẽ lại cả bảng (giữ con trỏ): chỉ cập nhật số của dòng mã và các dòng chi tiết.
+function refreshRow(it) {
+  const tr = adjTbody.querySelector(`tr.par[data-k="${CSS.escape(it.key)}"]`);
+  if (!tr) return;
+  const nw = itemNew(it), df = nw - it.amount, cells = tr.children, n = cells.length;
+  cells[n - 3].innerHTML = `<b>${vnd(nw)}</b>`;
+  cells[n - 2].textContent = vnd(df); cells[n - 2].className = negCls(df);
+  cells[n - 1].textContent = vpct(df, it.amount); cells[n - 1].className = negCls(df);
+  tr.classList.toggle('dirty', isDirty(it));
+  const sub = tr.nextElementSibling;
+  if (sub && sub.classList.contains('sub')) {
+    sub.querySelectorAll('tbody tr').forEach((row, i) => {
+      const s = it.subs[i], v = subNew(it, s), d = v - s.amount, c = row.children;
+      c[7].textContent = vnd(v); c[8].textContent = vnd(d); c[8].className = negCls(d); c[9].textContent = vpct(d, s.amount); c[9].className = negCls(d);
+    });
+  }
+  renderAdjPreview();
+}
+adjTbody.addEventListener('click', e => {
+  const b = e.target.closest('button[data-tg]');
+  if (!b) return;
+  const k = b.dataset.tg;
+  adj.open.has(k) ? adj.open.delete(k) : adj.open.add(k);
+  renderAdjust();
+});
+['adj-q', 'adj-fund', 'adj-sec', 'adj-only'].forEach(id => document.getElementById(id).addEventListener('input', renderAdjust));
+document.getElementById('adj-selall').addEventListener('click', () => { adj.items.filter(visible).forEach(i => adj.sel.add(i.key)); renderAdjust(); });
+document.getElementById('adj-selnone').addEventListener('click', () => { adj.sel.clear(); renderAdjust(); });
+document.getElementById('adj-bulk-go').addEventListener('click', () => {
+  if (!adj.sel.size) { setAdjStatus('Chưa chọn mã nào: tick ô đầu dòng, hoặc lọc rồi bấm "Chọn mọi mã đang hiện".', true); return; }
+  const pctv = Number(document.getElementById('adj-bulk').value);
+  if (!isFinite(pctv) || pctv <= -100) { setAdjStatus('Trượt giá phải là số lớn hơn -100%.', true); return; }
+  adj.sel.forEach(k => { const it = itemOf(k); it.adj_type = T_INF; it.inflation = pctv / 100; });
+  renderAdjust();
+});
+document.getElementById('adj-reset').addEventListener('click', e => { e.preventDefault(); if (adj) openAdjust(adj.id); });
+
+document.getElementById('adj-save').addEventListener('click', async () => {
+  const dirty = adj.items.filter(isDirty);
+  if (!dirty.length) { setAdjStatus('Chưa có thay đổi để lưu.', true); return; }
+  const bad = adjTbody.querySelector('input:invalid');
+  if (bad) { setAdjStatus('Có ô số không hợp lệ (âm hoặc trống).', true); bad.focus(); return; }
+  const edits = dirty.map(it => ({ key: it.key, adj_type: it.adj_type, inflation: it.inflation,
+    subs: it.subs.map(s => ({ idx: s.idx, new_qty: s.qty_editable ? s.new_qty : null, new_price: s.new_price })) }));
+  const save = document.getElementById('adj-save'), log = document.getElementById('adj-log'), bar = document.getElementById('adj-bar');
+  save.disabled = true; save.dataset.busy = '1';
+  log.classList.remove('hidden'); log.textContent = ''; bar.style.width = '3%';
+  setAdjStatus(`Đang lưu ${edits.length} mã…`);
+  const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(adj.id)}/adjust`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits }) });
+  const job = await r.json().catch(() => ({}));
+  if (!r.ok) { setAdjStatus(job.detail || `Lỗi ${r.status}`, true); save.disabled = false; delete save.dataset.busy; return; }
+  const t0 = Date.now();
+  const tick = async since => {
+    const rr = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(job.id)}?since=${since}`);
+    const run = await rr.json();
+    if (run.log.length) { log.textContent += run.log.join('\n') + '\n'; log.scrollTop = log.scrollHeight; }
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if (run.status === 'running') {
+      bar.style.width = Math.min(95, secs * 2.5) + '%';
+      setAdjStatus(`Đang lưu và cho Excel tính lại · ${secs} giây`);
+      setTimeout(() => tick(run.log_total), 1000);
+      return;
+    }
+    bar.style.width = '100%'; delete save.dataset.busy; save.disabled = false;
+    historyLoaded = false;
+    if (run.status === 'done') {
+      const id = adj.id;
+      await openAdjust(id);
+      setAdjStatus(`Đã lưu sau ${secs} giây. Bản giao đã cập nhật; tải ở tab Kết quả hoặc Lịch sử.`);
+    } else setAdjStatus(`Không lưu được sau ${secs} giây. Xem log.`, true);
+  };
+  tick(0);
+});
+
+function renderAdjResult(last) {
+  const box = document.getElementById('adj-res');
+  if (!last || !last.after) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  document.getElementById('adj-res-head').textContent = `Lưu lúc ${(last.saved_at || '').replace('T', ' ')} · ${last.written.length} mã: ${last.written.join(', ')} · backup: ${last.backup}`;
+  let rows = '';
+  for (const fund of ['MF', 'CA']) {
+    const a = (last.after || {})[fund], b = (last.baseline || {})[fund];
+    if (!a || !b) continue;
+    rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
+    for (const [k, lab] of [['R', 'Tổng thu'], ['E', 'Tổng chi'], ['S', 'Thặng dư']]) {
+      const d = (a[k] || 0) - (b[k] || 0);
+      rows += `<tr><td>${lab}</td><td class="${negCls(b[k])}">${vnd(b[k])}</td><td class="${negCls(a[k])}">${vnd(a[k])}</td><td class="${negCls(d)}">${vnd(d)}</td><td class="${negCls(d)}">${vpct(d, b[k] || 0)}</td></tr>`;
+    }
+  }
+  document.querySelector('#adj-res-t tbody').innerHTML = rows;
+  document.getElementById('adj-res-note').textContent = `VND/năm. "Trước điều chỉnh" là bản giao gốc của lượt; "Sau" là bản giao hiện tại, cả hai đo bằng Excel trên dòng R / E của hai sheet quỹ (gồm dự phòng và phần chia quỹ). Ô lỗi sau tính lại: ${last.error_count || 0}.` +
+    (adj && adj.data.kind === 'review' ? ' Sheet Review của bản phân tích vẫn so số công cụ trước điều chỉnh.' : '');
+}
+
 // ---- Lịch sử dự án ----
 const KIND_VI = { new: 'Mới', review: 'Review' };
 const STATUS_VI = { done: 'Xong', failed: 'Thất bại', running: 'Đang chạy' };
@@ -691,6 +1025,7 @@ async function loadHistory() {
       `<td>${esc((x.started || '').replace('T', ' '))}</td><td>${esc(x.user || '—')}</td><td class="st-${esc(x.status)}">${STATUS_VI[x.status] || x.status}</td><td class="files">${files || '—'}</td>` +
       `<td><button type="button" class="sm" data-act="view" ${dis}>Xem</button>` +
       `<button type="button" class="sm" data-act="clone" ${x.can_clone ? '' : 'disabled'}>Clone</button>` +
+      `<button type="button" class="sm" data-act="adjust" ${x.can_gen && x.status !== 'running' ? '' : 'disabled'}>Điều chỉnh</button>` +
       `<button type="button" class="sm pri" data-act="gen" ${x.can_gen && x.status !== 'running' ? '' : 'disabled'}>Gen budget for new year</button></td></tr>`;
   }).join('') || '<tr><td colspan="8">Chưa có lượt nào.</td></tr>';
 }
@@ -702,6 +1037,7 @@ document.querySelector('#his tbody').addEventListener('click', e => {
   if (b.dataset.act === 'view') viewRun(id);
   if (b.dataset.act === 'clone') cloneRun(id);
   if (b.dataset.act === 'gen') genFromRun(id, project);
+  if (b.dataset.act === 'adjust') openAdjust(id);
 });
 
 async function fetchInput(id) {

@@ -215,8 +215,23 @@ def summarize(workdir, analysis_path=None):
     return summary
 
 
+def adjust_result(workdir):
+    """adjust_result.json của lần lưu điều chỉnh gần nhất trong thư mục lượt (webapp/adjust_run.py), hoặc {}."""
+    path = os.path.join(workdir, 'adjust_result.json')
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding='utf-8') as fh:
+        return json.load(fh) or {}
+
+
 def summarize_run(workdir, kind='new'):
-    """Tóm tắt theo loại lượt: 'review' đọc review_summary.json; 'new' như summarize()."""
+    """Tóm tắt theo loại lượt: 'review' đọc review_summary.json; 'adjust' đọc adjust_result.json; 'new' như summarize()."""
+    if kind == 'adjust':
+        try:
+            data = adjust_result(workdir)
+            return dict(kind='adjust', **data) if data else dict(kind='adjust', note='Chưa có kết quả lưu điều chỉnh (xem log).')
+        except Exception as exc:
+            return dict(kind='adjust', note=f'Không đọc được: {type(exc).__name__}: {exc}')
     if kind == 'review':
         try:
             return review_summary(workdir)

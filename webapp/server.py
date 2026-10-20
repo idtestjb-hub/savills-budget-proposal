@@ -40,7 +40,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import auth, fill_input, history, results  # noqa: E402
+from webapp import adjust, auth, fill_input, history, results  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -84,7 +84,7 @@ def _now():
 
 def _worker(run_id):
     run = _runs[run_id]
-    log_path = os.path.join(run['workdir'], 'run.log')
+    log_path = os.path.join(run['workdir'], run.get('log_name') or 'run.log')
     env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1')
     try:
         with open(log_path, 'w', encoding='utf-8') as log_file:
@@ -101,7 +101,12 @@ def _worker(run_id):
         # Tóm tắt kết quả cho mọi vai trò, kể cả viewer; lỗi chỉ thành note.
         run['summary'] = results.summarize_run(run['workdir'], run['kind'])
         complete = len(run['outputs']) == len(OUTPUT_KINDS)
-        if run['kind'] == 'review':
+        if run['kind'] == 'adjust':
+            ok = rc == 0 and not run['summary'].get('note')
+            base = _runs.get(run.get('base_id'))
+            if base is not None:
+                base['outputs'] = run['outputs']       # bản giao đã ghi đè: cỡ file mới
+        elif run['kind'] == 'review':
             # rc 1 = một phép đối chiếu lệch: vẫn có đủ file và sheet Review, trang nói rõ LỆCH.
             ok = rc in (0, 1) and complete and bool(run['summary'].get('summary'))
             meta = run['summary'].get('meta') or {}
@@ -118,9 +123,10 @@ def _worker(run_id):
         run['status'] = 'failed'
     finally:
         run['finished'] = _now()
-        history.write_meta(run['workdir'], status=run['status'], rc=run['rc'], finished=run['finished'],
-                           project=run.get('project'), budget_year=run.get('budget_year'),
-                           prior_year=run.get('prior_year'))
+        if run['kind'] != 'adjust':        # lượt điều chỉnh nằm trong thư mục của lượt gốc: không đụng web_meta của nó
+            history.write_meta(run['workdir'], status=run['status'], rc=run['rc'], finished=run['finished'],
+                               project=run.get('project'), budget_year=run.get('budget_year'),
+                               prior_year=run.get('prior_year'))
         _log(f'run {run_id} {run["status"]} rc={run["rc"]} outputs={len(run["outputs"])}')
         with _lock:
             _active['id'] = None
@@ -313,9 +319,10 @@ def _start(run_id, run, who, what):
     """Ghi lượt vào bộ nhớ + web_meta.json và chạy tiến trình con. Gọi khi đang giữ _lock."""
     _runs[run_id] = run
     _active['id'] = run_id
-    history.write_meta(run['workdir'], kind=run['kind'], project=run.get('project'), user=who,
-                       started=run['started'], status='running', source=run.get('source', ''),
-                       facts=run.get('facts'))
+    if run['kind'] != 'adjust':
+        history.write_meta(run['workdir'], kind=run['kind'], project=run.get('project'), user=who,
+                           started=run['started'], status='running', source=run.get('source', ''),
+                           facts=run.get('facts'))
     _log(f'run {run_id} started {what} by {who}')
     threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
 
@@ -462,6 +469,80 @@ def get_file(request: Request, run_id: str, name: str, user=Depends(require_user
         raise HTTPException(404, 'File không tồn tại.')
     return FileResponse(path, filename=name,
                         media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+def _deliverable_of(run):
+    found = next((o for o in run['outputs'] if o['kind'] == 'deliverable'), None)
+    if not found:
+        raise HTTPException(404, 'Lượt này không có bản giao để điều chỉnh.')
+    return found['path']
+
+
+@router.get('/api/runs/{run_id}/adjust')
+def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
+    """Các mã trên sheet '4. Điều chỉnh' của bản giao (giá trị nhập hiện tại), số duyệt năm cũ khi là lượt review,
+    và kết quả lần lưu gần nhất."""
+    run = _ensure_run(run_id)
+    path = _deliverable_of(run)
+    try:
+        items = adjust.read_items(path)
+    except adjust.AdjustError as exc:
+        raise HTTPException(400, str(exc))
+    analysis = next((o['path'] for o in run['outputs'] if o['kind'] == 'analysis'), None)
+    approved, years = {}, (None, None)
+    if run.get('kind') == 'review' and analysis:
+        approved = adjust.approved_by_key(analysis)
+        years = adjust.review_years(analysis)
+    for it in items:
+        it['approved'] = approved.get(it['key'])
+    return JSONResponse(dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'),
+                             deliverable=os.path.basename(path), items=items, has_approved=bool(approved),
+                             prior_year=years[0], budget_year=years[1],
+                             last=results.adjust_result(run['workdir']) or None,
+                             can_save=role_of(request) != ROLE_VIEWER, active=_active['id']))
+
+
+@router.post('/api/runs/{run_id}/adjust')
+def start_adjust(request: Request, run_id: str, body: dict, user=Depends(require_user)):
+    """Ghi đè bản giao của lượt bằng các chỉnh sửa (backup có ngày bên cạnh), rồi Excel tính lại. Chạy như một lượt
+    trong hàng đợi chung; trang theo dõi bằng api/runs/<id trả về>."""
+    if role_of(request) == ROLE_VIEWER:
+        raise HTTPException(403, 'Tài khoản chỉ xem không được lưu điều chỉnh.')
+    base = _ensure_run(run_id)
+    if base.get('status') == 'running':
+        raise HTTPException(409, 'Lượt này đang chạy.')
+    edits = body.get('edits')
+    if not isinstance(edits, list) or not edits:
+        raise HTTPException(400, 'Chưa có mã nào được điều chỉnh.')
+    path = _deliverable_of(base)
+    try:                                   # kiểm tra trước, để lỗi nhập hiện ngay thay vì trong log
+        import openpyxl
+        wb = openpyxl.load_workbook(path)
+        try:
+            adjust.apply_edits(wb, edits)
+        finally:
+            wb.close()
+    except adjust.AdjustError as exc:
+        raise HTTPException(400, str(exc))
+    with _lock:
+        if _active['id']:
+            raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')
+        workdir = base['workdir']
+        job_id = f'{run_id}__adjust-{datetime.datetime.now():%H%M%S}'
+        edits_path = os.path.join(workdir, 'adjust_edits.json')
+        with open(edits_path, 'w', encoding='utf-8') as fh:
+            json.dump(edits, fh, ensure_ascii=False, indent=1)
+        cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'adjust_run.py'), '--deliverable', path,
+               '--edits', edits_path, '--workdir', workdir]
+        baseline = os.path.join(workdir, 'deliverable_recalc.xlsx')
+        if os.path.exists(baseline):
+            cmd += ['--baseline-recalc', baseline]
+        run = dict(kind='adjust', base_id=run_id, project=base.get('project'), source=f'điều chỉnh lượt {run_id}',
+                   status='running', rc=None, log=[f'Điều chỉnh bản giao của lượt {run_id}: {len(edits)} mã'],
+                   started=_now(), finished=None, workdir=workdir, input=None, outputs=base['outputs'], summary=None,
+                   cmd=cmd, log_name='adjust.log')
+        _start(job_id, run, _who(request, user), f'adjust of {run_id} ({len(edits)} codes)')
+    return _public(job_id, role=role_of(request))
 
 
 @router.get('/api/history')
