@@ -37,6 +37,10 @@ VAT_HEADER = 'Rate VAT Basis'
 PRODUCT_HEADER = 'Product'                       # the Product Mix block's header row, column A
 PARKING_CAR_LABEL = 'Actual Car Parking Revenue (VND/month)'
 PARKING_MOTO_LABEL = 'Actual Motorbike Parking Revenue (VND/month)'
+# Change price-fee-and-parking-from-portfolio (design D6): an entered monthly price per vehicle wins over the
+# portfolio range for RP2 / RP1; valid for a new building too (not gated by the stable switch).
+PARKING_CAR_PRICE_LABEL = 'Car Parking Price (VND/vehicle/month)'
+PARKING_MOTO_PRICE_LABEL = 'Motorbike Parking Price (VND/vehicle/month)'
 COB_SECTION = 'COLLECT ON BEHALF (THU HỘ CHI HỘ)'
 COB_HEADER = 'Collect-on-behalf product'        # the block's header row, column A
 COB_WATER_HEADER = 'Water (VND/month)'
@@ -144,6 +148,20 @@ def read_parking(L):
     return values, status
 
 
+def read_parking_prices(L):
+    """({'car': float|None, 'moto': float|None}, {'car': status, 'moto': status}): the entered monthly price per
+    vehicle. Blank or 0 is None ('not entered'); text or a negative number stops the run naming the field."""
+    values, status = {}, {}
+    for key, label in (('car', PARKING_CAR_PRICE_LABEL), ('moto', PARKING_MOTO_PRICE_LABEL)):
+        if not L.has(label):
+            values[key], status[key] = None, 'not on the form'
+            continue
+        v = _amount(L.value(label), f"Project Info '{label}'")
+        values[key] = v or None
+        status[key] = 'blank' if values[key] is None else 'filled'
+    return values, status
+
+
 def read_collect_on_behalf(ws, L, products):
     """({product: {'water': float|None, 'electricity': float|None}}, status). Only rows with at least
     one non-blank amount are returned."""
@@ -180,6 +198,7 @@ def read_operating_inputs(ws, L, products):
     stable, stable_status = read_stable(L)
     rates, rate_status, rate_notes = read_entered_rates(ws, L, products)
     parking, parking_status = read_parking(L)
+    parking_price, price_status = read_parking_prices(L)
     cob, cob_status = read_collect_on_behalf(ws, L, products)
     unmapped = [(p, u) for p, entry in cob.items() for u in COB_UTILITIES
                 if entry[u] and p not in COB_SUFFIX]
@@ -189,9 +208,11 @@ def read_operating_inputs(ws, L, products):
             + ', '.join(f'{p} ({u})' for p, u in unmapped)
             + f". Only {', '.join(COB_SUFFIX)} map to the form's RO3/RO4 rows (decision PM-5). Clear the "
               f"amount, or confirm the mapping first.")
-    ops = dict(stable=stable, rates=rates, parking=parking, cob=cob, rate_notes=rate_notes,
+    ops = dict(stable=stable, rates=rates, parking=parking, parking_price=parking_price, cob=cob,
+               rate_notes=rate_notes,
                status=dict(stable=stable_status, rates=rate_status, car=parking_status['car'],
-                           moto=parking_status['moto'], cob=cob_status))
+                           moto=parking_status['moto'], car_price=price_status['car'],
+                           moto_price=price_status['moto'], cob=cob_status))
     require_stable(ops)
     return ops
 
@@ -214,9 +235,11 @@ def require_stable(ops):
 
 def blank_inputs():
     """What read_operating_inputs() returns for a form with none of the fields."""
-    return dict(stable=False, rates={}, parking={'car': None, 'moto': None}, cob={}, rate_notes=[],
+    return dict(stable=False, rates={}, parking={'car': None, 'moto': None},
+                parking_price={'car': None, 'moto': None}, cob={}, rate_notes=[],
                 status=dict(stable='not on the form', rates='not on the form', car='not on the form',
-                            moto='not on the form', cob='not on the form'))
+                            moto='not on the form', car_price='not on the form', moto_price='not on the form',
+                            cob='not on the form'))
 
 
 # ---- Collect-on-behalf pairing (PM-2, from the catalogue) -------------------------------------------
@@ -354,9 +377,10 @@ def cob_expense_remark_vi(utility, monthly, revenue_codes):
 
 
 # ---- The run's printout (design D6) ------------------------------------------------------------------
-def report_lines(ops, rates=None):
+def report_lines(ops, rates=None, parking=None):
     """The 'Operating-project inputs:' block. `rates` is resolve_product_rates()'s result, when the
-    caller has it, so the block can name each product's source and the entered-vs-comparable gap."""
+    caller has it, so the block can name each product's source and the entered-vs-comparable gap; `parking` is
+    parking_prices.resolve()'s result (change price-fee-and-parking-from-portfolio, task 5.2)."""
     st = ops['status']
     out = ['Operating-project inputs:']
     out.append(f"  {STABLE_LABEL:<46} {('Yes' if ops['stable'] else 'No') if st['stable'] == 'filled' else st['stable']}")
@@ -373,6 +397,13 @@ def report_lines(ops, rates=None):
     for note in ops.get('rate_notes') or []:
         out.append(f'    NOTE: {note}')
     if rates:
+        rg = rates.get('apartment_range') if rates.get('apartment_source') == 'range' else None
+        if rg is not None:
+            out.append(f"    Apartment rate: real-budget range, median of {rg.n_used} projects -> "
+                       f"{rates['apartment_rate']:,.0f} VND/m²/month (comparables give "
+                       f"{rates.get('apartment_comparable_rate') or 0:,.0f})")
+        elif rates.get('apartment_source'):
+            out.append(f"    Apartment rate source: {rates['apartment_source']}")
         from_comparables = [p for p, info in rates['products'].items() if info['source'] != 'entered']
         if from_comparables:
             out.append('    priced without an entered rate: ' + ', '.join(
@@ -382,6 +413,14 @@ def report_lines(ops, rates=None):
         shown = st[key] if v is None else f'{v:,.0f}'
         flag = '   << ZERO: no monthly parking revenue recorded' if v == 0 else ''
         out.append(f"  {label:<46} {shown}{flag}")
+    for key, label in (('car', PARKING_CAR_PRICE_LABEL), ('moto', PARKING_MOTO_PRICE_LABEL)):
+        v = (ops.get('parking_price') or {}).get(key)
+        out.append(f"  {label:<46} {st.get(key + '_price', 'not on the form') if v is None else f'{v:,.0f}'}")
+    for key, label in (('car', 'Car parking price (applied)'), ('moto', 'Motorbike parking price (applied)')):
+        e = (parking or {}).get(key)
+        if e:
+            out.append(f"  {label:<46} {e['source']}"
+                       + (f": {e['price']:,.0f} VND/vehicle/month" if e['price'] is not None else ''))
     out.append(f"  {COB_SECTION:<46} {st['cob']}")
     for product, e in ops['cob'].items():
         for u in COB_UTILITIES:

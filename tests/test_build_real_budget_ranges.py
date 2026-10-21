@@ -50,7 +50,14 @@ LINES = [
     ('f14', 'MF', 1, 'ESS12', 1),
     ('f15', 'MF', 1, 'ESS12', 418000),        # 20.9 in 2028 prices
     ('f15', 'MF', 2, 'ESS12', 0),             # a second row of the same code adds to the first
+    # rate code RM.AP (change price-fee-and-parking-from-portfolio): (RM.AP + RM.0A) / apartment NFA
+    ('f02', 'MF', 5, 'RM.AP', 1000000),       # (1,000,000 + 250,000) / 50,000 apartment m2 = 25 per m2 per month
+    ('f02', 'MF', 6, 'RM.0A', 250000),
+    ('f03', 'MF', 2, 'RM.AP', 3000000),       # above 0 but no apartment NFA -> no row, listed in the README
+    ('f05', 'MF', 2, 'RM.AP', 538260),        # / 53,826 apartment m2 = 10; no RM.0A line
+    ('f06', 'MF', 2, 'RM.AP', 0),             # zero -> counted, not valued
 ]
+APARTMENT_NFA = {'f02': 50000, 'f05': 53826, 'f06': 13936.1}   # file_profile.nfa_apartment; None elsewhere
 CPI_ROWS = [(2024, 3.63, 'published'), (2025, 3.31, 'published'), (2026, 4.52, 'stand-in'),
             (2027, 4.52, 'stand-in'), (2028, 4.52, 'stand-in')]
 
@@ -72,15 +79,15 @@ def mini_store(tmp_path):
     con = sqlite3.connect(db)
     con.execute('create table file_profile (file_id text, file_name text, source_type text, content_dup_of text, '
                 'primary_sheet text, primary_confidence text, budget_year_v2 real, months_in_period real, '
-                'nfa_total real, nfa_how text, nfa_types text)')
+                'nfa_total real, nfa_how text, nfa_types text, nfa_apartment real)')
     con.execute('create table dim_file (file_id text, file_name text, rel_path text, modified text, source_type text, '
                 'content_dup_of text)')
     con.execute('create table project_map (file_id text, file_name text, project_name text)')
     con.execute('create table fact_line (file_id text, sheet text, source_row real, code text, '
                 'amount_excl_vat_per_month real)')
     for fid, proj, fname, yr, mod, nfa, how, types, dup, st, sheet, conf, months in FILES:
-        con.execute('insert into file_profile values (?,?,?,?,?,?,?,?,?,?,?)',
-                    (fid, fname, st, dup or None, sheet, conf, yr, months, nfa, how, types))
+        con.execute('insert into file_profile values (?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (fid, fname, st, dup or None, sheet, conf, yr, months, nfa, how, types, APARTMENT_NFA.get(fid)))
         con.execute('insert into dim_file values (?,?,?,?,?,?)', (fid, fname, 'sub/' + fname, mod, st, dup or None))
         con.execute('insert into project_map values (?,?,?)', (fid, fname, proj or None))
     con.executemany('insert into fact_line values (?,?,?,?,?)', LINES)
@@ -145,6 +152,26 @@ def test_values_zero_blank_and_absent(mini_store, tmp_path):
     assert 'kỳ 4 tháng' in by[('f05', 'ESS12')]['flag']
     readme = open(out / b.README_FILE, encoding='utf-8').read()
     assert '  ESS12: 7 / 0 / 0' in readme and '  ESS7: 0 / 1 / 6' in readme
+
+
+def test_rate_code_per_apartment_nfa(mini_store, tmp_path):
+    """Change price-fee-and-parking-from-portfolio, task 1.1: RM.AP = (RM.AP + RM.0A) / apartment NFA, basis column,
+    no row without an apartment NFA, zero counted, the other codes keep basis fee_nfa."""
+    rows, mapping, out, mp = _run(mini_store, tmp_path)
+    by = {(mapping[r['project_id']]['file_id'], r['code']): r for r in rows}
+    full = by[('f02', 'RM.AP')]
+    assert full['status'] == rbr.STATUS_VALUE and full['value_m2_month'] == pytest.approx(25.0)
+    assert full['basis'] == rbr.BASIS_APARTMENT_NFA and full['nfa_m2'] == 60000      # nfa_m2 stays the fee-paying NFA
+    assert full['value_m2_month_2027'] == pytest.approx(25.0 * 1.0452, abs=1e-4)
+    assert by[('f05', 'RM.AP')]['value_m2_month'] == pytest.approx(10.0)              # no RM.0A line: RM.AP alone
+    assert by[('f06', 'RM.AP')]['status'] == rbr.STATUS_ZERO
+    assert ('f03', 'RM.AP') not in by and ('f03', 'ESS12') in by                      # left out for RM.AP only
+    assert by[('f02', 'ESS12')]['basis'] == rbr.BASIS_FEE_NFA
+    readme = open(out / b.README_FILE, encoding='utf-8').read()
+    assert '  RM.AP: 2 / 1 / 4' in readme and 'f03: RM.AP above 0 but no apartment NFA' in readme
+    assert 'apartment_nfa' in readme
+    with open(out / b.VALUES_FILE, encoding='utf-8-sig') as fh:
+        assert csv.DictReader(fh).fieldnames == rbr.VALUE_COLUMNS
 
 
 def test_output_is_anonymous(mini_store, tmp_path):

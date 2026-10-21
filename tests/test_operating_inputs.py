@@ -24,7 +24,7 @@ PRODUCTS = ['Apartment', 'Officetel', 'Office', 'Shopping Mall', 'Retail', 'Shop
 
 
 def sheet(stable=None, rates=None, rate_cols=True, parking=None, cob=None, cob_block=True,
-          with_stable_label=True):
+          with_stable_label=True, parking_price=None):
     """An invented 'Project Info' with the Product Mix block and, optionally, the new fields."""
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -51,6 +51,11 @@ def sheet(stable=None, rates=None, rate_cols=True, parking=None, cob=None, cob_b
         ws.cell(row=r + 1, column=2, value=parking.get('car'))
         ws.cell(row=r + 2, column=1, value=oi.PARKING_MOTO_LABEL)
         ws.cell(row=r + 2, column=2, value=parking.get('moto'))
+    if parking_price is not None:
+        ws.cell(row=r + 3, column=1, value=oi.PARKING_CAR_PRICE_LABEL)
+        ws.cell(row=r + 3, column=2, value=parking_price.get('car'))
+        ws.cell(row=r + 4, column=1, value=oi.PARKING_MOTO_PRICE_LABEL)
+        ws.cell(row=r + 4, column=2, value=parking_price.get('moto'))
     if cob_block:
         ws.cell(row=30, column=1, value=oi.COB_SECTION)
         for c, h in enumerate((oi.COB_HEADER, oi.COB_WATER_HEADER, oi.COB_ELEC_HEADER), start=1):
@@ -85,7 +90,8 @@ def test_stable_switch_absent_reads_as_not_on_the_form():
     ops = read(with_stable_label=False, rate_cols=False, cob_block=False)
     assert ops['stable'] is False
     assert ops['status'] == dict(stable='not on the form', rates='not on the form', car='not on the form',
-                                 moto='not on the form', cob='not on the form')
+                                 moto='not on the form', car_price='not on the form', moto_price='not on the form',
+                                 cob='not on the form')
 
 
 def test_unrecognised_switch_value_stops_and_names_the_field():
@@ -233,8 +239,8 @@ def test_fresh_form_carries_every_new_label_and_reads_back_blank(tmp_path, monke
     bpf.main()
     wb = openpyxl.load_workbook(tmp_path / 'built.xlsx')
     L = SheetLabels(wb['Project Info'])          # raises AmbiguousLabel if a new label collides
-    for label in (oi.STABLE_LABEL, oi.PARKING_CAR_LABEL, oi.PARKING_MOTO_LABEL, oi.COB_SECTION,
-                  oi.COB_HEADER, oi.COB_ROW_PREFIX + 'Apartment'):
+    for label in (oi.STABLE_LABEL, oi.PARKING_CAR_LABEL, oi.PARKING_MOTO_LABEL, oi.PARKING_CAR_PRICE_LABEL,
+                  oi.PARKING_MOTO_PRICE_LABEL, oi.COB_SECTION, oi.COB_HEADER, oi.COB_ROW_PREFIX + 'Apartment'):
         assert L.has(label), label
     header_row = L.row_of('Product')
     headers = [wb['Project Info'].cell(row=header_row, column=c).value for c in range(1, 8)]
@@ -252,7 +258,42 @@ def test_fresh_form_carries_every_new_label_and_reads_back_blank(tmp_path, monke
     project = read_input(str(tmp_path / 'built.xlsx'))[0]
     assert project['stable_operation'] is False
     assert project['operating']['status'] == dict(stable='blank', rates='blank', car='blank', moto='blank',
-                                                  cob='blank')
+                                                  car_price='blank', moto_price='blank', cob='blank')
+
+
+# ---------------------------------------------------------------- parking price fields (change price-fee-and-parking-from-portfolio, task 3.2)
+
+def test_parking_price_fields_blank_zero_filled_and_absent():
+    ops = read(parking_price={'car': None, 'moto': 0})
+    assert ops['parking_price'] == {'car': None, 'moto': None}
+    assert ops['status']['car_price'] == 'blank' and ops['status']['moto_price'] == 'blank'
+    ops = read(parking_price={'car': 1_500_000, 'moto': 120_000})          # no stable switch needed
+    assert ops['parking_price'] == {'car': 1_500_000.0, 'moto': 120_000.0}
+    assert ops['status']['car_price'] == ops['status']['moto_price'] == 'filled'
+    ops = read()                                                            # an older form
+    assert ops['parking_price'] == {'car': None, 'moto': None}
+    assert ops['status']['car_price'] == 'not on the form'
+    assert oi.blank_inputs()['parking_price'] == {'car': None, 'moto': None}
+
+
+@pytest.mark.parametrize('value', ['1,2 triệu', -5])
+def test_parking_price_text_or_negative_stops_and_names_the_field(value):
+    with pytest.raises(oi.OperatingInputError, match='Motorbike Parking Price'):
+        read(parking_price={'car': None, 'moto': value})
+
+
+def test_report_lines_show_the_applied_parking_prices_and_the_apartment_source():
+    ops = read(parking_price={'car': 1_500_000, 'moto': None})
+    parking = {'car': dict(price=1_500_000.0, source='entered'), 'moto': dict(price=145_000.0, source='range')}
+
+    class _R:
+        n_used = 24
+    rates = dict(products={}, apartment_source='range', apartment_range=_R(), apartment_rate=18_697,
+                 apartment_comparable_rate=15_900)
+    text = chr(10).join(oi.report_lines(ops, rates, parking=parking))
+    assert 'Car Parking Price (VND/vehicle/month)' in text and '1,500,000' in text
+    assert 'entered: 1,500,000 VND/vehicle/month' in text and 'range: 145,000 VND/vehicle/month' in text
+    assert 'median of 24 projects -> 18,697' in text
 
 
 # ---------------------------------------------------------------- task 6.2: approved departures

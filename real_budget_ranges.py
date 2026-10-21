@@ -41,14 +41,21 @@ MONTHS = 12
 PRICED_CODES = ('EMB4', 'ESS12', 'ESC5', 'ESS7', 'ESS23', 'ESC1', 'ESC2')
 STAND_IN_CODES = ('ESC1', 'ESC2')          # stand-in for the guideline's count x price per event
 CROSS_CHECK_CODES = ('ESI1', 'EMH1', 'EMH3')  # shown next to the tool's own figure, never priced from the range
-ALL_CODES = PRICED_CODES + CROSS_CHECK_CODES
+# Rate codes (change price-fee-and-parking-from-portfolio, design D1/D4): the value is a unit rate per m2 of
+# APARTMENT NFA, not an amount per m2 of fee-paying NFA. The range gives the rate; the revenue rows multiply it by
+# the product's own area. RM.AP = (RM.AP + RM.0A, the developer's share on units not yet handed over) / apartment NFA.
+RATE_CODES = ('RM.AP',)
+ALL_CODES = PRICED_CODES + CROSS_CHECK_CODES + RATE_CODES
 CODE_NAMES = {'EMB4': 'Operation audit', 'ESS12': 'Pest control', 'ESC5': 'Lunar New Year decoration',
               'ESS7': 'Façade cleaning', 'ESS23': 'Pool staff (outsourced)', 'ESC1': 'Events', 'ESC2': 'Fire drill',
-              'ESI1': 'Asset insurance', 'EMH1': "Savills' management fee", 'EMH3': 'Night and holiday allowance'}
+              'ESI1': 'Asset insurance', 'EMH1': "Savills' management fee", 'EMH3': 'Night and holiday allowance',
+              'RM.AP': 'Apartment management-fee rate (per m² of apartment NFA)'}
 SHEET_NAME = 'Real-Budget Ranges'
 
+BASIS_FEE_NFA = 'fee_nfa'              # value per m2 of fee-paying NFA (every cost code)
+BASIS_APARTMENT_NFA = 'apartment_nfa'  # value per m2 of apartment NFA (RM.AP)
 VALUE_COLUMNS = ['project_id', 'name_key', 'nfa_m2', 'budget_year', 'code', 'status', 'value_m2_month',
-                 'cpi_factor', 'value_m2_month_2027', 'flag']
+                 'cpi_factor', 'value_m2_month_2027', 'flag', 'basis']
 STATUS_VALUE = 'value'
 STATUS_ZERO = 'zero_or_blank'
 
@@ -104,6 +111,7 @@ class RangeResult:
     reason: str = ''                 # Vietnamese, when not usable
     stand_in: bool = False
     cross_check: bool = False
+    rate: bool = False               # a RATE_CODES result: median/p25/p75 are a unit rate, figure stays 0
     used: list = field(default_factory=list)       # [(project_id, value_2027)]
     left_out: list = field(default_factory=list)   # [(project_id, value_2027, why)]
     p25: float | None = None
@@ -176,6 +184,8 @@ def load_values(path=None):
                 'code': r['code'].strip(), 'status': r['status'].strip(),
                 'value_m2_month': _num(r.get('value_m2_month')), 'cpi_factor': _num(r.get('cpi_factor')),
                 'value_m2_month_2027': _num(r.get('value_m2_month_2027')), 'flag': r.get('flag') or '',
+                # a file written before the rate codes has no basis column: every value is per fee-paying NFA
+                'basis': (r.get('basis') or BASIS_FEE_NFA).strip(),
             })
     return rows
 
@@ -277,6 +287,29 @@ def remark_priced(res, vat_clause=None, total=None):
     return text
 
 
+def applied_rate(res, vat_pct, vat_inclusive=True):
+    """The rate the revenue rows apply (VND per m2 per month, rounded to the VND): the median brought onto the
+    deliverable's VAT basis at the budget period's first month, the same conversion an excl.-VAT comparable rate
+    gets (design D3, D7). None when the range is not usable."""
+    if not (res.usable and res.rate and res.median is not None):
+        return None
+    return round(res.median * (1 + vat_pct / 100.0)) if vat_inclusive else round(res.median)
+
+
+def rate_remark_vi(res, applied, vat_pct, vat_inclusive=True):
+    """The source clause of the RM.AP remark when the rate comes from the range (spec deliverable-remarks): N
+    projects, median, P25-P75, excl. VAT at 2027 prices, and the applied rate on the deliverable's basis. Names no
+    project (decision D3)."""
+    text = (f'Nguồn đơn giá: trung vị đơn giá phí quản lý căn hộ thực tế của {res.n_used} dự án do Savills quản lý, '
+            f'{res.median:,.0f} đ/m²/tháng (chưa VAT, theo giá năm {TARGET_YEAR}; khoảng giữa P25–P75: '
+            f'{res.p25:,.0f}–{res.p75:,.0f} đ/m²/tháng)')
+    if vat_inclusive:
+        text += f', cộng VAT {_pct(vat_pct / 100.0)} = {applied:,.0f} đ/m²/tháng đã gồm VAT.'
+    else:
+        text += f' = {applied:,.0f} đ/m²/tháng, chưa cộng VAT theo mô hình tài chính đã chọn.'
+    return text
+
+
 def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TARGET_YEAR, self_name=None,
                self_nfa=None, has_pool=None, tower_count=None, inhouse_pool_staff=0, staff_lump=False,
                vat_factors=None, vat_clause=None):
@@ -288,12 +321,21 @@ def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TAR
     single `vat_rate` applies. `vat_clause` is the remark's VAT wording for that case.
     `staff_lump`: the staff cost is one approved lump (Existing mode without a roster), so ESS23 stays at 0."""
     res = RangeResult(code=code, stand_in=code in STAND_IN_CODES, cross_check=code in CROSS_CHECK_CODES,
-                      nfa=nfa, vat_rate=vat_rate, vat_inclusive=vat_inclusive, budget_year=budget_year)
+                      rate=code in RATE_CODES, nfa=nfa, vat_rate=vat_rate, vat_inclusive=vat_inclusive,
+                      budget_year=budget_year)
     if rows is None:
         res.reason = REASON_NO_DATA
         return res
     (res.used, res.left_out, res.p25, res.median, res.p75,
      res.n_value, res.n_zero) = form_range(code, rows, self_name, nfa if self_nfa is None else self_nfa)
+    if res.rate:
+        # A unit rate (design D4): usable by the floor alone; the caller applies it to the product's own area and
+        # converts the VAT basis itself, so no figure is formed here.
+        if res.n_used < MIN_PROJECTS:
+            res.reason = reason_too_few(res.n_used)
+        else:
+            res.usable = True
+        return res
     if code == 'ESS23' and has_pool is not True:
         res.reason = REASON_NO_POOL
         return res

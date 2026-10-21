@@ -44,6 +44,9 @@ def mc(mc_module, monkeypatch):
     monkeypatch.setattr(mc_module, 'MASTER_COMPARABLES', [])
     monkeypatch.setattr(mc_module, 'SIZE_SIMILARITY_BAND', 0.50)
     monkeypatch.setattr(mc_module, 'DISTANCE_COMPARISON_ENABLED', False)
+    # The real-budget range (change price-fee-and-parking-from-portfolio) is absent unless a test installs one, so the
+    # comparable-only expectations below stand as they did before that change.
+    monkeypatch.setattr(mc_module, 'apartment_range', lambda project, vat_pct, vat_inclusive=True: (None, None))
     return mc_module
 
 
@@ -219,3 +222,80 @@ def test_comparable_rates_on_basis_is_none_without_a_rate(mc, monkeypatch):
     assert res['apartment_source'] == 'blended-fallback'
     assert res['apartment_rates_on_basis'] == [None] * len(res['comparables'])
 
+
+
+# ---- the real-budget range as the Apartment source (change price-fee-and-parking-from-portfolio, task 2.2) ----
+
+class _Range:
+    """Stand-in for real_budget_ranges.RangeResult: only what the resolver and its callers read."""
+    def __init__(self, median, n_used=12, usable=True):
+        self.code, self.rate, self.usable, self.cross_check, self.stand_in = 'RM.AP', True, usable, False, False
+        self.median, self.p25, self.p75, self.used = median, median * 0.9, median * 1.2, [('P%03d' % i, median) for i in range(n_used)]
+        self.left_out, self.reason, self.n_value, self.n_zero, self.figure, self.remark = [], '', n_used, 0, 0.0, ''
+
+    @property
+    def n_used(self):
+        return len(self.used)
+
+
+def _install_range(mc, monkeypatch, median=14_000, usable=True):
+    seen = {}
+
+    def fake(project, vat_pct, vat_inclusive=True):
+        seen.update(project=project, vat_pct=vat_pct, vat_inclusive=vat_inclusive)
+        res = _Range(median, usable=usable)
+        applied = round(median * (1 + vat_pct / 100)) if usable and vat_inclusive else (round(median) if usable else None)
+        return res, applied
+    monkeypatch.setattr(mc, 'apartment_range', fake)
+    return seen
+
+
+def test_range_median_is_the_apartment_rate_and_the_comparables_stay(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    seen = _install_range(mc, monkeypatch, median=14_000)
+    p = project({'Apartment': 50_000, 'Officetel': 900})
+    res = mc.resolve_product_rates(p)
+    assert res['apartment_rate'] == 15_400 and res['apartment_source'] == 'range'        # 14,000 x 1.10
+    assert res['apartment_comparable_rate'] == 16_000                                     # what the range replaced
+    assert res['apartment_range_rate'] == 15_400 and res['apartment_range'].n_used == 12
+    assert [c['name'] for c in res['comparables']] == ['Tower A', 'Tower B']               # still shown
+    assert res['rate_note'].endswith(mc.RANGE_SOURCE_NOTE)
+    assert res['products']['Apartment']['rate'] == 15_400 and res['products']['Apartment']['source'] == 'range'
+    assert res['products']['Apartment']['comparable_rate'] == 16_000
+    off = res['products']['Officetel']
+    assert (off['rate'], off['source']) == (15_400, 'apartment-fallback')                 # follows the range rate
+    assert seen['project'] is p and seen['vat_pct'] == 10 and seen['vat_inclusive'] is True
+
+
+def test_range_on_the_excl_vat_basis(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    _install_range(mc, monkeypatch, median=14_000)
+    res = mc.resolve_product_rates(project({'Apartment': 50_000}), vat_inclusive=False)
+    assert res['apartment_rate'] == 14_000 and res['vat_inclusive'] is False
+
+
+def test_entered_apartment_rate_still_wins_over_the_range(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    _install_range(mc, monkeypatch, median=14_000)
+    p = project({'Apartment': 50_000, 'Officetel': 900})
+    p['operating'] = dict(rates={'Apartment': dict(rate=21_000, vat='incl. VAT')})
+    res = mc.resolve_product_rates(p)
+    assert res['apartment_rate'] == 21_000 and res['apartment_source'] == 'entered'
+    assert res['apartment_range_rate'] == 15_400                                          # kept for the analysis
+    assert res['products']['Officetel']['rate'] == 21_000
+
+
+def test_range_under_the_floor_prices_from_the_comparables_as_before(mc, monkeypatch):
+    monkeypatch.setattr(mc, 'MASTER_COMPARABLES', POOL)
+    _install_range(mc, monkeypatch, median=14_000, usable=False)
+    res = mc.resolve_product_rates(project({'Apartment': 50_000}))
+    assert res['apartment_rate'] == 16_000 and res['apartment_source'] == 'comparable'
+    assert res['apartment_range'].usable is False and res['apartment_range_rate'] is None
+    assert mc.RANGE_SOURCE_NOTE not in (res['rate_note'] or '')
+
+
+def test_range_without_values_file_is_none(mc_module, tmp_path, monkeypatch):
+    import real_budget_ranges as rbr
+    monkeypatch.setattr(rbr, 'VALUES_CSV', str(tmp_path / 'absent.csv'))
+    res, applied = mc_module.apartment_range(project({'Apartment': 50_000}), 10)
+    assert applied is None and not res.usable and res.reason == rbr.REASON_NO_DATA

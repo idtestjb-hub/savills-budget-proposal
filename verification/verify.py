@@ -209,6 +209,16 @@ def main(argv=None):
         _dtot = next(a for lbl, d, a in rarows if lbl.startswith('TOTAL'))
         print(f'OK    deliverable and analysis agree on all {len(rarows) - 1} priced product(s) '
               f'and the total ({_dtot:,.0f} VND/year at full occupancy)')
+        # Change price-fee-and-parking-from-portfolio: the two workbooks quote the same parking prices.
+        pp_ok, pp_rows, pp_diffs, _pp_notes = checks.check_parking_price_agreement(paths)
+        if not pp_ok:
+            print(f'FAIL  the deliverable (helper B5) and the analysis (Additional Revenue) quote different parking prices:')
+            for label, dv, av in pp_diffs:
+                print(f'        - {label}: deliverable {dv} vs analysis {av}')
+            return 1
+        print('OK    deliverable and analysis quote the same parking prices: '
+              + ', '.join(f'{lbl.split(" (")[0]} {dv:,.0f}' if dv is not None else f'{lbl.split(" (")[0]} none'
+                          for lbl, dv, _ in pp_rows))
 
         # ---- 5c. the Comparison-sheet PROPOSAL BENCHMARK carries '1. Summary' forward ---------
         try:

@@ -521,8 +521,16 @@ def add_operating_project_fields(ws, row, products):
             "Optional, needs 'Stable Operation?' = Yes: the average monthly revenue actually collected from "
             "monthly parking of this vehicle type, in VND. It replaces bays x default rate x fill. Blank keeps "
             "the estimate; 0 means no such revenue and is written as 0.", 'Budget Planning Agent')
+    # Change price-fee-and-parking-from-portfolio (design D6): the monthly price per vehicle, for any project.
+    for offset, label, vi in ((4, oi.PARKING_CAR_PRICE_LABEL, 'car'), (5, oi.PARKING_MOTO_PRICE_LABEL, 'motorbike')):
+        c = labeled_input(ws, row + offset, label, None, fmt='#,##0')
+        c.comment = Comment(
+            f"Optional, for a new or an operating building: the monthly {vi} parking price per vehicle, in VND "
+            "including VAT. It replaces the portfolio price (the median list price of Savills-managed projects). "
+            "Blank or 0 keeps the portfolio price. A recorded monthly revenue above still ranks first.",
+            'Budget Planning Agent')
 
-    top = row + 5
+    top = row + 7
     section(ws, top, oi.COB_SECTION)
     for col, header in enumerate((oi.COB_HEADER, oi.COB_WATER_HEADER, oi.COB_ELEC_HEADER), start=1):
         cell = ws.cell(row=top + 1, column=col, value=header)

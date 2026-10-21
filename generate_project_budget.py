@@ -56,6 +56,7 @@ import contingency
 import savills_fee
 import breakeven_cells
 import real_budget_ranges
+import parking_prices
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -3022,6 +3023,11 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                  f"DỰ PHÒNG — không có dự án tham chiếu nào trong danh sách chính có đơn giá thực tế "
                  f"cho {product_vi}, nên đơn giá Apartment của dự án này{_apt_entered} được dùng thay thế. Đây "
                  f"KHÔNG phải đơn giá riêng cho {product_vi}.")
+        if _p_rate['source'] == 'range':
+            # Change price-fee-and-parking-from-portfolio (design D3): the Apartment rate is the median of the
+            # real-budget range; the clause quotes N projects, the median and P25-P75 and names none (D3).
+            basis = real_budget_ranges.rate_remark_vi(rates['apartment_range'], rate, rates['vat_pct'],
+                                                      rates.get('vat_inclusive', True))
         _write_ramped_row(ws, row, [full_monthly * f for f in fills], (
             f"= Đơn giá {product_vi} ({rate:,.0f} VND/m²/tháng) x Diện tích tính phí {product_vi} "
             f"({nfa:,.0f} m²) = {full_monthly:,.0f} VND/tháng khi lấp đầy 100% ({annual:,.0f} "
@@ -3075,10 +3081,20 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     units_for_parking = project.get('apartment_units') or 0
     moto_slots = project.get('moto_slots') or 0
     car_slots = project.get('car_slots') or 0
-    moto_full_monthly = PARKING_FEE_MOTO_MONTHLY * moto_slots
-    car_full_monthly = PARKING_FEE_CAR_MONTHLY * car_slots
-    _UNIT_RATES['RP1'] = PARKING_FEE_MOTO_MONTHLY
-    _UNIT_RATES['RP2'] = PARKING_FEE_CAR_MONTHLY
+    # Change price-fee-and-parking-from-portfolio (design D5): the price per vehicle is decided once by
+    # parking_prices.resolve() (recorded -> entered -> portfolio median -> former constant) and read here, by the RPa
+    # narrative, helper sheet B5 and the analysis. Under a recorded figure the per-bay price only weights BM11.
+    _pp = parking_prices.resolved(project)
+
+    def _bay_price(key, default):
+        e = _pp[key]
+        return e['price'] if e['price'] is not None else (e['range'].price or default)
+    moto_price = _bay_price('moto', PARKING_FEE_MOTO_MONTHLY)
+    car_price = _bay_price('car', PARKING_FEE_CAR_MONTHLY)
+    moto_full_monthly = moto_price * moto_slots
+    car_full_monthly = car_price * car_slots
+    _UNIT_RATES['RP1'] = moto_price
+    _UNIT_RATES['RP2'] = car_price
     moto_fills = parking_fills(moto_slots, units_for_parking, stable)
     car_fills = parking_fills(car_slots, units_for_parking, stable)
 
@@ -3097,8 +3113,8 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # _UNIT_RATES then holds the monthly figure, so the RPa narrative quotes it, not a per-bay rate.
     _recorded = ((project.get('operating') or {}).get('parking')) or {}
     _HELPER_FIGURES['parking'] = {
-        'moto': dict(rate=PARKING_FEE_MOTO_MONTHLY, slots=moto_slots, recorded=_recorded.get('moto')),
-        'car': dict(rate=PARKING_FEE_CAR_MONTHLY, slots=car_slots, recorded=_recorded.get('car'))}
+        'moto': dict(rate=moto_price, slots=moto_slots, recorded=_recorded.get('moto'), source=_pp['moto']['source']),
+        'car': dict(rate=car_price, slots=car_slots, recorded=_recorded.get('car'), source=_pp['car']['source'])}
     for _key, _code, _vehicle in (('moto', 'RP1', 'parking_moto'), ('car', 'RP2', 'parking_car')):
         if _recorded.get(_key) is not None:
             _UNIT_RATES[_code] = _recorded[_key]
@@ -3107,14 +3123,14 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
 
     if _recorded.get('moto') is None:
         _write_ramped_row(ws, MGMT_FUND_ROWS['parking_moto'], [moto_full_monthly * f for f in moto_fills], (
-            f"= {PARKING_FEE_MOTO_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của một dự án "
-            f"tham chiếu) x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
+            f"= {moto_price:,.0f} VND/tháng ({parking_prices.source_clause_vi('moto', _pp['moto'])}) "
+            f"x {moto_slots:,.0f} chỗ xe máy (theo Project Info) = {moto_full_monthly:,.0f} "
             f"VND/tháng{_full_clause} {_parking_note(moto_slots, units_for_parking, bool(moto_slots and units_for_parking and moto_slots < units_for_parking))} "
             f"Tổng năm 1: {sum(moto_full_monthly * f for f in moto_fills):,.0f} VND."))
     if _recorded.get('car') is None:
         _write_ramped_row(ws, MGMT_FUND_ROWS['parking_car'], [car_full_monthly * f for f in car_fills], (
-            f"= {PARKING_FEE_CAR_MONTHLY:,.0f} VND/tháng (đơn giá thực tế, theo đề xuất giữ xe của một dự án "
-            f"tham chiếu) x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng"
+            f"= {car_price:,.0f} VND/tháng ({parking_prices.source_clause_vi('car', _pp['car'])}) "
+            f"x {car_slots:,.0f} chỗ ô tô (theo Project Info) = {car_full_monthly:,.0f} VND/tháng"
             f"{_full_clause} {_parking_note(car_slots, units_for_parking, bool(car_slots and units_for_parking and car_slots < units_for_parking))} "
             f"Tổng năm 1: {sum(car_full_monthly * f for f in car_fills):,.0f} VND."))
 
@@ -3270,7 +3286,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         shop_units=(project['products'].get('Shophouse') or {}).get('units'),
         car_bays=car_slots, moto_bays=moto_slots,
         resident_fills=fills, car_fills=car_fills, moto_fills=moto_fills,
-        car_rate=PARKING_FEE_CAR_MONTHLY, moto_rate=PARKING_FEE_MOTO_MONTHLY, stable=stable)
+        car_rate=car_price, moto_rate=moto_price, stable=stable)
 
     # ---- RO2a "Bank Interest on Savills account" — a fund leaf where the template's own default
     # makes G (F x occurrences) disagree with AK (the month-by-month total '1. Summary' actually
@@ -4784,7 +4800,9 @@ def _fill_b2_b5(wb, project):
                          f"đơn giá/xe")
         elif p.get('slots'):
             ws.cell(row=17, column=col, value=p['rate']).number_format = '#,##0'
-            parts.append(f"{vi}: {p['rate']:,.0f} VND/xe/tháng, đơn giá dòng {code}")
+            _src = {'range': ', trung vị giá niêm yết của các dự án do Savills quản lý',
+                    'entered': ', do PM nhập'}.get(p.get('source'), '')
+            parts.append(f"{vi}: {p['rate']:,.0f} VND/xe/tháng, đơn giá dòng {code}{_src}")
         else:
             ws.cell(row=17, column=col).value = na
             parts.append(f"{vi}: dự án không có chỗ đậu")
@@ -4811,11 +4829,12 @@ def build_budget(project, demand, year):
     # use-operating-project-actuals, P5). Comparable matching runs on TOTAL building NFA; the
     # blended whole-property rate is the last-resort Apartment fallback for the rare project where
     # no comparable carries an Apartment rate at all (see the resolver's docstring).
-    rates = resolve_product_rates(project)
+    rates = resolve_product_rates(project, vat_inclusive=template_vat_inclusive())
     derived_rate, top2, rate_note = rates['apartment_rate'], rates['comparables'], rates['rate_note']
     # Which operating-project fields this run found, and the entered-vs-comparable rates (design D6).
     for line in operating_inputs.report_lines(
-            project.get('operating') or operating_inputs.blank_inputs(), rates):
+            project.get('operating') or operating_inputs.blank_inputs(), rates,
+            parking=parking_prices.resolved(project)):
         print(line)
 
     own_real = next((c for c in MASTER_COMPARABLES
@@ -4908,6 +4927,10 @@ def build_budget(project, demand, year):
                                 f"thông số Chủ Đầu Tư cung cấp{_year_clause}.")
         else:
             info[f'G{_row}'] = f"Diện tích {_prod_vi} do PM cung cấp — chưa có căn cứ bản vẽ/pháp lý cụ thể."
+        if _prod == 'Apartment' and rates['products']['Apartment']['source'] == 'range':
+            # Change price-fee-and-parking-from-portfolio: where the applied Apartment rate came from (no name, D3).
+            info[f'G{_row}'] = (f"{info[f'G{_row}'].value} Đơn giá phí quản lý căn hộ: trung vị ngân sách thực tế "
+                                f"của {rates['apartment_range'].n_used} dự án do Savills quản lý.")
     # Products this project has that the standard form's 0.Info table cannot show (no row for them):
     # flag them so a reader knows the K19 total here is a subset, and where the full figure lives.
     _rowless = [p for p in PRODUCT_ROWS
@@ -5095,11 +5118,18 @@ def add_comparison_sheet(path, project, comparables, derived_rate, rate_note, ow
     _oversized = bool(project.get('total_nfa')) and any(
         abs(c['nfa'] - project['total_nfa']) / project['total_nfa'] > SIZE_SIMILARITY_BAND for c in comparables)
 
+    # Change price-fee-and-parking-from-portfolio: when the rate is the real-budget range's median, say so (the
+    # reference projects then serve the benchmark only). No project is named either way (D3).
+    _rg = (rates or {}).get('apartment_range') if (rates or {}).get('apartment_source') == 'range' else None
+    _lead = (f'The Apartment management-fee rate is the median of the real budgets of {_rg.n_used} Savills-managed '
+             f'projects (this project left out); the {_n_ref} reference project(s), ranked by {match_basis}, serve '
+             f'the benchmark below only. ' if _rg is not None else
+             f'The Apartment management-fee rate is set from the real Apartment rates of {_n_ref} reference '
+             f'project(s) in Savills\' reference list, ranked by {match_basis}. ')
     ws['A1'] = f"PROPOSAL BENCHMARK — {project['name']}"
     ws['A1'].font = Font(bold=True, size=13)
     ws.merge_cells('A1:B1')
-    ws['A2'] = (f'The Apartment management-fee rate is set from the real Apartment rates of {_n_ref} reference '
-                f'project(s) in Savills\' reference list, ranked by {match_basis}. The reference projects are not '
+    ws['A2'] = (_lead + 'The reference projects are not '
                 'named here; the internal analysis lists them. This sheet shows this proposal\'s own figures — '
                 'fee per apartment, year-1 revenue, whether the operating budget balances — and where the fee '
                 'sits against the reference projects.'

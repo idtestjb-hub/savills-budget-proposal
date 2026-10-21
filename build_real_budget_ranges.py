@@ -25,7 +25,10 @@ Store rules (approved 2026-10-12, D3; grouping and NFA approved 2026-10-18):
   - value = the code's amount excluding VAT per month (the store divides by the period's real months and takes
     VAT out at the sheet's factor) / fee-paying NFA; a sum of 0 or blank is written as status zero_or_blank with
     no value;
-  - CPI factor to 2027 from Ref_CPI_VN.csv (design D4).
+  - CPI factor to 2027 from Ref_CPI_VN.csv (design D4);
+  - rate codes (real_budget_ranges.RATE_CODES, today RM.AP; change price-fee-and-parking-from-portfolio): the value
+    is (RM.AP + RM.0A, the developer's share on units not yet handed over) per month / file_profile.nfa_apartment,
+    written with basis = apartment_nfa; a file with the line above 0 but no apartment NFA is left out for that code.
 
 The script refuses to write when any output cell or the README would contain a store project or file name.
 """
@@ -88,7 +91,11 @@ def store_path(arg):
     return os.path.join(arg, STORE_FILE) if os.path.isdir(arg) else arg
 
 
-def read_store(path, codes=rbr.ALL_CODES):
+RM0A = 'RM.0A'                       # the developer's share, added to RM.AP for the full apartment fee (design D2)
+STORE_CODES = rbr.ALL_CODES + (RM0A,)
+
+
+def read_store(path, codes=STORE_CODES):
     """(files, names, lines): candidate file rows, every name in the store, {(file_id, code): [amounts]} on each
     file's primary sheet."""
     con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
@@ -96,7 +103,7 @@ def read_store(path, codes=rbr.ALL_CODES):
         con.row_factory = sqlite3.Row
         files = [dict(r) for r in con.execute(
             'select f.file_id, f.file_name, f.source_type, f.content_dup_of, f.primary_sheet, f.primary_confidence, '
-            'f.budget_year_v2, f.months_in_period, f.nfa_total, f.nfa_how, f.nfa_types, '
+            'f.budget_year_v2, f.months_in_period, f.nfa_total, f.nfa_how, f.nfa_types, f.nfa_apartment, '
             'd.modified, d.rel_path, d.source_type as dim_source_type, d.content_dup_of as dim_dup, p.project_name '
             'from file_profile f left join dim_file d using(file_id) left join project_map p using(file_id)')]
         names = set()
@@ -196,8 +203,10 @@ def group_projects(cands, log):
     return chosen
 
 
-def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES):
-    """(rows, project_ids): rows in VALUE_COLUMNS order; project_ids maps file_id -> P001..."""
+def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES, log=None):
+    """(rows, project_ids): rows in VALUE_COLUMNS order; project_ids maps file_id -> P001...
+    A rate code (rbr.RATE_CODES, today RM.AP) is the full apartment fee (RM.AP + RM.0A) per m2 of APARTMENT NFA
+    (design D1, D2); a file with the line above 0 but no apartment NFA gets no row and is listed in `log`."""
     chosen = sorted(chosen, key=lambda c: c['file_id'])
     pids = {c['file_id']: f'P{i:03d}' for i, c in enumerate(chosen, start=1)}
     rows = []
@@ -209,13 +218,23 @@ def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES):
             if amounts is None:
                 continue                      # the sheet has no line for this code
             total = sum(a for a in amounts if a)
+            is_rate = code in rbr.RATE_CODES
+            denominator = c['nfa']
+            if is_rate:
+                total += sum(a for a in (lines.get((c['file_id'], RM0A)) or []) if a)
+                denominator = _f(c.get('nfa_apartment'))
+                if total > 0 and not denominator:
+                    if log is not None:
+                        log.append(f'{c["file_id"]}: {code} above 0 but no apartment NFA, left out for {code}')
+                    continue
             # a stale name (same name, NFA more than 5% apart) is matched by NFA only at run time
             key = '' if FLAG_STALE_NAME in c['flags'] else rbr.name_key(c.get('project_name'))
             row = {'project_id': pids[c['file_id']], 'name_key': key,
                    'nfa_m2': round(c['nfa'], -1), 'budget_year': year, 'code': code,
-                   'cpi_factor': round(factor, 6), 'flag': '; '.join(c['flags'])}
+                   'cpi_factor': round(factor, 6), 'flag': '; '.join(c['flags']),
+                   'basis': rbr.BASIS_APARTMENT_NFA if is_rate else rbr.BASIS_FEE_NFA}
             if total > 0:
-                v = total / c['nfa']
+                v = total / denominator
                 row.update(status=rbr.STATUS_VALUE, value_m2_month=round(v, 4), value_m2_month_2027=round(v * factor, 4))
             else:
                 row.update(status=rbr.STATUS_ZERO, value_m2_month='', value_m2_month_2027='')
@@ -243,6 +262,10 @@ def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES):
              'Build: build_real_budget_ranges.py (change use-real-budget-ranges). Rules: see the script docstring.',
              'Unit: VND per m2 of fee-paying NFA per month, excluding VAT; value_m2_month at budget-year prices,',
              'value_m2_month_2027 = value_m2_month x cpi_factor (Ref_CPI_VN.csv). Rebuild after a CPI change.',
+             f'basis = {rbr.BASIS_APARTMENT_NFA} ({", ".join(rbr.RATE_CODES)}): a unit rate per m2 of APARTMENT NFA, '
+             f'= (RM.AP + RM.0A, the developer share on units not yet handed over) / apartment NFA, excluding VAT;',
+             f'basis = {rbr.BASIS_FEE_NFA} for every other code. A file with RM.AP above 0 but no apartment NFA is left '
+             'out for RM.AP (listed below).',
              f'projects: {len(chosen)}',
              'budget years: ' + ', '.join(f'{y} {n}' for y, n in sorted(_count(int(_f(c["budget_year_v2"])) for c in chosen).items())),
              'CPI factors: ' + ', '.join(f'{y} {rbr.cpi_factor(y, cpi):.6f}' for y in sorted({int(_f(c["budget_year_v2"])) for c in chosen})),
@@ -294,7 +317,7 @@ def build(store, out_dir, cpi_path=None, map_dir=None):
     files, names, lines = read_store(path)
     log = []
     chosen = group_projects(candidates(files, log), log)
-    rows, pids = build_rows(chosen, lines, cpi)
+    rows, pids = build_rows(chosen, lines, cpi, log=log)
     snapshot = f'store {datetime.datetime.fromtimestamp(os.path.getmtime(path)):%Y-%m-%d}, {len(files)} files'
     readme = summarise(rows, chosen, cpi, snapshot, log)
     write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir)
