@@ -340,9 +340,9 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       <ol>
         <li><b>Chọn ngân sách đã duyệt năm ngoái</b> (mục 1 của tab Review), một trong ba cách:
           <ul>
-            <li><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không đọc được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ); tick "Hiện cả file không đọc được" để xem lý do. File có cảnh báo đỏ "đối chiếu tổng có thể LỆCH" vẫn chạy được, nhưng nên xem kỹ kết quả.</li>
+            <li><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không dùng được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ, ngân sách năm 2027 trở đi vì công cụ đang lập ngân sách 2027); tick "Hiện cả file không đọc được" để xem lý do. Cột "Sheet quỹ": <b>Khớp tổng</b> là các dòng cộng lại bằng dòng tổng của file; <b>Tổng không khớp</b> là cộng các dòng khác dòng tổng của file (số lệch ghi trong ngoặc đỏ; có thể do công thức trong file gốc hoặc do kho quét đọc trùng dòng gộp); <b>Form cũ, chưa đối soát</b> là form các năm trước thiếu dòng mốc nên danh sách chưa đối soát. Hai loại sau vẫn chạy được, Review tự đối soát lại khi chạy; nên xem kỹ sheet Review.</li>
             <li><b>Tải file lên:</b> file .xlsx theo form Savills 2026/2027 (hai sheet quỹ, cột năm, 12 tháng, sheet 0. Info).</li>
-            <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Dự án đã tạo.</li>
+            <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Dự án đã tạo. Công cụ hiện lập ngân sách năm 2027, nên bản giao năm 2027 chưa lập tiếp được năm 2028: nút xám kèm lý do.</li>
           </ul></li>
         <li><b>Điền dữ kiện file ngân sách không có</b> (mục 2). <b>Tỉnh / thành phố là bắt buộc</b> vì biểu giá nước lấy theo đó. Số tháp, số tầng, số cổng, hồ bơi, thể tích hồ, số chỗ đậu xe: điền nếu biết. Ô để trống được ghi 0 trên form và liệt kê trong ghi chú nhập để điền sau; số chỗ đậu để trống thì lấy theo sheet 0. Info của file.</li>
         <li><b>Bấm Tạo ngân sách năm mới.</b> Thanh tiến trình và log hiện ngay dưới nút, với bốn bước [1/4] … [4/4] như sơ đồ. Cả trang chỉ chạy một lượt tại một thời điểm; nếu trang báo "Đang có một lượt chạy", chờ một đến hai phút rồi bấm lại.</li>
@@ -815,7 +815,7 @@ function renderLibrary() {
     (!q || e.project.toLowerCase().includes(q) || e.file_name.toLowerCase().includes(q)));
   document.getElementById('lib-info').textContent = `${rows.length} / ${libEntries.length} dòng`;
   document.querySelector('#lib tbody').innerHTML = rows.map(e => {
-    const warn = e.selectable && e.confidence !== 'high' ? ` <span class="warn">(${esc(e.confidence_vi)}: đối chiếu tổng có thể LỆCH)</span>` : '';
+    const warn = e.selectable && e.confidence !== 'high' ? ` <span class="warn">(${esc(e.confidence_vi)}${e.confidence_note ? ': ' + esc(e.confidence_note) : ''})</span>` : '';
     return `<tr class="${e.selectable ? '' : 'off'} ${libPick && libPick.id === e.id ? 'pick' : ''}" data-id="${esc(e.id)}" title="${esc(e.selectable ? e.file_name : e.reason)}">` +
       `<td><input type="radio" name="libpick" ${libPick && libPick.id === e.id ? 'checked' : ''} ${e.selectable ? '' : 'disabled'} aria-label="Chọn ${esc(e.project)}"></td>` +
       `<td><b>${esc(e.project)}</b>${e.project_from === 'file' ? '' : ' <small style="color:var(--sav-muted)">(theo tên file)</small>'}${warn}<div class="fname">${esc(e.file_name)}</div></td>` +
@@ -828,7 +828,7 @@ document.querySelector('#lib tbody').addEventListener('click', e => {
   if (!tr || tr.classList.contains('off')) return;
   libPick = libEntries.find(x => x.id === tr.dataset.id);
   document.getElementById('lib-picked').textContent = `Đã chọn: ${libPick.project}, năm ${libPick.year || '?'} (${libPick.file_name}).` +
-    (libPick.confidence !== 'high' ? ' Sheet quỹ của file này không khớp tổng: kết quả đối chiếu có thể LỆCH.' : '');
+    (libPick.confidence !== 'high' ? ` ${libPick.confidence_vi}${libPick.confidence_note ? ': ' + libPick.confidence_note : ''}.` : '');
   renderLibrary();
 });
 ['lib-q', 'lib-year', 'lib-ok', 'lib-all'].forEach(id => document.getElementById(id).addEventListener('input', renderLibrary));
@@ -1338,7 +1338,8 @@ async function loadHistory() {
       `<td><button type="button" class="sm" data-act="view" ${dis}>Xem</button>` +
       `<button type="button" class="sm" data-act="clone" ${x.can_clone ? '' : 'disabled'}>Clone</button>` +
       `<button type="button" class="sm" data-act="adjust" ${x.can_gen && x.status === 'done' ? '' : 'disabled'}>Điều chỉnh</button>` +
-      `<button type="button" class="sm pri" data-act="gen" ${x.can_gen && x.status !== 'running' ? '' : 'disabled'}>Gen budget for new year</button></td></tr>`;
+      `<button type="button" class="sm pri" data-act="gen" ${x.can_gen && x.status !== 'running' && !x.gen_block ? '' : 'disabled'}${x.gen_block ? ` title="${esc(x.gen_block)}"` : ''}>Gen budget for new year</button>` +
+      (x.gen_block ? `<br><small style="color:var(--sav-muted)">${esc(x.gen_block)}</small>` : '') + `</td></tr>`;
   }).join('') || '<tr><td colspan="8">Chưa có lượt nào.</td></tr>';
 }
 document.querySelector('#his tbody').addEventListener('click', e => {

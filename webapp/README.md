@@ -42,13 +42,18 @@ kho, file không đọc được hiện xám kèm lý do.
 
 - **Danh sách** đọc từ kho quét ngân sách thật (`final_v2\`: `dim_file.csv`, `project_map.csv`, `file_profile.csv`):
   tên dự án đọc trong file (không có thì theo tên file, ghi rõ), năm ngân sách theo nội dung, VAT, NFA, độ tin cậy sheet
-  quỹ chính (Khớp tổng / Lệch tổng / Chưa đối soát được). Bộ nhớ đệm theo thời điểm sửa của ba CSV.
+  quỹ chính (Khớp tổng / Tổng không khớp / Form cũ, chưa đối soát; đổi tên 21/10/2026) kèm câu giải thích lấy từ
+  `reconcile.csv` của kho: số lệch thu / chi giữa cộng các dòng và dòng tổng của file, hoặc lý do chưa đối soát (form
+  thiếu dòng mốc PL2). Bộ nhớ đệm theo thời điểm sửa của ba CSV.
 - **File được đọc** là file sống trên SharePoint (`input\budget_planning`, qua junction): nhóm cũ ở gốc, nhóm mới trong
   thư mục "Ngân sách thực tế dự án lập hằng năm (có số liệu báo cáo)"; bản xlsx chuyển từ xlsb / zip lấy trong kho.
   Khi chạy, một bản chụp được chép vào `<lượt>\prior\` để chạy lại ra cùng số.
-- **Chọn được:** .xlsx có trên đĩa và có sheet quỹ quản lý (62 / 87 ngày 20/10/2026: 54 khớp tổng, 3 lệch tổng, 5 chưa
-  đối soát được; file không khớp tổng có cảnh báo "đối chiếu tổng có thể LỆCH"). Không chọn được: 12 PDF ảnh quét,
-  2 xlsb và 1 zip gốc (bản chuyển đổi của chúng có trong danh sách), 10 file không có sheet quỹ quản lý.
+- **Chọn được:** .xlsx có trên đĩa, có sheet quỹ quản lý và thuộc năm trước năm của mẫu (54 / 87 ngày 21/10/2026, sau
+  9ebb244; trước đó 62). File không khớp tổng có câu giải thích đỏ cạnh tên (ví dụ "cộng các dòng thu thấp hơn dòng tổng
+  của file 1,82 tr"). Không chọn được: 12 PDF ảnh quét, 2 xlsb và 1 zip gốc (bản chuyển đổi của chúng có trong danh
+  sách), 10 file không có sheet quỹ quản lý, 8 ngân sách năm 2027-2028.
+- **Gen budget for new year** (tab Dự án đã tạo) xám kèm lý do khi bản giao của lượt thuộc năm của mẫu (mọi lượt hiện
+  là 2027), vì lượt review từ đó sẽ dừng ở Prior Budget Year.
 - Lọc theo tên dự án / tên file, năm, "chỉ file khớp tổng", "hiện cả file không đọc được".
 
 | Biến | Mặc định | Ý nghĩa |

@@ -30,7 +30,15 @@ DEFAULT_ROOT = os.path.join(os.path.dirname(BUDGET_AGENT), 'input', 'budget_plan
 DEFAULT_STORE = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07', 'final_v2')
 NEW_SUBFOLDER = 'Ngân sách thực tế dự án lập hằng năm (có số liệu báo cáo)'
 
-CONFIDENCE_VI = {'high': 'Khớp tổng', 'medium': 'Lệch tổng', 'low': 'Chưa đối soát được', '': 'Không có sheet quỹ'}
+CONFIDENCE_VI = {'high': 'Khớp tổng', 'medium': 'Tổng không khớp', 'low': 'Form cũ, chưa đối soát',
+                 '': 'Không có sheet quỹ'}
+# Trạng thái đối soát của kho quét (reconcile.csv, sheet quỹ chính) -> câu giải thích hiện cạnh tên dự án.
+SECTION_VI = {'R': 'thu', 'E': 'chi', 'D': 'mục D'}
+MISMATCH_TAIL = ('; có thể do công thức trong file gốc hoặc do kho quét đọc trùng dòng gộp. Vẫn chạy được: Review tự '
+                 'đối soát lại, xem kỹ sheet Review')
+NO_ANCHOR_NOTE = ('sheet quỹ không có đủ các dòng mốc R, E, PL1, PL2 của form mới nên kho quét không đối soát tổng; '
+                  'khi chạy, Review vẫn tự đối soát số duyệt với dòng tổng của file')
+NO_VALUE_COL_NOTE = 'kho quét không xác định được cột số cả năm; khi chạy, Review đọc lại và tự đối soát'
 UNREADABLE_VI = {'pdf': 'PDF ảnh quét: không đọc được số', 'xlsb': 'xlsb: dùng bản chuyển đổi xlsx bên dưới',
                  'zip': 'zip: dùng file đã giải nén bên dưới'}
 
@@ -91,6 +99,30 @@ def _resolve(row, root, store):
     return os.path.join(os.path.dirname(store), rel) if not os.path.isfile(os.path.join(store, rel)) else os.path.join(store, rel)
 
 
+def _mtr(v):
+    return f'{abs(v) / 1e6:,.2f}'.replace(',', ' ').replace('.', ',').replace(' ', '.') + ' tr'
+
+
+def confidence_note(rec):
+    """Câu giải thích cho một dòng reconcile.csv (sheet quỹ chính); '' khi khớp hoặc không có dòng."""
+    if not rec:
+        return ''
+    status = rec.get('status', '')
+    if status == 'mismatch':
+        parts = []
+        for s in 'RED':
+            d = _float(rec.get(f'{s}_diff'))
+            if d and abs(d) > 1:
+                more = 'cao hơn' if d > 0 else 'thấp hơn'   # diff = cộng các dòng - dòng tổng của file
+                parts.append(f'cộng các dòng {SECTION_VI[s]} {more} dòng tổng của file {_mtr(d)}')
+        return ('; '.join(parts) + MISMATCH_TAIL) if parts else ''
+    if status == 'no_anchor':
+        return NO_ANCHOR_NOTE
+    if status == 'no_value_col':
+        return NO_VALUE_COL_NOTE
+    return ''
+
+
 def _float(v):
     try:
         return float(v)
@@ -113,6 +145,7 @@ def load(root=None, store=None):
     files = _read_csv(os.path.join(store, 'dim_file.csv'))
     names = {r['file_id']: r for r in _read_csv(os.path.join(store, 'project_map.csv'))}
     profiles = {r['file_id']: r for r in _read_csv(os.path.join(store, 'file_profile.csv'))}
+    recon = {(r['file_id'], r['sheet']): r for r in _read_csv(os.path.join(store, 'reconcile.csv'))}
     out = []
     for r in files:
         fid = r['file_id']
@@ -132,13 +165,14 @@ def load(root=None, store=None):
         elif str(year).isdigit() and int(year) >= template_year():
             reason = (f'Ngân sách năm {int(year)}: công cụ lập ngân sách năm {template_year()}, nên chỉ review được '
                       f'ngân sách đã duyệt của năm {template_year() - 1} trở về trước')
+        note = confidence_note(recon.get((fid, prof.get('primary_sheet', '')))) if conf != 'high' else ''
         out.append(dict(id=fid, project=project or _name_from_file(r.get('file_name', '')),
                         project_from='file' if project else 'tên file', file_name=r.get('file_name', ''),
                         folder={'old8': 'budget_planning', 'new': NEW_SUBFOLDER,
                                 'new_converted': 'bản chuyển đổi trong kho quét'}.get(r.get('source_group'), ''),
                         year=int(year) if str(year).isdigit() else None, vat=prof.get('vat_basis_v2') or '',
                         nfa=_float(prof.get('nfa_total')), confidence=conf, confidence_vi=CONFIDENCE_VI.get(conf, conf),
-                        ext=ext, selectable=not reason, reason=reason, path=path,
+                        confidence_note=note, ext=ext, selectable=not reason, reason=reason, path=path,
                         duplicate_of=r.get('content_dup_of') or ''))
     out.sort(key=lambda e: (not e['selectable'], e['project'].casefold(), -(e['year'] or 0)))
     return out

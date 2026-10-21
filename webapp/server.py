@@ -582,8 +582,20 @@ def get_history(request: Request, user=Depends(require_user)):
                          prior_year=e['prior_year'], started=e['started'], finished=e['finished'], user=e['user'],
                          status=e['status'], source=e['source'], outputs=visible_outputs(e['outputs'], role),
                          can_clone=bool(e['input_form']),
-                         can_gen=any(o['kind'] == 'deliverable' for o in e['outputs'])))
+                         can_gen=any(o['kind'] == 'deliverable' for o in e['outputs']),
+                         gen_block=_gen_block(e['budget_year'])))
     return JSONResponse(dict(runs=rows, runs_dir=RUNS_DIR, active=_active['id']))
+
+
+def _gen_block(budget_year):
+    """Lý do không Gen budget for new year được: bản giao thuộc năm >= năm của mẫu, nên lượt review từ nó sẽ dừng ở
+    Prior Budget Year (cùng quy tắc năm với danh sách có sẵn). '' nếu được."""
+    tool_year = library.template_year()
+    year = int(budget_year) if str(budget_year or '').isdigit() else None
+    if year and year >= tool_year:
+        return (f'Bản giao này là ngân sách năm {year}; công cụ lập ngân sách năm {tool_year}, chưa lập tiếp được năm '
+                f'{year + 1}.')
+    return ''
 
 
 app = FastAPI(title='Budget Agent - nhập liệu', docs_url=None, redoc_url=None)
