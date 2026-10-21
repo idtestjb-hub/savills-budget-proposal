@@ -18,6 +18,7 @@ fails), 2 = stopped with a message (printed as "STOPPED: ...").
 import argparse
 import json
 import os
+import re
 import sys
 
 SOURCE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +27,20 @@ if SOURCE_DIR not in sys.path:
 
 NOTES_FILE = 'review_notes.json'
 RECALC_FILE = 'prior_recalc.xlsx'
+
+YEAR_STOP = re.compile(r"Prior Budget Year' is (\d{4}), which is not before the budget year (\d{4})")
+
+
+def year_hint(message):
+    """Câu tiếng Việt giải thích lỗi 'Prior Budget Year ... not before the budget year ...' (file ngân sách đã duyệt thuộc
+    năm từ năm của mẫu trở lên), để trang không chỉ hiện câu tiếng Anh. Chuỗi rỗng với mọi lỗi khác."""
+    m = YEAR_STOP.search(message or '')
+    if not m:
+        return ''
+    prior, budget = m.group(1), m.group(2)
+    return (f'Dừng: file ngân sách đã duyệt thuộc năm {prior}, còn công cụ lập ngân sách năm {budget}. Review cần ngân '
+            f'sách đã duyệt của năm TRƯỚC năm {budget} (từ năm {int(budget) - 1} trở về trước). Chọn file khác, hoặc '
+            f'dùng tab Nhập liệu nếu đây là dự án mới.')
 
 
 def main():
@@ -55,6 +70,9 @@ def main():
         code, result = review.run(prior, facts_path=args.facts, workdir=workdir, quiet=False)
     except (ri.PriorBudgetError, review.ReviewError, ValueError, LookupError, RuntimeError) as exc:
         print(f'STOPPED: {exc}')
+        hint = year_hint(str(exc))
+        if hint:
+            print(hint)
         return 2
     notes = [dict(kind=k, where=w, text=t) for k, w, t in result['notes']]
     with open(os.path.join(workdir, NOTES_FILE), 'w', encoding='utf-8') as fh:
