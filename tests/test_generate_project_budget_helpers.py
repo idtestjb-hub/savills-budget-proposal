@@ -175,7 +175,7 @@ def test_coords_zero_is_treated_as_a_value_not_blank():
 # and the row says "standard assumption".
 DEFAULTS = {
     'staff_per_gate': 1,
-    'sqm_per_patrol': 5000,
+    'posts24_per_10k_nfa': 1.7,     # change size-security-from-fee-nfa: 24h posts per 10,000 m² fee-paying NFA
     'nfa_per_cleaning_staff': 3300,
     'towers_per_supervisor': 2,
     'sqm_per_gardener': 2000,
@@ -212,8 +212,8 @@ def test_ratio_later_valid_value_clears_the_fallback_flag():
 # Not settled: a negative or non-numeric ratio. Pinned: it takes the standard like a blank.
 @pytest.mark.parametrize('raw', [-3, 'abc'])
 def test_ratio_negative_or_text_falls_back_like_blank(raw):
-    assert g._ratio_or_default(raw, 'sqm_per_patrol') == 5000
-    assert 'standard assumption' in g._ratio_note('sqm_per_patrol')
+    assert g._ratio_or_default(raw, 'sqm_per_gardener') == 2000
+    assert 'standard assumption' in g._ratio_note('sqm_per_gardener')
 
 
 # ---------------------------------------------------------------- _eff_headcount
@@ -382,7 +382,7 @@ def test_portfolio_headcount_basis_discloses_median_sample_and_non_standard(monk
 GATE = 'Security - Main Gate (Morning)'
 PROJECT = {'gate_count': 3, 'open_space': 12000, 'towers': 3, 'garden_area': 5000,
            'total_nfa': 50000}
-RATIOS = {'staff_per_gate': 1.5, 'sqm_per_patrol': 5000, 'nfa_per_cleaning_staff': 3300,
+RATIOS = {'staff_per_gate': 1.5, 'posts24_per_10k_nfa': 1.7, 'nfa_per_cleaning_staff': 3300,
           'towers_per_supervisor': 2, 'sqm_per_gardener': 2000}
 GATE_FN = g.RATIO_DRIVEN_STAFFING[GATE]      # 3 gates x 1.5 = 4.5 -> 5
 
@@ -416,7 +416,8 @@ def test_staff_blank_or_zero_falls_back_to_ratio_and_says_so(cached):
 
 # Rule source: code comment only (ratio rows are ROUNDUP formulas in the form).
 @pytest.mark.parametrize('pos,expected', [
-    ('Security - Patrol / Open Space', 3),    # 12000 / 5000 = 2.4 -> 3
+    ('Security - Patrol / Open Space', 3),    # ROUNDUP(50000 / 10000 x 1.7) = 9 posts, minus ROUNDUP(3 x 1.5) = 5 gate
+                                              # posts and 1 CCTV post (size-security-from-fee-nfa); open space unused
     ('Cleaning - Common Area', 14),           # ROUNDUP(50000 / 3300) = 16 minus 2 supervisors (fix-cleaning-staffing-ratio)
     ('Cleaning - Supervisor', 2),             # 3 / 2 = 1.5 -> 2
     ('Gardener / Landscape', 3),              # 5000 / 2000 = 2.5 -> 3

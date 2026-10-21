@@ -15,7 +15,7 @@ FIXTURE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
                        'verification', 'fixtures', 'Sample_Project_Input.xlsx')
 LABEL = 'Cleaning: m² Fee-paying NFA per Cleaning Staff'
 COMMON, SUPERVISOR = 'Cleaning - Common Area', 'Cleaning - Supervisor'
-RATIOS = {'staff_per_gate': 1, 'sqm_per_patrol': 5000, 'nfa_per_cleaning_staff': 3300,
+RATIOS = {'staff_per_gate': 1, 'posts24_per_10k_nfa': 1.7, 'nfa_per_cleaning_staff': 3300,
           'towers_per_supervisor': 2, 'sqm_per_gardener': 2000}
 
 

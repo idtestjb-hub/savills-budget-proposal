@@ -363,6 +363,42 @@ def _cleaners_on_duty(project, ratios):
         f"supervisors included, minus {sup} supervisor(s) (Tower Count ÷ Towers per Supervisor), at least 1")
 
 
+SECURITY_PATROL_ROWS = ('Security - Patrol (Morning)', 'Security - Patrol (Afternoon)', 'Security - Patrol (Night)')
+OLDER_FORM_PATROL_ROW = 'Security - Patrol / Open Space'   # the single morning-shift patrol row of a form built before
+                                                           # change size-security-from-fee-nfa
+
+
+def _security_gate_posts(project, ratios):
+    """24-hour gate posts by the gate rule, ROUNDUP(Gate Count × Staff per Gate): the floor the patrol rows are
+    computed from (design D1), not whatever the gate rows happen to hold."""
+    return math.ceil(float(project.get('gate_count') or 0) * ratios['staff_per_gate'])
+
+
+def _security_posts(project, ratios):
+    """(total 24-hour security posts, the posts the NFA rule alone gives).
+
+    Change size-security-from-fee-nfa (2026-10-19): total = max(ROUNDUP(total fee-paying NFA ÷ 10,000 × ratio),
+    gate posts + 1 CCTV post). The same measure the Service Levels sheet classifies (service_levels.measure_security),
+    so the default ratio lands the project on the level it was chosen for. The product is rounded to 9 decimals
+    before the ROUNDUP so that, say, 100,000 m² × 1.7 gives 17 posts in Python as it does in Excel."""
+    nfa = float(project.get('total_nfa') or 0)
+    from_nfa = math.ceil(round(nfa / 10_000 * ratios['posts24_per_10k_nfa'], 9))
+    return max(from_nfa, _security_gate_posts(project, ratios) + 1), from_nfa
+
+
+def _security_patrol_per_shift(project, ratios):
+    """'Security - Patrol (Morning/Afternoon/Night)': the posts beyond the gates and the CCTV room, at least 0. The
+    open-space area plays no part: no real source gives it, and it left patrol at 0 on real projects."""
+    total, from_nfa = _security_posts(project, ratios)
+    gates = _security_gate_posts(project, ratios)
+    value = max(0, total - gates - 1)
+    return value, (
+        f"Fee-paying NFA ({float(project.get('total_nfa') or 0):,.0f} m²) ÷ 10,000 × 24h Posts per 10,000 m² "
+        f"({ratios['posts24_per_10k_nfa']:g}{_ratio_note('posts24_per_10k_nfa')}) = {from_nfa} post(s), at least the "
+        f"{gates} gate post(s) (Gate Count × Staff per Gate) + 1 CCTV post = {total} post(s) in all, minus the gate "
+        f"posts and the CCTV post, at least 0, on each of the three shifts")
+
+
 RATIO_DRIVEN_STAFFING = {
     'Security - Main Gate (Morning)': lambda p, r: (
         p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
@@ -370,8 +406,11 @@ RATIO_DRIVEN_STAFFING = {
         p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
     'Security - Main Gate (Night)': lambda p, r: (
         p['gate_count'] * r['staff_per_gate'], f"Gate Count ({p['gate_count']:g}) × Staff per Gate ({r['staff_per_gate']:g}{_ratio_note('staff_per_gate')})"),
-    'Security - Patrol / Open Space': lambda p, r: (
-        p['open_space'] / r['sqm_per_patrol'], f"Open Space ({p['open_space']:,.0f} m²) ÷ m² per Patrol Staff ({r['sqm_per_patrol']:g}{_ratio_note('sqm_per_patrol')})"),
+    'Security - Patrol (Morning)': _security_patrol_per_shift,
+    'Security - Patrol (Afternoon)': _security_patrol_per_shift,
+    'Security - Patrol (Night)': _security_patrol_per_shift,
+    # An older form's single patrol row takes the same rule; read_input then counts it on all three shifts (D4).
+    OLDER_FORM_PATROL_ROW: _security_patrol_per_shift,
     'Cleaning - Common Area': lambda p, r: _cleaners_on_duty(p, r),
     'Cleaning - Supervisor': lambda p, r: (
         p['towers'] / r['towers_per_supervisor'], f"Tower Count ({p['towers']:g}) ÷ Towers per Supervisor ({r['towers_per_supervisor']:g}{_ratio_note('towers_per_supervisor')})"),
@@ -497,7 +536,12 @@ def _resolve_coords(raw_lat, raw_lon):
 # at all. Blank or zero now means "use the standard assumption", and the row says that it did.
 _RATIO_DEFAULTS = {
     'staff_per_gate': (1, 'Security: Staff per Gate'),
-    'sqm_per_patrol': (5000, 'Security: m² Open Space per Patrol Staff'),
+    # Change size-security-from-fee-nfa (2026-10-19): 24-hour security posts per 10,000 m² of fee-paying NFA, the
+    # measure the Service Levels sheet classifies (service_levels.measure_security). 1.7 = the median of the 32
+    # form-read, classified real projects in data/service_levels/Ref_ServiceLevelProjects.csv (1.719, P25 1.269,
+    # P75 2.325), rounded; inside the Tiêu chuẩn band 1.5-3.0. It replaces 'Security: m² Open Space per Patrol
+    # Staff', which measured something else and is no longer read (design D3).
+    'posts24_per_10k_nfa': (1.7, 'Security: 24h Posts per 10,000 m² Fee-paying NFA'),
     # Change fix-cleaning-staffing-ratio (2026-10-19): the one ratio here that IS derived from data. 3,300 m² of
     # fee-paying NFA per cleaning person on duty (supervisors included) = the median of the 30 form-read, classified
     # real projects in data/service_levels/Ref_ServiceLevelProjects.csv (3,324), rounded; inside the Tiêu chuẩn band.
@@ -636,6 +680,31 @@ def _resolve_pool_count(raw, has_pool):
     return (count, True) if count >= 1 else (1, False)
 
 
+def _count_older_patrol_row_on_three_shifts(demand):
+    """An older form's single 'Security - Patrol / Open Space' row, on the morning shift, counts as a 24-hour post on
+    all three shifts (change size-security-from-fee-nfa, design D4): the row becomes 'Security - Patrol (Morning)' and
+    the afternoon and night rows are added in memory with the same people, days and rate, so the posts, the money,
+    the roster and the service level equal a new form's. The number on the row (the rule, or what the PM typed) is
+    kept as it was resolved. A form that already has a three-shift patrol row, or whose old row is not on the
+    morning shift (the PM changed it), is left alone."""
+    names = {d['Position'] for d in demand}
+    if OLDER_FORM_PATROL_ROW not in names or names & set(SECURITY_PATROL_ROWS):
+        return demand
+    out = []
+    for d in demand:
+        if d['Position'] != OLDER_FORM_PATROL_ROW or str(d['ShiftCode']).strip().upper() != 'S':
+            out.append(d)
+            continue
+        note = (f"; the form's single '{OLDER_FORM_PATROL_ROW}' row (an older form) is counted as a 24-hour post on "
+                f"all three shifts, so the afternoon and night rows were added by the run with the same people, days "
+                f"and rate")
+        out.append(dict(d, Position=SECURITY_PATROL_ROWS[0], Basis=d['Basis'] + note))
+        for name, code in zip(SECURITY_PATROL_ROWS[1:], ('C', 'D')):
+            out.append(dict(d, Position=name, ShiftCode=code, Basis=(
+                f"Added by the run from Staffing Demand row {d['SourceRow']}{note}")))
+    return out
+
+
 def read_input(path):
     if not os.path.exists(path):
         raise FileNotFoundError(
@@ -713,6 +782,9 @@ def read_input(path):
         # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 3).
         esi2_premium_usd=(L.value(ESI2_PREMIUM_LABEL) if L.has(ESI2_PREMIUM_LABEL) else None),
         usd_rate=(L.value(USD_RATE_LABEL) if L.has(USD_RATE_LABEL) else None),
+        # Optional: absent on workbooks made before change price-asset-insurance-from-asset-value.
+        esi1_value=(L.value(ESI1_VALUE_LABEL) if L.has(ESI1_VALUE_LABEL) else None),
+        esi1_rate=(L.value(ESI1_RATE_LABEL) if L.has(ESI1_RATE_LABEL) else None),
         # Optional: absent on workbooks created before this field was added (change
         # rank-comparables-by-location, task 2.4, 2026-09-16). Refines ORDER within whatever tier
         # District/City above already placed a candidate in — never changes tiers. A lone value on
@@ -748,6 +820,7 @@ def read_input(path):
     project['budget_period'] = budget_period.from_value(
         L.value(budget_period.LABEL) if L.has(budget_period.LABEL) else None)
     project['esi2'] = _resolve_esi2(project['esi2_premium_usd'], project['usd_rate'])
+    project['esi1'] = _resolve_esi1(project['esi1_value'], project['esi1_rate'])
     # Optional: absent on workbooks made before change apply-head-of-pm-decisions-2026-10 (group 6). Blank or absent
     # means 2%; text, a negative rate or one above 10% stop the run (contingency.ContingencyRateError).
     project['contingency_rate'], project['contingency_rate_is_default'] = contingency.resolve_rate(
@@ -804,8 +877,11 @@ def read_input(path):
     ratios = dict(
         staff_per_gate=_ratio_or_default(
             R.value('Security: Staff per Gate'), 'staff_per_gate'),
-        sqm_per_patrol=_ratio_or_default(
-            R.value('Security: m² Open Space per Patrol Staff'), 'sqm_per_patrol'),
+        # The old open-space label is not read (change size-security-from-fee-nfa, D3): a form without the new
+        # field takes the standard 1.7 and the row says so.
+        posts24_per_10k_nfa=_ratio_or_default(
+            R.value(_RATIO_DEFAULTS['posts24_per_10k_nfa'][1]) if R.has(_RATIO_DEFAULTS['posts24_per_10k_nfa'][1])
+            else None, 'posts24_per_10k_nfa', on_form=R.has(_RATIO_DEFAULTS['posts24_per_10k_nfa'][1])),
         nfa_per_cleaning_staff=_ratio_or_default(
             R.value(_RATIO_DEFAULTS['nfa_per_cleaning_staff'][1]) if R.has(_RATIO_DEFAULTS['nfa_per_cleaning_staff'][1])
             else None, 'nfa_per_cleaning_staff', on_form=R.has(_RATIO_DEFAULTS['nfa_per_cleaning_staff'][1])),
@@ -886,6 +962,7 @@ def read_input(path):
         ))
     if not demand:
         raise ValueError("Staffing Demand sheet has no complete rows.")
+    demand = _count_older_patrol_row_on_three_shifts(demand)
     # The roster month and its holidays, for the deliverable's reception calendar 'B1' (design D15).
     project['roster_month'] = (year, month)
     project['roster_holidays'] = sorted(holiday_days)
@@ -1173,6 +1250,7 @@ _PRODUCT_VI_LABEL = {
 _SECURITY_CLEANING_ROLE_VI = {
     'Security - Main Gate': 'Vị trí cổng chính',
     'Security - CCTV Room': 'Trực phòng CCTV',
+    'Security - Patrol': 'Tuần tra khu vực công cộng',
     'Security - Patrol / Open Space': 'Tuần tra khu vực công cộng',
     'Cleaning - Common Area': 'Vệ sinh khu vực công cộng',
     'Cleaning - Supervisor': 'Giám sát',
@@ -1310,6 +1388,12 @@ USD_RATE_DATE = '05/10/2026'
 ESI2_PREMIUM_LABEL = 'ESI2 Annual Premium (USD)'
 USD_RATE_LABEL = 'USD Exchange Rate (VND per USD)'
 
+# ESI1, risk asset insurance from the insured asset value (change price-asset-insurance-from-asset-value).
+ESI1_VALUE_LABEL = 'ESI1 Insured Asset Value (VND)'
+ESI1_RATE_LABEL = 'ESI1 Premium Rate'
+ESI1_DEFAULT_RATE = 0.0005             # the AI Guideline's example for a commercial apartment building, 0.05%/year
+ESI1_MAX_RATE = 0.01                   # above 1% is taken as a typing slip (0.05 meant as 0.05%)
+
 
 def _resolve_esi2(premium_raw, rate_raw):
     """The ESI2 inputs with their defaults. Blank premium = 1,000 USD (flagged as default); a 0 premium is the PM's
@@ -1335,6 +1419,31 @@ def _resolve_esi2(premium_raw, rate_raw):
     return dict(premium_usd=ESI2_DEFAULT_PREMIUM_USD if premium is None else premium,
                 premium_is_default=premium is None,
                 rate=USD_RATE_DEFAULT if rate is None else rate, rate_is_default=rate is None)
+
+
+def _resolve_esi1(value_raw, rate_raw):
+    """The ESI1 inputs (change price-asset-insurance-from-asset-value). Blank value = None (ESI1 stays 0 with a reason
+    naming the field); 0 = the PM's choice to price nothing; blank rate = 0.05%. Text or a negative value, and a rate
+    that is text, 0, negative or above 1%, stop the run and name the field."""
+    def number(raw, label):
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return None
+        try:
+            if isinstance(raw, bool):
+                raise ValueError
+            return float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Project Info '{label}' is {raw!r}, which is not a number. Enter a number, or clear "
+                             f"the cell.") from None
+    value = number(value_raw, ESI1_VALUE_LABEL)
+    if value is not None and value < 0:
+        raise ValueError(f"Project Info '{ESI1_VALUE_LABEL}' is {value_raw!r}. It must be zero or more, or blank.")
+    rate = number(rate_raw, ESI1_RATE_LABEL)
+    if rate is not None and not 0 < rate <= ESI1_MAX_RATE:
+        raise ValueError(f"Project Info '{ESI1_RATE_LABEL}' is {rate_raw!r}. Enter a rate above 0% and at most "
+                         f"{ESI1_MAX_RATE:.0%} (for example 0.05%), or clear the cell to use "
+                         f"{ESI1_DEFAULT_RATE:.2%}.")
+    return dict(value=value, rate=ESI1_DEFAULT_RATE if rate is None else rate, rate_is_default=rate is None)
 
 
 def _rate_phrase(months, rates):
@@ -2540,6 +2649,35 @@ def fill_existing_staff_sheets(wb, result, layout):
             a11.cell(row=r, column=15, value=d.day_holiday or None)
 
 
+def _write_asset_insurance(ws, project, write_vat_monthly):
+    """ESI1 risk asset insurance (change price-asset-insurance-from-asset-value): the insured asset value x the premium
+    rate, insurance VAT in each month as ESI2 (`write_vat_monthly` is fill_management_fund_sheet()'s own pricer), or 0
+    with the reason. Moved out of fill_management_fund_sheet(), which only calls it."""
+    esi1 = project.get('esi1') or _resolve_esi1(None, None)
+    value, rate = esi1['value'], esi1['rate']
+    rate_text = f"{rate * 100:.4f}".rstrip('0').rstrip('.').replace('.', ',') + '%/năm'
+    if not value:
+        _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
+            f"PM nhập giá trị tài sản bảo hiểm bằng 0 tại ô '{ESI1_VALUE_LABEL}' (Project Info), nên không tính khoản "
+            f"này." if value == 0 else
+            f"chưa có giá trị tài sản bảo hiểm. PM nhập giá trị tại ô '{ESI1_VALUE_LABEL}' (Project Info) để công cụ "
+            f"tính: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo hiểm cháy nổ bắt buộc), theo ví dụ của hướng dẫn lập "
+            f"ngân sách Savills và Nghị định 105/2025/NĐ-CP, cộng VAT bảo hiểm."))
+        return
+    annual_excl = round(value * rate)
+    bp = project.get('budget_period') or budget_period.default()
+    vat = (f"cộng VAT {_rate_phrase(bp.months, _general_vat_months(project, utility_tariffs.VAT_INSURANCE))}"
+           f" (bảo hiểm không thuộc diện giảm VAT xuống 8%)" if _ACTIVE_VAT_SENTENCE
+           else "chưa cộng VAT theo mô hình tài chính đã chọn")
+    total = sum(annual_excl / 12 * v for v in _vat_factors(project, utility_tariffs.VAT_INSURANCE))
+    write_vat_monthly('asset_insurance', annual_excl, kind=utility_tariffs.VAT_INSURANCE, remark=(
+        f"= {value:,.0f} VND (giá trị tài sản bảo hiểm do PM nhập) x {rate_text}"
+        + (f" (tỷ lệ mặc định theo ví dụ của hướng dẫn lập ngân sách Savills cho chung cư thương mại, Nghị định "
+           f"105/2025/NĐ-CP; PM nhập tỷ lệ thực tế, ví dụ sau giảm phí, tại ô '{ESI1_RATE_LABEL}')"
+           if esi1['rate_is_default'] else " (tỷ lệ do PM nhập)")
+        + f" = {annual_excl:,.0f} VND/năm trước VAT, {vat} = {total:,.0f} VND/năm. Đã gồm bảo hiểm cháy nổ bắt buộc."))
+
+
 def _parking_allocation_weights(ws, recorded, moto_full_monthly, car_full_monthly):
     """BM11/BN11 on '2. Budget-Management Fund': the monthly vs casual parking split the 351 allocation rows divide by.
     Moved out of fill_management_fund_sheet() unchanged except for the nominal weight of a project with no parking
@@ -3485,11 +3623,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # branch's own condition already is.
     if not savills_fee.basis(project):
         _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', savills_fee.ZERO_REASON_VI)
-    _write_zero_reason(ws, MGMT_FUND_ROWS['asset_insurance'], 'ESI1', (
-        "chưa có giá trị tài sản bảo hiểm nào được ghi nhận trong dữ liệu đầu vào của "
-        "hệ thống. Căn cứ ví dụ theo hướng dẫn lập ngân sách của Savills: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo "
-        "hiểm cháy nổ bắt buộc), theo Nghị định 105/2025/NĐ-CP. Sẽ định giá khi có giá trị tài sản "
-        "thực tế hoặc giá trị hợp đồng do chủ đầu tư cung cấp."))
+    _write_asset_insurance(ws, project, write_vat_monthly)
 
     # ---- Required codes with genuinely no findable pricing method or real input (checked this
     # session — Costing_Method_Catalogue.csv either has no entry, or the one entry it has needs
@@ -5246,7 +5380,7 @@ def build_roster(project, ratios, month, year, holiday_days, demand):
         ('Gate / Entrance Count', project['gate_count']),
         ('Open Space / Common Outdoor Area (m²)', project['open_space']),
         ('Ratio — Security: Staff per Gate', ratios['staff_per_gate']),
-        ('Ratio — Security: m² Open Space per Patrol Staff', ratios['sqm_per_patrol']),
+        ('Ratio — Security: 24h Posts per 10,000 m² Fee-paying NFA', ratios['posts24_per_10k_nfa']),
         ('Ratio — Cleaning: m² Fee-paying NFA per Cleaning Staff', ratios['nfa_per_cleaning_staff']),
         ('Ratio — Cleaning: Towers per Supervisor', ratios['towers_per_supervisor']),
         ('Ratio — Landscape: m² Garden per Gardener', ratios['sqm_per_gardener']),

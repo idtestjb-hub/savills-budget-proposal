@@ -110,7 +110,7 @@ _POOL_AREA = "'Project Info'!$B$39"    # shifted +6 then +1 (2026-09-16) by Dist
 _POOL_M2_PER_LIFEGUARD = 200
 # Cell refs into the Roster Setup sheet's Staffing Ratios block.
 _STAFF_PER_GATE = "'Roster Setup'!$B$4"
-_SQM_PER_PATROL = "'Roster Setup'!$B$5"
+_POSTS24_PER_10K_NFA = "'Roster Setup'!$B$5"   # was m² Open Space per Patrol Staff (change size-security-from-fee-nfa)
 _NFA_PER_CLEANING_STAFF = "'Roster Setup'!$B$6"
 _TOWERS_PER_SUPERVISOR = "'Roster Setup'!$B$7"
 _SQM_PER_GARDENER = "'Roster Setup'!$B$8"
@@ -140,6 +140,14 @@ _CLEANING_NOTE = ('Formula-driven from Roster Setup: ROUNDUP(total fee-paying NF
                   'cleaning people on duty, supervisors included, minus the Cleaning - Supervisor rule, at least 1. '
                   'The default 3,300 is the median of the real Savills projects read from their own cleaning forms '
                   '(service-level table), in the Tiêu chuẩn band. Adjust the ratio in Roster Setup, not this cell.')
+_SECURITY_PATROL_NOTE = (
+    'Formula-driven from Roster Setup: the 24-hour security posts = MAX(ROUNDUP(total fee-paying NFA ÷ 10,000 × 24h '
+    'Posts per 10,000 m²), gate posts + 1 CCTV post); this row = the posts minus the gate posts (Gate Count × Staff per '
+    'Gate) minus the CCTV post, at least 0, on each of the three shifts. The default 1.7 is the median of the real '
+    'Savills projects read from their own security forms (service-level table), in the Tiêu chuẩn band. Adjust the '
+    'ratio in Roster Setup, not this cell.')
+_SECURITY_PATROL_FORMULA = (f'=MAX(0,ROUNDUP({_FEE_NFA}/10000*{_POSTS24_PER_10K_NFA},0)'
+                            f'-ROUNDUP({_GATE_COUNT}*{_STAFF_PER_GATE},0)-1)')
 _RATIO_NOTE = ('Formula-driven from Roster Setup!Staffing Ratios — an editable PM assumption, not a real '
                'benchmark (no dataset joins staff headcount to property scale for the same properties; see '
                'Fact_Dim_Master_Mapping.md). Adjust the ratio in Roster Setup, not this cell, to change the suggestion.')
@@ -248,8 +256,9 @@ EXAMPLE_DEMAND = [
     ('Security - CCTV Room (Morning)', 'S', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' Not gate-scaled — a control room is normally 1 regardless of gate count.'),
     ('Security - CCTV Room (Afternoon)', 'C', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE),
     ('Security - CCTV Room (Night)', 'D', 1, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE),
-    ('Security - Patrol / Open Space', 'S', f'=ROUNDUP({_OPEN_SPACE}/{_SQM_PER_PATROL},0)', 7, _SECURITY_DAILY_PER_ROLE,
-     _SECURITY_NOTE + ' ' + _RATIO_NOTE + ' Shown for one shift only — for full 24h patrol coverage, copy this row for C and D shifts too.'),
+    ('Security - Patrol (Morning)', 'S', _SECURITY_PATROL_FORMULA, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' ' + _SECURITY_PATROL_NOTE),
+    ('Security - Patrol (Afternoon)', 'C', _SECURITY_PATROL_FORMULA, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' ' + _SECURITY_PATROL_NOTE),
+    ('Security - Patrol (Night)', 'D', _SECURITY_PATROL_FORMULA, 7, _SECURITY_DAILY_PER_ROLE, _SECURITY_NOTE + ' ' + _SECURITY_PATROL_NOTE),
     ('Cleaning - Common Area', 'S',
      f'=MAX(1,ROUNDUP({_FEE_NFA}/{_NFA_PER_CLEANING_STAFF},0)-ROUNDUP({_TOWER_COUNT}/{_TOWERS_PER_SUPERVISOR},0))',
      7, 340000, _CLEANING_NOTE),
@@ -436,6 +445,29 @@ def add_existing_project_fields(ws, row):
         "Used only in Existing-project mode, for the minimum-wage floor and the unemployment-insurance "
         "ceiling. Blank means Region I, which the standard form assumes.", 'Budget Planning Agent')
     labeled_input(ws, row + 3, es.PRIOR_YEAR_LABEL + ' — the approved budget copied', None, fmt='0')
+
+
+def add_asset_insurance_fields(ws, row):
+    """ESI1 asset value and premium rate on Project Info, from `row` (change price-asset-insurance-from-asset-value).
+    Appended below every other section: the Existing and Operating sections are placed at fixed rows after the
+    fields above them, so a fixed row here could be overwritten."""
+    section(ws, row, 'ASSET INSURANCE (ESI1) — leave blank until the insured value is known')
+    c_esi1 = labeled_input(ws, row + 1, 'ESI1 Insured Asset Value (VND)', None, fmt='#,##0')
+    c_esi1.comment = Comment(
+        "The total insured asset value of the building in VND (the sum insured of the risk asset insurance, compulsory "
+        "fire and explosion cover included), from the developer or the insurer. ESI1 = this value x the premium rate "
+        "below, plus 10% insurance VAT, spread over the 12 months. Leave blank if not known yet: ESI1 then stays 0 and "
+        "its remark says so. Enter 0 to price nothing.", 'Budget Planning Agent')
+    c_esi1_rate = labeled_input(ws, row + 2, 'ESI1 Premium Rate', None, fmt='0.0000%')
+    dv_esi1 = DataValidation(type='decimal', operator='between', formula1='0.000001', formula2='0.01',
+                             allow_blank=True, showErrorMessage=True, errorTitle='ESI1 Premium Rate',
+                             error='Enter a rate above 0% and at most 1% (for example 0.05%), or leave blank for 0.05%')
+    ws.add_data_validation(dv_esi1)
+    dv_esi1.add(c_esi1_rate)
+    c_esi1_rate.comment = Comment(
+        "The annual premium rate of the risk asset insurance. Leave blank for 0.05%, the Savills costing guideline's "
+        "example for a commercial apartment building (Decree 105/2025/ND-CP). Enter the insurer's rate if it differs, "
+        "for example 0.0375% after the maximum 25% discount.", 'Budget Planning Agent')
 
 
 def add_product_rate_columns(ws, header_row, first_row, last_row):
@@ -1052,6 +1084,7 @@ def main(force=False):
         "Savills' own fee (EMH1) and the residents' own water and electricity collected on their behalf (EEW.A, "
         "EEE.A). Enter 0% to budget no contingency; above 10% stops the run.", 'Budget Planning Agent')
 
+
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w
 
@@ -1068,7 +1101,13 @@ def main(force=False):
     legend_row = 3
     ws2['A4'] = None  # placeholder, ratios start row 4 per _STAFF_PER_GATE etc. above
     labeled_input(ws2, 4, 'Security: Staff per Gate', 1)
-    labeled_input(ws2, 5, 'Security: m² Open Space per Patrol Staff', 5000)
+    c_sec = labeled_input(ws2, 5, 'Security: 24h Posts per 10,000 m² Fee-paying NFA', 1.7, fmt='0.0')
+    c_sec.comment = Comment(
+        "24-hour security posts (one post = 3 shift roles) per 10,000 m² of total fee-paying NFA (every product). "
+        "1.7 = the median of 32 real Savills projects read from their own security forms (service-level table "
+        "Ref_ServiceLevelProjects.csv: 1.719, P25 1.269, P75 2.325), in the Tiêu chuẩn band 1.5-3.0. A higher number "
+        "means more patrol posts; the gate posts and the CCTV room are the floor. Blank or 0 means 1.7.",
+        'Budget Planning Agent')
     c_cln = labeled_input(ws2, 6, 'Cleaning: m² Fee-paying NFA per Cleaning Staff', 3300)
     c_cln.comment = Comment(
         "m² of total fee-paying NFA (every product) per cleaning person on duty per day, supervisors included. "
@@ -1077,9 +1116,9 @@ def main(force=False):
         "number means more cleaners. Blank or 0 means 3,300.", 'Budget Planning Agent')
     labeled_input(ws2, 7, 'Cleaning: Towers per Supervisor', 2)
     labeled_input(ws2, 8, 'Landscape: m² Garden per Gardener', 2000)
-    ws2['A9'] = ('Editable assumptions. The cleaning ratio is measured on real Savills projects (see its note); the '
-                 'others are operational assumptions, not a real benchmark. Change to your own operational standard — '
-                 'Staffing Demand recalculates automatically.')
+    ws2['A9'] = ('Editable assumptions. The security and cleaning ratios are measured on real Savills projects (see '
+                 'their notes); the others are operational assumptions, not a real benchmark. Change to your own '
+                 'operational standard — Staffing Demand recalculates automatically.')
     ws2['A9'].font = LEGEND_FONT
     ws2['A9'].alignment = LEFT
     ws2.merge_cells('A9:D9')
@@ -1270,6 +1309,8 @@ def main(force=False):
     add_existing_project_fields(ws1, 57)
     # Change use-operating-project-actuals: appended after every existing field, same no-row-shift rule.
     add_operating_project_fields(ws1, 62, products)
+    # Change price-asset-insurance-from-asset-value: below everything, found again by label.
+    add_asset_insurance_fields(ws1, ws1.max_row + 2)
     add_prior_year_roster_sheet(wb)
     add_prior_year_utilities_sheet(wb)
     add_demand_reason_columns(ws4, 5, last_row)
