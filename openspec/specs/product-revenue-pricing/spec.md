@@ -11,7 +11,6 @@ and no Fact/Dim join key changes, so the Copilot Studio package's live data is u
 
 ## Requirements
 
-
 ### Requirement: Every product a project contains is priced
 
 The pipeline SHALL price management-fee revenue for each product type the project reports an area
@@ -231,13 +230,26 @@ covers:
 - the analysis workbook's `Management Fee`, `Comparison` and `Summary` sheets.
 
 The order of sources SHALL be the same in both workbooks:
-1. the comparable-derived rate, with the existing location rate-swing cap;
-2. for a non-Apartment product with no comparable rate, the project's applied Apartment rate;
-3. for Apartment, when no comparable carries an Apartment rate, the blended whole-property rate.
-   Today only the deliverable has this step; the analysis workbook SHALL use the same one.
+1. a rate the PM entered on the Product Mix row (not capped, applied as entered);
+2. for Apartment, the median apartment management-fee rate of the real budgets of Savills-managed
+   projects (the real-budget range for `RM.AP`: the project itself left out, IQR outliers dropped, at
+   least 10 projects, 2027 prices), converted from its excluding-VAT basis to the deliverable's basis
+   at the VAT rate of the budget period's first month;
+3. the comparable-derived rate, with the existing location rate-swing cap — for Apartment only when
+   the range cannot be formed (fewer than 10 projects, or no values file), and for every other product
+   as its own source;
+4. for a non-Apartment product with no comparable rate, the project's applied Apartment rate;
+5. for Apartment, when neither the range nor a comparable Apartment rate exists, the blended
+   whole-property rate. Both workbooks SHALL use the same one.
 
-On its own, this requirement SHALL move no figure. It reads no data file the pipeline does not
-already read, writes none, and no recorded baseline moves.
+The two nearest comparables SHALL still be selected and shown on both `Comparison` sheets and SHALL
+still drive the proposal benchmark verdict; when the Apartment rate comes from the range, those sheets
+SHALL also show the comparable-derived rate the range replaced, labelled as such.
+
+Data files read: `Budget_Agent/data/real_budget_ranges/Ref_RealBudgetValues.csv` (the `RM.AP` rows),
+`Budget_Agent/data/generation_B_verified/Ref_CPI_VN.csv`, and the comparable tables already read. No
+data file is written. The recorded baseline figure `derived_apartment_rate` and every revenue figure it
+feeds move on the standard sample; verify runs with the baseline gates open until group 10 re-records them.
 
 #### Scenario: Every place that shows the Apartment rate shows the same value
 
@@ -248,16 +260,42 @@ already read, writes none, and no recorded baseline moves.
 
 #### Scenario: Consolidation moves no figure
 
-- **WHEN** the deliverable and the analysis workbook are generated before and after this requirement
-  is implemented, from the same input, for the standard synthetic project and for one more project
-  with at least three priced products
+- **WHEN** the deliverable and the analysis workbook are generated before and after the one-decision-point
+  consolidation (change `use-operating-project-actuals`, P5) is implemented, from the same input, for the
+  standard synthetic project and for one more project with at least three priced products
 - **THEN** every formula and every number SHALL be identical between the before and after copies
 - **AND** the comparison SHALL be recorded cell by cell
+- **AND** the range source added by this change is measured separately, as its own before/after
+
+#### Scenario: The Apartment rate comes from the range
+
+- **WHEN** no Apartment rate is entered and at least 10 real budgets remain in the `RM.AP` range
+- **THEN** the applied Apartment rate SHALL be the range's median × (1 + the VAT rate of the budget
+  period's first month) when the deliverable includes VAT, else the median as it is
+- **AND** the `RM.AP` remark SHALL quote the number of projects, the median and the P25–P75 band and
+  SHALL name no project
+
+#### Scenario: The range cannot be formed
+
+- **WHEN** fewer than 10 real budgets remain in the `RM.AP` range, or the values file is absent
+- **THEN** the applied Apartment rate SHALL be the comparable-derived rate exactly as before this change
+- **AND** the remark SHALL say the rate comes from the reference projects
+
+#### Scenario: An entered Apartment rate still wins
+
+- **WHEN** the PM enters an Apartment rate
+- **THEN** that rate SHALL be applied unchanged, and the range SHALL be shown on the internal analysis only
+
+#### Scenario: Other products follow the new Apartment rate as their fallback
+
+- **WHEN** a product has neither an entered rate nor a comparable rate
+- **THEN** it SHALL be priced at the applied Apartment rate, which is the range median when that is the
+  Apartment source
 
 #### Scenario: The no-comparable fallback agrees across workbooks
 
-- **WHEN** no comparable in the master table carries an Apartment rate
-- **THEN** both workbooks SHALL apply the same fallback rate
+- **WHEN** no comparable in the master table carries an Apartment rate and the range cannot be formed
+- **THEN** both workbooks SHALL apply the same blended fallback rate
 - **AND** both SHALL say that the rate is a fallback
 
 ### Requirement: An entered real rate wins over the comparable-derived rate
@@ -345,3 +383,43 @@ standard synthetic project enters no rate.
   comparable rate
 - **THEN** that product SHALL be priced at the entered Apartment rate
 - **AND** its remark SHALL say it uses the project's Apartment rate as a substitute
+
+### Requirement: Comparable rates are averaged on one VAT basis
+
+Before comparable management-fee rates are averaged, each rate SHALL be put on an including-VAT basis. The VAT basis of
+each comparable and product SHALL come from a hand-checked reference table that names the source of each entry. A rate
+recorded as excluding VAT SHALL be multiplied by (1 + the general VAT rate of the budget period's first month). A
+comparable whose basis is not in the table SHALL be treated as including VAT, and the internal analysis SHALL flag it. A
+rate the PM entered SHALL NOT be converted; its own VAT label still applies.
+
+Data files read: the comparable VAT-basis table (new, git-ignored with the other reference data), and
+`Dim_Property_Residential.csv`. The standard sample's derived Apartment rate and management-fee revenue move.
+
+#### Scenario: One comparable quoted excluding VAT
+
+- **WHEN** the two nearest comparables have Apartment rates of 20,000 VND/m²/month excluding VAT and 15,000 including
+  VAT, and the budget starts in January 2027
+- **THEN** the derived Apartment rate SHALL be the mean of 22,000 and 15,000, that is 18,500 VND/m²/month
+
+#### Scenario: Unknown basis
+
+- **WHEN** a comparable used in the average has no entry in the VAT-basis table
+- **THEN** its rate SHALL be used as including VAT
+- **AND** the analysis SHALL flag that comparable's basis as unverified
+
+### Requirement: Real distance breaks ties among close comparables, within a cap
+
+When this project's coordinates are known, comparables within 1 km of it SHALL rank by real distance, after location
+tier and size band and before verified status. A rate that this ranking moves SHALL be capped at ±20% of the rate the
+ranking would give without distance. The cap SHALL apply to every product's rate and to the blended fallback rate. The
+analysis SHALL state when the cap was applied.
+
+#### Scenario: A nearby comparable changes the rate
+
+- **WHEN** distance ranking would move the Shophouse rate by 30%
+- **THEN** the applied Shophouse rate SHALL move by 20%, and the analysis SHALL say the cap applied
+
+#### Scenario: No coordinates
+
+- **WHEN** the project has no coordinates
+- **THEN** the ranking and every rate SHALL be the same as without the distance step

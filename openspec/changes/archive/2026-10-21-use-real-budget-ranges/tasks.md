@@ -103,6 +103,6 @@ repository and `docs/` carry anonymous ids only.
   is recorded in `docs/05-decisions.md` with the date.
   - Done 2026-10-19: signed by the user (for the Head of PM), recorded in design "Measured"; the line in
     `docs/05-decisions.md` is the coordinator's.
-- [ ] 4.4 (Folded into group 10 of `apply-head-of-pm-decisions-2026-10`, design D7 as changed.) Re-record the
+- [x] 4.4 (Folded into group 10 of `apply-head-of-pm-decisions-2026-10`, design D7 as changed.) Re-record the
   baseline once, with the user's approval, then run `python verification/verify.py` from
   `Budget_Agent/source_code/`. Verify: all sections pass.

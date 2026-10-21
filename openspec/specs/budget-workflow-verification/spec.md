@@ -450,3 +450,63 @@ Data files read: `Ref_ServiceLevelThresholds.csv`, `Ref_ServiceLevelProjects.csv
 
 - **WHEN** two rows of the real-project table carry the same fee-paying NFA
 - **THEN** verification SHALL fail and list the two ids
+
+### Requirement: Verification exercises every path the PM decisions add
+
+Verification SHALL run invented samples that reach each new path:
+- a project with coordinates, so the distance ranking runs;
+- a filled Savills fee, once fixed and once as a %;
+- two Accountants and two Property Managers, so the `A1` overflow rows are written;
+- a qualifying 24/7 position and a night position, so `A1.1` is filled;
+- a non-default budget start month, a water customer group and an entered ESI2 premium.
+
+It SHALL tie each staffing line to its detail sheet on the standard sample as well as on the Existing samples. It SHALL
+confirm the helper-sheet ties and the contingency formulas. It SHALL run the deliverable name scan on every sample.
+
+#### Scenario: A double-counted allowance
+
+- **WHEN** a change makes `EMH2` include the `A1.1` allowance while `EMH3` also carries it
+- **THEN** verification SHALL fail on the standard sample
+
+#### Scenario: Distance path reached
+
+- **WHEN** verification runs
+- **THEN** at least one sample SHALL reach the distance ranking, and its result SHALL be checked
+
+### Requirement: The baselines are re-recorded once for this change, with each movement measured
+
+Each decision SHALL be measured on its own, before and after, on the standard sample and on a regression clone kept
+outside the repository, and the movement in VND SHALL be recorded in the change. The recorded baselines (analysis,
+deliverable, operating) SHALL be re-recorded once, after every decision is built, with the reason written beside the
+new figures.
+
+#### Scenario: Re-record
+
+- **WHEN** every decision in this change is built and measured
+- **THEN** the baselines SHALL be re-recorded in one step, with the reason stated
+- **AND** verification SHALL pass against the new baselines
+
+### Requirement: Verification confirms the real-budget ranges
+
+`verify.py` SHALL check, on the standard sample and on an Existing-project sample:
+- every code priced from the range has the same figure on the `Real-Budget Ranges` sheet and on
+  `2. Budget-Management Fund`;
+- each range used holds at least 10 projects;
+- the project's own entry is left out, on a fixture whose project is in the data file;
+- the data file carries none of a list of names supplied as a fixture.
+
+A broken deliverable, with one priced line typed 1,000 VND off, SHALL fail the tie check. The fixtures SHALL contain
+no real project name or figure.
+
+Data files read: the generated workbooks, `Ref_RealBudgetValues.csv`, and the verification fixtures. Recorded
+baseline figures move once, with the user's approval (design D7).
+
+#### Scenario: A priced line typed off
+
+- **WHEN** the deliverable's `ESS12` differs from the sheet by 1,000 VND
+- **THEN** the check SHALL fail and name `ESS12` and both figures
+
+#### Scenario: The project itself is in the data file
+
+- **WHEN** the fixture project matches an entry in the data file
+- **THEN** the check SHALL confirm that entry is not among the values used

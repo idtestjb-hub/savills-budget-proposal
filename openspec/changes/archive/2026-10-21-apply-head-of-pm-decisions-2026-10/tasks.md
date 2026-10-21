@@ -144,12 +144,12 @@ A/B movements (design D16).
 
 ## 10. Close
 
-- [ ] 10.1 Re-record `baseline.json`, `deliverable_baseline.json` and `operating_baseline.json` once, with the reason.
+- [x] 10.1 Re-record `baseline.json`, `deliverable_baseline.json` and `operating_baseline.json` once, with the reason.
   Verify that every movement equals the sum of the recorded A/Bs.
-- [ ] 10.2 Run `python verification/verify.py` from `Budget_Agent/source_code/`, and the full unit test suite. Verify
+- [x] 10.2 Run `python verification/verify.py` from `Budget_Agent/source_code/`, and the full unit test suite. Verify
   that `verify.py` passes on all sections and every test passes.
-- [ ] 10.3 Update `RUNNING.md` (new inputs), `docs/project-status.md` and `docs/05-decisions.md`, and correct the A3
+- [x] 10.3 Update `RUNNING.md` (new inputs), `docs/project-status.md` and `docs/05-decisions.md`, and correct the A3
   and B1 records. When archiving, also edit the main spec `waste-collection-costing`'s Purpose, which still says QĐ 67
   (a delta's Purpose is ignored). Verify with `openspec validate --strict`.
-- [ ] 10.4 Show the user the full before/after table (standard sample and clone) and record their sign-off in
+- [x] 10.4 Show the user the full before/after table (standard sample and clone) and record their sign-off in
   `design.md`.

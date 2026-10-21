@@ -791,3 +791,28 @@ template.
   differences as at the end of group 8, so group 9 moves no recorded figure.
 - **Sign-off (group 9):** the user, standing in for the Head of PM, accepted these measurements on 2026-10-19 (lane B
   session P3), and accepted the VAT-basis fix to the verdict as a separate item.
+
+### Group 10: single baseline re-record, verify, sign-off (2026-10-21, coordinating session P6)
+
+- **Attribution (10.1).** The standard and operating verify fixtures were run at 19 checkpoints of `main`'s
+  first-parent history, from `2756c87` (group 0, where the recorded baselines still passed) to `f45c2df`, each with
+  the outer repo's `Budget_Agent/data` as of that checkpoint, and read with one set of extractors (`f45c2df`). ESI1 and
+  ESS1 alone are synthetic merges of `bc0c681` / `b7505c8` into `14778cb`. The first checkpoint equals the recorded
+  baselines (32/32, 38/38). Every step that moves a figure matches its signed-off A/B: group 2 surplus −311.4M, group
+  3 −28.6M, group 4 fee revenue +1,090.0M and rate 17,175 → 18,892, group 5 EMH +204.1M and analysis staff to
+  3,911,986,483, group 6 −200,326,113 / Total Profit Value −117,458,666, cleaning ESS4 288.0M → 1,824.0M and
+  surplus −1,558.6M, real-budget ranges −421,470,006, security ESS1 1,295.0M → 3,234.0M and surplus −1,967.6M, fee
+  and parking rate 18,892 → 18,697, RM.0A 9,130.8M → 9,040.6M, parking 572 → 754M and 2,717 → 2,964M, surplus
+  +303.8M (recorded +304.0M on lane B before ESS1; the 0.2M is not separately measured). Groups 1, 7, 8, 9, the
+  service-level table, villa, ESI1 without a value, the Budget Review MVP and the adjustment sheet move 0. Totals:
+  standard 15 analysis + 8 deliverable figures, operating 13, as `verify.py` reported with the gates open. Folder
+  `Savills-local\budget-test\2026-10-21-p6-g10\` (`step_table.md`).
+- **Re-record.** `baseline.json`, `deliverable_baseline.json` and `operating_baseline.json` recorded once at
+  `f45c2df` with one reason; each equals the checkpoint measurement. `python verification/deliverable_baseline.py`
+  fails on its import when run as a script; it was run as `python -m verification.deliverable_baseline`.
+- **Checks (10.2).** `verify.py` with the gates closed PASS on all sections (log `verify_closed.log`), 1093 unit tests
+  pass (1 xfail as before).
+- **Before / after (10.4).** Standard sample: year-1 surplus 4,730.9M → 1,429.7M, Total Profit Value 4,077.4M →
+  1,012.0M, margin 35.67% → 8.16%. City Garden clone: surplus 7,338.4M → −1,328.1M, Total Profit Value 7,479.7M →
+  1,240.0M (security +4,389.4M, EMH staff +2,650.5M, utilities +844.0M). Full table `before_after.md`.
+  **Signed off by the user 2026-10-21.**

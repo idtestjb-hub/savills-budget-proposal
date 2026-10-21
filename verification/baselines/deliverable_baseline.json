@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-21T16:52:13+07:00",
-  "reason": "activate-common-area-fund-cost-share signed off 2026-09-21 (\"confirm as correct -- ship it\", after tracing RI1 to its template-native chi ho reimbursement label and confirming no offsetting expense exists anywhere on the operating fund sheet -- template design, not a pipeline defect). 2.2 Common area Fund's expense pass-through rows (213 leaves) activated; RI1 now reads a real, non-trivial AH40 instead of near-zero. Allocation basis (revenue-share, F8) left as-is -- no strong objection raised, redesigning it is out of this change's scope per design.md.",
+  "recorded_at": "2026-10-21T12:44:20+07:00",
+  "reason": "Group 10 of apply-head-of-pm-decisions-2026-10, single re-record 2026-10-21 at main f45c2df: groups 1-9 plus fix-cleaning-staffing-ratio, use-real-budget-ranges part 2, size-security-from-fee-nfa and price-fee-and-parking-from-portfolio (all signed off 2026-10-15..20); every movement attributed step by step on 19 first-parent checkpoints and matched to the recorded A/Bs (Savills-local/budget-test/2026-10-21-p6-g10/step_table.md)",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,42 +12,42 @@
   },
   "figures": {
     "rm_collected_year1": {
-      "value": 3096258750.0,
+      "value": 3357928600.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!SUM(G14:G22)"
     },
     "rm_developer_year1": {
-      "value": 8336081250.0,
+      "value": 9040577000.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G23"
     },
     "parking_moto_year1": {
-      "value": 572000000.0,
+      "value": 754000000.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G26"
     },
     "parking_car_year1": {
-      "value": 2717000000.0,
+      "value": 2964000000.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G27"
     },
     "water_year1": {
-      "value": 82876033.0,
+      "value": 123120293.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G230"
     },
     "electricity_year1": {
-      "value": 1837973526.0,
+      "value": 2021770879.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 4730929441.256407,
+      "value": 1429650610.5213223,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     },
     "emh_staff_year1": {
-      "value": 4940513880.923077,
+      "value": 5144611200.923077,
       "unit": "VND",
       "where": "1. Summary!H22 (code 'EMH')"
     }

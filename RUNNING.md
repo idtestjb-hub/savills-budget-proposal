@@ -69,8 +69,29 @@ ask developers for pool tank capacity, so it is usually obtainable.
 ratios. Edit, add or delete rows freely; adjust the ratios in `Roster Setup` rather than
 overwriting the formulas.
 
-`Project Info!B34`/`B35` (Savills' own fee) are deliberately blank. Leave them blank until a real
-contract term exists — see `docs/05-decisions.md`, D1.
+`Roster Setup` sizes security and cleaning from the total fee-paying NFA (every product):
+**`Security: 24h Posts per 10,000 m² Fee-paying NFA`** (default 1.7) gives the 24-hour posts, never fewer than the
+gate posts plus one CCTV post, and the posts above that floor are patrol on all three shifts;
+**`Cleaning: m² Fee-paying NFA per Cleaning Staff`** (default 3,300) gives the cleaning people on duty per day,
+supervisors included. Both defaults are medians of real Savills projects (`data/service_levels`). Blank or 0 means
+the default; the old open-space ratio labels of earlier forms are no longer read.
+
+**Savills' own fee (`EMH1`)** sits in the section `SAVILLS' MANAGEMENT FEE (EMH1)`: `Fixed Monthly Fee (VND, excl.
+VAT)` (each month's VAT is added) or `% of Collected Management Fee` (of the full annual fee at 100% occupancy, no VAT
+added). Fill one at most: both filled stops the run; both blank leaves `EMH1` at 0 with a caveat. Leave them blank
+until a real contract term exists — see `docs/05-decisions.md`, D1 and group 7.
+
+**`Contingency Rate (EM#, ES#, EE#)`** (`BUDGET HORIZON` section) is the rate of the three contingency lines on both
+fund sheets, written as live formulas. Blank means 2%; 0 is allowed; text, a negative rate or one above 10% stops the
+run.
+
+**Building insurance `ESI2`**: `ESI2 Annual Premium (USD)` (blank = 1,000 USD, 0 = nothing) × `USD Exchange Rate (VND
+per USD)` (blank = 26,190) plus 10% insurance VAT, spread over the twelve months.
+
+**Asset insurance `ESI1`** (optional section `ASSET INSURANCE (ESI1)`, below every other section): `ESI1 Insured
+Asset Value (VND)` × `ESI1 Premium Rate` (blank = 0.05%) plus 10% insurance VAT over twelve months. A blank value
+leaves `ESI1` at 0 and the remark names the field; 0 is the PM's 0; a value that is not a number or a rate above 1%
+stops the run.
 
 **`Budget Start Month`** (`BUDGET HORIZON` section, MM/YYYY) is the first of the twelve months the budget covers. Blank, or a form without the field, means January 2027. Both fund sheets and the summary show the period, and the date-dependent rules (Existing-mode tariffs and paid holidays) use the month they are applied to. Text that is not a month stops the run and names the field. The occupancy fill-up is not dated: its month 1 is the first month of the period.
 

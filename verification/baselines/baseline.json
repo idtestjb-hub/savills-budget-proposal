@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-09-18T10:57:48+07:00",
-  "reason": "prefer-similar-size-comparables signed off 2026-09-18 (provisional, user instruction: 'assume the sign-off is approved then do next step'). Adds a size-similarity preference (SIZE_SIMILARITY_BAND=0.50, a disclosed judgment call) to nearest_comparables()'s sort key, ranked before verified-status -- a badly-sized hand-verified comparable no longer automatically beats a similarly-sized unverified one. Standard sample effect: derived_apartment_rate 16,500 -> 17,175 VND/m2/month (+4.1%), mgmt_fee_revenue_annual +428,490,000 VND (+3.9%). Diamond Skyline moved the OPPOSITE direction (-3.6% rate, -547,200,000 VND revenue) -- confirms this is a genuine per-project comparable-set change (Fiato Airport +54% off replaced by Masteri An Phu -4% off), not a uniform shift. Real Head-of-PM conversation still outstanding.",
+  "recorded_at": "2026-10-21T12:42:56+07:00",
+  "reason": "Group 10 of apply-head-of-pm-decisions-2026-10, single re-record 2026-10-21 at main f45c2df: groups 1-9 plus fix-cleaning-staffing-ratio, use-real-budget-ranges part 2, size-security-from-fee-nfa and price-fee-and-parking-from-portfolio (all signed off 2026-10-15..20); every movement attributed step by step on 19 first-parent checkpoints and matched to the recorded A/Bs (Savills-local/budget-test/2026-10-21-p6-g10/step_table.md)",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,27 +12,27 @@
   },
   "figures": {
     "derived_apartment_rate": {
-      "value": 17175.0,
+      "value": 18697.0,
       "unit": "VND/m²/month",
       "where": "Summary!R33C2"
     },
     "mgmt_fee_revenue_monthly": {
-      "value": 952695000.0,
+      "value": 1033208800.0,
       "unit": "VND",
       "where": "Summary!R34C2"
     },
     "mgmt_fee_revenue_annual": {
-      "value": 11432340000.0,
+      "value": 12398505600.0,
       "unit": "VND",
       "where": "Summary!R35C2"
     },
     "staff_cost_annual": {
-      "value": 3923305124.5000005,
+      "value": 7387028482.621758,
       "unit": "VND",
       "where": "Summary!R36C2"
     },
     "service_reference_annual": {
-      "value": 1846958000.0,
+      "value": 5322000000.0,
       "unit": "VND",
       "where": "Summary!R37C2"
     },
@@ -42,37 +42,37 @@
       "where": "Summary!R38C2"
     },
     "opex_annual": {
-      "value": 3121672572.0,
+      "value": 3572040564.0,
       "unit": "VND",
       "where": "Summary!R39C2"
     },
     "additional_revenue_annual": {
-      "value": 7210545456.0,
+      "value": 8338545456.0,
       "unit": "VND",
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 4077421493.5,
+      "value": 1012037077.3782415,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.35665677311031685,
+      "value": 0.08162573055403076,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.5543802409090636,
+      "value": 0.08888068107926565,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },
     "service_security_annual": {
-      "value": 1294958000.0,
+      "value": 3234000000.0,
       "unit": "VND",
       "where": "Service!'Security' row 5, col 8"
     },
     "service_cleaning_annual": {
-      "value": 288000000.0,
+      "value": 1824000000.0,
       "unit": "VND",
       "where": "Service!'Cleaning' row 6, col 8"
     },
@@ -84,35 +84,35 @@
     "capex_mo_equipment": {
       "value": 181667810.0,
       "unit": "VND",
-      "where": "Cost Priority!'MO Equipment' row 25, col 2"
+      "where": "Cost Priority!'MO Equipment' row 32, col 2"
     },
     "capex_public_area": {
       "value": 172735000.0,
       "unit": "VND",
-      "where": "Cost Priority!'Public Area' row 26, col 2"
+      "where": "Cost Priority!'Public Area' row 33, col 2"
     },
     "capex_me_equipment": {
       "value": 128273000.0,
       "unit": "VND",
-      "where": "Cost Priority!'M&E Equipment' row 27, col 2"
+      "where": "Cost Priority!'M&E Equipment' row 34, col 2"
     },
     "capex_amenity_area": {
       "value": 12939000.0,
       "unit": "VND",
-      "where": "Cost Priority!'Amenity Area' row 28, col 2"
+      "where": "Cost Priority!'Amenity Area' row 35, col 2"
     },
     "opex_electricity_annual": {
-      "value": 2669371536.0,
+      "value": 2936308692.0,
       "unit": "VND",
       "where": "OPEX!'Electricity' row 6, col 3"
     },
     "opex_water_annual": {
-      "value": 306003816.0,
+      "value": 454598004.0,
       "unit": "VND",
       "where": "OPEX!'Water' row 7, col 3"
     },
     "opex_diesel_annual": {
-      "value": 60994764.0,
+      "value": 95831412.0,
       "unit": "VND",
       "where": "OPEX!'Diesel (Generator Fuel)' row 8, col 3"
     },

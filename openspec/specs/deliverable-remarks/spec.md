@@ -13,8 +13,6 @@ unaffected. No budgeted figure changes; remarks are text.
 
 ## Requirements
 
-
-
 ### Requirement: The grand-total sheet composes a narrative for every section total it reports
 
 For every PART-1 total on `1. Summary` that carries a non-zero figure, the deliverable SHALL write a
@@ -103,11 +101,17 @@ already states that rate's own VAT basis. Its line-level remark SHALL end with t
 "Doanh thu hạng mục này dự ước tại năm <budget year>." and SHALL NOT carry the generic VAT-treatment
 sentence, which would contradict an entry made excluding VAT.
 
+A second exception (decision K14, 2026-10-11): the management-fee narrative on `1. Summary` (`K14`)
+describes revenue and states each product's VAT basis inside its text. It SHALL end with
+"Doanh thu hạng mục này dự ước tại năm <budget year>." on every run, and SHALL NOT carry the generic
+VAT-treatment sentence.
+
 #### Scenario: Inclusive-of-VAT run
 
 - **WHEN** `2. Budget-Management Fund!F7` selects an inclusive-of-VAT treatment (`KHÔNG KHOÁN` or
   `THU HỘ CHI HỘ`) and the pipeline writes a remark for a figure
-- **THEN** that remark SHALL contain the VAT-treatment sentence with the budget year
+- **THEN** that remark SHALL contain the VAT-treatment sentence with the budget year, unless one of the
+  two exceptions applies to it
 
 #### Scenario: Exclusive-of-VAT run
 
@@ -118,6 +122,13 @@ sentence, which would contradict an entry made excluding VAT.
 
 - **WHEN** a management-fee line (`RM.*`) is priced from a rate the PM entered, in any VAT treatment
 - **THEN** its line-level remark SHALL state the entered rate's VAT basis
+- **AND** SHALL end with "Doanh thu hạng mục này dự ước tại năm <budget year>."
+- **AND** SHALL NOT contain the generic VAT-treatment sentence
+
+#### Scenario: The summary fee narrative
+
+- **WHEN** `1. Summary!K14` is written, whether its products use entered or comparable rates
+- **THEN** it SHALL state each priced product's VAT basis
 - **AND** SHALL end with "Doanh thu hạng mục này dự ước tại năm <budget year>."
 - **AND** SHALL NOT contain the generic VAT-treatment sentence
 
@@ -431,3 +442,121 @@ Data files read: none beyond those of `existing-project-utilities`. No recorded 
 
 - **WHEN** the Existing-project sample is verified
 - **THEN** the remark-content check and the internal-wording scan SHALL pass on `EEE.C` and `EEW.C`
+
+### Requirement: The client deliverable names no other project
+
+No text on any sheet of the client deliverable, including text inside a formula, SHALL name a project other than this
+one. Where a remark draws on another project's figures, it SHALL say "dự án tham chiếu" and MAY state how many reference
+projects were used. A figure this project applies SHALL still be shown even when it equals a reference project's own
+figure; only the attribution goes. Text the standard form ships that names other projects SHALL be overwritten with
+neutral text, and recorded for the form owner. The internal analysis SHALL keep every name.
+
+Verification SHALL scan every deliverable sheet, cell text and formula text, against names drawn from the data:
+- the comparable projects;
+- the hand-checked comparables, including the excluded ones;
+- the projects that cost and capital-expenditure ratios come from.
+
+This project's own name SHALL be excluded from the scan. Any match SHALL fail the check.
+
+#### Scenario: A remark priced from a reference project's ratio
+
+- **WHEN** a cost line is priced from a reference project's VND/m² ratio
+- **THEN** its remark SHALL say "dự án tham chiếu" and SHALL NOT name that project
+
+#### Scenario: Analysis keeps names
+
+- **WHEN** the internal analysis is generated for the same project
+- **THEN** its remarks and comparison sheet SHALL still name the reference projects
+
+#### Scenario: Scan catches a name in a formula
+
+- **WHEN** a deliverable formula contains a reference project's name as a text literal
+- **THEN** verification SHALL fail and name the cell
+
+### Requirement: A remark cites an input by its label
+
+A remark or run message that points the PM to an input SHALL name the input's label on the form, not a cell address,
+so that a change to the form's layout cannot make it point at the wrong field.
+
+#### Scenario: Savills' fee inputs
+
+- **WHEN** `EMH1`'s remark points to the fee inputs
+- **THEN** it SHALL name the "Fixed Monthly Fee" or "% of Collected Management Fee" label, and SHALL NOT contain a cell
+  address
+
+### Requirement: The clearance and suction line says a residential quote is awaited
+
+`ERCS1` SHALL stay at 0 until a sourced residential unit price exists. Its reason SHALL say that residential quotes are
+being requested.
+
+#### Scenario: ERCS1 reason
+
+- **WHEN** the deliverable is generated
+- **THEN** `ERCS1` SHALL be 0 and its remark SHALL say residential quotes are awaited
+
+### Requirement: A line priced from real Savills budgets says how
+
+The remark on a line priced from the real-budget range SHALL say, in Vietnamese:
+- the median in đ/m²/tháng, excluding VAT, at 2027 prices;
+- the P25–P75 range;
+- the number of Savills projects it comes from;
+- the fee-paying NFA and the 12 months it is multiplied by;
+- the VAT added.
+
+It SHALL name no project. For `ESC1` and `ESC2` it SHALL also say that the figure stands in for the number of
+events × the price per event, until the PM enters them. The remark SHALL pass the internal-wording scan, and its
+units SHALL be Vietnamese.
+
+Data files read: none beyond those of `real-budget-ranges`. Recorded baseline figures: see that capability.
+
+#### Scenario: Pest control
+
+- **WHEN** `ESS12` is priced from a range of 30 projects with median 120 đ/m²/tháng on 36,679 m²
+- **THEN** its remark SHALL state the median 120 đ/m²/tháng, the P25–P75 range, "30 dự án do Savills quản lý", the
+  36,679 m² and the 12 months, and the VAT 10% added for 2027
+
+#### Scenario: Events
+
+- **WHEN** `ESC1` is priced from the range
+- **THEN** its remark SHALL also say that the figure stands in until the number of events and the price per event
+  are entered
+
+### Requirement: A revenue unit rate taken from the portfolio states its range without naming a project
+
+Where `RM.AP`, `RP1` or `RP2` is priced from a portfolio range, the line's remark on `2. Budget-Management Fund`
+SHALL say, in Vietnamese, that the unit rate is the median of the real figures of N Savills-managed projects,
+SHALL quote the median and the P25–P75 band in the rate's own unit (VND per m² per month for `RM.AP`, VND per
+vehicle per month for `RP1`/`RP2`), SHALL state the VAT basis of the quoted figures and, for `RM.AP`, the price
+year, and SHALL name no project (decision D3). The `1. Summary` narratives and helper sheet B5 SHALL quote the
+same applied unit rates. The former wording "theo đề xuất giữ xe của một dự án tham chiếu" SHALL appear only when
+the range could not be formed and the former constant is used.
+
+Where the unit rate is one the PM entered, the remark SHALL say so and SHALL name no portfolio statistic, in the
+wording already used for an entered management-fee rate.
+
+Data files read: none beyond the pricing itself. No data file is written. No baseline figure moves on account of
+the wording.
+
+#### Scenario: `RM.AP` priced from the range
+
+- **WHEN** the Apartment rate is the range median
+- **THEN** the `RM.AP` remark SHALL contain the number of projects, the median and the P25–P75 band in
+  đ/m²/tháng, the words "chưa VAT" for the quoted figures and the applied rate after VAT, and the price year 2027
+- **AND** verification's client-wording scan SHALL find no project name in it
+
+#### Scenario: `RP2` priced from the range
+
+- **WHEN** the car price is the master-list median
+- **THEN** the `RP2` remark SHALL read, in Vietnamese, that the price is the median monthly car parking price of
+  N Savills-managed projects, with the band, "đã gồm VAT", × the number of bays
+- **AND** the `RPa` narrative on `1. Summary` SHALL quote the same price
+
+#### Scenario: `RP1` priced from an entered price
+
+- **WHEN** the PM enters a motorbike price
+- **THEN** the `RP1` remark SHALL say the price is the one the PM entered and SHALL contain no "trung vị"
+
+#### Scenario: Verification covers the new remarks
+
+- **WHEN** verification runs on the standard sample
+- **THEN** its remark assertions SHALL include the `RM.AP`, `RP1` and `RP2` range wording
