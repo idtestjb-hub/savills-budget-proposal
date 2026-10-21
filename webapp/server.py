@@ -431,7 +431,7 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         os.makedirs(os.path.join(workdir, 'prior'), exist_ok=True)
         if copy_from is not None:      # bản chụp của file sống: lượt chạy lại sau vẫn ra cùng số
             prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
-            shutil.copy2(copy_from, prior_src)
+            shutil.copy2(library.long_path(copy_from), prior_src)
         if upload is not None:
             prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
             with open(prior_src, 'wb') as fh:

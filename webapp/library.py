@@ -11,8 +11,13 @@ BUDGET_WEB_LIBRARY_ROOT), không phải bản sao trong kho, theo quy tắc "fil
 - nhóm `new`: <root>\\Ngân sách thực tế dự án lập hằng năm (có số liệu báo cáo)\\<rel_path>;
 - nhóm `new_converted` (bản xlsx do Excel chuyển từ xlsb / giải nén zip, không có trên SharePoint): <kho>\\<rel_path>.
 
-Chọn được: .xlsx tồn tại trên đĩa. PDF (ảnh quét), xlsb, zip gốc hiện xám kèm lý do. Tên dự án thật chỉ nằm trong dữ
-liệu đọc lúc chạy, không nằm trong repo.
+Chọn được: .xlsx tồn tại trên đĩa và có năm ngân sách trước năm của mẫu (mẫu hiện là 2027 nên chỉ nhận ngân sách của
+năm 2026 trở về trước). PDF (ảnh quét), xlsb, zip gốc, file không có sheet quỹ, file từ năm của mẫu trở lên hiện xám
+kèm lý do. Tên dự án thật chỉ nằm trong dữ liệu đọc lúc chạy, không nằm trong repo.
+
+Đường dẫn dài: tên file trong thư viện có thể dài, nên đường dẫn đầy đủ vượt 260 ký tự (283 ở THE HORIZON trên server).
+Windows chỉ nhận đường dẫn đó khi bật LongPathsEnabled (client có, server không), nên mọi chỗ đọc hay chép file thư
+viện đi qua `long_path()` (tiền tố `\\\\?\\`), không phụ thuộc cài đặt hệ thống.
 """
 import csv
 import os
@@ -31,6 +36,35 @@ UNREADABLE_VI = {'pdf': 'PDF ảnh quét: không đọc được số', 'xlsb': 
 
 _cache = {'key': None, 'entries': None}
 _cache_lock = threading.Lock()
+
+LONG_PATH_MIN = 240   # dưới mức này Windows nhận đường dẫn thường; trên đó dùng tiền tố \\?\
+FALLBACK_TEMPLATE_YEAR = 2027
+_template_year = {'value': None}
+
+
+def long_path(path):
+    """Đường dẫn dùng được cho open / isfile / shutil trên Windows kể cả khi dài hơn 260 ký tự và hệ thống chưa bật
+    LongPathsEnabled: đường dẫn tuyệt đối có tiền tố \\\\?\\ (UNC: \\\\?\\UNC\\). Hệ điều hành khác hoặc đường dẫn ngắn: giữ nguyên."""
+    if os.name != 'nt' or not path:
+        return path
+    p = os.path.abspath(path)
+    if p.startswith('\\\\?\\') or len(p) < LONG_PATH_MIN:
+        return p
+    if p.startswith('\\\\'):
+        return '\\\\?\\UNC\\' + p[2:]
+    return '\\\\?\\' + p
+
+
+def template_year():
+    """Năm ngân sách của mẫu mà công cụ lập (ô AL5 của mẫu, hiện 2027). Đọc một lần khi cần; không đọc được thì 2027.
+    File ngân sách đã duyệt phải thuộc năm TRƯỚC năm này (existing_staffing.compute dừng nếu Prior Budget Year >= năm mẫu)."""
+    if _template_year['value'] is None:
+        try:
+            import generate_project_budget
+            _template_year['value'] = int(generate_project_budget.template_budget_year())
+        except Exception:      # noqa: BLE001 - mọi lỗi đọc mẫu đều quay về giá trị cố định, trang vẫn chạy
+            _template_year['value'] = FALLBACK_TEMPLATE_YEAR
+    return _template_year['value']
 
 
 def root_dir():
@@ -87,14 +121,17 @@ def load(root=None, store=None):
         path = os.path.normpath(_resolve(r, root, store))
         project = (pm.get('project_name') or '').strip()
         conf = (prof.get('primary_confidence') or '').strip()
+        year = prof.get('budget_year_v2') or pm.get('budget_year_v2') or pm.get('year_in_name') or ''
         reason = ''
         if ext != 'xlsx':
             reason = UNREADABLE_VI.get(ext, f'{ext}: không đọc được')
-        elif not os.path.isfile(path):
+        elif not os.path.isfile(long_path(path)):
             reason = 'Không thấy file trên SharePoint (đã đổi tên hoặc chuyển chỗ?)'
         elif not conf:
             reason = 'Không tìm thấy sheet quỹ quản lý trong file'
-        year = prof.get('budget_year_v2') or pm.get('budget_year_v2') or pm.get('year_in_name') or ''
+        elif str(year).isdigit() and int(year) >= template_year():
+            reason = (f'Ngân sách năm {int(year)}: công cụ lập ngân sách năm {template_year()}, nên chỉ review được '
+                      f'ngân sách đã duyệt của năm {template_year() - 1} trở về trước')
         out.append(dict(id=fid, project=project or _name_from_file(r.get('file_name', '')),
                         project_from='file' if project else 'tên file', file_name=r.get('file_name', ''),
                         folder={'old8': 'budget_planning', 'new': NEW_SUBFOLDER,

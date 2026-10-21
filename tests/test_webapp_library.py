@@ -56,6 +56,7 @@ def store(tmp_path, monkeypatch):
            [(f,) + PROFILE[f] for f in PROFILE])
     monkeypatch.setenv('BUDGET_WEB_LIBRARY_ROOT', str(root))
     monkeypatch.setenv('BUDGET_WEB_LIBRARY_STORE', str(st))
+    monkeypatch.setattr(library, 'template_year', lambda: 2027)      # mẫu 2027: file đã duyệt phải từ 2026 trở về trước
     library._cache['key'] = None
     return root
 
@@ -123,3 +124,77 @@ def test_review_from_library_refusals(client, monkeypatch):
     assert client.post('/api/reviews', data={'library_id': 'zzz', 'facts': facts}).status_code == 404
     r = client.post('/api/reviews', data={'library_id': 'ccc333', 'facts': facts})
     assert r.status_code == 400 and 'PDF' in r.json()['detail']
+
+
+# ---- đường dẫn dài (> 260 ký tự) và năm ngân sách từ năm của mẫu trở lên ----
+
+def _long_dir(base, n=300):
+    d = os.path.join(str(base), 'a' * 120, 'b' * 120)
+    assert len(d) + 20 > 260 and n
+    return d
+
+
+BS = chr(92)
+PREFIX = BS * 2 + '?' + BS            # tiền tố đường dẫn dài của Windows
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='tiền tố đường dẫn dài chỉ có ở Windows')
+def test_long_path_prefix_only_for_long_paths(tmp_path):
+    short = str(tmp_path / 'ngan.xlsx')
+    assert library.long_path(short) == os.path.abspath(short)
+    long_p = os.path.join(_long_dir(tmp_path), 'NS dai.xlsx')
+    once = library.long_path(long_p)
+    assert once.startswith(PREFIX) and library.long_path(once) == once
+    unc = library.long_path(BS * 2 + 'may' + BS + 'chia-se' + BS + 'x' * 260)
+    assert unc.startswith(PREFIX + 'UNC' + BS + 'may')
+    assert library.long_path('') == ''
+
+
+def test_library_finds_and_copies_file_with_path_over_260(store, tmp_path, monkeypatch):
+    d = os.path.join(str(store), library.NEW_SUBFOLDER, 'Budget 2026', 'c' * 110, 'd' * 60)
+    name = 'NS 2026 Khu G ' + 'e' * 40 + '.xlsx'
+    os.makedirs(library.long_path(d), exist_ok=True)
+    src = os.path.join(d, name)
+    assert len(src) > 260
+    build_prior_workbook(library.long_path(src))
+    st = tmp_path / 'scan' / 'final_v2'
+    rel = 'Budget 2026/' + 'c' * 110 + '/' + 'd' * 60 + '/' + name
+    for fn, row in (('dim_file.csv', ['ggg777', name, rel, 'new', 'xlsx', '']),
+                    ('project_map.csv', ['ggg777', name, 'KHU G', '']),
+                    ('file_profile.csv', ['ggg777', 'high', '2026', 'excl', '1000'])):
+        with open(st / fn, 'a', encoding='utf-8-sig', newline='') as fh:
+            csv.writer(fh).writerow(row)
+    library._cache['key'] = None
+    g = next(e for e in library.entries() if e['id'] == 'ggg777')
+    assert g['selectable'], g['reason']
+    assert len(g['path']) > 260
+    dst = tmp_path / 'copia.xlsx'
+    import shutil
+    shutil.copy2(library.long_path(g['path']), dst)
+    assert dst.stat().st_size > 0
+
+
+def test_year_from_the_template_year_is_not_selectable(store, monkeypatch):
+    monkeypatch.setattr(library, 'template_year', lambda: 2026)
+    library._cache['key'] = None
+    by = {e['id']: e for e in library.entries()}
+    assert not by['aaa111']['selectable']
+    assert 'Ngân sách năm 2026' in by['aaa111']['reason'] and 'năm 2025 trở về trước' in by['aaa111']['reason']
+    assert by['bbb222']['selectable'] and by['bbb222']['year'] == 2025
+    assert 'SharePoint' in by['eee555']['reason']                             # lý do cũ vẫn đứng trước lý do năm
+
+
+def test_review_from_library_refuses_year_from_template_year(client, monkeypatch):
+    monkeypatch.setattr(library, 'template_year', lambda: 2026)
+    library._cache['key'] = None
+    monkeypatch.setattr(server, '_worker', lambda run_id: None)
+    r = client.post('/api/reviews', data={'library_id': 'aaa111', 'facts': json.dumps(dict(city='Ho Chi Minh City'))})
+    assert r.status_code == 400 and 'Ngân sách năm 2026' in r.json()['detail']
+
+
+def test_year_hint_explains_the_prior_year_stop():
+    from webapp import review_run
+    msg = ("Project Info 'Prior Budget Year' is 2027, which is not before the budget year 2027 of the template.")
+    hint = review_run.year_hint(msg)
+    assert 'năm 2027' in hint and 'TRƯỚC năm 2027' in hint and 'từ năm 2026 trở về trước' in hint
+    assert review_run.year_hint('sheet khác: lỗi khác') == '' and review_run.year_hint(None) == ''
