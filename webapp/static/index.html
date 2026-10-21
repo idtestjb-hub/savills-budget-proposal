@@ -1,0 +1,1408 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nhập liệu ngân sách</title>
+<style>
+:root {
+  --sav-bg: #FFFFFF; --sav-surface: #FFFFFF; --sav-panel: #F7F4F1;
+  --sav-text: #000000; --sav-muted: #595959; --sav-rule: #D9D9D9; --sav-link: #25273A;
+  --sav-yellow: #FFDF00; --sav-on-yellow: #000000; --sav-navy: #25273A; --sav-red: #CE181E;
+  --sav-teal: #008493; --sav-grey: #79828C; --sav-warm-grey: #EEE8E3; --sav-total: #E4E6E8;
+  --sav-neg: #CE181E;
+  --sav-font: Arial, Helvetica, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+    --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00;
+    --sav-total: #303244; --sav-neg: #D95F65;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+  --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00;
+  --sav-total: #303244; --sav-neg: #D95F65;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sav-bg); color: var(--sav-text); font: 15px/1.5 var(--sav-font); }
+.edge { position: fixed; top: 0; right: 0; width: 7px; height: 100vh; background: var(--sav-yellow); }
+.page { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+.eyebrow { display: inline-block; font-size: 12px; letter-spacing: .7px; text-transform: uppercase;
+  background: var(--sav-yellow); color: var(--sav-on-yellow); padding: 3px 8px; }
+h1 { font-size: 32px; font-weight: 400; margin: 10px 0 4px; }
+h1 b { background: var(--sav-yellow); color: var(--sav-on-yellow); padding: 0 4px; }
+.lead { color: var(--sav-muted); margin: 0 0 24px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+@media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+section { background: var(--sav-surface); border: 1px solid var(--sav-rule); padding: 16px 18px; }
+section h2 { font-size: 16px; font-weight: 700; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .4px; }
+.field { display: grid; grid-template-columns: 1fr 160px; gap: 10px; align-items: center; padding: 5px 0;
+  border-bottom: 1px solid var(--sav-rule); }
+.field:last-child { border-bottom: 0; }
+.field label { color: var(--sav-text); }
+.field small { display: block; color: var(--sav-muted); font-size: 12px; }
+input, select { font: 15px var(--sav-font); color: var(--sav-text); background: var(--sav-surface);
+  border: 1px solid var(--sav-rule); padding: 6px 8px; width: 100%; text-align: right; }
+input[type=text] { text-align: left; }
+select { text-align: left; }
+input:focus, select:focus { outline: 2px solid var(--sav-navy); border-color: var(--sav-navy); }
+table { width: 100%; border-collapse: collapse; }
+th { background: var(--sav-yellow); color: var(--sav-on-yellow); font-weight: 400; text-align: right; padding: 6px 8px; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 3px 4px; }
+tbody tr:nth-child(even) td { background: var(--sav-warm-grey); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) tbody tr:nth-child(even) td { background: var(--sav-panel); } }
+td input { padding: 4px 6px; }
+tfoot td { background: var(--sav-total); font-weight: 700; text-align: right; padding: 6px 8px; }
+.actions { display: flex; gap: 16px; align-items: center; margin: 24px 0 18px; flex-wrap: wrap; }
+/* Nút chính: vàng Savills với chữ đen (tương phản 15:1), viền navy để không chìm trên nền trắng và nổi trên nền navy.
+   Hover: đảo sang navy, chữ vàng. Disabled: xám, chữ đen. */
+button.cta { font: 700 17px var(--sav-font); background: var(--sav-yellow); color: var(--sav-on-yellow);
+  border: 2px solid var(--sav-navy); padding: 13px 30px; cursor: pointer; letter-spacing: .2px;
+  box-shadow: 0 2px 0 var(--sav-navy); }
+button.cta:hover { background: var(--sav-navy); color: var(--sav-yellow); border-color: var(--sav-yellow); }
+button.cta:focus-visible { outline: 3px solid var(--sav-teal); outline-offset: 2px; }
+button.cta:disabled { background: var(--sav-grey); color: #000000; border-color: var(--sav-grey); box-shadow: none; cursor: default; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.cta { border-color: var(--sav-yellow); box-shadow: 0 2px 0 #000000; }
+  :root:not([data-theme="light"]) button.cta:hover { background: #FFFFFF; color: var(--sav-navy); border-color: #FFFFFF; } }
+:root[data-theme="dark"] button.cta { border-color: var(--sav-yellow); box-shadow: 0 2px 0 #000000; }
+:root[data-theme="dark"] button.cta:hover { background: #FFFFFF; color: var(--sav-navy); border-color: #FFFFFF; }
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--sav-rule); margin: 0 0 20px; }
+.tabs button { font: 700 15px var(--sav-font); background: none; border: 0; border-bottom: 4px solid transparent;
+  color: var(--sav-muted); padding: 10px 16px; cursor: pointer; margin-bottom: -2px; }
+.tabs button:hover { color: var(--sav-text); }
+.tabs button.on { color: var(--sav-text); border-bottom-color: var(--sav-yellow); }
+.tabs button .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--sav-yellow); margin-left: 6px; vertical-align: middle; }
+.panel { display: none; } .panel.on { display: block; }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 6px 0 18px; }
+@media (max-width: 820px) { .kpis { grid-template-columns: 1fr; } }
+.kpi { border: 1px solid var(--sav-rule); border-left: 6px solid var(--sav-navy); padding: 12px 14px; }
+.kpi.hi { border-left-color: var(--sav-yellow); }
+.kpi small { display: block; color: var(--sav-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+.kpi b { display: block; font-size: 24px; font-weight: 400; margin-top: 2px; }
+.kpi b.neg { color: var(--sav-neg); }
+.kpi i { display: block; color: var(--sav-muted); font-size: 12px; font-style: normal; }
+.src { color: var(--sav-muted); font-size: 12.5px; margin: 6px 0 0; }
+.res section { margin-bottom: 18px; }
+.res table td, .res table th { padding: 6px 8px; }
+.res td.lvl { font-weight: 700; }
+.guide h3 { font-size: 15px; margin: 18px 0 6px; }
+.guide ol li, .guide ul li { margin: 4px 0; }
+.guide table th { text-align: left; }
+.guide table td { padding: 6px 8px; vertical-align: top; }
+.guide td:first-child { white-space: nowrap; font-weight: 700; }
+.guide section + section { margin-top: 18px; }
+.guide .jump { font-size: 14px; margin: 0 0 14px; }
+.guide .jump a { color: var(--sav-link); font-weight: 700; margin-right: 14px; }
+/* Sơ đồ trong tab Hướng dẫn: SVG vẽ tay, màu theo token nên đổi theo chế độ sáng / tối. */
+.dg-wrap { overflow-x: auto; margin: 6px 0 14px; }
+.dg { display: block; width: 100%; min-width: 760px; height: auto; font-family: var(--sav-font); }
+.dg .bx { fill: var(--sav-surface); stroke: var(--sav-navy); stroke-width: 1.5; }
+.dg .bx.hi { fill: var(--sav-yellow); }
+.dg .bx.st { fill: var(--sav-panel); stroke: var(--sav-grey); }
+.dg .grp { fill: none; stroke: var(--sav-grey); stroke-width: 1.2; stroke-dasharray: 6 4; }
+.dg .t { fill: var(--sav-text); font-size: 14px; font-weight: 700; }
+.dg .s { fill: var(--sav-muted); font-size: 12px; }
+.dg .oy { fill: #000000; }
+.dg .ln { stroke: var(--sav-navy); stroke-width: 1.5; fill: none; }
+.dg .ln.dash { stroke-dasharray: 5 4; }
+.dg .ah { fill: var(--sav-navy); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dg .bx, :root:not([data-theme="light"]) .dg .ln { stroke: var(--sav-muted); }
+  :root:not([data-theme="light"]) .dg .ah { fill: var(--sav-muted); } }
+:root[data-theme="dark"] .dg .bx, :root[data-theme="dark"] .dg .ln { stroke: var(--sav-muted); }
+:root[data-theme="dark"] .dg .ah { fill: var(--sav-muted); }
+.status { color: var(--sav-muted); }
+.status.err, .src.err { color: var(--sav-neg); }
+.src a { color: var(--sav-link); font-weight: 700; }
+.status a { color: var(--sav-link); font-weight: 700; }
+.bar { height: 6px; background: var(--sav-warm-grey); flex: 1 1 220px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--sav-yellow); transition: width .6s; }
+pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px solid var(--sav-navy);
+  padding: 12px 14px; max-height: 320px; overflow: auto; font: 12.5px/1.45 Consolas, monospace; white-space: pre-wrap; }
+.files { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 10px; }
+@media (max-width: 820px) { .files { grid-template-columns: 1fr; } }
+.file { border: 1px solid var(--sav-rule); border-top: 6px solid var(--sav-yellow); padding: 12px 14px; }
+.file b { display: block; margin-bottom: 4px; }
+.file span { color: var(--sav-muted); font-size: 13px; word-break: break-all; }
+.file a { display: inline-block; margin-top: 8px; color: var(--sav-link); font-weight: 700; }
+.hidden { display: none; }
+/* Chọn chế độ: hai nút liền nhau, nút đang chọn nền vàng. */
+.modes { display: flex; gap: 0; margin: 0 0 18px; border: 1px solid var(--sav-rule); width: max-content; max-width: 100%; }
+.modes button { font: 700 14px var(--sav-font); background: var(--sav-surface); color: var(--sav-muted); border: 0;
+  padding: 10px 18px; cursor: pointer; }
+.modes button + button { border-left: 1px solid var(--sav-rule); }
+.modes button.on { background: var(--sav-yellow); color: var(--sav-on-yellow); }
+.modes button:focus-visible { outline: 3px solid var(--sav-teal); outline-offset: -3px; }
+input[type=file] { text-align: left; padding: 5px; }
+.req { color: var(--sav-red); font-weight: 700; }
+button.sm { font: 700 13px var(--sav-font); background: var(--sav-surface); color: var(--sav-navy); border: 1px solid var(--sav-navy);
+  padding: 4px 10px; cursor: pointer; margin: 2px 4px 2px 0; white-space: nowrap; }
+button.sm:hover { background: var(--sav-navy); color: var(--sav-yellow); }
+button.sm.pri { background: var(--sav-yellow); color: var(--sav-on-yellow); }
+button.sm.pri:hover { background: var(--sav-navy); color: var(--sav-yellow); }
+button.sm:disabled { color: var(--sav-grey); border-color: var(--sav-rule); background: var(--sav-surface); cursor: default; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.sm { color: var(--sav-text); border-color: var(--sav-rule); }
+  :root:not([data-theme="light"]) button.sm.pri { color: var(--sav-on-yellow); } }
+.his td, .his th { padding: 6px 8px; vertical-align: top; font-size: 14px; }
+.his td.files a { display: block; color: var(--sav-link); font-size: 13px; }
+.his .st-done { color: var(--sav-teal); font-weight: 700; } .his .st-failed { color: var(--sav-neg); font-weight: 700; } .his .st-running { color: var(--sav-muted); font-weight: 700; }
+.ties li { margin: 3px 0; } .ties b.ok { color: var(--sav-teal); } .ties b.bad { color: var(--sav-neg); }
+.num { text-align: right; white-space: nowrap; }
+.rv td.neg, .kpi b.neg { color: var(--sav-neg); }
+.notes td { font-size: 13px; }
+details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
+/* Điều chỉnh: dòng Tổng (mã) và dòng Chi tiết thụt lề ngay bên dưới. */
+.adj-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 0 0 12px; }
+.adj-tools label { display: flex; gap: 6px; align-items: center; font-size: 14px; }
+.adj-tools input[type=text], .adj-tools input[type=number], .adj-tools select { width: auto; text-align: left; padding: 5px 7px; font-size: 14px; }
+.adj-tools input[type=number] { width: 80px; text-align: right; }
+.adj-tools input[type=checkbox], #adj input[type=checkbox] { width: auto; }
+#adj td, #adj th { padding: 5px 6px; font-size: 14px; vertical-align: middle; }
+#adj tr.par td { background: var(--sav-surface); border-top: 1px solid var(--sav-rule); }
+#adj tr.par.dirty td { background: #FFF8CC; }
+#adj tr.par.saved td:nth-child(3) { box-shadow: inset 4px 0 0 var(--sav-teal); }
+#adj select, #adj input { font-size: 14px; padding: 3px 5px; }
+#adj select { width: 120px; }
+#adj input.pct { width: 76px; }
+#adj button.tg { background: none; border: 0; font: 700 15px var(--sav-font); color: var(--sav-navy); cursor: pointer; width: 24px; }
+#adj button.tg:disabled { color: var(--sav-rule); cursor: default; }
+#adj tr.sub > td { background: var(--sav-panel) !important; padding: 4px 6px 10px 46px; }
+#adj table.subs { width: 100%; border-collapse: collapse; }
+#adj table.subs th { background: var(--sav-warm-grey); color: var(--sav-text); font-size: 12.5px; padding: 4px 6px; }
+#adj table.subs td { font-size: 13px; padding: 3px 6px; background: var(--sav-surface); }
+#adj table.subs input { width: 110px; text-align: right; }
+#adj table.subs input:disabled, #adj input.pct:disabled { background: transparent; border-color: transparent; color: var(--sav-text); }
+#adj input.edit:not(:disabled) { background: #FFF2CC; border-color: var(--sav-navy); color: #000; }
+#adj tfoot td { text-align: right; }
+.adj-sum td, .adj-sum th { padding: 6px 8px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #adj tr.par.dirty td { background: #4A4630; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #adj button.tg { color: var(--sav-yellow); } }
+:root[data-theme="dark"] #adj button.tg { color: var(--sav-yellow); }
+.lib-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--sav-rule); }
+#lib td, #lib th { padding: 5px 8px; font-size: 13.5px; }
+#lib thead th { position: sticky; top: 0; z-index: 1; }
+#lib tbody tr { cursor: pointer; }
+#lib tbody tr:hover td { background: #FFF8CC; }
+#lib tbody tr.pick td { background: var(--sav-yellow) !important; color: var(--sav-on-yellow); }
+#lib tbody tr.off { cursor: not-allowed; } #lib tbody tr.off td { color: var(--sav-grey); background: var(--sav-surface) !important; }
+#lib div.fname { font-size: 12px; color: var(--sav-muted); font-weight: 400; }
+#lib tbody tr.pick div.fname { color: var(--sav-on-yellow); }
+#lib td:nth-child(2) { min-width: 260px; }
+#lib .warn { color: var(--sav-red); font-size: 12px; }
+#lib input[type=radio] { width: auto; }
+.modes button.hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="edge"></div>
+<div class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span class="eyebrow">Budget Agent</span>
+    <span class="status">__USER__</span>
+  </div>
+  <h1>Nhập thông tin dự án, bấm <b>Tạo ngân sách</b></h1>
+  <p class="lead">Dự án mới: tab Nhập liệu, sửa các ô (giá trị đang hiện là mẫu) rồi bấm nút. Dự án đang vận hành: tab Review, chọn ngân sách đã duyệt năm ngoái của dự án, công cụ lập ngân sách năm mới, so từng dòng và cho điều chỉnh ngay trên cùng màn. Mỗi lượt khoảng một đến hai phút.</p>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" class="on" data-tab="nhap">Nhập liệu dự án mới</button>
+    <button type="button" data-tab="review" id="tab-review">Review dự án đang vận hành</button>
+    <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả dự án mới</button>
+    <button type="button" data-tab="lichsu">Dự án đã tạo</button>
+    <button type="button" data-tab="huongdan">Hướng dẫn</button>
+  </nav>
+
+  <div class="panel on" id="panel-nhap">
+  <form id="f" class="grid" autocomplete="off">
+    <section>
+      <h2>Quy mô dự án</h2>
+      <div class="field"><label>Tên dự án</label><input type="text" name="project_name"></div>
+      <div class="field"><label>Quận / huyện <small>để trống nếu chưa rõ</small></label><input type="text" name="district"></div>
+      <div class="field"><label>Tỉnh / thành phố <small>để trống nếu chưa rõ</small></label><input type="text" name="city"></div>
+      <div class="field"><label>Diện tích đất (m²)</label><input type="number" name="site_area" min="0" step="any"></div>
+      <div class="field"><label>Diện tích cây xanh (m²)</label><input type="number" name="garden_area" min="0" step="any"></div>
+      <div class="field"><label>Diện tích sân đường, lối đi (m²) <small>không gian mở cho lịch trực</small></label><input type="number" name="open_space" min="0" step="any"></div>
+      <div class="field"><label>Số tầng</label><input type="number" name="floor_count" min="0" step="1"></div>
+      <div class="field"><label>Số tháp</label><input type="number" name="tower_count" min="0" step="1"></div>
+    </section>
+
+    <section>
+      <h2>Bãi xe, tiện ích, kỳ ngân sách</h2>
+      <div class="field"><label>Số chỗ đậu ô tô</label><input type="number" name="car_slots" min="0" step="1"></div>
+      <div class="field"><label>Số chỗ đậu xe máy</label><input type="number" name="moto_slots" min="0" step="1"></div>
+      <div class="field"><label>Có hồ bơi?</label>
+        <select name="has_pool"><option value="Yes">Có</option><option value="No">Không</option></select></div>
+      <div class="field"><label>Diện tích hồ bơi (m²) <small>tuỳ chọn</small></label><input type="number" name="pool_area" min="0" step="any"></div>
+      <div class="field"><label>Thể tích hồ bơi (m³) <small>tổng mọi hồ; 0 = chưa có số</small></label><input type="number" name="pool_volume" min="0" step="any"></div>
+      <div class="field"><label>Số cổng ra vào</label><input type="number" name="gate_count" min="0" step="1"></div>
+      <div class="field"><label>Tháng bắt đầu ngân sách <small>MM/YYYY, 12 tháng từ đây</small></label><input type="text" name="budget_start" placeholder="01/2027" pattern="\d{2}/\d{4}"></div>
+      <div class="field"><label>Tháng lập lịch trực mẫu <small>tháng / năm</small></label>
+        <div style="display:flex;gap:6px"><input type="number" name="roster_month" min="1" max="12" step="1"><input type="number" name="roster_year" min="2024" max="2035" step="1"></div></div>
+    </section>
+
+    <section style="grid-column: 1 / -1">
+      <h2>Cơ cấu sản phẩm</h2>
+      <table id="products">
+        <thead><tr><th>Sản phẩm</th><th>GFA (m²)</th><th>NFA (m²)</th><th>Số căn</th></tr></thead>
+        <tbody></tbody>
+        <tfoot><tr><td style="text-align:left">Tổng</td><td id="t-gfa"></td><td id="t-nfa"></td><td id="t-units"></td></tr></tfoot>
+      </table>
+    </section>
+  </form>
+
+  <div class="actions">
+    <button id="go" type="button" class="cta">Tạo ngân sách</button>
+    <div class="bar"><i id="bar"></i></div>
+    <span id="status" class="status">Đang tải giá trị mặc định…</span>
+  </div>
+
+  <pre id="log" class="hidden"></pre>
+  </div>
+
+  <div class="panel guide" id="panel-huongdan">
+    <p class="jump">Đi tới: <a href="#hd-new">Dự án mới</a><a href="#hd-review">Review dự án đang vận hành</a><a href="#hd-arch">Hệ thống chạy thế nào</a><a href="#hd-fields">Ý nghĩa từng thông số</a></p>
+    <section id="hd-new">
+      <h2>Cách sử dụng</h2>
+      <ol>
+        <li>Ở tab <b>Nhập liệu</b>, sửa các ô theo dự án của bạn. Giá trị đang hiện là mẫu, dùng để chạy thử.</li>
+        <li>Bảng <b>Cơ cấu sản phẩm</b>: điền GFA, NFA và số căn của loại sản phẩm dự án có; để 0 cho loại không có. Cần ít nhất một dòng có NFA.</li>
+        <li>Bấm <b>Tạo ngân sách</b>. Thanh tiến trình và log chạy hiện ngay dưới nút; một lượt mất khoảng 45–80 giây. Chỉ một lượt chạy tại một thời điểm.</li>
+        <li>Khi xong, tab <b>Kết quả</b> mở: doanh thu, chi phí và thặng dư quỹ vận hành năm đầu, mức dịch vụ, so sánh với dự án tham chiếu, và nút tải file.</li>
+        <li>Tải <b>bản giao khách</b> (form chuẩn 25 sheet, có sheet "4. Điều chỉnh" để chỉnh số lượng, đơn giá, trượt giá ngay trong file). Người có quyền còn tải được bản phân tích nội bộ và lịch trực.</li>
+      </ol>
+      <p>Dự án đang vận hành (đã có ngân sách được duyệt năm ngoái): dùng tab <b>Review</b>, xem <a href="#hd-review" style="color:var(--sav-link);font-weight:700">hướng dẫn riêng bên dưới</a>. Tab <b>Dự án đã tạo</b>: <b>Clone</b> một lượt để lập dự án tương tự; <b>Gen budget for new year</b> lấy bản giao của lượt cũ làm ngân sách năm ngoái; <b>Điều chỉnh</b> mở lại bảng điều chỉnh của lượt đó.</p>
+      <p class="src">Mỗi lượt chạy được lưu thành một thư mục riêng trên máy chủ; chạy lại không ghi đè lượt trước.</p>
+    </section>
+
+    <section id="hd-review">
+      <h2>Review dự án đang vận hành</h2>
+      <p>Dùng khi dự án đã có ngân sách được duyệt năm ngoái và cần lập ngân sách năm mới. Công cụ đọc số đã duyệt theo từng mã dòng, lập ngân sách năm mới theo phương pháp hiện hành, so từng dòng với số đã duyệt, rồi cho điều chỉnh ngay trên trang trước khi giao. Mỗi lượt khoảng 60–90 giây.</p>
+      <h3>Sơ đồ các bước</h3>
+      <div class="dg-wrap">
+      <svg class="dg" viewBox="0 0 1000 304" role="img" aria-labelledby="dg-flow-t">
+        <title id="dg-flow-t">Các bước review: chọn ngân sách đã duyệt, điền dữ kiện, tạo ngân sách năm mới (công cụ chạy bốn bước), xem kết quả, điều chỉnh và tải file; năm sau tạo tiếp từ tab Dự án đã tạo.</title>
+        <defs><marker id="ah-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect class="bx" x="8" y="16" width="176" height="88"/>
+        <text class="t" x="96" y="40" text-anchor="middle">1. Chọn ngân sách</text>
+        <text class="t" x="96" y="58" text-anchor="middle">đã duyệt năm ngoái</text>
+        <text class="s" x="96" y="80" text-anchor="middle">Dự án có sẵn · Tải file lên</text>
+        <text class="s" x="96" y="95" text-anchor="middle">· Bản giao lượt cũ</text>
+        <rect class="bx" x="214" y="16" width="176" height="88"/>
+        <text class="t" x="302" y="40" text-anchor="middle">2. Điền dữ kiện</text>
+        <text class="t" x="302" y="58" text-anchor="middle">file không có</text>
+        <text class="s" x="302" y="80" text-anchor="middle">Tỉnh / thành phố bắt buộc</text>
+        <text class="s" x="302" y="95" text-anchor="middle">ô trống ghi 0, có ghi chú</text>
+        <rect class="bx hi" x="420" y="16" width="176" height="88"/>
+        <text class="t oy" x="508" y="40" text-anchor="middle">3. Bấm Tạo ngân</text>
+        <text class="t oy" x="508" y="58" text-anchor="middle">sách năm mới</text>
+        <text class="s oy" x="508" y="80" text-anchor="middle">khoảng 60–90 giây</text>
+        <text class="s oy" x="508" y="95" text-anchor="middle">một lượt tại một thời điểm</text>
+        <rect class="bx" x="626" y="16" width="176" height="88"/>
+        <text class="t" x="714" y="40" text-anchor="middle">4. Xem kết quả</text>
+        <text class="t" x="714" y="58" text-anchor="middle">review</text>
+        <text class="s" x="714" y="80" text-anchor="middle">thu, chi, thặng dư · 8 đối chiếu</text>
+        <text class="s" x="714" y="95" text-anchor="middle">10 dòng lệch · ghi chú nhập</text>
+        <rect class="bx" x="832" y="16" width="160" height="88"/>
+        <text class="t" x="912" y="40" text-anchor="middle">5. Điều chỉnh,</text>
+        <text class="t" x="912" y="58" text-anchor="middle">lưu, tải file</text>
+        <text class="s" x="912" y="80" text-anchor="middle">Excel tính lại,</text>
+        <text class="s" x="912" y="95" text-anchor="middle">hiện trước / sau</text>
+        <path class="ln" d="M184 60 H212" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M390 60 H418" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M596 60 H624" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M802 60 H830" marker-end="url(#ah-flow)"/>
+        <path class="ln dash" d="M508 104 V146" marker-end="url(#ah-flow)"/>
+        <rect class="grp" x="150" y="150" width="700" height="100"/>
+        <text class="s" x="164" y="170">Công cụ tự động chạy (log dưới nút hiện [1/4] … [4/4])</text>
+        <rect class="bx st" x="166" y="182" width="155" height="56"/>
+        <text class="t" x="243" y="204" text-anchor="middle" style="font-size:13px">[1/4] Đọc file</text>
+        <text class="s" x="243" y="222" text-anchor="middle">số duyệt theo mã dòng</text>
+        <rect class="bx st" x="335" y="182" width="155" height="56"/>
+        <text class="t" x="412" y="204" text-anchor="middle" style="font-size:13px">[2/4] Đổ form</text>
+        <text class="s" x="412" y="222" text-anchor="middle">dự án đang vận hành</text>
+        <rect class="bx st" x="504" y="182" width="155" height="56"/>
+        <text class="t" x="581" y="204" text-anchor="middle" style="font-size:13px">[3/4] Lập ngân sách</text>
+        <text class="s" x="581" y="222" text-anchor="middle">bản giao + phân tích</text>
+        <rect class="bx st" x="673" y="182" width="155" height="56"/>
+        <text class="t" x="750" y="204" text-anchor="middle" style="font-size:13px">[4/4] Excel tính lại</text>
+        <text class="s" x="750" y="222" text-anchor="middle">ghi sheet Review</text>
+        <path class="ln" d="M321 210 H333" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M490 210 H502" marker-end="url(#ah-flow)"/>
+        <path class="ln" d="M659 210 H671" marker-end="url(#ah-flow)"/>
+        <path class="ln dash" d="M912 104 V276 H96 V106" marker-end="url(#ah-flow)"/>
+        <text class="s" x="504" y="294" text-anchor="middle">Năm sau: tab Dự án đã tạo → Gen budget for new year (bản giao năm nay thành ngân sách năm ngoái)</text>
+      </svg>
+      </div>
+      <ol>
+        <li><b>Chọn ngân sách đã duyệt năm ngoái</b> (mục 1 của tab Review), một trong ba cách:
+          <ul>
+            <li><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không đọc được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ); tick "Hiện cả file không đọc được" để xem lý do. File có cảnh báo đỏ "đối chiếu tổng có thể LỆCH" vẫn chạy được, nhưng nên xem kỹ kết quả.</li>
+            <li><b>Tải file lên:</b> file .xlsx theo form Savills 2026/2027 (hai sheet quỹ, cột năm, 12 tháng, sheet 0. Info).</li>
+            <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Dự án đã tạo.</li>
+          </ul></li>
+        <li><b>Điền dữ kiện file ngân sách không có</b> (mục 2). <b>Tỉnh / thành phố là bắt buộc</b> vì biểu giá nước lấy theo đó. Số tháp, số tầng, số cổng, hồ bơi, thể tích hồ, số chỗ đậu xe: điền nếu biết. Ô để trống được ghi 0 trên form và liệt kê trong ghi chú nhập để điền sau; số chỗ đậu để trống thì lấy theo sheet 0. Info của file.</li>
+        <li><b>Bấm Tạo ngân sách năm mới.</b> Thanh tiến trình và log hiện ngay dưới nút, với bốn bước [1/4] … [4/4] như sơ đồ. Cả trang chỉ chạy một lượt tại một thời điểm; nếu trang báo "Đang có một lượt chạy", chờ một đến hai phút rồi bấm lại.</li>
+        <li><b>Đọc kết quả</b> hiện ngay bên dưới trên cùng tab (xem bảng "Đọc kết quả").</li>
+        <li><b>Điều chỉnh</b> ngân sách năm mới nếu cần (mục 3, cùng màn), rồi <b>tải file</b>.</li>
+      </ol>
+      <h3>Đọc kết quả</h3>
+      <table>
+        <thead><tr><th>Khối</th><th>Ý nghĩa</th></tr></thead>
+        <tbody>
+        <tr><td>Duyệt so với công cụ</td><td>Tổng thu, tổng chi, thặng dư của quỹ quản lý vận hành và quỹ khu vực chung. "Duyệt NS năm cũ (quy đổi)" là số đã duyệt quy về cùng cơ sở VAT với bản giao; "Công cụ NS năm mới" là số công cụ lập; kèm chênh lệch và %. Đơn vị triệu VND/năm.</td></tr>
+        <tr><td>Đối chiếu tổng</td><td>Tám phép: với mỗi quỹ và mỗi mục thu / chi, cột công cụ cộng lại phải bằng dòng tổng của bản giao, và cột duyệt cộng lại phải bằng dòng tổng của file nguồn. <b>KHỚP</b>: số đã đọc đủ. <b>LỆCH</b>: lượt vẫn xong, nhưng có dòng chưa đọc được hoặc file nguồn tự lệch tổng; mở bản phân tích, sheet Review để xem.</td></tr>
+        <tr><td>10 dòng lệch lớn nhất</td><td>Mã, hạng mục, số duyệt, số công cụ, chênh lệch, và cột "Cách công cụ ra số" giải thích vì sao khác.</td></tr>
+        <tr><td>Ghi chú nhập</td><td>Ô để trống cần điền; mã có trong file cũ nhưng không có trên form 2027 (chỉ liệt kê, không tự gán sang mã khác); mục cần PM xác nhận; dữ kiện đã dùng.</td></tr>
+        </tbody>
+      </table>
+      <h3>Điều chỉnh trước khi giao</h3>
+      <ol>
+        <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá hoặc Trượt giá. Chọn Số lượng hoặc Đơn giá thì các dòng chi tiết mở ngay bên dưới.</li>
+        <li>Sửa ô vàng. Thành tiền mới, chênh lệch và % tính ngay; cột <b>Duyệt</b> cho thấy số năm cũ để so.</li>
+        <li><b>Trượt giá hàng loạt:</b> lọc (ví dụ gõ ES), bấm "Chọn mọi mã đang hiện", nhập %, bấm "Áp cho các mã đã chọn".</li>
+        <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>. Bản giao được ghi đè, bản cũ giữ làm backup có ngày giờ; Excel tính lại và trang hiện thu, chi, thặng dư trước và sau. Bản giao tải sau khi lưu mới là bản cuối.</li>
+      </ol>
+      <p class="src">Không có trên bảng điều chỉnh: dự phòng (EM#, ES#, EE#) và phần chia sang quỹ khu vực chung tự chạy theo công thức; EMH3, EMH4, RI1 tính từ sheet chi tiết riêng.</p>
+      <h3>Tải file</h3>
+      <ul>
+        <li><b>Bản giao khách:</b> form chuẩn, có sheet "4. Điều chỉnh".</li>
+        <li><b>Bản phân tích nội bộ:</b> có sheet Review so từng dòng duyệt với công cụ và ghi cách công cụ ra số.</li>
+        <li><b>Lịch trực.</b> Tài khoản chỉ xem chỉ tải được bản giao khách.</li>
+      </ul>
+      <h3>Lưu ý khi đọc số</h3>
+      <ul>
+        <li>Lấy thẳng từ file đã duyệt: đơn giá phí quản lý, doanh thu giữ xe, thu hộ chi hộ, lương và điện nước. Các dòng khác được ước lượng lại theo phương pháp năm mới.</li>
+        <li>Dòng có số duyệt mà công cụ chưa có phương pháp sẽ ra 0 và ghi "Chưa có phương pháp"; công cụ không chép số cũ sang.</li>
+        <li>Chế độ Review coi dự án đã vận hành ổn định: phần chủ đầu tư bù (RM.0A) bằng 0 và phí quản lý tính theo 100% lấp đầy. Khi Gen budget for new year từ lượt của một dự án mới, các dòng này có thể khác nhiều so với năm đầu.</li>
+        <li>Sheet Review trong bản phân tích so số công cụ <b>trước</b> điều chỉnh. Tổng sau điều chỉnh xem ở bảng "Kết quả lần lưu gần nhất".</li>
+      </ul>
+      <h3>Khi gặp lỗi</h3>
+      <table>
+        <thead><tr><th>Trang báo</th><th>Cách xử lý</th></tr></thead>
+        <tbody>
+        <tr><td>Đang có một lượt chạy</td><td>Người khác đang chạy. Chờ một đến hai phút rồi bấm lại.</td></tr>
+        <tr><td>Thiếu Tỉnh / thành phố</td><td>Điền ô này ở mục 2 rồi bấm lại.</td></tr>
+        <tr><td>Dòng xám, không chọn được</td><td>File không đọc được. Nếu có bản .xlsx của file đó, dùng "Tải file lên".</td></tr>
+        <tr><td>Bản giao đang mở trong Excel</td><td>File đang được mở trên máy chủ. Báo nhóm IT đóng file rồi lưu lại.</td></tr>
+        <tr><td>Đối chiếu LỆCH</td><td>Kết quả vẫn dùng được. Mở bản phân tích, sheet Review, xem các dòng lệch và ghi chú nhập.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="hd-arch">
+      <h2>Hệ thống chạy thế nào</h2>
+      <div class="dg-wrap">
+      <svg class="dg" viewBox="0 0 1000 300" role="img" aria-labelledby="dg-arch-t">
+        <title id="dg-arch-t">Kiến trúc tổng quan: trình duyệt của PM vào máy chủ Hub qua cổng đăng nhập; trang Budget Agent chạy bộ sinh ngân sách và Excel; đọc ngân sách đã duyệt trên SharePoint; ghi mỗi lượt vào thư mục riêng trên máy chủ.</title>
+        <defs><marker id="ah-arch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect class="bx" x="8" y="112" width="150" height="80"/>
+        <text class="t" x="83" y="140" text-anchor="middle">Trình duyệt</text>
+        <text class="t" x="83" y="158" text-anchor="middle">của PM</text>
+        <text class="s" x="83" y="178" text-anchor="middle">Edge / Chrome</text>
+        <rect class="grp" x="196" y="16" width="568" height="276"/>
+        <text class="s" x="210" y="36">Máy chủ Hub (mạng Savills)</text>
+        <rect class="bx" x="214" y="112" width="150" height="80"/>
+        <text class="t" x="289" y="140" text-anchor="middle">Cổng vào trang</text>
+        <text class="s" x="289" y="162" text-anchor="middle">đăng nhập tài khoản</text>
+        <text class="s" x="289" y="177" text-anchor="middle">công ty · /budget/</text>
+        <rect class="bx hi" x="404" y="112" width="160" height="80"/>
+        <text class="t oy" x="484" y="140" text-anchor="middle">Trang Budget Agent</text>
+        <text class="s oy" x="484" y="162" text-anchor="middle">5 tab · xếp một lượt</text>
+        <text class="s oy" x="484" y="177" text-anchor="middle">tại một thời điểm</text>
+        <rect class="bx" x="604" y="112" width="144" height="80"/>
+        <text class="t" x="676" y="140" text-anchor="middle">Bộ sinh ngân</text>
+        <text class="t" x="676" y="158" text-anchor="middle">sách + Excel</text>
+        <text class="s" x="676" y="178" text-anchor="middle">lập, so sánh, tính lại</text>
+        <rect class="bx st" x="404" y="226" width="344" height="54"/>
+        <text class="t" x="576" y="248" text-anchor="middle">Thư mục lượt chạy (mỗi lượt một thư mục)</text>
+        <text class="s" x="576" y="268" text-anchor="middle">bản chụp file duyệt · form · 3 file kết quả · backup điều chỉnh</text>
+        <rect class="bx st" x="806" y="112" width="186" height="80"/>
+        <text class="t" x="899" y="140" text-anchor="middle">SharePoint (PM)</text>
+        <text class="s" x="899" y="162" text-anchor="middle">ngân sách đã duyệt thật</text>
+        <text class="s" x="899" y="177" text-anchor="middle">+ danh sách đã quét</text>
+        <path class="ln" d="M158 152 H212" marker-start="url(#ah-arch)" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M364 152 H402" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M564 152 H602" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M676 192 V224" marker-end="url(#ah-arch)"/>
+        <path class="ln" d="M484 192 V224" marker-start="url(#ah-arch)" marker-end="url(#ah-arch)"/>
+        <path class="ln dash" d="M899 112 V80 H484 V110" marker-end="url(#ah-arch)"/>
+        <text class="s" x="692" y="72" text-anchor="middle">chỉ đọc: danh sách dự án, chép bản chụp file khi chạy</text>
+        <text class="s" x="686" y="214">ghi kết quả</text>
+        <text class="s" x="494" y="214">đọc, tải file</text>
+      </svg>
+      </div>
+      <ul>
+        <li>PM mở trang qua máy chủ Hub bằng trình duyệt và đăng nhập bằng tài khoản công ty. Không cần cài gì trên máy.</li>
+        <li>Trang Budget Agent nhận yêu cầu, xếp một lượt tại một thời điểm, rồi chạy bộ sinh ngân sách và Excel ngay trên máy chủ.</li>
+        <li>Danh sách dự án có sẵn đọc từ SharePoint. Khi chạy, một bản chụp file đã duyệt được chép vào thư mục của lượt, nên chạy lại cho ra cùng số. File trên SharePoint không bị sửa.</li>
+        <li>Mỗi lượt có thư mục riêng trên máy chủ; lượt sau không ghi đè lượt trước. Tab Dự án đã tạo đọc lại các thư mục này.</li>
+      </ul>
+    </section>
+
+    <section id="hd-fields">
+      <h2>Ý nghĩa từng thông số</h2>
+      <h3>Quy mô dự án</h3>
+      <table>
+        <thead><tr><th>Trường</th><th>Dùng để làm gì</th></tr></thead>
+        <tbody>
+        <tr><td>Tên dự án</td><td>Đặt tên file kết quả và ghi trên bản giao.</td></tr>
+        <tr><td>Quận / huyện, Tỉnh / thành phố</td><td>Xếp hạng dự án tham chiếu theo vị trí (gần hơn được ưu tiên). Để trống thì chỉ xếp theo quy mô. Giá nước lấy theo biểu giá TP. Hồ Chí Minh; dự án nơi khác có ghi chú nhắc kiểm tra hoá đơn nước địa phương.</td></tr>
+        <tr><td>Diện tích đất (m²)</td><td>Thông tin dự án trên bản giao.</td></tr>
+        <tr><td>Diện tích cây xanh (m²)</td><td>Quyết định số nhân viên cây xanh (m² vườn trên mỗi người, tỷ lệ trong Roster Setup).</td></tr>
+        <tr><td>Diện tích sân đường, lối đi (m²)</td><td>"Không gian mở": quyết định số bảo vệ tuần tra và nhân viên vệ sinh khu vực chung.</td></tr>
+        <tr><td>Số tầng</td><td>Thông tin dự án trên bản giao.</td></tr>
+        <tr><td>Số tháp</td><td>Quyết định số giám sát vệ sinh (số tháp trên mỗi giám sát) và các dòng tính theo tháp như vệ sinh mặt ngoài.</td></tr>
+        </tbody>
+      </table>
+      <h3>Cơ cấu sản phẩm</h3>
+      <table>
+        <thead><tr><th>Cột</th><th>Dùng để làm gì</th></tr></thead>
+        <tbody>
+        <tr><td>GFA (m²)</td><td>Diện tích sàn xây dựng, ghi trên bản giao.</td></tr>
+        <tr><td>NFA (m²)</td><td><b>Diện tích thu phí.</b> Căn cứ tính doanh thu phí quản lý, chọn dự án tham chiếu (theo tổng NFA mọi sản phẩm), và nhiều dòng chi phí tính theo m². Sản phẩm có NFA bằng 0 bị bỏ trống trên bản giao.</td></tr>
+        <tr><td>Số căn</td><td>Số căn hộ, số lô; dùng tính phí một căn, tổng số sản phẩm và doanh thu bãi xe.</td></tr>
+        <tr><td>Chín loại sản phẩm</td><td>Căn hộ, Officetel, Văn phòng, Trung tâm thương mại, Bán lẻ, Căn hộ thương mại, Shophouse, Biệt thự, Nhà trẻ: đúng thứ tự dòng doanh thu của form chuẩn. Văn phòng, Căn hộ thương mại, Nhà trẻ (và Officetel khi dự án tham chiếu không có giá) được tính theo đơn giá căn hộ của dự án, bản giao ghi rõ.</td></tr>
+        </tbody>
+      </table>
+      <h3>Bãi xe, tiện ích, kỳ ngân sách</h3>
+      <table>
+        <thead><tr><th>Trường</th><th>Dùng để làm gì</th></tr></thead>
+        <tbody>
+        <tr><td>Số chỗ đậu ô tô, xe máy</td><td>Doanh thu giữ xe (số chỗ × đơn giá × tỷ lệ lấp đầy) và sheet phân bổ bãi xe. Dự án không có bãi xe để 0.</td></tr>
+        <tr><td>Có hồ bơi?</td><td>Công tắc bật/tắt toàn bộ chi phí hồ bơi và nhân viên cứu hộ.</td></tr>
+        <tr><td>Diện tích hồ bơi (m²)</td><td>Số nhân viên cứu hộ mỗi ca: 1 người cho mỗi 200 m² mặt nước (Thông tư 03/2018/TT-BVHTTDL, Điều 5.3). Để trống thì 1 người mỗi ca.</td></tr>
+        <tr><td>Thể tích hồ bơi (m³)</td><td>Tổng thể tích nước của mọi hồ cộng lại; quyết định chi phí hoá chất. Để 0 thì dùng một số cố định từ một dự án thật và không đổi theo quy mô hồ.</td></tr>
+        <tr><td>Số cổng ra vào</td><td>Số bảo vệ cổng chính (người mỗi cổng, 3 ca).</td></tr>
+        <tr><td>Tháng bắt đầu ngân sách</td><td>Tháng đầu của 12 tháng ngân sách (MM/YYYY). Thuế GTGT, biểu giá và ngày lễ lấy theo đúng từng tháng. Để trống là 01/2027.</td></tr>
+        <tr><td>Tháng lập lịch trực mẫu</td><td>Tháng và năm để dựng lịch trực mẫu theo ngày; ngày lễ luật định của tháng đó được tự điền (Tết và Giỗ Tổ theo lịch âm).</td></tr>
+        </tbody>
+      </table>
+      <h3>Những gì trang chưa cho nhập</h3>
+      <ul>
+        <li>Phí quản lý của Savills (phí cố định hoặc % phí thu): để trống cho đến khi có hợp đồng thật, bản giao bỏ trống dòng EMH1.</li>
+        <li>Tỷ lệ nhân sự (Roster Setup), nhu cầu nhân sự từng vị trí (Staffing Demand), chế độ dự án đang vận hành và dự án Savills đã quản lý: giữ nguyên theo file mẫu. Cần sửa thì dùng file nhập liệu Excel theo tài liệu dự án.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="panel res" id="panel-ketqua">
+    <p id="res-empty" class="status">Chưa có lượt dự án mới nào được mở. Bấm "Tạo ngân sách" ở tab Nhập liệu, hoặc "Xem" một lượt ở tab Dự án đã tạo.</p>
+    <div id="res-body" class="hidden">
+      <p class="src" id="res-head"></p>
+      <div id="res-new">
+      <section>
+        <h2>Năm đầu: thu, chi, thặng dư quỹ vận hành</h2>
+        <div class="kpis" id="kpis"></div>
+        <p class="src" id="fin-src"></p>
+      </section>
+      <section>
+        <h2>Mức dịch vụ</h2>
+        <table id="svc"><thead><tr><th>Dịch vụ</th><th>Người trực / ngày</th><th>Chỉ số</th><th>Mức</th><th>Vị trí so với dự án tham chiếu</th></tr></thead><tbody></tbody></table>
+        <p class="src" id="svc-src"></p>
+      </section>
+      <section>
+        <h2>So sánh với dự án tham chiếu</h2>
+        <table id="cmp"><thead></thead><tbody></tbody></table>
+        <p class="src" id="cmp-src"></p>
+      </section>
+      </div>
+      <section>
+        <h2>Tải file</h2>
+        <div id="files" class="files"></div>
+      </section>
+      <div id="res-adj-slot"></div>
+      <section>
+        <h2>Điều chỉnh ngay trong file Excel</h2>
+        <p>Mở bản giao khách, sheet <b>4. Điều chỉnh</b>: mỗi mã ngân sách là một dòng tổng, bên dưới là các dòng chi tiết (vị trí, thiết bị, sản phẩm...). Chọn loại điều chỉnh ở dòng tổng rồi sửa ô vàng của dòng chi tiết:</p>
+        <table>
+          <thead><tr><th>Loại điều chỉnh</th><th>Ô sửa được</th><th>Thành tiền mới</th></tr></thead>
+          <tbody>
+          <tr><td>Số lượng</td><td>SL mới</td><td>SL mới × đơn giá gốc</td></tr>
+          <tr><td>Đơn giá</td><td>Đơn giá mới</td><td>SL gốc × đơn giá mới</td></tr>
+          <tr><td>Trượt giá</td><td>Trượt giá %</td><td>Thành tiền gốc × (1 + %)</td></tr>
+          </tbody>
+        </table>
+        <p class="src">Chênh lệch và % tính ngay tại dòng; dòng tổng, sheet quỹ, 1. Summary và dự phòng chạy theo. Liên kết theo mã dòng, không theo số dòng Excel. Chưa sửa gì thì bản giao giữ nguyên số gốc.</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-review">
+    <section>
+      <h2>1. Ngân sách đã duyệt năm ngoái</h2>
+      <p class="src" style="margin:-4px 0 12px">Lần đầu dùng: xem <a href="#hd-review" id="rv-guide" style="color:var(--sav-link);font-weight:700">hướng dẫn và sơ đồ các bước</a>.</p>
+      <div class="modes" role="radiogroup" aria-label="Nguồn ngân sách đã duyệt">
+        <button type="button" class="on" data-src="lib" role="radio" aria-checked="true">Dự án có sẵn</button>
+        <button type="button" data-src="upload" role="radio" aria-checked="false">Tải file lên</button>
+        <button type="button" data-src="run" role="radio" aria-checked="false" class="hidden" id="src-run-btn">Bản giao của lượt cũ</button>
+      </div>
+      <div id="rv-lib">
+        <div class="adj-tools">
+          <label>Tìm <input type="text" id="lib-q" placeholder="tên dự án hoặc tên file" size="24"></label>
+          <label>Năm <select id="lib-year"><option value="">Mọi năm</option></select></label>
+          <label><input type="checkbox" id="lib-ok"> Chỉ file khớp tổng</label>
+          <label><input type="checkbox" id="lib-all"> Hiện cả file không đọc được</label>
+          <span class="status" id="lib-info">Đang tải danh sách…</span>
+        </div>
+        <div class="lib-wrap"><table class="lib" id="lib"><thead><tr><th></th><th>Dự án</th><th class="num">Năm NS</th><th>VAT</th><th class="num">NFA (m²)</th><th>Sheet quỹ</th></tr></thead><tbody></tbody></table></div>
+        <p class="src" id="lib-src"></p>
+        <p id="lib-picked" class="status"></p>
+      </div>
+      <div id="rv-upload" class="hidden">
+        <div class="field"><label>File ngân sách đã duyệt (.xlsx) <small>form Savills 2026/2027: hai sheet quỹ, cột năm, 12 tháng, sheet 0. Info</small></label><input type="file" id="prior-file" accept=".xlsx"></div>
+      </div>
+      <div id="rv-run" class="hidden">
+        <p>Nguồn: bản giao của lượt <b id="rv-run-name"></b> <span class="status" id="rv-run-id"></span></p>
+      </div>
+      <p class="src">Công cụ đọc số đã duyệt theo mã dòng trên hai sheet quỹ (cột năm, đối chiếu 12 tháng). Đơn giá phí quản lý, doanh thu xe, thu hộ chi hộ, lương và điện nước đã duyệt được lấy từ file; các dòng khác được ước lượng lại theo phương pháp của năm mới. Dòng có số duyệt mà công cụ chưa có phương pháp sẽ ra 0 và được ghi "Chưa có phương pháp", không chép số cũ.</p>
+    </section>
+    <form id="fr" autocomplete="off" style="margin-top:18px">
+    <section>
+      <h2>2. Dữ kiện file ngân sách không có</h2>
+      <div class="field"><label>Tỉnh / thành phố <span class="req">*</span> <small>bắt buộc: biểu giá nước lấy theo đó</small></label><input type="text" name="city" placeholder="Ho Chi Minh City"></div>
+      <div class="field"><label>Quận / huyện <small>tuỳ chọn</small></label><input type="text" name="district"></div>
+      <div class="field"><label>Số tháp</label><input type="number" name="tower_count" min="0" step="1"></div>
+      <div class="field"><label>Số tầng <small>tổng các tháp</small></label><input type="number" name="floor_count" min="0" step="1"></div>
+      <div class="field"><label>Số cổng ra vào</label><input type="number" name="gate_count" min="0" step="1"></div>
+      <div class="field"><label>Có hồ bơi?</label>
+        <select name="has_pool"><option value="">(chưa rõ)</option><option value="Yes">Có</option><option value="No">Không</option></select></div>
+      <div class="field"><label>Thể tích hồ bơi (m³) <small>tổng mọi hồ</small></label><input type="number" name="pool_volume" min="0" step="any"></div>
+      <div class="field"><label>Số chỗ đậu ô tô <small>để trống = lấy theo sheet 0. Info</small></label><input type="number" name="car_slots" min="0" step="1"></div>
+      <div class="field"><label>Số chỗ đậu xe máy</label><input type="number" name="moto_slots" min="0" step="1"></div>
+      <p class="src">Ô để trống được ghi 0 trên form và liệt kê trong ghi chú nhập để PM điền sau.</p>
+    </section>
+    </form>
+    <div class="actions">
+      <button id="go-review" type="button" class="cta">Tạo ngân sách năm mới</button>
+      <div class="bar"><i id="bar-review"></i></div>
+      <span id="status-review" class="status">Chọn ngân sách đã duyệt, điền Tỉnh / thành phố, rồi bấm nút.</span>
+    </div>
+    <pre id="log-review" class="hidden"></pre>
+    <div id="rv-result" class="hidden">
+      <p class="src" id="rv-head"></p>
+      <div id="res-review" class="rv">
+      <section>
+        <h2 id="rv-title">Ngân sách đã duyệt so với ngân sách năm mới do công cụ sinh</h2>
+        <p class="src" id="rv-meta"></p>
+        <table id="rv-sum"><thead></thead><tbody></tbody></table>
+        <p class="src" id="rv-counts"></p>
+      </section>
+      <section>
+        <h2>Đối chiếu tổng</h2>
+        <ul class="ties" id="rv-ties"></ul>
+        <p class="src">Hai phép đối chiếu cho mỗi quỹ và mục: cột công cụ cộng lại bằng dòng R / E của bản giao; cột duyệt cộng lại bằng dòng R / E của file nguồn.</p>
+      </section>
+      <section>
+        <h2>10 dòng lệch lớn nhất</h2>
+        <table id="rv-top"><thead><tr><th>#</th><th>Quỹ</th><th>Mã</th><th>Hạng mục</th><th>Duyệt (quy đổi)</th><th>Công cụ</th><th>Chênh</th><th>%</th><th>Cách công cụ ra số</th></tr></thead><tbody></tbody></table>
+        <p class="src" id="rv-top-src"></p>
+      </section>
+      <section>
+        <h2>Ghi chú nhập</h2>
+        <p class="src" id="rv-notes-sum"></p>
+        <details><summary>Xem toàn bộ ghi chú</summary>
+        <table class="notes" id="rv-notes"><thead><tr><th>Loại</th><th>Mã / trường</th><th>Ghi chú</th></tr></thead><tbody></tbody></table>
+        </details>
+      </section>
+      </div>
+      <section>
+        <h2>Tải file</h2>
+        <div id="files-review" class="files"></div>
+      </section>
+      <div id="rv-adj-slot"></div>
+    </div>
+  </div>
+
+  <div id="adj-home" class="hidden">
+    <div id="adj-body" class="hidden">
+      <section>
+        <h2 id="adj-title">Điều chỉnh ngân sách năm mới</h2>
+        <p class="src" id="adj-head"></p>
+        <ol style="margin:6px 0 12px;padding-left:20px;font-size:14px">
+          <li>Chọn <b>loại điều chỉnh</b> trên dòng của mã: Số lượng, Đơn giá hoặc Trượt giá. Chọn Số lượng hoặc Đơn giá thì các dòng chi tiết mở ngay bên dưới.</li>
+          <li>Sửa ô vàng: SL mới (Số lượng), Đơn giá mới (Đơn giá), hoặc Trượt giá % trên dòng mã. Thành tiền mới và chênh lệch tính ngay.</li>
+          <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>: bản giao được ghi đè (bản cũ giữ làm backup có ngày), Excel tính lại và trang hiện thu, chi, thặng dư trước và sau.</li>
+        </ol>
+        <div class="adj-tools">
+          <label>Tìm <input type="text" id="adj-q" placeholder="mã hoặc hạng mục" size="18"></label>
+          <label>Quỹ <select id="adj-fund"><option value="">Tất cả</option><option value="MF">Quỹ quản lý vận hành</option><option value="CA">Quỹ khu vực chung</option></select></label>
+          <label>Mục <select id="adj-sec"><option value="">Thu và chi</option><option value="R">Thu</option><option value="E">Chi</option></select></label>
+          <label><input type="checkbox" id="adj-only"> Chỉ mã đã điều chỉnh</label>
+        </div>
+        <div class="adj-tools" style="border-top:1px solid var(--sav-rule);padding-top:10px">
+          <b style="font-size:14px">Trượt giá hàng loạt:</b>
+          <button type="button" class="sm" id="adj-selall">Chọn mọi mã đang hiện</button>
+          <button type="button" class="sm" id="adj-selnone">Bỏ chọn</button>
+          <label><input type="number" id="adj-bulk" step="0.1" value="5"> %</label>
+          <button type="button" class="sm pri" id="adj-bulk-go">Áp cho các mã đã chọn</button>
+          <span class="status" id="adj-sel"></span>
+        </div>
+        <div style="overflow-x:auto">
+        <table id="adj">
+          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        </div>
+        <p class="src">Đơn vị VND/năm, cơ sở VAT của bản giao. Không có trên bảng: dự phòng (EM#, ES#, EE#) và phần chia sang quỹ khu vực chung tự chạy theo công thức; EMH3, EMH4, RI1 tính từ sheet chi tiết riêng. Dòng gộp ("khoản") chỉ sửa được đơn giá hoặc trượt giá.</p>
+      </section>
+      <section>
+        <h2>Xem trước tổng các mã trên bảng</h2>
+        <table class="adj-sum" id="adj-prev"><thead><tr><th>Quỹ / mục</th><th class="num">Gốc</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table>
+        <p class="src">Cộng các mã trên bảng, tính trên trang. Tổng chính thức (gồm dự phòng và phần chia quỹ) do Excel đo sau khi lưu.</p>
+      </section>
+      <div class="actions">
+        <button id="adj-save" type="button" class="cta">Lưu điều chỉnh vào bản giao</button>
+        <a href="#" id="adj-reset" style="color:var(--sav-link);font-weight:700">Bỏ thay đổi chưa lưu</a>
+        <div class="bar"><i id="adj-bar"></i></div>
+        <span id="adj-status" class="status"></span>
+      </div>
+      <pre id="adj-log" class="hidden"></pre>
+      <section id="adj-res" class="hidden">
+        <h2>Kết quả lần lưu gần nhất (Excel đo)</h2>
+        <p class="src" id="adj-res-head"></p>
+        <table class="adj-sum" id="adj-res-t"><thead><tr><th>Quỹ / mục</th><th class="num">Trước điều chỉnh</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table>
+        <p class="src" id="adj-res-note"></p>
+      </section>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-lichsu">
+    <section>
+      <h2>Dự án đã tạo</h2>
+      <p style="margin:0 0 6px">Các lượt đã chạy trên trang này (Tạo ngân sách, Tạo ngân sách năm mới), mới nhất trước. Ngân sách thật đã duyệt của các dự án nằm ở tab <b>Review dự án đang vận hành</b>, mục <b>Dự án có sẵn</b>.</p>
+      <p class="src" id="his-info">Đang tải…</p>
+      <table class="his" id="his"><thead><tr><th>Dự án</th><th>Năm NS</th><th>Chế độ</th><th>Thời điểm</th><th>Người chạy</th><th>Trạng thái</th><th>File</th><th>Thao tác</th></tr></thead><tbody></tbody></table>
+      <p class="src"><b>Clone</b>: điền sẵn tab Nhập liệu từ form của lượt đó (đổi tên dự án, năm rồi bấm Tạo ngân sách). <b>Gen budget for new year</b>: mở tab Review với bản giao của lượt đó làm ngân sách năm ngoái, dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới. <b>Điều chỉnh</b>: mở kết quả của lượt kèm bảng điều chỉnh.</p>
+    </section>
+  </div>
+</div>
+
+<script>
+const PRODUCT_VI = {
+  'Apartment': 'Căn hộ', 'Officetel': 'Officetel', 'Office': 'Văn phòng', 'Shopping Mall': 'Trung tâm thương mại',
+  'Retail': 'Bán lẻ', 'Shop Apartment': 'Căn hộ thương mại', 'Shophouse': 'Shophouse', 'Villas': 'Biệt thự',
+  'Nursery / Nhà trẻ': 'Nhà trẻ'
+};
+const PREFIX = '__PREFIX__';
+const form = document.getElementById('f');
+const go = document.getElementById('go');
+const goReview = document.getElementById('go-review');
+const formReview = document.getElementById('fr');
+// Mỗi tab chạy có ô trạng thái, log và thanh tiến trình riêng.
+const UIS = {
+  nhap: { status: document.getElementById('status'), log: document.getElementById('log'), bar: document.getElementById('bar') },
+  review: { status: document.getElementById('status-review'), log: document.getElementById('log-review'), bar: document.getElementById('bar-review') },
+};
+let ui = UIS.nhap;
+let products = [];
+let srcMode = 'lib';         // nguồn ngân sách đã duyệt: 'lib' (dự án có sẵn) | 'upload' | 'run' (bản giao lượt cũ)
+let libPick = null;          // dự án có sẵn đang chọn
+let reviewSource = null;     // {id, project}: bản giao lượt cũ (Gen budget for new year)
+let libEntries = [];
+let historyLoaded = false;
+
+function setStatus(text, err, which) {
+  const el = (which ? UIS[which] : ui).status;
+  el.textContent = text; el.className = 'status' + (err ? ' err' : '');
+}
+function fmt(n) { return Number(n || 0).toLocaleString('en-US'); }
+
+function totals() {
+  let g = 0, n = 0, u = 0;
+  document.querySelectorAll('#products tbody tr').forEach(tr => {
+    const v = k => Number(tr.querySelector(`input[data-k=${k}]`).value || 0);
+    g += v('gfa'); n += v('nfa'); u += v('units');
+  });
+  document.getElementById('t-gfa').textContent = fmt(g);
+  document.getElementById('t-nfa').textContent = fmt(n);
+  document.getElementById('t-units').textContent = fmt(u);
+}
+
+function renderProducts() {
+  const tb = document.querySelector('#products tbody');
+  tb.innerHTML = '';
+  products.forEach((p, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${PRODUCT_VI[p.name] || p.name} <small style="color:var(--sav-muted)">(${p.name})</small></td>` +
+      ['gfa', 'nfa', 'units'].map(k => `<td><input type="number" min="0" step="any" data-i="${i}" data-k="${k}" value="${p[k] || 0}"></td>`).join('');
+    tb.appendChild(tr);
+  });
+  tb.addEventListener('input', totals);
+  totals();
+}
+
+function fillForm(d) {
+  for (const [k, v] of Object.entries(d.scalars)) {
+    const el = form.elements[k];
+    if (el) el.value = v == null ? '' : v;
+  }
+  products = d.products;
+  renderProducts();
+}
+
+async function loadDefaults() {
+  const r = await fetch(`${PREFIX}/api/defaults`);
+  if (r.status === 401) { location.reload(); return; }
+  const d = await r.json();
+  fillForm(d);
+  setStatus('Sẵn sàng. Kết quả ghi vào ' + d.runs_dir);
+}
+
+// ---- Nguồn ngân sách đã duyệt năm ngoái (tab Review) ----
+function setSrc(m) {
+  srcMode = m;
+  document.querySelectorAll('#panel-review .modes button').forEach(b => {
+    const on = b.dataset.src === m;
+    b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+  document.getElementById('rv-lib').classList.toggle('hidden', m !== 'lib');
+  document.getElementById('rv-upload').classList.toggle('hidden', m !== 'upload');
+  document.getElementById('rv-run').classList.toggle('hidden', m !== 'run');
+}
+document.querySelectorAll('#panel-review .modes button').forEach(b => b.addEventListener('click', () => setSrc(b.dataset.src)));
+
+function setReviewSource(src) {
+  reviewSource = src;
+  document.getElementById('src-run-btn').classList.toggle('hidden', !src);
+  if (src) {
+    document.getElementById('rv-run-name').textContent = src.project || src.id;
+    document.getElementById('rv-run-id').textContent = `(${src.id}; Excel tính lại bản giao trước khi đọc)`;
+    setSrc('run');
+  }
+}
+
+const VAT_VI = { incl: 'gồm VAT', excl: 'chưa VAT' };
+// Gọi API có hạn chờ. Lỗi mạng, hết giờ hay mã lỗi đều thành một thông báo đọc được, để trang không đứng mãi ở "Đang tải…".
+async function getJSON(url, ms = 20000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  let r;
+  try { r = await fetch(url, { signal: ctl.signal }); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? `Máy chủ không trả lời sau ${ms / 1000} giây.` : 'Không kết nối được máy chủ (có thể đang khởi động lại).'); }
+  finally { clearTimeout(timer); }
+  if (r.status === 401) throw new Error('Phiên đăng nhập đã hết hạn. Tải lại trang.');
+  if (!r.ok) { let m = ''; try { m = (await r.json()).detail || ''; } catch (_) {} throw new Error(m || `Máy chủ báo lỗi ${r.status}.`); }
+  return r.json();
+}
+function showLoadError(info, message, retry) {
+  info.classList.add('err');
+  info.innerHTML = `${esc(message)} <a href="#">Thử lại</a>`;
+  info.querySelector('a').addEventListener('click', e => { e.preventDefault(); retry(); });
+}
+
+async function loadLibrary() {
+  const info = document.getElementById('lib-info');
+  info.classList.remove('err'); info.textContent = 'Đang tải danh sách…';
+  let d;
+  try { d = await getJSON(`${PREFIX}/api/library`); }
+  catch (e) { showLoadError(info, `Không tải được danh sách: ${e.message}`, loadLibrary); return; }
+  libEntries = d.entries;
+  const years = [...new Set(libEntries.map(e => e.year).filter(Boolean))].sort((a, b) => b - a);
+  document.getElementById('lib-year').innerHTML = '<option value="">Mọi năm</option>' + years.map(y => `<option>${y}</option>`).join('');
+  document.getElementById('lib-src').textContent = d.total ? `${d.total} file trong kho quét ngân sách thật, ${d.selectable} chọn được. File đọc trực tiếp trên SharePoint (${d.root}); khi chạy, một bản chụp được chép vào thư mục của lượt. Danh sách và năm, VAT, NFA lấy từ kho quét (${d.store}).`
+    : `Chưa có kho quét ở ${d.store}: dùng "Tải file lên".`;
+  if (!d.total) setSrc('upload');
+  renderLibrary();
+}
+function renderLibrary() {
+  const q = document.getElementById('lib-q').value.trim().toLowerCase();
+  const y = document.getElementById('lib-year').value, okOnly = document.getElementById('lib-ok').checked, all = document.getElementById('lib-all').checked;
+  const rows = libEntries.filter(e => (all || e.selectable) && (!okOnly || e.confidence === 'high') && (!y || String(e.year) === y) &&
+    (!q || e.project.toLowerCase().includes(q) || e.file_name.toLowerCase().includes(q)));
+  document.getElementById('lib-info').textContent = `${rows.length} / ${libEntries.length} dòng`;
+  document.querySelector('#lib tbody').innerHTML = rows.map(e => {
+    const warn = e.selectable && e.confidence !== 'high' ? ` <span class="warn">(${esc(e.confidence_vi)}: đối chiếu tổng có thể LỆCH)</span>` : '';
+    return `<tr class="${e.selectable ? '' : 'off'} ${libPick && libPick.id === e.id ? 'pick' : ''}" data-id="${esc(e.id)}" title="${esc(e.selectable ? e.file_name : e.reason)}">` +
+      `<td><input type="radio" name="libpick" ${libPick && libPick.id === e.id ? 'checked' : ''} ${e.selectable ? '' : 'disabled'} aria-label="Chọn ${esc(e.project)}"></td>` +
+      `<td><b>${esc(e.project)}</b>${e.project_from === 'file' ? '' : ' <small style="color:var(--sav-muted)">(theo tên file)</small>'}${warn}<div class="fname">${esc(e.file_name)}</div></td>` +
+      `<td class="num">${e.year || '—'}</td><td>${esc(VAT_VI[e.vat] || '—')}</td><td class="num">${e.nfa ? Math.round(e.nfa).toLocaleString('en-US') : '—'}</td>` +
+      `<td>${esc(e.selectable ? e.confidence_vi : e.reason)}</td></tr>`;
+  }).join('') || '<tr><td colspan="6">Không có dòng nào khớp bộ lọc.</td></tr>';
+}
+document.querySelector('#lib tbody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr || tr.classList.contains('off')) return;
+  libPick = libEntries.find(x => x.id === tr.dataset.id);
+  document.getElementById('lib-picked').textContent = `Đã chọn: ${libPick.project}, năm ${libPick.year || '?'} (${libPick.file_name}).` +
+    (libPick.confidence !== 'high' ? ' Sheet quỹ của file này không khớp tổng: kết quả đối chiếu có thể LỆCH.' : '');
+  renderLibrary();
+});
+['lib-q', 'lib-year', 'lib-ok', 'lib-all'].forEach(id => document.getElementById(id).addEventListener('input', renderLibrary));
+
+function collectFacts() {
+  const facts = {};
+  for (const el of formReview.elements) if (el.name && el.type !== 'file') facts[el.name] = el.value;
+  return facts;
+}
+
+function collect() {
+  const scalars = {};
+  for (const el of form.elements) if (el.name) scalars[el.name] = el.value;
+  const prods = products.map((p, i) => {
+    const v = k => document.querySelector(`input[data-i="${i}"][data-k=${k}]`).value;
+    return { name: p.name, gfa: v('gfa'), nfa: v('nfa'), units: v('units') };
+  });
+  return { scalars, products: prods };
+}
+
+function showTab(id) {
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + id));
+  if (id === 'lichsu' && !historyLoaded) loadHistory();
+  if (id === 'review' && !libEntries.length) loadLibrary();
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.getElementById('rv-guide').addEventListener('click', e => {
+  e.preventDefault(); showTab('huongdan'); document.getElementById('hd-review').scrollIntoView({ behavior: 'smooth' });
+});
+
+function money(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US') + ' VND'; }
+function num(v, d) { return v == null ? '—' : (typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: d == null ? 1 : d }) : String(v)); }
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+function runHead(run, kind) {
+  const when = run.finished || run.started || '';
+  return `Lượt ${run.id}` + (run.project ? ` · ${run.project}` : '') + (run.source ? ` · nguồn: ${run.source}` : '') +
+    (kind === 'review' ? ' · Review ngân sách dự án đang vận hành' : ' · Lập ngân sách dự án mới') + (when ? ` · ${when.replace('T', ' ')}` : '');
+}
+function openResults(run, kind) {
+  if (kind === 'review') {
+    document.getElementById('tab-review').innerHTML = 'Review dự án đang vận hành<span class="dot"></span>';
+    document.getElementById('rv-result').classList.remove('hidden');
+    document.getElementById('rv-head').textContent = runHead(run, kind);
+    return;
+  }
+  document.getElementById('tab-ketqua').innerHTML = 'Kết quả dự án mới<span class="dot"></span>';
+  document.getElementById('res-empty').classList.add('hidden');
+  document.getElementById('res-body').classList.remove('hidden');
+  document.getElementById('res-head').textContent = runHead(run, kind);
+}
+
+function mil(v) { return v == null ? '—' : (v / 1e6).toLocaleString('en-US', { maximumFractionDigits: 1 }); }
+function pct(v) { return v == null ? '—' : (v > 0 ? '+' : '') + Math.round(v * 100) + '%'; }
+function negCls(v) { return v != null && v < 0 ? 'num neg' : 'num'; }
+
+function renderReview(run) {
+  openResults(run, 'review');
+  const s = run.summary || {};
+  const m = s.meta || {};
+  const py = m.prior_year || '', by = m.budget_year || '';
+  document.getElementById('rv-title').textContent = `Ngân sách đã duyệt ${py} so với ngân sách ${by} do công cụ sinh`;
+  document.getElementById('rv-meta').textContent = s.note ? s.note :
+    `Nguồn: ${run.source && run.source.startsWith('lượt') ? run.source + ' (bản giao, Excel tính lại)' : (m.file_name || run.source || '')}; kỳ ${m.period_text || ''}; file ${m.file_incl ? 'gồm' : 'chưa gồm'} VAT, so trên cơ sở ${m.deliverable_incl ? 'gồm' : 'chưa gồm'} VAT của bản giao. Đơn vị: triệu VND/năm.`;
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  const thead = document.querySelector('#rv-sum thead'), tbody = document.querySelector('#rv-sum tbody');
+  thead.innerHTML = `<tr><th>Quỹ / mục</th><th class="num">Duyệt NS ${esc(py)} (quy đổi)</th><th class="num">Công cụ NS ${esc(by)}</th><th class="num">Chênh (công cụ − duyệt)</th><th class="num">%</th></tr>`;
+  let rows = '';
+  for (const fund of ['MF', 'CA']) {
+    const f = (s.summary || {})[fund];
+    if (!f) continue;
+    rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
+    for (const [key, lab] of [['R', 'Tổng thu'], ['E', 'Tổng chi'], ['S', 'Thặng dư']]) {
+      const t = f[key] || {};
+      rows += `<tr><td>${lab}</td><td class="${negCls(t.converted)}">${mil(t.converted)}</td><td class="${negCls(t.tool)}">${mil(t.tool)}</td><td class="${negCls(t.diff)}">${mil(t.diff)}</td><td class="${negCls(t.pct)}">${pct(t.pct)}</td></tr>`;
+    }
+  }
+  tbody.innerHTML = rows || `<tr><td colspan="5">${esc(s.note || 'Chưa có số tóm tắt.')}</td></tr>`;
+  const c = s.counts || {};
+  document.getElementById('rv-counts').textContent = c.lines == null ? '' :
+    `Dòng so sánh: ${c.lines} (cả hai có số ${c.both}, chỉ file duyệt ${c.only_approved}, chỉ công cụ ${c.only_tool}); mã không có trên form 2027: ${c.not_on_form}; chưa có phương pháp: ${c.no_method}; công cụ ra 0: ${c.tool_zero}. Nguồn: ${s.source || ''}.`;
+  document.getElementById('rv-ties').innerHTML = (s.ties || []).map(t =>
+    `<li>${esc(t.kind)}, ${FUND_VI[t.fund] || t.fund} ${esc(t.section)}: ${Math.round(t.left).toLocaleString('en-US')} / ${Math.round(t.right).toLocaleString('en-US')}, lệch ${Math.round(t.diff).toLocaleString('en-US')} → <b class="${t.ok ? 'ok' : 'bad'}">${t.ok ? 'KHỚP' : 'LỆCH'}</b></li>`).join('') || '<li>Chưa có phép đối chiếu.</li>';
+  document.querySelector('#rv-top tbody').innerHTML = (s.top || []).map((x, i) =>
+    `<tr><td>${i + 1}</td><td>${esc(x.fund)}</td><td>${esc(x.code)}</td><td>${esc(x.item)}</td><td class="num">${mil(x.converted)}</td><td class="num">${mil(x.tool_num)}</td><td class="${negCls(x.diff)}">${mil(x.diff)}</td><td class="${negCls(x.pct)}">${pct(x.pct)}</td><td>${esc(x.label)}${x.remark ? ` <small style="color:var(--sav-muted)">${esc(x.remark)}</small>` : ''}</td></tr>`).join('') ||
+    '<tr><td colspan="9">Chưa có dòng.</td></tr>';
+  document.getElementById('rv-top-src').textContent = 'Triệu VND/năm. Toàn bộ các dòng, từng mã, nằm ở sheet "Review" cuối bản phân tích nội bộ.';
+  const notes = s.notes || [];
+  const by_kind = {};
+  notes.forEach(n => { by_kind[n.kind] = (by_kind[n.kind] || 0) + 1; });
+  const fl = s.filled || {};
+  document.getElementById('rv-notes-sum').textContent = (notes.length ? `${notes.length} ghi chú: ` + Object.entries(by_kind).map(([k, v]) => `${k} ${v}`).join('; ') + '. ' : 'Không có ghi chú nhập. ') +
+    (fl.blank && fl.blank.length ? `Để trống, PM điền: ${fl.blank.join(', ')}. ` : '') +
+    (fl.facts && fl.facts.length ? `Từ dữ kiện trên trang: ${fl.facts.join(', ')}.` : '');
+  document.querySelector('#rv-notes tbody').innerHTML = notes.map(n => `<tr><td>${esc(n.kind)}</td><td>${esc(n.where)}</td><td>${esc(n.text)}</td></tr>`).join('');
+}
+
+function renderSummary(run) {
+  const s = run.summary;
+  openResults(run, 'new');
+  if (!s) return;
+  const f = s.finance || {};
+  const vat = f.vat_basis === 'inclusive' ? 'gồm VAT' : (f.vat_basis === 'exclusive' ? 'chưa VAT' : '');
+  const year = f.budget_year ? `năm ngân sách ${f.budget_year}` : 'năm đầu';
+  document.getElementById('kpis').innerHTML = [
+    ['Doanh thu quỹ quản lý', f.revenue, 'hi', ''],
+    ['Tổng chi quỹ quản lý', f.expense, '', ''],
+    ['Thặng dư / thâm hụt quỹ vận hành', f.surplus, '', f.surplus != null && f.surplus < 0 ? 'neg' : ''],
+  ].map(([t, v, hi, neg]) => `<div class="kpi ${hi}"><small>${t}</small><b class="${neg}">${money(v)}</b><i>${esc(year)}${vat ? ', ' + vat : ''}, VND/năm</i></div>`).join('');
+  document.getElementById('fin-src').textContent = 'Nguồn: ' + (f.source || '') + (f.note ? '. ' + f.note : '') +
+    ' Thặng dư là thu trừ chi của quỹ vận hành dự án trong năm đầu, không phải lợi nhuận của Savills.' +
+    (f.required_pct != null ? ` Dòng bắt buộc có số: ${Math.round(f.required_pct * 100)}%.` : '');
+  const sv = s.service || {};
+  document.querySelector('#svc tbody').innerHTML = (sv.rows || []).map(r => {
+    const pos = r.percentile == null ? '—' : `cao hơn hoặc bằng ${num(r.percentile, 0)}% trong ${num(r.compared, 0)} dự án tham chiếu`;
+    const near = r.near_cutoff ? ` <span style="color:var(--sav-muted)">(${esc(r.near_cutoff)})</span>` : '';
+    return `<tr><td>${esc(r.service)}</td><td>${num(r.people, 0)}</td><td>${num(r.measure, 2)} <small style="color:var(--sav-muted)">${esc(r.unit)}</small></td><td class="lvl">${esc(r.level)}${near}</td><td>${pos}</td></tr>`;
+  }).join('') || `<tr><td colspan="5">${esc(sv.note || 'Không có dữ liệu.')}</td></tr>`;
+  document.getElementById('svc-src').textContent = 'Nguồn: ' + (sv.source || '') +
+    '. Mức chỉ để tham khảo, không đổi con số nào trong ngân sách. Vệ sinh: m² NFA thu phí trên mỗi người trực (thấp hơn = dày hơn). Bảo vệ: chốt 24h quy đổi trên 10.000 m² (cao hơn = dày hơn).';
+  const c = s.compare || {};
+  const thead = document.querySelector('#cmp thead'), tbody = document.querySelector('#cmp tbody');
+  if (c.rows && c.rows.length) {
+    thead.innerHTML = '<tr><th>Chỉ tiêu</th>' + c.columns.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
+    tbody.innerHTML = c.rows.map(r => `<tr><td>${esc(r.label)}</td>` + r.values.map(v => `<td style="text-align:right">${esc(v == null ? '—' : (typeof v === 'number' ? num(v, 1) : v))}</td>`).join('') + '</tr>').join('');
+  } else { thead.innerHTML = ''; tbody.innerHTML = `<tr><td>${esc(c.note || 'Không có dữ liệu.')}</td></tr>`; }
+  document.getElementById('cmp-src').textContent = 'Nguồn: ' + (c.source || '') + '. Dự án tham chiếu là dự án Savills đang quản lý, chọn theo tổng NFA gần nhất; đơn giá đề xuất là trung bình đơn giá thực tế của chúng trên cùng cơ sở VAT.';
+}
+
+function renderFiles(run) {
+  const filesEl = document.getElementById(run.kind === 'review' ? 'files-review' : 'files');
+  filesEl.innerHTML = '';
+  run.outputs.forEach(o => {
+    const div = document.createElement('div');
+    div.className = 'file';
+    div.innerHTML = `<b>${o.title}</b><span>${o.name} · ${(o.size / 1024).toFixed(0)} KB</span><br>` +
+      `<a href="${PREFIX}/api/runs/${run.id}/files/${encodeURIComponent(o.name)}" download>Tải xuống</a>`;
+    filesEl.appendChild(div);
+  });
+}
+
+async function poll(id, since, t0) {
+  const r = await fetch(`${PREFIX}/api/runs/${id}?since=${since}`);
+  if (r.status === 401) { setStatus('Phiên đăng nhập đã hết hạn. Tải lại trang để đăng nhập.', true); go.disabled = false; goReview.disabled = false; return; }
+  const run = await r.json();
+  const logEl = ui.log, bar = ui.bar;
+  if (run.log.length) { logEl.textContent += run.log.join('\n') + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+  const secs = Math.round((Date.now() - t0) / 1000);
+  const last = run.log.length ? run.log[run.log.length - 1] : '';
+  if (run.status === 'running') {
+    let step = 'Đang chạy';
+    const all = logEl.textContent;
+    if (run.kind === 'review') {
+      if (all.includes('[0/4]')) step = 'Excel tính lại bản giao của lượt cũ';
+      if (all.includes('[1/4]')) step = 'Bước 1/4: đọc file ngân sách đã duyệt';
+      if (all.includes('[2/4]')) step = 'Bước 2/4: đổ form dự án đang vận hành';
+      if (all.includes('[3/4]')) step = 'Bước 3/4: sinh bản giao, phân tích, lịch trực';
+      if (all.includes('[4/4]')) step = 'Bước 4/4: Excel tính lại, ghi sheet Review';
+      bar.style.width = Math.min(95, secs * 1.0) + '%';
+    } else {
+      if (all.includes('[2/2]')) step = 'Bước 2/2: bản phân tích nội bộ';
+      else if (all.includes('[1/2]')) step = 'Bước 1/2: bản giao khách và lịch trực';
+      if (all.includes('Run log:')) step = 'Đang đo kết quả trong Excel (run log)';
+      bar.style.width = Math.min(95, secs * 1.3) + '%';
+    }
+    setStatus(`${step} · ${secs} giây`);
+    setTimeout(() => poll(id, run.log_total, t0), 1000);
+    return;
+  }
+  bar.style.width = '100%';
+  go.disabled = false; goReview.disabled = false;
+  historyLoaded = false;
+  if (run.status === 'done') {
+    const bad = run.kind === 'review' && (run.summary && run.summary.ties || []).some(t => !t.ok);
+    const where = run.kind === 'review' ? 'Kết quả và bảng điều chỉnh ở ngay bên dưới.' : 'Xem tab Kết quả dự án mới.';
+    setStatus(bad ? `Xong sau ${secs} giây, có phép đối chiếu LỆCH. ${where}` : `Xong sau ${secs} giây. ${where}`, bad);
+    await showRun(run);
+    if (run.kind === 'review') document.getElementById('rv-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    setStatus(`Thất bại sau ${secs} giây (mã ${run.rc}). Xem log bên dưới.`, true);
+    renderFiles(run);
+  }
+}
+
+let currentRunId = null;
+// Mở một lượt: kết quả + tải file + bảng điều chỉnh, trong tab Review (lượt review) hoặc Kết quả dự án mới.
+async function showRun(run) {
+  currentRunId = run.id;
+  renderFiles(run);
+  const review = run.kind === 'review';
+  if (review) renderReview(run); else renderSummary(run);
+  showTab(review ? 'review' : 'ketqua');
+  if (run.status === 'done') await openAdjust(run.id, review ? 'rv-adj-slot' : 'res-adj-slot');
+}
+
+async function startRun(url, body, headers, which) {
+  ui = UIS[which];
+  go.disabled = true; goReview.disabled = true;
+  ui.log.classList.remove('hidden');
+  ui.log.textContent = '';
+  if (which === 'review') document.getElementById('rv-result').classList.add('hidden');
+  showTab(which);
+  ui.bar.style.width = '2%';
+  const t0 = Date.now();
+  const r = await fetch(url, { method: 'POST', headers: headers || {}, body });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    setStatus(e.detail || `Lỗi ${r.status}`, true);
+    go.disabled = false; goReview.disabled = false;
+    return;
+  }
+  const run = await r.json();
+  poll(run.id, 0, t0);
+}
+document.querySelectorAll('#panel-review input, #panel-review select').forEach(el => el.addEventListener('focus', () => { ui = UIS.review; }));
+
+goReview.addEventListener('click', async () => {
+  const facts = collectFacts();
+  const fd = new FormData();
+  if (srcMode === 'lib') {
+    if (!libPick) { setStatus('Chưa chọn dự án trong danh sách có sẵn (bấm vào một dòng).', true, 'review'); return; }
+    fd.append('library_id', libPick.id);
+  } else if (srcMode === 'run') {
+    if (!reviewSource) { setStatus('Chưa có lượt cũ: dùng nút Gen budget for new year ở tab Dự án đã tạo.', true, 'review'); return; }
+    fd.append('source_run', reviewSource.id);
+  } else {
+    const f = document.getElementById('prior-file').files[0];
+    if (!f) { setStatus('Chưa chọn file ngân sách đã duyệt (.xlsx).', true, 'review'); return; }
+    fd.append('prior', f, f.name);
+  }
+  if (!facts.city || !facts.city.trim()) { setStatus('Tỉnh / thành phố không được để trống (biểu giá nước lấy theo đó).', true, 'review'); formReview.elements.city.focus(); return; }
+  fd.append('facts', JSON.stringify(facts));
+  setStatus(srcMode === 'run' ? 'Đang chuẩn bị lượt review từ bản giao của lượt cũ…' : (srcMode === 'lib' ? `Đang chép ${libPick.file_name}…` : 'Đang tải file lên…'), false, 'review');
+  await startRun(`${PREFIX}/api/reviews`, fd, null, 'review');
+});
+
+// ---- Điều chỉnh ngân sách (sheet 4. Điều chỉnh của bản giao) ----
+const T_QTY = 'Số lượng', T_PRICE = 'Đơn giá', T_INF = 'Trượt giá';
+let adj = null;          // {id, items, orig: {key: json}, open: Set, sel: Set}
+const adjTbody = document.querySelector('#adj tbody');
+
+function itemNew(it) {
+  if (!it.has_subs) return it.adj_type === T_INF ? it.amount * (1 + it.inflation) : it.amount;
+  let t = 0;
+  for (const s of it.subs) {
+    if (it.adj_type === T_QTY) t += (s.qty_editable ? s.new_qty : s.qty) * s.unit_price;
+    else if (it.adj_type === T_PRICE) t += s.qty * s.new_price;
+    else if (it.adj_type === T_INF) t += s.amount * (1 + it.inflation);
+    else t += s.amount;
+  }
+  return t;
+}
+function subNew(it, s) {
+  if (it.adj_type === T_QTY) return (s.qty_editable ? s.new_qty : s.qty) * s.unit_price;
+  if (it.adj_type === T_PRICE) return s.qty * s.new_price;
+  if (it.adj_type === T_INF) return s.amount * (1 + it.inflation);
+  return s.amount;
+}
+function vnd(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US'); }
+function vpct(diff, base) { return Math.abs(base) < 0.5 ? 'N/A' : (diff >= 0 ? '+' : '') + (diff / base * 100).toFixed(1) + '%'; }
+function snap(it) { return JSON.stringify([it.adj_type, it.inflation, it.subs.map(s => [s.new_qty, s.new_price])]); }
+function isDirty(it) { return snap(it) !== adj.orig[it.key]; }
+function isAdjusted(it) { return !!it.adj_type; }
+
+async function openAdjust(id, slot) {
+  const body = document.getElementById('adj-body');
+  if (slot) document.getElementById(slot).appendChild(body);
+  const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(id)}/adjust`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { body.classList.add('hidden'); return; }
+  document.getElementById('adj-title').textContent = d.kind === 'review' ? '3. Điều chỉnh ngân sách năm mới trước khi giao' : 'Điều chỉnh ngân sách';
+  adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set() };
+  d.items.forEach(it => { adj.orig[it.key] = snap(it); });
+  body.classList.remove('hidden');
+  document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
+    (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
+  document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
+  const save = document.getElementById('adj-save');
+  save.disabled = !d.can_save;
+  setAdjStatus(d.can_save ? 'Chưa có thay đổi.' : 'Tài khoản chỉ xem: xem được, không lưu được.');
+  renderAdjust();
+  renderAdjResult(d.last);
+}
+
+function setAdjStatus(t, err) { const el = document.getElementById('adj-status'); el.textContent = t; el.className = 'status' + (err ? ' err' : ''); }
+
+function visible(it) {
+  const q = document.getElementById('adj-q').value.trim().toLowerCase();
+  const f = document.getElementById('adj-fund').value, sc = document.getElementById('adj-sec').value;
+  if (q && !(it.code.toLowerCase().includes(q) || it.name.toLowerCase().includes(q))) return false;
+  if (f && it.fund !== f) return false;
+  if (sc && it.section !== sc) return false;
+  if (document.getElementById('adj-only').checked && !isAdjusted(it) && !isDirty(it)) return false;
+  return true;
+}
+
+function typeOptions(it) {
+  const opts = it.has_subs ? ['', T_QTY, T_PRICE, T_INF] : ['', T_INF];
+  return opts.map(o => `<option value="${o}" ${o === it.adj_type ? 'selected' : ''}>${o || '(giữ số gốc)'}</option>`).join('');
+}
+
+function subTable(it) {
+  const q = it.adj_type === T_QTY, p = it.adj_type === T_PRICE;
+  return `<table class="subs"><thead><tr><th>Nội dung chi tiết</th><th>ĐVT</th><th class="num">SL gốc</th><th class="num">Đơn giá gốc</th><th class="num">Thành tiền gốc</th><th class="num">SL mới</th><th class="num">Đơn giá mới</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody>` +
+    it.subs.map(s => {
+      const nw = subNew(it, s), df = nw - s.amount;
+      return `<tr><td>${esc(s.desc)}</td><td>${esc(s.unit)}</td><td class="num">${num(s.qty, 2)}</td><td class="num">${vnd(s.unit_price)}</td><td class="num">${vnd(s.amount)}</td>` +
+        `<td class="num">${q && s.qty_editable ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_qty" value="${s.new_qty}">` : `<span title="${s.qty_editable ? 'Chọn loại Số lượng để sửa' : 'Dòng gộp: số lượng khoá'}">${num(s.qty_editable ? s.new_qty : s.qty, 2)}</span>`}</td>` +
+        `<td class="num">${p ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_price" value="${s.new_price}">` : `<span title="Chọn loại Đơn giá để sửa">${vnd(s.new_price)}</span>`}</td>` +
+        `<td class="num">${vnd(nw)}</td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, s.amount)}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+function renderAdjust() {
+  if (!adj) return;
+  const ap = adj.data.has_approved;
+  let html = '';
+  for (const it of adj.items) {
+    if (!visible(it)) continue;
+    const nw = itemNew(it), df = nw - it.amount;
+    const open = adj.open.has(it.key) && it.has_subs;
+    const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
+    html += `<tr class="${cls}" data-k="${esc(it.key)}"><td><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
+      `<td><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
+      `<td><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td>${esc(it.name)}</td>` +
+      (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
+      `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
+      `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
+      `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td></tr>`;
+    if (open) html += `<tr class="sub"><td colspan="${ap ? 11 : 10}">${subTable(it)}</td></tr>`;
+  }
+  adjTbody.innerHTML = html || `<tr><td colspan="11">Không có mã nào khớp bộ lọc.</td></tr>`;
+  renderAdjPreview();
+}
+
+function renderAdjPreview() {
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  let rows = '', dirty = 0;
+  for (const fund of ['MF', 'CA']) {
+    const its = adj.items.filter(i => i.fund === fund);
+    if (!its.length) continue;
+    rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
+    const t = {};
+    for (const sec of ['R', 'E']) {
+      const o = its.filter(i => i.section === sec).reduce((a, i) => a + i.amount, 0);
+      const n = its.filter(i => i.section === sec).reduce((a, i) => a + itemNew(i), 0);
+      t[sec] = [o, n];
+      rows += `<tr><td>${sec === 'R' ? 'Thu' : 'Chi'} (các mã trên bảng)</td><td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td></tr>`;
+    }
+  }
+  adj.items.forEach(i => { if (isDirty(i)) dirty++; });
+  document.querySelector('#adj-prev tbody').innerHTML = rows;
+  document.getElementById('adj-sel').textContent = adj.sel.size ? `${adj.sel.size} mã đã chọn` : '';
+  if (adj.data.can_save && !document.getElementById('adj-save').dataset.busy)
+    setAdjStatus(dirty ? `${dirty} mã có thay đổi chưa lưu.` : 'Chưa có thay đổi.');
+}
+
+function itemOf(key) { return adj.items.find(i => i.key === key); }
+
+adjTbody.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.type) {
+    const it = itemOf(t.dataset.type);
+    it.adj_type = t.value;
+    if (it.adj_type === T_QTY || it.adj_type === T_PRICE) adj.open.add(it.key);
+    renderAdjust();
+  } else if (t.dataset.sel) {
+    t.checked ? adj.sel.add(t.dataset.sel) : adj.sel.delete(t.dataset.sel);
+    renderAdjPreview();
+  }
+});
+adjTbody.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.pct) {
+    const it = itemOf(t.dataset.pct);
+    it.inflation = (Number(t.value) || 0) / 100;
+    refreshRow(it);
+  } else if (t.dataset.f) {
+    const it = itemOf(t.dataset.k), s = it.subs[Number(t.dataset.i)];
+    const v = Number(t.value);
+    if (t.value === '' || v < 0 || !isFinite(v)) { t.setCustomValidity('Không được âm'); return; }
+    t.setCustomValidity('');
+    s[t.dataset.f] = v;
+    refreshRow(it);
+  }
+});
+// Gõ trong ô không vẽ lại cả bảng (giữ con trỏ): chỉ cập nhật số của dòng mã và các dòng chi tiết.
+function refreshRow(it) {
+  const tr = adjTbody.querySelector(`tr.par[data-k="${CSS.escape(it.key)}"]`);
+  if (!tr) return;
+  const nw = itemNew(it), df = nw - it.amount, cells = tr.children, n = cells.length;
+  cells[n - 3].innerHTML = `<b>${vnd(nw)}</b>`;
+  cells[n - 2].textContent = vnd(df); cells[n - 2].className = negCls(df);
+  cells[n - 1].textContent = vpct(df, it.amount); cells[n - 1].className = negCls(df);
+  tr.classList.toggle('dirty', isDirty(it));
+  const sub = tr.nextElementSibling;
+  if (sub && sub.classList.contains('sub')) {
+    sub.querySelectorAll('tbody tr').forEach((row, i) => {
+      const s = it.subs[i];
+      if (!s) return;
+      const v = subNew(it, s), d = v - s.amount, c = row.children;
+      c[7].textContent = vnd(v); c[8].textContent = vnd(d); c[8].className = negCls(d); c[9].textContent = vpct(d, s.amount); c[9].className = negCls(d);
+    });
+  }
+  renderAdjPreview();
+}
+adjTbody.addEventListener('click', e => {
+  const b = e.target.closest('button[data-tg]');
+  if (!b) return;
+  const k = b.dataset.tg;
+  adj.open.has(k) ? adj.open.delete(k) : adj.open.add(k);
+  renderAdjust();
+});
+['adj-q', 'adj-fund', 'adj-sec', 'adj-only'].forEach(id => document.getElementById(id).addEventListener('input', renderAdjust));
+document.getElementById('adj-selall').addEventListener('click', () => { adj.items.filter(visible).forEach(i => adj.sel.add(i.key)); renderAdjust(); });
+document.getElementById('adj-selnone').addEventListener('click', () => { adj.sel.clear(); renderAdjust(); });
+document.getElementById('adj-bulk-go').addEventListener('click', () => {
+  if (!adj.sel.size) { setAdjStatus('Chưa chọn mã nào: tick ô đầu dòng, hoặc lọc rồi bấm "Chọn mọi mã đang hiện".', true); return; }
+  const pctv = Number(document.getElementById('adj-bulk').value);
+  if (!isFinite(pctv) || pctv <= -100) { setAdjStatus('Trượt giá phải là số lớn hơn -100%.', true); return; }
+  adj.sel.forEach(k => { const it = itemOf(k); it.adj_type = T_INF; it.inflation = pctv / 100; });
+  renderAdjust();
+});
+document.getElementById('adj-reset').addEventListener('click', e => { e.preventDefault(); if (adj) openAdjust(adj.id); });
+
+document.getElementById('adj-save').addEventListener('click', async () => {
+  const dirty = adj.items.filter(isDirty);
+  if (!dirty.length) { setAdjStatus('Chưa có thay đổi để lưu.', true); return; }
+  const bad = adjTbody.querySelector('input:invalid');
+  if (bad) { setAdjStatus('Có ô số không hợp lệ (âm hoặc trống).', true); bad.focus(); return; }
+  const edits = dirty.map(it => ({ key: it.key, adj_type: it.adj_type, inflation: it.inflation,
+    subs: it.subs.map(s => ({ idx: s.idx, new_qty: s.qty_editable ? s.new_qty : null, new_price: s.new_price })) }));
+  const save = document.getElementById('adj-save'), log = document.getElementById('adj-log'), bar = document.getElementById('adj-bar');
+  save.disabled = true; save.dataset.busy = '1';
+  log.classList.remove('hidden'); log.textContent = ''; bar.style.width = '3%';
+  setAdjStatus(`Đang lưu ${edits.length} mã…`);
+  const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(adj.id)}/adjust`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits }) });
+  const job = await r.json().catch(() => ({}));
+  if (!r.ok) { setAdjStatus(job.detail || `Lỗi ${r.status}`, true); save.disabled = false; delete save.dataset.busy; return; }
+  const t0 = Date.now();
+  const tick = async since => {
+    const rr = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(job.id)}?since=${since}`);
+    const run = await rr.json();
+    if (run.log.length) { log.textContent += run.log.join('\n') + '\n'; log.scrollTop = log.scrollHeight; }
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if (run.status === 'running') {
+      bar.style.width = Math.min(95, secs * 2.5) + '%';
+      setAdjStatus(`Đang lưu và cho Excel tính lại · ${secs} giây`);
+      setTimeout(() => tick(run.log_total), 1000);
+      return;
+    }
+    bar.style.width = '100%'; delete save.dataset.busy; save.disabled = false;
+    historyLoaded = false;
+    if (run.status === 'done') {
+      const id = adj.id;
+      await openAdjust(id);
+      const rb = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(id)}`);
+      if (rb.ok) renderFiles(await rb.json());          // bản giao đã ghi đè: cỡ file mới
+      setAdjStatus(`Đã lưu sau ${secs} giây. Bản giao đã cập nhật: tải ở mục Tải file phía trên.`);
+    } else setAdjStatus(`Không lưu được sau ${secs} giây. Xem log.`, true);
+  };
+  tick(0);
+});
+
+function renderAdjResult(last) {
+  const box = document.getElementById('adj-res');
+  if (!last || !last.after) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  document.getElementById('adj-res-head').textContent = `Lưu lúc ${(last.saved_at || '').replace('T', ' ')} · ${last.written.length} mã: ${last.written.join(', ')} · backup: ${last.backup}`;
+  let rows = '';
+  for (const fund of ['MF', 'CA']) {
+    const a = (last.after || {})[fund], b = (last.baseline || {})[fund];
+    if (!a || !b) continue;
+    rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
+    for (const [k, lab] of [['R', 'Tổng thu'], ['E', 'Tổng chi'], ['S', 'Thặng dư']]) {
+      const d = (a[k] || 0) - (b[k] || 0);
+      rows += `<tr><td>${lab}</td><td class="${negCls(b[k])}">${vnd(b[k])}</td><td class="${negCls(a[k])}">${vnd(a[k])}</td><td class="${negCls(d)}">${vnd(d)}</td><td class="${negCls(d)}">${vpct(d, b[k] || 0)}</td></tr>`;
+    }
+  }
+  document.querySelector('#adj-res-t tbody').innerHTML = rows;
+  document.getElementById('adj-res-note').textContent = `VND/năm. "Trước điều chỉnh" là bản giao gốc của lượt; "Sau" là bản giao hiện tại, cả hai đo bằng Excel trên dòng R / E của hai sheet quỹ (gồm dự phòng và phần chia quỹ). Ô lỗi sau tính lại: ${last.error_count || 0}.` +
+    (adj && adj.data.kind === 'review' ? ' Sheet Review của bản phân tích vẫn so số công cụ trước điều chỉnh.' : '');
+}
+
+// ---- Dự án đã tạo ----
+const KIND_VI = { new: 'Mới', review: 'Review' };
+const STATUS_VI = { done: 'Xong', failed: 'Thất bại', running: 'Đang chạy' };
+
+async function loadHistory() {
+  const info = document.getElementById('his-info');
+  info.classList.remove('err'); info.textContent = 'Đang tải…';
+  let d;
+  try { d = await getJSON(`${PREFIX}/api/history`); }
+  catch (e) { showLoadError(info, `Không tải được danh sách dự án đã tạo: ${e.message}`, loadHistory); return; }
+  historyLoaded = true;
+  info.textContent = `${d.runs.length} lượt trong ${d.runs_dir}` + (d.active ? ` · đang chạy: ${d.active}` : '');
+  const tb = document.querySelector('#his tbody');
+  tb.innerHTML = d.runs.map(x => {
+    const year = x.kind === 'review' && x.prior_year ? `${x.prior_year} → ${x.budget_year || '?'}` : (x.budget_year || '—');
+    const files = x.outputs.map(o => `<a href="${PREFIX}/api/runs/${encodeURIComponent(x.id)}/files/${encodeURIComponent(o.name)}" download title="${esc(o.name)}">${esc(o.title.split(' (')[0])}</a>`).join('');
+    const dis = x.status === 'running' ? 'disabled' : '';
+    return `<tr data-id="${esc(x.id)}"><td><b>${esc(x.project)}</b><br><small style="color:var(--sav-muted)">${esc(x.id)}</small></td><td>${esc(year)}</td><td>${KIND_VI[x.kind] || x.kind}</td>` +
+      `<td>${esc((x.started || '').replace('T', ' '))}</td><td>${esc(x.user || '—')}</td><td class="st-${esc(x.status)}">${STATUS_VI[x.status] || x.status}</td><td class="files">${files || '—'}</td>` +
+      `<td><button type="button" class="sm" data-act="view" ${dis}>Xem</button>` +
+      `<button type="button" class="sm" data-act="clone" ${x.can_clone ? '' : 'disabled'}>Clone</button>` +
+      `<button type="button" class="sm" data-act="adjust" ${x.can_gen && x.status === 'done' ? '' : 'disabled'}>Điều chỉnh</button>` +
+      `<button type="button" class="sm pri" data-act="gen" ${x.can_gen && x.status !== 'running' ? '' : 'disabled'}>Gen budget for new year</button></td></tr>`;
+  }).join('') || '<tr><td colspan="8">Chưa có lượt nào.</td></tr>';
+}
+document.querySelector('#his tbody').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.closest('tr').dataset.id;
+  const project = b.closest('tr').querySelector('b').textContent;
+  if (b.dataset.act === 'view') viewRun(id);
+  if (b.dataset.act === 'clone') cloneRun(id);
+  if (b.dataset.act === 'gen') genFromRun(id, project);
+  if (b.dataset.act === 'adjust') viewRun(id, true);
+});
+
+async function fetchInput(id) {
+  const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(id)}/input`);
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || `Lỗi ${r.status}`); }
+  return r.json();
+}
+
+async function viewRun(id, toAdjust) {
+  const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(id)}`);
+  if (!r.ok) return;
+  const run = await r.json();
+  await showRun(run);
+  if (toAdjust) document.getElementById('adj-body').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function cloneRun(id) {
+  try {
+    const d = await fetchInput(id);
+    fillForm(d);
+    ui = UIS.nhap;
+    showTab('nhap');
+    setStatus(`Đã điền sẵn từ lượt ${id}. Đổi tên dự án, tháng bắt đầu ngân sách nếu cần, rồi bấm Tạo ngân sách.`);
+    form.elements.project_name.focus();
+  } catch (e) { setStatus('Không clone được: ' + e.message, true); showTab('nhap'); }
+}
+
+async function genFromRun(id, project) {
+  try {
+    const d = await fetchInput(id);
+    for (const k of ['city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots', 'moto_slots']) {
+      const el = formReview.elements[k];
+      const v = d.scalars[k];
+      if (el) el.value = v == null || v === 0 ? '' : v;
+    }
+    setReviewSource({ id, project: d.project || project });
+    ui = UIS.review;
+    showTab('review');
+    const miss = !formReview.elements.city.value;
+    setStatus(miss ? `Nguồn: bản giao của lượt ${id}. Lượt cũ không có Tỉnh / thành phố: điền rồi bấm Tạo ngân sách năm mới.` :
+      `Nguồn: bản giao của lượt ${id}. Dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới.`, miss);
+    if (miss) formReview.elements.city.focus();
+  } catch (e) { setStatus('Không lấy được dữ kiện của lượt: ' + e.message, true, 'review'); showTab('review'); }
+}
+
+go.addEventListener('click', async () => {
+  setStatus('Đang ghi file nhập liệu…', false, 'nhap');
+  await startRun(`${PREFIX}/api/runs`, JSON.stringify(collect()), { 'Content-Type': 'application/json' }, 'nhap');
+});
+
+loadDefaults().catch(e => setStatus('Không tải được giá trị mặc định: ' + e, true, 'nhap'));
+</script>
+<!-- Ô tên người đang đăng nhập, do cổng đăng nhập của Hub phục vụ qua Caddy (/_auth/*, đường dẫn tuyệt đối, không mang prefix). Mở trực tiếp không qua Caddy thì 404, vô hại. -->
+<script src="/_auth/badge.js" defer></script>
+</body>
+</html>

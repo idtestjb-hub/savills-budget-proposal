@@ -5020,6 +5020,11 @@ def build_budget(project, demand, year):
     else:
         fill_staff_cost_sheet(wb, project, demand, year)
 
+    # ---- '4. Điều chỉnh' (docs/32): the parent rows and sub-rows of every fund line written above, read while the
+    # figures are still numbers; budget_adjustment.apply() builds the sheet right before the save. ----
+    import adjustment_detail
+    _adjust_items = adjustment_detail.collect(wb, project, demand)
+
     # Safety net for a real bug class hit this session: Remarks text like "= Derived Apartment
     # management-fee rate... = 13,089,600,000 VND/year" gets serialized by openpyxl as an actual
     # FORMULA (any string cell value starting with "=" is written as <f>...</f>), which Excel then
@@ -5065,6 +5070,14 @@ def build_budget(project, demand, year):
 
     out_filename = f"{project['name']} - Sample Consulting Budget.xlsx"
     local_out = os.path.join(tempfile.gettempdir(), out_filename)
+    # '4. Điều chỉnh' is built last: it turns the fund lines' month cells into formulas, which every reader above
+    # (the narratives, _collect_written) needs as numbers. Skipped when the sheet module is not present.
+    try:
+        import budget_adjustment
+    except ImportError:
+        budget_adjustment = None
+    if budget_adjustment is not None:
+        budget_adjustment.apply(wb, _adjust_items)
     wb.save(local_out)
     print('Saved locally:', local_out)
 

@@ -46,6 +46,9 @@ EXPECTED_SHEETS = {
         '2.2.1 Report-Common area Fund',
         '3. Budget-Sinking Fund',
         '3.1 Report-Sinking Fund',
+        # Added 2026-10-20 (docs/32, budget adjustment demo): the tool's own sheet, one parent row per fund line
+        # with its detail sub-rows, sitting right after the sinking-fund report (check_adjustment_sheet).
+        '4. Điều chỉnh',
         'A1. Staff cost 08.2026 (VN)',
         'A1.1 Allowance (From 08.2026)',
         'A2. Bảo vệ - Security',
@@ -750,6 +753,14 @@ def check_summary_reconciles(paths):
         # independently verifies what the formula computes, not just that it parses. A legacy
         # "AC96+<number>" constant (pre this row-based design) is still accepted for robustness.
         emh2_formula = str(fund_ws.Cells(83, 6).Formula or '')
+        # docs/32 (2026-10-20): the adjustment sheet wraps a fund cell that was already a formula as
+        # "=(<old formula>)*IF('4. Điều chỉnh'!$I$r=0,1,'4. Điều chỉnh'!$M$r/'4. Điều chỉnh'!$I$r)"; the
+        # top-up is read from the old formula inside the wrap.
+        unwrapped = unwrap_adjustment_formula(emh2_formula)
+        if unwrapped != emh2_formula:
+            notes.append("EMH2's formula (row 83, col F) is wrapped by '4. Điều chỉnh'; the wrap was removed before "
+                         'reading the top-up')
+            emh2_formula = unwrapped
         # Existing-project mode (change carry-forward-staffing, design D8/D10): EMH2 either leaves
         # A1's night/holiday allowance (AC90) out because EMH3 carries it, or is the carried /
         # overridden amount itself (a number, no formula).
@@ -1270,10 +1281,11 @@ def check_remark_content(paths):
     _ess9_code = fund.cell(row=_ess9_row, column=25).value
     _ess9_code = _ess9_code.strip() if isinstance(_ess9_code, str) else _ess9_code
     if _ess9_code == 'ESS9':
-        # F (Unit Price) is a literal the pipeline wrote directly — G is a formula pulling from it,
-        # unevaluated under this function's own data_only=False load (see the docstring above).
-        _ess9_f = fund.cell(row=_ess9_row, column=6).value
-        if isinstance(_ess9_f, (int, float)) and not isinstance(_ess9_f, bool) and _ess9_f:
+        # The months are literals the pipeline wrote directly — G is a formula over them, unevaluated under
+        # this function's own data_only=False load (see the docstring above) — or, once '4. Điều chỉnh' has
+        # linked them, the originals that sheet holds (fund_months_as_written).
+        _ess9_year = sum(fund_months_as_written(wb, '2. Budget-Management Fund', _ess9_row))
+        if abs(_ess9_year) >= 1:
             label = f"2. Budget-Management Fund T{_ess9_row} (ESS9)"
             _ess9_t = fund.cell(row=_ess9_row, column=20).value
             if not (isinstance(_ess9_t, str) and _ess9_t.strip()):
@@ -2270,7 +2282,8 @@ _UTILITY_FUND_ROWS = {'EEE.C': 240, 'EEW.C': 230}   # MGMT_FUND_ROWS 'electricit
 
 def _deliverable_utility_lines(deliverable_path):
     """{'EEE.C': VND/year, 'EEW.C': VND/year}: the sum of the twelve month cells H:S the generator writes
-    (constants, so no recalculation is needed). Also checks that the row really carries that code."""
+    (constants, so no recalculation is needed; once '4. Điều chỉnh' has linked them, the originals it holds —
+    fund_months_as_written). Also checks that the row really carries that code."""
     import openpyxl
     wb = openpyxl.load_workbook(deliverable_path, read_only=True, data_only=False)
     try:
@@ -2280,7 +2293,7 @@ def _deliverable_utility_lines(deliverable_path):
             cells = next(ws.iter_rows(min_row=row, max_row=row, values_only=True))
             if str(cells[24] or '').strip() != code:       # column Y holds the code
                 raise ValueError(f"'2. Budget-Management Fund' row {row} is {cells[24]!r}, expected {code}")
-            out[code] = sum(_num(v) or 0 for v in cells[7:19])
+            out[code] = sum(fund_months_as_written(wb, '2. Budget-Management Fund', row))
         return out
     finally:
         wb.close()
@@ -2733,6 +2746,332 @@ def check_helper_sheet_ties(paths):
         except Exception:
             pass
         shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+
+
+# The adjustment sheet (docs/32, 2026-10-20): '4. Điều chỉnh' carries one parent row per fund line the tool wrote
+# (code in A, 'Tổng' in C) followed by its detail sub-rows ('Chi tiết' in C). Column letters below follow the layout
+# in docs/32 section 3. The fund line's month cells (H:S, and F on a Monthly line) are formulas back into this sheet,
+# so an untouched deliverable must show every figure unchanged: M = I, N = 0, and I = the fund line's AK.
+ADJUSTMENT_SHEET = '4. Điều chỉnh'
+_ADJUSTMENT_AFTER = '3.1 Report-Sinking Fund'
+_ADJUSTMENT_FIRST_ROW = 5
+_ADJ_COL = {'code': 1, 'name': 2, 'kind': 3, 'choice': 4, 'desc': 5, 'unit': 6, 'qty': 7, 'price': 8, 'amount': 9,
+            'new_qty': 10, 'new_price': 11, 'escalation': 12, 'new_amount': 13, 'delta': 14, 'delta_pct': 15,
+            'fund_sheet': 16, 'fund_row': 17, 'freq': 18, 'month1': 19}
+_ADJ_KIND_PARENT, _ADJ_KIND_DETAIL = 'Tổng', 'Chi tiết'
+_ADJ_FUND_SHEETS = (_FUND_SHEET, _COMMON_AREA_SHEET)
+_ADJ_FUND_FIRST_ROW = 12
+_ADJ_TAX_BLOCK_CODE = 'PL1'                         # first code of PART 2 on both fund sheets (rows 495 / 456)
+# The year total the parent's I is held to: AK (=SUM(AQ:BB), what '1. Summary' reads) on the management fund;
+# the common-area fund has no AK, so its own G (the form's year total).
+_ADJ_TOTAL_COL = {_FUND_SHEET: 37, _COMMON_AREA_SHEET: 7}
+ADJUSTMENT_TIE_TOLERANCE = HELPER_TIE_TOLERANCE   # VND a year: the fund lines are written month by month, rounded
+_ADJ_DETAIL_TOLERANCE = 1.0                         # VND: the detail invariants of docs/32 section 2
+
+
+def adjustment_original_months(wb, code, fund_sheet=None):
+    """The 12 original months (S:AD) of `code`'s parent row on '4. Điều chỉnh' of an openpyxl workbook, or None
+    when the sheet or the code is not there. `fund_sheet` narrows the match to the parent whose column P names it
+    (a code can sit on both fund sheets)."""
+    name = next((n for n in wb.sheetnames if _nfc(n) == _nfc(ADJUSTMENT_SHEET)), None)
+    if name is None:
+        return None
+    A = _ADJ_COL
+    for row in wb[name].iter_rows(min_row=_ADJUSTMENT_FIRST_ROW, max_col=A['month1'] + 11, values_only=True):
+        if _nfc(str(row[A['kind'] - 1] or '').strip()) != _ADJ_KIND_PARENT:
+            continue
+        if str(row[A['code'] - 1] or '').strip() != code:
+            continue
+        if fund_sheet is not None and _nfc(str(row[A['fund_sheet'] - 1] or '').strip()) != _nfc(fund_sheet):
+            continue
+        return [float(_num(v) or 0.0) for v in row[A['month1'] - 1:A['month1'] + 11]]
+    return None
+
+
+def fund_months_as_written(wb, sheet, row):
+    """The 12 month figures (H:S) of a fund line as the generator wrote them, from an openpyxl workbook loaded
+    without data_only: plain numbers as they are; once '4. Điều chỉnh' has turned them into formulas back into
+    itself (docs/32), the originals from that sheet's parent row (matched by the line's code on column Y and the
+    sheet). Blanks are 0. Raises ValueError when a month is a formula into the sheet and no parent row carries the
+    code, so a check never silently reads 0 for a linked line."""
+    ws = wb[next(n for n in wb.sheetnames if _nfc(n) == _nfc(sheet))]
+    cells = next(ws.iter_rows(min_row=row, max_row=row, max_col=25, values_only=True))
+    months = list(cells[7:19])
+    if not any(_formula_names_sheet(v, ADJUSTMENT_SHEET) for v in months):
+        return [float(_num(v) or 0.0) for v in months]
+    code = str(cells[24] or '').strip()
+    original = adjustment_original_months(wb, code, sheet)
+    if original is None:
+        raise ValueError(f"'{sheet}' row {row} ({code!r}) is linked to '{ADJUSTMENT_SHEET}' but that sheet has no "
+                         f'parent row for it')
+    return original
+
+
+_ADJ_WRAP = None
+
+
+def unwrap_adjustment_formula(formula):
+    """The formula a fund cell had before '4. Điều chỉnh' wrapped it: "=(<old>)*IF('4. Điều chỉnh'!...)" gives
+    "=<old>"; anything else is returned unchanged."""
+    global _ADJ_WRAP
+    if _ADJ_WRAP is None:
+        _ADJ_WRAP = re.compile(r"^=\((.*)\)\*IF\('4\. Điều chỉnh'!.*\)$", re.DOTALL)
+    if not isinstance(formula, str):
+        return formula
+    m = _ADJ_WRAP.match(_nfc(formula.strip()))
+    return '=' + m.group(1) if m else formula
+
+
+def _formula_names_sheet(formula, sheet):
+    """True when `formula` references `sheet` (quoted or bare, in either Unicode form): the plain link of docs/32
+    section 3 and the wrapped form "=(<old formula>)*IF('4. Điều chỉnh'!...)" alike."""
+    if not isinstance(formula, str):
+        return False
+    return _nfc(sheet) in _nfc(formula)
+
+
+def adjustment_sheet_ties(sheet_names, cell, last_row):
+    """Pure core of check_adjustment_sheet. `sheet_names` is the deliverable's sheet order; `cell(sheet, r, c)` ->
+    (value, formula or None) after Excel recalculation; `last_row(sheet)` -> the last used row of a sheet.
+
+    Holds the untouched deliverable to docs/32 section 4: the sheet sits right after '3.1 Report-Sinking Fund'; each
+    parent row's I equals the sum of its detail rows, M equals I, N is 0, and the 12 original months (S:AD) add up to
+    I; each detail row's G x H equals I; the parent's I equals AK of the fund line its code names (located by the
+    code on column Y, and column Q must agree: AK on the management fund, G on the common-area fund, which has
+    no AK); that fund line's month cells (H:S, plus F on a Monthly line) are
+    formulas into this sheet; and no fund leaf with a non-zero total whose months are plain values is left off the
+    sheet (the PART 2 block from PL1 down is not lines). A leaf whose months are formulas of their own (a pass-through share, a staff-sheet link, a contingency
+    line) is derived rather than written, so it is reported in the notes, not failed.
+    Returns (ok, rows, differences, notes)."""
+    rows, differences, notes = [], [], []
+    names = [_nfc(n) for n in sheet_names]
+    if _nfc(ADJUSTMENT_SHEET) not in names:
+        differences.append((f"'{ADJUSTMENT_SHEET}'", 'sheet missing from the deliverable', ''))
+        return False, rows, differences, notes
+    pos = names.index(_nfc(ADJUSTMENT_SHEET))
+    want_pos = names.index(_nfc(_ADJUSTMENT_AFTER)) + 1 if _nfc(_ADJUSTMENT_AFTER) in names else None
+    rows.append((f"'{ADJUSTMENT_SHEET}' position", pos, want_pos))
+    if pos != want_pos:
+        differences.append((f"'{ADJUSTMENT_SHEET}' position (0-based)", pos,
+                            f"{want_pos} (right after '{_ADJUSTMENT_AFTER}')"))
+
+    def val(sheet, r, c):
+        return cell(sheet, r, c)[0]
+
+    def num(sheet, r, c):
+        return _num(val(sheet, r, c)) or 0.0
+
+    def text(sheet, r, c):
+        v = val(sheet, r, c)
+        return _nfc(str(v).strip()) if isinstance(v, str) else ''
+
+    # ---- the fund lines: every leaf row by (sheet, code) -------------------------------------
+    fund_rows, leaves = {}, []
+    for sheet in _ADJ_FUND_SHEETS:
+        if _nfc(sheet) not in names:
+            differences.append((f"'{sheet}'", 'fund sheet missing from the deliverable', ''))
+            continue
+        for r in range(_ADJ_FUND_FIRST_ROW, last_row(sheet) + 1):
+            code = text(sheet, r, 25)
+            if code == _ADJ_TAX_BLOCK_CODE:
+                break                                      # PART 2 (profit, VAT, CIT) starts here: not lines
+            if not code:
+                continue
+            g_formula = cell(sheet, r, 7)[1] or ''
+            if g_formula.upper().startswith('=SUBTOTAL'):
+                continue                                   # a section subtotal, not a line
+            fund_rows.setdefault((sheet, code), r)
+            leaves.append((sheet, code, r))
+
+    # ---- the adjustment sheet: parents and their details -------------------------------------
+    A = _ADJ_COL
+    parents, r, last = [], _ADJUSTMENT_FIRST_ROW, last_row(ADJUSTMENT_SHEET)
+    while r <= last:
+        if text(ADJUSTMENT_SHEET, r, A['kind']) != _ADJ_KIND_PARENT:
+            r += 1
+            continue
+        details = []
+        d = r + 1
+        while d <= last and text(ADJUSTMENT_SHEET, d, A['kind']) == _ADJ_KIND_DETAIL:
+            details.append(d)
+            d += 1
+        parents.append((r, details))
+        r = d
+
+    covered = set()
+    n_details = 0
+    for pr, details in parents:
+        code = text(ADJUSTMENT_SHEET, pr, A['code'])
+        label = f'{code} (row {pr})'
+        amount = num(ADJUSTMENT_SHEET, pr, A['amount'])
+        new_amount = num(ADJUSTMENT_SHEET, pr, A['new_amount'])
+        delta = num(ADJUSTMENT_SHEET, pr, A['delta'])
+        if not details:
+            differences.append((f'{label}: detail rows', 0, 'at least 1'))
+        detail_sum = sum(num(ADJUSTMENT_SHEET, d, A['amount']) for d in details)
+        rows.append((f'{label}: I = sum of detail I', amount, detail_sum))
+        if abs(amount - detail_sum) > _ADJ_DETAIL_TOLERANCE:
+            differences.append((f'{label}: parent I vs sum of detail I', amount, detail_sum))
+        rows.append((f'{label}: M = I (untouched)', new_amount, amount))
+        if abs(new_amount - amount) > _ADJ_DETAIL_TOLERANCE:
+            differences.append((f'{label}: M (new amount) vs I (original) on an untouched sheet', new_amount, amount))
+        if abs(delta) > _ADJ_DETAIL_TOLERANCE:
+            differences.append((f'{label}: N (difference) on an untouched sheet', delta, 0))
+        months = [num(ADJUSTMENT_SHEET, pr, A['month1'] + i) for i in range(12)]
+        rows.append((f'{label}: original months S:AD = I', sum(months), amount))
+        if abs(sum(months) - amount) > ADJUSTMENT_TIE_TOLERANCE:
+            differences.append((f'{label}: original months S:AD vs I', sum(months), amount))
+        for d in details:
+            n_details += 1
+            q, p, a = (num(ADJUSTMENT_SHEET, d, A[k]) for k in ('qty', 'price', 'amount'))
+            if abs(q * p - a) > _ADJ_DETAIL_TOLERANCE:
+                differences.append((f'{label}: detail row {d} G x H vs I', q * p, a))
+        # the fund line
+        fund_sheet = text(ADJUSTMENT_SHEET, pr, A['fund_sheet'])
+        key = (next((s for s in _ADJ_FUND_SHEETS if _nfc(s) == fund_sheet), fund_sheet), code)
+        if key not in fund_rows:
+            differences.append((f'{label}: fund line', f"'{fund_sheet}' has no leaf with code {code!r}", ''))
+            continue
+        covered.add(key)
+        fr = fund_rows[key]
+        q_row = num(ADJUSTMENT_SHEET, pr, A['fund_row'])
+        if int(q_row) != fr:
+            differences.append((f'{label}: column Q (fund row) vs the row code {code!r} is on', int(q_row), fr))
+        tcol = _ADJ_TOTAL_COL[key[0]]
+        total = num(key[0], fr, tcol)
+        rows.append((f"{label}: I = '{key[0]}'!{_col_letter(tcol)}{fr}", amount, total))
+        if abs(amount - total) > ADJUSTMENT_TIE_TOLERANCE:
+            differences.append((f"{label}: parent I vs '{key[0]}'!{_col_letter(tcol)}{fr}", amount, total))
+        freq = text(ADJUSTMENT_SHEET, pr, A['freq']).lower()
+        month_cols = list(range(8, 20)) + ([6] if freq == 'monthly' else [])
+        unlinked = [c for c in month_cols if not _formula_names_sheet(cell(key[0], fr, c)[1], ADJUSTMENT_SHEET)]
+        rows.append((f"{label}: '{key[0]}' row {fr} month cells linked", len(month_cols) - len(unlinked),
+                     len(month_cols)))
+        if unlinked:
+            differences.append((f"{label}: '{key[0]}' row {fr} month cell(s) not a formula into "
+                                f"'{ADJUSTMENT_SHEET}'", ', '.join(_col_letter(c) for c in unlinked), 'formula'))
+
+    # ---- every written fund leaf is on the sheet -----------------------------------------------
+    derived = []
+    for sheet, code, fr in leaves:
+        total = num(sheet, fr, _ADJ_TOTAL_COL[sheet])
+        if (sheet, code) in covered or abs(total) < 1:
+            continue
+        freq = text(sheet, fr, 3).lower()
+        primary = 6 if freq == 'monthly' else 8
+        if cell(sheet, fr, primary)[1]:
+            derived.append((sheet, f'{code} (row {fr})'))
+        else:
+            differences.append((f"'{sheet}' row {fr} code {code}: non-zero {_col_letter(_ADJ_TOTAL_COL[sheet])}, "
+                                f"written as values, missing from '{ADJUSTMENT_SHEET}'", total, 'on the sheet'))
+    notes.append(f"'{ADJUSTMENT_SHEET}': {len(parents)} parent row(s), {n_details} detail row(s), "
+                 f'{len(covered)} fund line(s) linked (tolerance {ADJUSTMENT_TIE_TOLERANCE} VND a year on the '
+                 f'fund ties, {_ADJ_DETAIL_TOLERANCE:.0f} VND on the detail rows).')
+    if derived:
+        by_sheet = {}
+        for sheet, what in derived:
+            by_sheet.setdefault(sheet, []).append(what)
+        notes.append(f'{len(derived)} non-zero fund line(s) are formulas of their own and stay off the sheet: '
+                     + '; '.join(f"'{sheet}': " + (', '.join(whats) if sheet == _FUND_SHEET
+                                                     else f'{len(whats)} pass-through share(s) of the form')
+                                 for sheet, whats in by_sheet.items()))
+    return not differences, rows, differences, notes
+
+
+def _col_letter(c):
+    s = ''
+    while c:
+        c, rem = divmod(c - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
+def _read_sheet_block(ws, first_row, last_col):
+    """Read a sheet's rows `first_row`..last used row, columns 1..`last_col`, in two bulk reads (values and
+    formulas). Returns (last_row, lookup) where lookup(r, c) -> (value, formula or None)."""
+    used = ws.UsedRange
+    last_row = used.Row + used.Rows.Count - 1
+    if last_row < first_row:
+        return last_row, (lambda r, c: (None, None))
+    rng = ws.Range(ws.Cells(first_row, 1), ws.Cells(last_row, last_col))
+    values, formulas = rng.Value2, rng.Formula
+    if not isinstance(values, tuple):           # a single cell comes back bare
+        values, formulas = ((values,),), ((formulas,),)
+
+    def lookup(r, c):
+        i, j = r - first_row, c - 1
+        if i < 0 or i >= len(values) or j < 0 or j >= len(values[0]):
+            return None, None
+        f = formulas[i][j]
+        return values[i][j], (f if isinstance(f, str) and f.startswith('=') else None)
+    return last_row, lookup
+
+
+def adjustment_cells_from_workbook(wb):
+    """From an open, recalculated Excel COM workbook, the (sheet_names, cell, last_row) triple adjustment_sheet_ties
+    reads: the adjustment sheet from row 1 to AD and both fund sheets from row 12 to AK, read in bulk once."""
+    sheets = {_nfc(ws.Name): ws for ws in wb.Worksheets}
+    sheet_names = [ws.Name for ws in wb.Worksheets]
+    blocks = {}
+    for name, first in ((ADJUSTMENT_SHEET, 1), (_FUND_SHEET, _ADJ_FUND_FIRST_ROW),
+                        (_COMMON_AREA_SHEET, _ADJ_FUND_FIRST_ROW)):
+        ws = sheets.get(_nfc(name))
+        if ws is not None:
+            blocks[_nfc(name)] = _read_sheet_block(ws, first, 37)
+
+    def cell(sheet, r, c):
+        block = blocks.get(_nfc(sheet))
+        return block[1](r, c) if block else (None, None)
+
+    def last_row(sheet):
+        block = blocks.get(_nfc(sheet))
+        return block[0] if block else 0
+    return sheet_names, cell, last_row
+
+
+def check_adjustment_sheet(paths):
+    """'4. Điều chỉnh' on the deliverable as Excel recalculates it (adjustment_sheet_ties): in place, parents equal
+    their details and their fund lines, nothing moved, every written line covered and linked.
+    Returns (ok, rows, differences, notes)."""
+    import shutil
+    import tempfile
+
+    from verification.baseline import BaselineUnavailable
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The adjustment-sheet check needs Excel ({exc}).') from exc
+    work = os.path.join(tempfile.mkdtemp(prefix='adjust_tie_'), os.path.basename(paths['deliverable']))
+    shutil.copy(paths['deliverable'], work)
+    pythoncom.CoInitialize()
+    xl = wb = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        sheet_names, cell, last_row = adjustment_cells_from_workbook(wb)
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
+    finally:
+        try:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        try:
+            if xl is not None:
+                xl.Quit()
+        except Exception:
+            pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+    return adjustment_sheet_ties(sheet_names, cell, last_row)
 
 
 def check_run_log(paths, input_path, required_rows):
@@ -3208,10 +3547,12 @@ def check_real_budget_ranges(paths, names_list=None):
     wb = openpyxl.load_workbook(paths['deliverable'], read_only=True, data_only=False)
     try:
         fund_sums = {}
-        for r in wb['2. Budget-Management Fund'].iter_rows(min_row=79, max_row=494, max_col=25, values_only=True):
+        for i, r in enumerate(wb['2. Budget-Management Fund'].iter_rows(min_row=79, max_row=494, max_col=25,
+                                                                         values_only=True), start=79):
             code = str(r[24] or '').strip()
             if code in rbr.ALL_CODES:
-                fund_sums[code] = sum(v for v in r[7:19] if isinstance(v, (int, float)))
+                # the months as written, or their originals once '4. Điều chỉnh' has linked them (docs/32)
+                fund_sums[code] = sum(fund_months_as_written(wb, '2. Budget-Management Fund', i))
     finally:
         wb.close()
     values_rows = rbr.load_values()

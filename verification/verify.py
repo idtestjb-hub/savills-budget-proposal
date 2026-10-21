@@ -426,6 +426,10 @@ def main(argv=None):
         # ESS1/ESS4/ESS16, the B3 garbage sheet = ESS9 before VAT, B4 = RA1.A + RA2. Run on every sample below too.
         if not _run_sections([('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
                                lambda: checks.check_helper_sheet_ties(paths)),
+                              # docs/32 (2026-10-20): the adjustment sheet sits after 3.1, each parent equals its
+                              # details and its fund line, the fund months link back to it, nothing moved.
+                              ('4. Điều chỉnh ties to its fund lines and leaves every figure unchanged',
+                               lambda: checks.check_adjustment_sheet(paths)),
                               # Change use-real-budget-ranges: the lines priced from real Savills budgets.
                               ('Real-Budget Ranges ties to the deliverable, 10+ projects, project left out',
                                lambda: checks.check_real_budget_ranges(paths))]):
@@ -462,6 +466,8 @@ def main(argv=None):
                  lambda: checks.check_existing_detail_ties(ex_paths)),
                 ('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
                  lambda: checks.check_helper_sheet_ties(ex_paths)),
+                ('4. Điều chỉnh ties to its fund lines and leaves every figure unchanged',
+                 lambda: checks.check_adjustment_sheet(ex_paths)),
                 ('Utility Bridge ties to EEE.C and EEW.C of the deliverable',
                  lambda: checks.check_utility_bridge(ex_paths, existing_mode=True)),
                 ('remark content', lambda: check_remark_content(ex_paths)),
@@ -516,6 +522,8 @@ def main(argv=None):
              lambda: checks.check_contingency(op_paths)),
             ('helper sheets A2-A4, B3 garbage and B4 tie to their fund lines',
              lambda: checks.check_helper_sheet_ties(op_paths)),
+            ('4. Điều chỉnh ties to its fund lines and leaves every figure unchanged',
+             lambda: checks.check_adjustment_sheet(op_paths)),
         ]):
             return 1
 
