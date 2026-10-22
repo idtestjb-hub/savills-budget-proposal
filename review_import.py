@@ -34,6 +34,7 @@ import openpyxl
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
+import budget_rows as br
 import existing_staffing as es
 import existing_utilities as eu
 import operating_inputs as oi
@@ -202,6 +203,13 @@ class FundRead:
     period: list                  # [(y, m), ...] one per month column
     vat_basis: str                # 'excl' | 'incl' | 'unknown'
     flags: list = field(default_factory=list)
+    tie_state: str = ''           # budget_rows.explain_tie: ok | ok_filter | ok_double_count | mismatch | no_anchor
+    tie_notes: list = field(default_factory=list)
+
+    @property
+    def ties(self):
+        """The leaf sums tie to the sheet's own R and E rows, directly or after explanation."""
+        return self.tie_state.startswith('ok')
 
     def section_total(self, section):
         return sum(l.annual for l in self.lines if l.section == section)
@@ -339,16 +347,20 @@ def open_workbook(path, workdir=None):
                                    f'({type(second).__name__}: {second}).') from None
 
 
-def choose_fund_sheets(sheetnames):
-    """{'MF': sheet, 'CA': sheet or None}. The template's own names win; otherwise the first visible budget
-    sheet of the fund by the scan store's name rules."""
+def choose_fund_sheets(sheetnames, states=None):
+    """{'MF': sheet, 'CA': sheet or None}. The template's own names win; otherwise the first budget sheet of the
+    fund by the scan store's name rules, a visible one before a hidden one. `states`: {sheet: 'visible' | 'hidden'
+    | 'veryHidden'}; without it every sheet counts as visible."""
+    states = states or {}
     chosen = {}
     for fund in FUNDS:
         exact = next((n for n in sheetnames if _key(n) == _key(FUND_SHEETS[fund])), None)
         if exact:
             chosen[fund] = exact
             continue
-        chosen[fund] = next((n for n in sheetnames if fund_of(n) == fund and kind_of(n) == 'budget'), None)
+        cands = [n for n in sheetnames if fund_of(n) == fund and kind_of(n) == 'budget']
+        cands.sort(key=lambda n: states.get(n, 'visible') != 'visible')          # stable: file order within each
+        chosen[fund] = cands[0] if cands else None
     if chosen['MF'] is None:
         raise PriorBudgetError('no Management Fund budget sheet found (looked for a sheet named like '
                                f"'{FUND_SHEETS['MF']}'). Sheets: {', '.join(sheetnames)}")
@@ -367,13 +379,21 @@ def _rows_of(ws):
     return rows
 
 
-def read_fund_sheet(ws, fund, sheet_name):
-    """One fund sheet -> FundRead, by the scan store's rules (design D1, D2)."""
+def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
+    """One fund sheet -> FundRead, by the scan store's rules (design D1, D2) and the aggregate-row and tie rules
+    of budget_rows (change read-aggregate-rows-by-formula). `ws_formulas`: the same sheet read without data_only;
+    `layout`: (hidden rows, auto-filter range) from budget_rows.sheet_layout. Without them only the prefix rule
+    finds aggregate rows and no tie is explained by a filter."""
     rows = _rows_of(ws)
     nrows = len(rows)
+    frows = _rows_of(ws_formulas) if ws_formulas is not None else []
+    hidden, af_ref = layout if layout else (set(), None)
 
     def get(r, c):
         return rows[r][c] if 0 <= r < nrows and 0 <= c < len(rows[r]) else None
+
+    def fget(r, c):
+        return frows[r][c] if 0 <= r < len(frows) and 0 <= c < len(frows[r]) else None
 
     # code column: the one with the most code-like strings
     cnt = {}
@@ -434,25 +454,19 @@ def read_fund_sheet(ws, fund, sheet_name):
             continue
         leaves.append({'row': r, 'code': code, 'section': sec})
 
-    kids = {}
-    for i, lf in enumerate(leaves):
-        kids[i] = [j for j, k in enumerate(leaves)
-                   if k['code'] != lf['code'] and k['code'].startswith(lf['code'])
-                   and SUFFIX_RE.match(k['code'][len(lf['code']):])
-                   and not (k['code'][len(lf['code']):].isdigit() and any(ch.isdigit() for ch in lf['code']))]
+    kids = br.prefix_kids([lf['code'] for lf in leaves])
+    candidates = {lf['row'] for lf in leaves if not ind_at.get(lf['row'])}   # rows with an indicator keep their rules
+    coded_rows = set(code_at)
 
     def col_sums(c):
         vals = [_num(get(lf['row'], c)) for lf in leaves]
-        gone = set()
         for i, lf in enumerate(leaves):
             if lf.get('cond_rows') is not None:
                 own = vals[i]
                 if not (own is not None and abs(own) > TOL and all((_num(get(rr, c)) or 0.0) == 0.0 for rr in lf['cond_rows'])):
                     vals[i] = None
-        for i, v in enumerate(vals):
-            if kids[i] and v is not None and abs(v) > TOL:
-                if abs(sum((vals[j] or 0.0) for j in kids[i]) - v) <= TOL:
-                    gone.add(i)
+        aggs = br.find_aggregates(fget, candidates, coded_rows, c) if frows else {}
+        gone = br.dropped(vals, leaves, kids, aggs)
         sums = {'R': 0.0, 'E': 0.0}
         seen = False
         for i, v in enumerate(vals):
@@ -460,19 +474,32 @@ def read_fund_sheet(ws, fund, sheet_name):
                 seen = True
                 if i not in gone:
                     sums[leaves[i]['section']] += v
-        return sums, seen, vals, gone
+        return sums, seen, vals, gone, aggs
 
     ncols = max(len(r) for r in rows)
     anchor_rows = {'R': r_row, 'E': e_row}
+    n_hidden = sum(1 for h in hidden if r_row < h < pl1)
+    filtered = br.filter_on(af_ref, n_hidden, pl1 - r_row - 1)
+
+    def tie(c, vals, gone, aggs):
+        items = [(lf['row'], lf['section'], vals[i]) for i, lf in enumerate(leaves)
+                 if vals[i] is not None and i not in gone]
+        doubles = br.double_counted(leaves, vals, gone, aggs, fget, c)
+        anchors_c = {s: _num(get(anchor_rows[s], c)) for s in SECTIONS_COMPARED}
+        return br.explain_tie(SECTIONS_COMPARED, items, doubles, anchors_c, hidden, filtered, n_hidden)
+
     passing = []
     for c in range(cc + 2, ncols):
-        sums, seen, _, _ = col_sums(c)
+        sums, seen, vals, gone, aggs = col_sums(c)
         if not seen:
             continue
-        ok = all(_num(get(anchor_rows[s], c)) is not None and abs(sums[s] - _num(get(anchor_rows[s], c))) <= TOL
-                 for s in SECTIONS_COMPARED)
-        if ok and abs(sums['R']) + abs(sums['E']) > 0:
-            passing.append(c)
+        t = tie(c, vals, gone, aggs)
+        if t['state'].startswith('ok') and abs(sums['R']) + abs(sums['E']) > 0:
+            passing.append((c, t['state'], sums['R']))
+    if any(abs(r_sum) > TOL for _, _, r_sum in passing):            # a column with no revenue does not tie
+        passing = [p for p in passing if abs(p[2]) > TOL]
+    direct = {c for c, state, _ in passing if state == 'ok'}
+    passing = [c for c, _, _ in passing]
 
     def pri(c):
         h = header(c)
@@ -486,7 +513,7 @@ def read_fund_sheet(ws, fund, sheet_name):
     hdr_cols = [c for c in range(cc + 2, ncols) if pri(c) <= 3]
     flags = []
     if passing:
-        value_col, value_how = min(passing, key=lambda c: (pri(c), c)), 'reconciled'
+        value_col, value_how = min(passing, key=lambda c: (c not in direct, pri(c), c)), 'reconciled'
     elif hdr_cols:
         value_col, value_how = min(hdr_cols, key=lambda c: (pri(c), c)), 'header_only'
         flags.append(f"cột giá trị '{get_column_letter(value_col + 1)}' chọn theo tiêu đề, tổng dòng lá không khớp dòng R/E của sheet")
@@ -544,7 +571,8 @@ def read_fund_sheet(ws, fund, sheet_name):
         flags.append('không đọc được cơ sở VAT của sheet')
 
     # lines
-    sums, _, vals, gone = col_sums(value_col)
+    sums, _, vals, gone, aggs = col_sums(value_col)
+    value_tie = tie(value_col, vals, gone, aggs)
     seen = {}
     lines = []
     for i, lf in enumerate(leaves):
@@ -567,7 +595,7 @@ def read_fund_sheet(ws, fund, sheet_name):
             l.flags.append(FLAG_DUP)
     anchors = {s: _num(get(anchor_rows[s], value_col)) for s in SECTIONS_COMPARED}
     return FundRead(fund, sheet_name, lines, anchors, value_col + 1, value_how, [c + 1 for c in month_cols], period,
-                    basis, flags)
+                    basis, flags, value_tie['state'], value_tie['notes'])
 
 
 def _project_name(ws_rows, info_name):
@@ -611,11 +639,20 @@ def catalogue_methods(path=CATALOGUE_PATH):
 def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
     """The approved budget workbook -> PriorBudget (design D1, D2, D4). Raises PriorBudgetError."""
     wb, opened = open_workbook(path, workdir)
+    wbf = None
     try:
-        chosen = choose_fund_sheets(wb.sheetnames)
+        chosen = choose_fund_sheets(wb.sheetnames, {ws.title: ws.sheet_state for ws in wb.worksheets})
         notes = []
         if opened != path:
             notes.append((NOTE_SOURCE, os.path.basename(path), f'đọc qua bản sao đã bỏ defined names: {os.path.basename(opened)}'))
+        # formulas and hidden rows of the same file (the stripped copy when that is what opened)
+        try:
+            wbf = openpyxl.load_workbook(opened, read_only=True)
+            layouts = br.sheet_layout(opened, {n for n in chosen.values() if n})
+        except Exception as exc:
+            wbf, layouts = None, {}
+            notes.append((NOTE_SOURCE, os.path.basename(path), f'không đọc được công thức ({type(exc).__name__}): '
+                                                                f'dòng gộp chỉ nhận theo tiền tố mã'))
         funds = {}
         tcodes = template_codes(template)
         for fund in FUNDS:
@@ -624,7 +661,7 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
                 notes.append((NOTE_UNREAD, FUND_SHEETS[fund], 'file không có sheet này'))
                 continue
             try:
-                fr = read_fund_sheet(wb[name], fund, name)
+                fr = read_fund_sheet(wb[name], fund, name, wbf[name] if wbf is not None else None, layouts.get(name))
             except PriorBudgetError as exc:
                 if fund == 'MF':
                     raise PriorBudgetError(f'{os.path.basename(path)}: {exc}') from None
@@ -641,11 +678,15 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
                     l.on_form = False
                     l.flags.append(FLAG_NOT_ON_FORM)
                     notes.append((NOTE_NOT_ON_FORM, l.code, f"{name} dòng {l.row}: {l.item[:60]} = {l.annual:,.0f}"))
-            for s in SECTIONS_COMPARED:
-                a = fr.anchors.get(s)
-                if a is None or abs(fr.section_total(s) - a) > TOL:
-                    notes.append((NOTE_UNREAD, f'{name} {s}',
-                                  f'tổng dòng lá {fr.section_total(s):,.0f} khác dòng {s} của sheet {a if a is None else format(a, ",.0f")}'))
+            if fr.ties:
+                for n in fr.tie_notes:                                   # a tie after explanation says why
+                    notes.append((NOTE_SOURCE, name, n))
+            else:
+                for s in SECTIONS_COMPARED:
+                    a = fr.anchors.get(s)
+                    if a is None or abs(fr.section_total(s) - a) > TOL:
+                        notes.append((NOTE_UNREAD, f'{name} {s}',
+                                      f'tổng dòng lá {fr.section_total(s):,.0f} khác dòng {s} của sheet {a if a is None else format(a, ",.0f")}'))
             funds[fund] = fr
         mf = funds['MF']
         info_name = ''
@@ -661,6 +702,8 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
         return PriorBudget(path, project_name, funds, notes, budget_year, list(mf.period))
     finally:
         wb.close()
+        if wbf is not None:
+            wbf.close()
 
 
 # ------------------------------------------------------------------------------------------------

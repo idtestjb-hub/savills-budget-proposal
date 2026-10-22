@@ -199,6 +199,19 @@ def _pct(diff, base):
     return (diff / base) if abs(base) >= 0.5 else None
 
 
+def prior_anchors(prior):
+    """{fund: {'R', 'E', 'explained', 'notes'}} of the source file for assemble(): the sheet's own R and E figures,
+    and, when the leaf sums tie only after explanation (budget_rows.explain_tie), that state and its notes."""
+    return {f: dict(fr.anchors, explained=fr.tie_state if fr.tie_state.startswith('ok_') else '',
+                    notes=list(fr.tie_notes))
+            for f, fr in prior.funds.items()}
+
+
+def _tie_text(t):
+    """'KHỚP' / 'LỆCH', with the explanation of a tie after a filter or a SUM error."""
+    return ('KHỚP' if t['ok'] else 'LỆCH') + (f" (giải thích: {t['note']})" if t.get('note') else '')
+
+
 def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
     """Everything the sheet, the summary and the ties need, from plain data (no Excel): rows per fund and
     section, totals, ties. `prior_lines`: dicts (fund, section, code, item, approved, incl_vat, flags, on_form,
@@ -265,10 +278,14 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
             if t_anchor is not None:
                 ties.append(dict(kind='công cụ = bản giao', fund=fund, section=sec, left=tot['tool'], right=t_anchor,
                                  diff=tot['tool'] - t_anchor, ok=abs(tot['tool'] - t_anchor) <= TOL))
-            a_anchor = (anchors.get(fund) or {}).get(sec)
+            a_meta = anchors.get(fund) or {}
+            a_anchor = a_meta.get(sec)
             if a_anchor is not None:
+                explained = bool(a_meta.get('explained'))              # a tie after a filter or a SUM error
                 ties.append(dict(kind='duyệt = file nguồn', fund=fund, section=sec, left=tot['approved'], right=a_anchor,
-                                 diff=tot['approved'] - a_anchor, ok=abs(tot['approved'] - a_anchor) <= TOL))
+                                 diff=tot['approved'] - a_anchor,
+                                 ok=abs(tot['approved'] - a_anchor) <= TOL or explained,
+                                 note='; '.join(a_meta.get('notes') or []) if explained else ''))
     summary = {}
     for fund in ri.FUNDS:
         if (fund, 'R') in rows_by and (fund, 'E') in rows_by:
@@ -338,7 +355,7 @@ def build_review_sheet(wb, data, meta):
     r += 1
     for t in data['ties']:
         text = (f"{t['kind']} — {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} so với {t['right']:,.0f}, "
-                f"lệch {t['diff']:,.0f} → {'KHỚP' if t['ok'] else 'LỆCH'}")
+                f"lệch {t['diff']:,.0f} → {_tie_text(t)}")
         ws.cell(row=r, column=1, value=text).font = Font(size=9, color='006100' if t['ok'] else 'C00000')
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
         r += 1
@@ -442,7 +459,7 @@ def summary_md(data, meta):
     md.append('Đối chiếu tổng:')
     for t in data['ties']:
         md.append(f"- {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} / {t['right']:,.0f}, lệch "
-                  f"{t['diff']:,.0f} → {'KHỚP' if t['ok'] else 'LỆCH'}")
+                  f"{t['diff']:,.0f} → {_tie_text(t)}")
     md.append(f'\nTop {TOP} theo |chênh lệch|:\n')
     md.append('| # | Quỹ | Mã | Hạng mục | Duyệt (quy đổi) | Công cụ | Chênh | % | Cách ra số |\n|---:|---|---|---|---:|---:|---:|---:|---|')
     for i, x in enumerate(data['top'], 1):
@@ -516,7 +533,7 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
     prior_lines = [dict(fund=l.fund, section=l.section, code=l.code, item=l.item, approved=l.annual,
                         incl_vat=prior.funds[l.fund].vat_basis == 'incl', flags=l.flags, on_form=l.on_form,
                         remark=l.remark) for l in prior.lines()]
-    anchors = {f: fr.anchors for f, fr in prior.funds.items()}
+    anchors = prior_anchors(prior)
     rate_bases = {v[1] for v in filled['rates'].values()}
     d_incl = tool.get('MF', {}).get('incl_vat', True)
     rate_note = ''

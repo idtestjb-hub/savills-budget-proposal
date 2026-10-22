@@ -1,7 +1,7 @@
 """
 Danh sách ngân sách đã duyệt có sẵn (kho quét ngân sách thật) cho tab Review: chọn một dự án thay vì tải file lên.
 
-Nguồn danh sách: kho quét (scan_budgets v2, `final_v2\\`): `dim_file.csv` (một dòng mỗi file, 87 dòng ở bản
+Nguồn danh sách: kho quét (scan_budgets v3, `final_v3\\`): `dim_file.csv` (một dòng mỗi file, 87 dòng ở bản
 2026-10-10), `project_map.csv` (tên dự án đọc trong file), `file_profile.csv` (năm theo nội dung, VAT, NFA, độ tin
 cậy của sheet quỹ chính). Thư mục kho đặt bằng BUDGET_WEB_LIBRARY_STORE.
 
@@ -27,11 +27,13 @@ import threading
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGET_AGENT = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_ROOT = os.path.join(os.path.dirname(BUDGET_AGENT), 'input', 'budget_planning')
-DEFAULT_STORE = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07', 'final_v2')
+DEFAULT_STORE = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07', 'final_v3')
 NEW_SUBFOLDER = 'Ngân sách thực tế dự án lập hằng năm (có số liệu báo cáo)'
 
 CONFIDENCE_VI = {'high': 'Khớp tổng', 'medium': 'Tổng không khớp', 'low': 'Form cũ, chưa đối soát',
                  '': 'Không có sheet quỹ'}
+# Khớp sau giải thích (bộ lọc che ô tổng, hoặc file cộng trùng một dòng): kho xếp 'high', nhãn riêng kèm ghi chú của kho.
+EXPLAINED_VI = 'Khớp tổng (đã giải thích)'
 # Trạng thái đối soát của kho quét (reconcile.csv, sheet quỹ chính) -> câu giải thích hiện cạnh tên dự án.
 SECTION_VI = {'R': 'thu', 'E': 'chi', 'D': 'mục D'}
 MISMATCH_TAIL = ('; có thể do công thức trong file gốc hoặc do kho quét đọc trùng dòng gộp. Vẫn chạy được: Review tự '
@@ -120,6 +122,8 @@ def confidence_note(rec):
         return NO_ANCHOR_NOTE
     if status == 'no_value_col':
         return NO_VALUE_COL_NOTE
+    if status.startswith('ok_'):
+        return rec.get('note', '') or ''
     return ''
 
 
@@ -165,13 +169,16 @@ def load(root=None, store=None):
         elif str(year).isdigit() and int(year) >= template_year():
             reason = (f'Ngân sách năm {int(year)}: công cụ lập ngân sách năm {template_year()}, nên chỉ review được '
                       f'ngân sách đã duyệt của năm {template_year() - 1} trở về trước')
-        note = confidence_note(recon.get((fid, prof.get('primary_sheet', '')))) if conf != 'high' else ''
+        rec = recon.get((fid, prof.get('primary_sheet', '')))
+        explained = conf == 'high' and (rec or {}).get('status', '').startswith('ok_')
+        note = confidence_note(rec) if (conf != 'high' or explained) else ''
         out.append(dict(id=fid, project=project or _name_from_file(r.get('file_name', '')),
                         project_from='file' if project else 'tên file', file_name=r.get('file_name', ''),
                         folder={'old8': 'budget_planning', 'new': NEW_SUBFOLDER,
                                 'new_converted': 'bản chuyển đổi trong kho quét'}.get(r.get('source_group'), ''),
                         year=int(year) if str(year).isdigit() else None, vat=prof.get('vat_basis_v2') or '',
-                        nfa=_float(prof.get('nfa_total')), confidence=conf, confidence_vi=CONFIDENCE_VI.get(conf, conf),
+                        nfa=_float(prof.get('nfa_total')), confidence=conf,
+                        confidence_vi=EXPLAINED_VI if explained else CONFIDENCE_VI.get(conf, conf),
                         confidence_note=note, ext=ext, selectable=not reason, reason=reason, path=path,
                         duplicate_of=r.get('content_dup_of') or ''))
     out.sort(key=lambda e: (not e['selectable'], e['project'].casefold(), -(e['year'] or 0)))

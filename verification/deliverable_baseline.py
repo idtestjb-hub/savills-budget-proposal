@@ -13,6 +13,10 @@ Re-record after an approved change with:
     python verification/deliverable_baseline.py --record --reason "why"
 """
 import os
+import sys
+
+if __name__ == '__main__':      # run as a script (as the docstring says): make the `verification` package importable
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from verification.baseline import (VND, BaselineUnavailable, FigureMissing,
                                    save_baseline, load_baseline, compare_to_baseline)
