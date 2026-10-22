@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-10-21T12:42:56+07:00",
-  "reason": "Group 10 of apply-head-of-pm-decisions-2026-10, single re-record 2026-10-21 at main f45c2df: groups 1-9 plus fix-cleaning-staffing-ratio, use-real-budget-ranges part 2, size-security-from-fee-nfa and price-fee-and-parking-from-portfolio (all signed off 2026-10-15..20); every movement attributed step by step on 19 first-parent checkpoints and matched to the recorded A/Bs (Savills-local/budget-test/2026-10-21-p6-g10/step_table.md)",
+  "recorded_at": "2026-10-21T19:54:13+07:00",
+  "reason": "Change read-aggregate-rows-by-formula, signed off by the user 2026-10-21 (P7): Ref_RealBudgetValues.csv rebuilt from scan store v3 (aggregate rows by formula, ties after a filter or a double count accepted; 44 projects instead of 41); RM.AP median -5%, standard sample derived apartment rate 18,697 -> 17,959 VND/m2/month; before/after Savills-local/budget-test/2026-10-21-p7/before_after.md",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,17 +12,17 @@
   },
   "figures": {
     "derived_apartment_rate": {
-      "value": 18697.0,
+      "value": 17959.0,
       "unit": "VND/m²/month",
       "where": "Summary!R33C2"
     },
     "mgmt_fee_revenue_monthly": {
-      "value": 1033208800.0,
+      "value": 994168600.0,
       "unit": "VND",
       "where": "Summary!R34C2"
     },
     "mgmt_fee_revenue_annual": {
-      "value": 12398505600.0,
+      "value": 11930023200.0,
       "unit": "VND",
       "where": "Summary!R35C2"
     },
@@ -52,17 +52,17 @@
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 1012037077.3782415,
+      "value": 543554677.3782415,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.08162573055403076,
+      "value": 0.04556191285346717,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.08888068107926565,
+      "value": 0.0477368972037598,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },

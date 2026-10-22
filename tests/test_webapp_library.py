@@ -198,3 +198,38 @@ def test_year_hint_explains_the_prior_year_stop():
     hint = review_run.year_hint(msg)
     assert 'năm 2027' in hint and 'TRƯỚC năm 2027' in hint and 'từ năm 2026 trở về trước' in hint
     assert review_run.year_hint('sheet khác: lỗi khác') == '' and review_run.year_hint(None) == ''
+
+
+def test_a_tie_after_explanation_is_labelled_with_its_note(tmp_path, monkeypatch):
+    # change read-aggregate-rows-by-formula: ok_filter / ok_double_count count as tying (confidence high), labelled
+    # apart from a direct tie, with the store's note
+    monkeypatch.setattr(library, 'template_year', lambda: 2027)
+    root = tmp_path / 'budget_planning'
+    root.mkdir()
+    for n in ('NS 2025 Khu M.xlsx', 'NS 2025 Khu N.xlsx', 'NS 2025 Khu P.xlsx'):
+        build_prior_workbook(str(root / n))
+    st = tmp_path / 'final_v3'
+    st.mkdir()
+    sheet = '2. Budget-Management Fund'
+    _write(st / 'dim_file.csv', ['file_id', 'file_name', 'rel_path', 'source_group', 'ext', 'content_dup_of'],
+           [(f, n, n, 'old8', 'xlsx', '') for f, n in (('mmm111', 'NS 2025 Khu M.xlsx'), ('nnn222', 'NS 2025 Khu N.xlsx'),
+                                                       ('ppp333', 'NS 2025 Khu P.xlsx'))])
+    _write(st / 'project_map.csv', ['file_id', 'file_name', 'project_name', 'year_in_name'], [])
+    _write(st / 'file_profile.csv', ['file_id', 'primary_confidence', 'primary_sheet', 'budget_year_v2', 'vat_basis_v2',
+                                     'nfa_total'],
+           [(f, 'high', sheet, '2025', 'excl', '') for f in ('mmm111', 'nnn222', 'ppp333')])
+    _write(st / 'reconcile.csv', ['file_id', 'sheet', 'status', 'R_diff', 'E_diff', 'D_diff', 'note'],
+           [('mmm111', sheet, 'ok_filter', '7572776844', '0', '0', 'ô tổng bị bộ lọc che (477 dòng ẩn)'),
+            ('nnn222', sheet, 'ok_double_count', '-1820000', '0', '0',
+             'lỗi file: RO2 trùng số với dòng con, tổng của file cộng trùng 1,820,000 VND'),
+            ('ppp333', sheet, 'ok', '0', '0', '0', '')])
+    by = {e['id']: e for e in library.load(str(root), str(st))}
+    m, n, p = by['mmm111'], by['nnn222'], by['ppp333']
+    assert m['selectable'] and m['confidence_vi'] == 'Khớp tổng (đã giải thích)'
+    assert m['confidence_note'] == 'ô tổng bị bộ lọc che (477 dòng ẩn)'
+    assert n['confidence_vi'] == 'Khớp tổng (đã giải thích)' and 'RO2 trùng số với dòng con' in n['confidence_note']
+    assert p['confidence_vi'] == 'Khớp tổng' and p['confidence_note'] == ''
+
+
+def test_default_store_is_the_v3_scan():
+    assert library.DEFAULT_STORE.endswith('final_v3')

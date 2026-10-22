@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-10-21T12:44:20+07:00",
-  "reason": "Group 10 of apply-head-of-pm-decisions-2026-10, single re-record 2026-10-21 at main f45c2df: groups 1-9 plus fix-cleaning-staffing-ratio, use-real-budget-ranges part 2, size-security-from-fee-nfa and price-fee-and-parking-from-portfolio (all signed off 2026-10-15..20); every movement attributed step by step on 19 first-parent checkpoints and matched to the recorded A/Bs (Savills-local/budget-test/2026-10-21-p6-g10/step_table.md)",
+  "recorded_at": "2026-10-21T19:55:13+07:00",
+  "reason": "Change read-aggregate-rows-by-formula, signed off by the user 2026-10-21 (P7): Ref_RealBudgetValues.csv rebuilt from scan store v3 (aggregate rows by formula, ties after a filter or a double count accepted; 44 projects instead of 41); RM.AP median -5%, standard sample derived apartment rate 18,697 -> 17,959 VND/m2/month; before/after Savills-local/budget-test/2026-10-21-p7/before_after.md",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,12 +12,12 @@
   },
   "figures": {
     "rm_collected_year1": {
-      "value": 3357928600.0,
+      "value": 3231047950.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!SUM(G14:G22)"
     },
     "rm_developer_year1": {
-      "value": 9040577000.0,
+      "value": 8698975250.0,
       "unit": "VND",
       "where": "2. Budget-Management Fund!G23"
     },
@@ -42,7 +42,7 @@
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 1429650610.5213223,
+      "value": 959408742.0452614,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     },
