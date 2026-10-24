@@ -3226,7 +3226,7 @@ def check_run_log(paths, input_path, required_rows):
     return (len(differences) == 0), rows, differences, notes
 
 
-_SERVICE_LEVEL_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07',
+_SERVICE_LEVEL_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-agent', 'scan-2026-10-07',
                                             'final_v2', 'service_levels_names.txt')
 
 
@@ -3417,7 +3417,7 @@ def check_service_levels(paths, input_path, names_list=None):
     return not differences, rows, differences, notes
 
 
-_REAL_BUDGET_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07',
+_REAL_BUDGET_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-agent', 'scan-2026-10-07',
                                           'final_v4', 'real_budget_ranges_names.txt')   # store v4 (2026-10-22)
 
 

@@ -321,12 +321,12 @@ else reads it.
   A2/A3 form (`form`) or inferred from its cost (`chi phí`). The sheet's percentile counts only form-read, classified
   projects, with the project itself left out (by name key or an NFA within 0.5%); the inferred count is shown apart.
 - **Rebuilding the table** (only after a new scan of `input/budget_planning/` and a re-run of the level-of-service
-  readers in `Savills-local\budget-test\level-of-service\`: `extract_fix_v8.py` → `levels4_v8.py` → `levels5_v8.py`,
+  readers in `Savills-local\budget-agent\level-of-service\`: `extract_fix_v8.py` → `levels4_v8.py` → `levels5_v8.py`,
   see that folder's README; v8 of 2026-10-18 reads security forms whose shift column is text and cleaning forms
   without an hours column):
 
   ```bash
-  python build_service_levels.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v2\budget_scan_v2.sqlite" --levels "C:\Users\CDangQuang\Savills-local\budget-test\level-of-service\level_assignment_v8.csv"
+  python build_service_levels.py --store "C:\Users\CDangQuang\Savills-local\budget-agent\scan-2026-10-07\final_v2\budget_scan_v2.sqlite" --levels "C:\Users\CDangQuang\Savills-local\budget-agent\level-of-service\level_assignment_v8.csv"
   ```
 
   It writes the table beside the thresholds, prints the counts per level, and writes the name-to-id map and the
@@ -361,14 +361,14 @@ file, the Apartment rate comes from the comparables as before.
 - **Rebuilding the data** (only after a new scan of `input/budget_planning/`, or a CPI change):
 
   ```bash
-  python build_real_budget_ranges.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v4" --out "..\data\real_budget_ranges" --nfa-table "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\nfa_per_file.csv"
+  python build_real_budget_ranges.py --store "C:\Users\CDangQuang\Savills-local\budget-agent\scan-2026-10-07\final_v4" --out "..\data\real_budget_ranges" --nfa-table "C:\Users\CDangQuang\Savills-local\budget-agent\scan-2026-10-07\nfa_per_file.csv"
   ```
 
   It writes the name-to-id map and the names list next to the store, never into the repository, and refuses to write
   if a project or file name would land in the data. Without the values file every line falls back to 0 with its
   reason and the run still completes. `--master` (default: the residential master list) is the second NFA source.
 
-- **How the store is built** (outside the repository, in `Savills-local\budget-test\scan-2026-10-07`; since change
+- **How the store is built** (outside the repository, in `Savills-local\budget-agent\scan-2026-10-07`; since change
   `widen-real-budget-store`, store `final_v4`):
   1. `SCAN_VERSION=v4 python v2\scan_budgets_v2.py --all` (about 5-9 minutes; `BUDGET_ROWS_SRC` = this `source_code`
      folder) writes `tables_v4`.

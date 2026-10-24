@@ -27,7 +27,7 @@ import threading
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGET_AGENT = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_ROOT = os.path.join(os.path.dirname(BUDGET_AGENT), 'input', 'budget_planning')
-DEFAULT_STORE = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07', 'final_v4')
+DEFAULT_STORE = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-agent', 'scan-2026-10-07', 'final_v4')
 NEW_SUBFOLDER = 'Ngân sách thực tế dự án lập hằng năm (có số liệu báo cáo)'
 
 CONFIDENCE_VI = {'high': 'Khớp tổng', 'medium': 'Tổng không khớp', 'low': 'Form cũ, chưa đối soát',
