@@ -361,12 +361,32 @@ file, the Apartment rate comes from the comparables as before.
 - **Rebuilding the data** (only after a new scan of `input/budget_planning/`, or a CPI change):
 
   ```bash
-  python build_real_budget_ranges.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v2" --out "..\data\real_budget_ranges"
+  python build_real_budget_ranges.py --store "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\final_v4" --out "..\data\real_budget_ranges" --nfa-table "C:\Users\CDangQuang\Savills-local\budget-test\scan-2026-10-07\nfa_per_file.csv"
   ```
 
   It writes the name-to-id map and the names list next to the store, never into the repository, and refuses to write
   if a project or file name would land in the data. Without the values file every line falls back to 0 with its
-  reason and the run still completes.
+  reason and the run still completes. `--master` (default: the residential master list) is the second NFA source.
+
+- **How the store is built** (outside the repository, in `Savills-local\budget-test\scan-2026-10-07`; since change
+  `widen-real-budget-store`, store `final_v4`):
+  1. `SCAN_VERSION=v4 python v2\scan_budgets_v2.py --all` (about 5-9 minutes; `BUDGET_ROWS_SRC` = this `source_code`
+     folder) writes `tables_v4`.
+  2. `python v2\scan_other_forms.py --out tables_v4` reads the files listed in `code_maps\other_forms.csv` (four
+     departmental-form budgets, the 2022 file with its own code column, the budget with item names only) through the
+     reviewed maps `code_maps\departmental.csv`, `q2_2022.csv`, `no_code_budget.csv`. A map whose first line has no
+     `# approved_on=` date is not read; a line with an amount and no map row stops the file (`other_refused.csv`).
+  3. `SCAN_VERSION=v4 python v2\build_final_v2.py` merges them and writes `final_v4`; `python v2\compare_v4.py`
+     lists everything that moved against `final_v3`.
+  4. `nfa_per_file.csv` holds the reviewed fee-paying NFA of the files whose own sheet has none (cell, rate, approval
+     date). Its row wins over the file's profile; the master list is the fallback, and either one must pass the fee
+     check (revenue `RM.*` per month ÷ NFA within 15% of the rate written in the file or the master list; for mixed
+     products the reference is the area-weighted rate of the file).
+  5. Overlay first (`--out` a scratch folder), measure with `verify.py` and the M3 runs, get the sign-off, then copy
+     `Ref_RealBudgetValues.csv` and `README.txt` into `data\real_budget_ranges`, the four store CSVs (`dim_file`,
+     `file_profile`, `project_map`, `reconcile`) into `input\budget_planning\_kho_quet`, and re-record the baselines.
+  6. The web library reads `final_v4` (`BUDGET_WEB_LIBRARY_STORE`, default `final_v4`). Files read through a map tie in
+     the store but stay greyed in the Review tab ("Form riêng"), because Review does not read those forms.
 
 ## If you run only one generator
 

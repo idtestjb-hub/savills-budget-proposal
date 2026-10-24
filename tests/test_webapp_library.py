@@ -208,7 +208,7 @@ def test_a_tie_after_explanation_is_labelled_with_its_note(tmp_path, monkeypatch
     root.mkdir()
     for n in ('NS 2025 Khu M.xlsx', 'NS 2025 Khu N.xlsx', 'NS 2025 Khu P.xlsx'):
         build_prior_workbook(str(root / n))
-    st = tmp_path / 'final_v3'
+    st = tmp_path / 'final_v4'
     st.mkdir()
     sheet = '2. Budget-Management Fund'
     _write(st / 'dim_file.csv', ['file_id', 'file_name', 'rel_path', 'source_group', 'ext', 'content_dup_of'],
@@ -231,5 +231,26 @@ def test_a_tie_after_explanation_is_labelled_with_its_note(tmp_path, monkeypatch
     assert p['confidence_vi'] == 'Khớp tổng' and p['confidence_note'] == ''
 
 
-def test_default_store_is_the_v3_scan():
-    assert library.DEFAULT_STORE.endswith('final_v3')
+def test_a_file_read_through_a_code_map_ties_but_is_not_selectable(tmp_path, monkeypatch):
+    # change widen-real-budget-store: the store reads the owner's own forms through reviewed code maps; the Review tab
+    # cannot read them, so they stay greyed with a reason although the store ties them
+    monkeypatch.setattr(library, 'template_year', lambda: 2027)
+    root = tmp_path / 'budget_planning'
+    root.mkdir()
+    build_prior_workbook(str(root / 'NS 2025 Khu M.xlsx'))
+    st = tmp_path / 'final_v4'
+    st.mkdir()
+    sheet = 'Master Sheet'
+    _write(st / 'dim_file.csv', ['file_id', 'file_name', 'rel_path', 'source_group', 'ext', 'content_dup_of'],
+           [('mmm111', 'NS 2025 Khu M.xlsx', 'NS 2025 Khu M.xlsx', 'old8', 'xlsx', '')])
+    _write(st / 'project_map.csv', ['file_id', 'file_name', 'project_name', 'year_in_name'], [])
+    _write(st / 'file_profile.csv', ['file_id', 'primary_confidence', 'primary_sheet', 'budget_year_v2', 'vat_basis_v2', 'nfa_total'],
+           [('mmm111', 'high', sheet, '2025', 'excl', '')])
+    _write(st / 'reconcile.csv', ['file_id', 'sheet', 'status', 'R_diff', 'E_diff', 'D_diff', 'note'],
+           [('mmm111', sheet, 'ok', '0', '0', '0', 'form khác, đọc qua bảng ghép departmental (duyệt 2026-10-22)')])
+    e = {x['id']: x for x in library.load(str(root), str(st))}['mmm111']
+    assert not e['selectable'] and 'bảng ghép mã' in e['reason'] and e['confidence_vi'] == 'Khớp tổng'
+
+
+def test_default_store_is_the_v4_scan():
+    assert library.DEFAULT_STORE.endswith('final_v4')

@@ -96,10 +96,10 @@ def mini_store(tmp_path):
     return str(folder), write_cpi(tmp_path / 'cpi.csv')
 
 
-def _run(mini_store, tmp_path):
+def _run(mini_store, tmp_path, extra=()):
     store, cpi = mini_store
     out, mp = tmp_path / 'out', tmp_path / 'map'
-    b.main(['--store', store, '--out', str(out), '--map', str(mp), '--cpi', cpi])
+    b.main(['--store', store, '--out', str(out), '--map', str(mp), '--cpi', cpi, '--master', ''] + list(extra))
     rows = rbr.load_values(str(out / b.VALUES_FILE))
     with open(mp / b.MAP_FILE, encoding='utf-8-sig') as fh:
         mapping = {r['project_id']: r for r in csv.DictReader(fh)}
@@ -209,3 +209,127 @@ def test_fee_nfa():
     assert b.fee_nfa(80000, 'sum_of_types', 'Management Fee=40000.0; Apartment=40000.0') == (40000, '')
     assert b.fee_nfa(80000, 'total_row', 'I.=100') == (80000, '')
     assert b.fee_nfa(None, 'total_row', '') == (None, '')
+
+
+# ---- change widen-real-budget-store (2026-10-22): a checked NFA for a file whose profile has none -----------------
+
+NFA_FILES = [
+    # file_id, project, year, RM.* per month excl. VAT on the main sheet; every profile without an NFA
+    ('n01', 'Invented Harbour', 2026, 1061800000),   # master 61,987.75 m2 at 18,500 incl. VAT -> 17,130 = reference
+    ('n02', 'Invented Lake', 2026, 1912600000),      # master 54,624 m2 -> 35,014 vs 18,000 / 1.08: fails
+    ('n03', 'Nowhere Name', 2026, 500000000),        # no master-list row
+    ('n04', 'Invented Twin', 2026, 500000000),       # two master-list rows of the same name
+    ('n05', 'Invented Lake', 2026, 0),               # no fee revenue, table row approved -> enters
+    ('n06', 'Invented Harbour', 2026, 0),            # matches the master list, no fee revenue, no table row -> out
+    ('n07', 'Invented Ridge', 2023, 307500000),      # table row with the file's own rate (excl. VAT)
+    ('n08', 'Invented Unapproved', 2026, 0),         # table row without approved_on -> ignored -> out
+]
+MASTER_ROWS = [
+    ('Invented Harbour', 61987.75, 18500, 'incl_VAT'),
+    ('Invented Lake', 54624, 18000, 'incl_VAT'),
+    ('Invented Twin', 30000, 16000, 'incl_VAT'),
+    ('Invented Twin', 31000, 16000, 'incl_VAT'),
+]
+TABLE_ROWS = [
+    # file_id, nfa_fee, nfa_apartment, ref_rate, ref_rate_vat, approved_on
+    ('n05', 20944.7, 18641, '', '', '2026-10-22'),
+    ('n07', 20500, '', 15500, 'excl', '2026-10-22'),     # 307,500,000 / 20,500 = 15,000 vs 15,500: -3.2%
+    ('n08', 10000, '', '', '', ''),
+]
+VAT_CUTS = [('2022-02', '2022-12', 0.08), ('2023-07', '2023-12', 0.08), ('2024-01', '2026-12', 0.08)]
+
+
+@pytest.fixture
+def nfa_store(mini_store, tmp_path):
+    store, cpi = mini_store
+    con = sqlite3.connect(os.path.join(store, b.STORE_FILE))
+    for fid, proj, yr, rm in NFA_FILES:
+        con.execute('insert into file_profile values (?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (fid, fid + '.xlsx', 'excel', None, 'MF', 'high', yr, 12, None, 'not_found', '', None))
+        con.execute('insert into dim_file values (?,?,?,?,?,?)', (fid, fid + '.xlsx', 'sub/' + fid, '2026-01-01', 'excel', None))
+        con.execute('insert into project_map values (?,?,?)', (fid, fid + '.xlsx', proj))
+        con.execute('insert into fact_line values (?,?,?,?,?)', (fid, 'MF', 1, 'RM.AP', rm))
+        con.execute('insert into fact_line values (?,?,?,?,?)', (fid, 'MF', 2, 'ESS12', 1000000))
+    con.execute('create table vat_cut_period ("from" text, "to" text, rate real, legal_basis text)')
+    con.executemany('insert into vat_cut_period values (?,?,?,?)', [c + ('invented',) for c in VAT_CUTS])
+    con.commit()
+    con.close()
+    master = tmp_path / 'master.csv'
+    with open(master, 'w', encoding='utf-8-sig', newline='') as fh:
+        w = csv.writer(fh)
+        w.writerow(['Name', 'NFA_m2', 'MgmtFeeRate_Primary', 'MgmtFeeVAT'])
+        w.writerows(MASTER_ROWS)
+    table = tmp_path / 'nfa_per_file.csv'
+    with open(table, 'w', encoding='utf-8-sig', newline='') as fh:
+        w = csv.writer(fh)
+        w.writerow(['file_id', 'nfa_fee', 'nfa_apartment', 'source_sheet', 'source_cell', 'ref_rate', 'ref_rate_vat',
+                    'approved_on', 'note'])
+        for fid, nfa, apt, ref, vat, ok in TABLE_ROWS:
+            w.writerow([fid, nfa, apt, 'invented sheet', 'A1', ref, vat, ok, ''])
+    return ['--master', str(master), '--nfa-table', str(table)]
+
+
+def test_checked_nfa(mini_store, nfa_store, tmp_path):
+    rows, mapping, out, mp = _run(mini_store, tmp_path, nfa_store)
+    by = {(mapping[r['project_id']]['file_id'], r['code']): r for r in rows}
+    files = {m['file_id'] for m in mapping.values()}
+    # master list passes the fee check; table with no fee revenue; table with the file's own rate
+    assert {'n01', 'n05', 'n07'} <= files and not {'n02', 'n03', 'n04', 'n06', 'n08'} & files
+    assert by[('n01', 'ESS12')]['nfa_m2'] == 61990 and b.FLAG_NFA_MASTER in by[('n01', 'ESS12')]['flag']
+    assert by[('n05', 'ESS12')]['value_m2_month'] == pytest.approx(1000000 / 20944.7, abs=1e-3)
+    assert b.FLAG_NFA_TABLE in by[('n05', 'ESS12')]['flag']
+    # the master list gives no apartment NFA: n01 left out for RM.AP; the table's apartment NFA is used for n05
+    assert ('n01', 'RM.AP') not in by and by[('n05', 'RM.AP')]['status'] == rbr.STATUS_ZERO
+    readme = open(out / b.README_FILE, encoding='utf-8').read()
+    assert 'n01: NFA 61,987.8 from master list, implied 17,129 vs reference 17,130 (-0.0%)' in readme
+    assert 'n02: NFA master lệch đơn giá' in readme and '(+110.1%)' in readme     # 35,014 vs 16,667
+    assert 'n03: no fee-paying NFA, no master-list match, left out' in readme
+    assert 'n04: no fee-paying NFA, trùng tên master' in readme
+    assert 'n06: no fee-paying NFA, no fee revenue to check the master NFA, left out' in readme
+    assert 'n07: NFA 20,500.0 from table, implied 15,000 vs reference 15,500 (-3.2%)' in readme
+    assert 'n08: no fee-paying NFA, no master-list match, left out' in readme        # unapproved row ignored
+    assert 'n01: RM.AP above 0 but no apartment NFA' in readme
+    # the names of the master list and the store never reach the output
+    for fname in (b.VALUES_FILE, b.README_FILE):
+        text = b._norm(open(out / fname, encoding='utf-8-sig').read())
+        for _, proj, _, _ in NFA_FILES:
+            assert b._norm(proj) not in text
+
+
+def test_vat_rate_of_year():
+    assert b.vat_rate_of_year(2026, VAT_CUTS) == 0.08
+    assert b.vat_rate_of_year(2023, VAT_CUTS) == 0.10           # 6 of 12 months cut: not most of the year
+    assert b.vat_rate_of_year(2022, VAT_CUTS) == 0.08           # 11 of 12
+    assert b.vat_rate_of_year(2021, VAT_CUTS) == 0.10
+    assert b.vat_rate_of_year(2026, []) == 0.10
+
+
+def test_nfa_table_stays_outside(mini_store, tmp_path):
+    store, cpi = mini_store
+    with pytest.raises(ValueError):
+        b.build(store, str(tmp_path / 'o'), cpi, map_dir=str(tmp_path / 'm'),
+                nfa_table=os.path.join(rbr.BUDGET_AGENT, 'data', 'nfa_per_file.csv'))
+
+
+def test_table_row_wins_over_profile(mini_store, nfa_store, tmp_path):
+    """An approved table row corrects a wrong profile NFA (a tower's sub-rows summed twice)."""
+    store, _ = mini_store
+    con = sqlite3.connect(os.path.join(store, b.STORE_FILE))
+    con.execute('insert into file_profile values (?,?,?,?,?,?,?,?,?,?,?,?)',
+                ('n09', 'n09.xlsx', 'excel', None, 'MF', 'high', 2026, 12, 194474.9, 'total_row', '', None))
+    con.execute('insert into dim_file values (?,?,?,?,?,?)', ('n09', 'n09.xlsx', 'sub/n09', '2026-01-01', 'excel', None))
+    con.execute('insert into project_map values (?,?,?)', ('n09', 'n09.xlsx', 'Invented Heights'))
+    con.execute('insert into fact_line values (?,?,?,?,?)', ('n09', 'MF', 1, 'RM.AP', 1750275000))   # 18,000 x 97,237.5
+    con.execute('insert into fact_line values (?,?,?,?,?)', ('n09', 'MF', 2, 'ESS12', 972375))
+    con.commit()
+    con.close()
+    table = nfa_store[nfa_store.index('--nfa-table') + 1]
+    with open(table, 'a', encoding='utf-8-sig', newline='') as fh:
+        csv.writer(fh).writerow(['n09', 97237.5, 94849.2, 'INFO', 'D10', 18000, 'excl', '2026-10-22', ''])
+    rows, mapping, out, mp = _run(mini_store, tmp_path, nfa_store)
+    by = {(mapping[r['project_id']]['file_id'], r['code']): r for r in rows}
+    assert by[('n09', 'ESS12')]['value_m2_month'] == pytest.approx(10.0) and by[('n09', 'ESS12')]['nfa_m2'] == 97240
+    assert by[('n09', 'RM.AP')]['value_m2_month'] == pytest.approx(1750275000 / 94849.2, abs=1e-3)
+    assert b.FLAG_NFA_TABLE in by[('n09', 'ESS12')]['flag']
+    readme = open(out / b.README_FILE, encoding='utf-8').read()
+    assert 'n09: NFA 97,237.5 from table, implied 18,000 vs reference 18,000 (+0.0%)' in readme
