@@ -65,11 +65,23 @@ def _scan(ws):
     return blocks
 
 
+REMARK_COL = 20     # T của sheet quỹ: Remarks / Ghi chú của năm mới (generate_project_budget._REMARKS_COL)
+
+
+def _fund_remark(wb, fund_sheet, fund_row):
+    """Remark của năm mới của một mã: ô T tại dòng của mã trên sheet quỹ (cột fund_row của sheet điều chỉnh).
+    Chuỗi rỗng khi không tìm được dòng, hoặc ô là công thức (không đọc được giá trị khi chưa tính)."""
+    if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or isinstance(fund_row, bool):
+        return ''
+    text = _text(wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL).value)
+    return '' if text.startswith('=') else text
+
+
 def read_items(path):
     """Các mã trên sheet '4. Điều chỉnh' của bản giao `path`, cùng giá trị nhập hiện tại (D, L, J, K).
 
     Trả về list dict: key, code, name, fund, fund_sheet, section, adj_type, inflation, amount (thành tiền gốc),
-    has_subs, subs [{idx, desc, unit, qty, unit_price, amount, new_qty, new_price, qty_editable}]."""
+    has_subs, subs [{idx, desc, unit, qty, unit_price, amount, new_qty, new_price, qty_editable}], remark (năm mới)."""
     wb = openpyxl.load_workbook(path)
     try:
         if SHEET not in wb.sheetnames:
@@ -94,7 +106,8 @@ def read_items(path):
             items.append(dict(key=key_of(code, fund_sheet), code=code, name=_text(g('name')),
                               fund=FUND_SHORT.get(fund_sheet, fund_sheet), fund_sheet=fund_sheet, section=_section(code),
                               adj_type=adj_type if adj_type in TYPES else '', inflation=_num(g('inflation')) or 0.0,
-                              amount=amount, has_subs=bool(subs), subs=subs))
+                              amount=amount, has_subs=bool(subs), subs=subs,
+                              remark=_fund_remark(wb, fund_sheet, g('fund_row'))))
         return items
     finally:
         wb.close()
@@ -155,10 +168,28 @@ def _validate(edit, item):
     return adj_type, inflation, subs
 
 
+MAX_REMARK = 5000
+
+
+def _validate_remark(wb, code, remark, fund_sheet, fund_row):
+    """(sheet quỹ, dòng, nội dung) để ghi vào ô Remarks (T) của mã. Dòng của mã trên sheet quỹ lấy từ sheet điều chỉnh."""
+    if not isinstance(remark, str):
+        raise AdjustError(f'{code}: remark phải là chữ.')
+    text = remark.strip()
+    if len(text) > MAX_REMARK:
+        raise AdjustError(f'{code}: remark dài quá {MAX_REMARK} ký tự.')
+    if text.startswith('='):
+        raise AdjustError(f'{code}: remark không được bắt đầu bằng dấu "=" (Excel sẽ coi là công thức).')
+    if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or isinstance(fund_row, bool):
+        raise AdjustError(f'{code}: không tìm được dòng của mã trên sheet quỹ để ghi remark.')
+    return fund_sheet, int(fund_row), text
+
+
 def apply_edits(wb, edits):
     """Ghi các chỉnh sửa vào sheet '4. Điều chỉnh' của workbook `wb` (đã mở, không phải data_only).
 
-    `edits`: [{key, adj_type, inflation, subs: [{idx, new_qty, new_price}]}]. Mã không có trong `edits` giữ nguyên.
+    `edits`: [{key, adj_type, inflation, subs: [{idx, new_qty, new_price}], remark?}]. Mã không có trong `edits` giữ nguyên.
+    `remark` (tuỳ chọn): remark năm mới, ghi vào ô T của dòng mã trên sheet quỹ; bỏ trống khóa này thì ô T giữ nguyên.
     Trả về danh sách mã đã ghi. Lỗi bất kỳ (khoá không có, giá trị sai) thì không ghi gì và ném AdjustError."""
     if SHEET not in wb.sheetnames:
         raise AdjustError(f"Bản giao không có sheet '{SHEET}'.")
@@ -171,16 +202,21 @@ def apply_edits(wb, edits):
         for r in srows:
             v = ws.cell(row=r, column=C['new_qty']).value
             editable.append(not (isinstance(v, str) and v.startswith('=')))
-        index[key_of(code, fund_sheet)] = (prow, srows, editable, code)
-    plan = []
+        index[key_of(code, fund_sheet)] = (prow, srows, editable, code, fund_sheet,
+                                           ws.cell(row=prow, column=C['fund_row']).value)
+    plan, remarks = [], []
     for edit in edits:
         key = _text(edit.get('key'))
         if key not in index:
             raise AdjustError(f"Không có mã {key} trên sheet '{SHEET}'.")
-        prow, srows, editable, code = index[key]
+        prow, srows, editable, code, fund_sheet, fund_row = index[key]
         item = dict(code=code, has_subs=bool(srows), subs=[None] * len(srows))
         plan.append((prow, srows, editable, code) + _validate(edit, item))
+        if edit.get('remark') is not None:          # chỉ khi gửi lên: mã không sửa remark giữ nguyên ô T
+            remarks.append(_validate_remark(wb, code, edit['remark'], fund_sheet, fund_row))
     written = []
+    for sheet, row, text in remarks:
+        wb[sheet].cell(row=row, column=REMARK_COL).value = text or None
     for prow, srows, editable, code, adj_type, inflation, subs in plan:
         ws.cell(row=prow, column=C['adj_type']).value = adj_type or None
         ws.cell(row=prow, column=C['inflation']).value = inflation

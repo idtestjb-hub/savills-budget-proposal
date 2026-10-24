@@ -61,6 +61,49 @@ def test_read_items_keys_and_subs(deliv):
     assert all(abs(adjust.new_amount(i) - i['amount']) < 1e-9 for i in items.values())   # chưa chỉnh = số gốc
 
 
+def test_read_items_carries_the_new_year_remark(deliv):
+    wb = openpyxl.load_workbook(deliv)
+    fund_row = {i['key']: i for i in adjust.read_items(deliv)}      # fund_row của mỗi mã nằm ở sheet điều chỉnh
+    ws = wb[adjust.SHEET]
+    rows = {(ws.cell(r, ba.COL['code']).value, ws.cell(r, ba.COL['fund_sheet']).value): ws.cell(r, ba.COL['fund_row']).value
+            for r in range(ba.FIRST_DATA_ROW, ws.max_row + 1) if ws.cell(r, ba.COL['kind']).value == ba.ROW_KIND_TOTAL}
+    wb[MF].cell(row=rows[('ESS1', MF)], column=adjust.REMARK_COL, value='  Bảo vệ 24/24, 5 vị trí  ')
+    wb[MF].cell(row=rows[('EMA7', MF)], column=adjust.REMARK_COL, value='=Z1')      # công thức: không đọc được, để trống
+    wb[CA].cell(row=rows[('ESS4', CA)], column=adjust.REMARK_COL, value='Vệ sinh khu chung')
+    wb.save(deliv)
+    items = {i['key']: i for i in adjust.read_items(deliv)}
+    assert items['MF|ESS1']['remark'] == 'Bảo vệ 24/24, 5 vị trí'
+    assert items['MF|EMA7']['remark'] == ''
+    assert items['CA|ESS4']['remark'] == 'Vệ sinh khu chung'
+    assert items['MF|RM.AP']['remark'] == '' and set(fund_row) == set(items)
+
+
+def test_apply_edits_writes_the_remark_only_when_sent(deliv, tmp_path):
+    wb = openpyxl.load_workbook(deliv)
+    wb[MF].cell(row=21, column=adjust.REMARK_COL, value='Remark cũ của EMA7')
+    written = adjust.apply_edits(wb, [
+        dict(key='MF|ESS1', adj_type='', inflation=0, subs=[], remark='  Bảo vệ 24/24, 6 vị trí  '),
+        dict(key='MF|EMA7', adj_type='Trượt giá', inflation=0.05, subs=[]),                     # không gửi remark
+        dict(key='CA|ESS4', adj_type='', inflation=0, subs=[], remark='')])                      # xoá remark
+    assert written == ['ESS1', 'EMA7', 'ESS4']
+    out = str(tmp_path / 'remark.xlsx')
+    wb.save(out)
+    items = {i['key']: i for i in adjust.read_items(out)}
+    assert items['MF|ESS1']['remark'] == 'Bảo vệ 24/24, 6 vị trí'
+    assert items['MF|EMA7']['remark'] == 'Remark cũ của EMA7'                                   # giữ nguyên
+    assert items['CA|ESS4']['remark'] == ''
+
+
+@pytest.mark.parametrize('bad', ['=SUM(A1:A2)', 'x' * (adjust.MAX_REMARK + 1), 5])
+def test_apply_edits_rejects_a_bad_remark_and_writes_nothing(deliv, bad):
+    wb = openpyxl.load_workbook(deliv)
+    with pytest.raises(adjust.AdjustError):
+        adjust.apply_edits(wb, [dict(key='MF|ESS1', adj_type='Trượt giá', inflation=0.1, subs=[], remark='ghi được'),
+                                dict(key='MF|EMA7', adj_type='', inflation=0, subs=[], remark=bad)])
+    assert wb[MF].cell(row=20, column=adjust.REMARK_COL).value is None                       # không ghi nửa chừng
+    assert {i['key']: i for i in adjust.read_items(deliv)}['MF|ESS1']['adj_type'] == ''
+
+
 def test_new_amount_follows_the_spec_formulas(deliv):
     e = {i['key']: i for i in adjust.read_items(deliv)}['MF|ESS1']
     e['subs'][0]['new_qty'] = 4                                   # 4.1: SL mới × đơn giá gốc

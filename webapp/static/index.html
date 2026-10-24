@@ -168,6 +168,10 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj tr.par.saved td:nth-child(3) { box-shadow: inset 4px 0 0 var(--sav-teal); }
 #adj select, #adj input { font-size: 14px; padding: 3px 5px; }
 #adj select { width: 120px; }
+#adj tr.grp td { background: var(--sav-total); font-weight: 700; border-top: 2px solid var(--sav-rule); }
+#adj tr.par > td:nth-child(4) { min-width: 190px; }
+#adj td.adj-rm textarea { width: 100%; min-width: 220px; font: 13px var(--sav-font); resize: vertical; padding: 3px 5px; }
+#adj td.adj-rm, #adj th.adj-rm { min-width: 240px; max-width: 320px; font-size: 13px; text-align: left; white-space: normal; }
 #adj input.pct { width: 76px; }
 #adj button.tg { background: none; border: 0; font: 700 15px var(--sav-font); color: var(--sav-navy); cursor: pointer; width: 24px; }
 #adj button.tg:disabled { color: var(--sav-rule); cursor: default; }
@@ -177,7 +181,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj table.subs td { font-size: 13px; padding: 3px 6px; background: var(--sav-surface); }
 #adj table.subs input { width: 110px; text-align: right; }
 #adj table.subs input:disabled, #adj input.pct:disabled { background: transparent; border-color: transparent; color: var(--sav-text); }
-#adj input.edit:not(:disabled) { background: #FFF2CC; border-color: var(--sav-navy); color: #000; }
+#adj input.edit:not(:disabled), #adj textarea.edit { background: #FFF2CC; border-color: var(--sav-navy); color: #000; }
 #adj tfoot td { text-align: right; }
 .adj-sum td, .adj-sum th { padding: 6px 8px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #adj tr.par.dirty td { background: #4A4630; } }
@@ -222,7 +226,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       <h2>Quy mô dự án</h2>
       <div class="field"><label>Tên dự án</label><input type="text" name="project_name"></div>
       <div class="field"><label>Quận / huyện <small>để trống nếu chưa rõ</small></label><input type="text" name="district"></div>
-      <div class="field"><label>Tỉnh / thành phố <small>để trống nếu chưa rõ</small></label><input type="text" name="city"></div>
+      <div class="field"><label>Tỉnh / thành phố <small>mặc định Hồ Chí Minh; biểu giá nước lấy theo đó</small></label><select name="city" data-city></select></div>
       <div class="field"><label>Diện tích đất (m²)</label><input type="number" name="site_area" min="0" step="any"></div>
       <div class="field"><label>Diện tích cây xanh (m²)</label><input type="number" name="garden_area" min="0" step="any"></div>
       <div class="field"><label>Diện tích sân đường, lối đi (m²) <small>không gian mở cho lịch trực</small></label><input type="number" name="open_space" min="0" step="any"></div>
@@ -450,7 +454,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <thead><tr><th>Trường</th><th>Dùng để làm gì</th></tr></thead>
         <tbody>
         <tr><td>Tên dự án</td><td>Đặt tên file kết quả và ghi trên bản giao.</td></tr>
-        <tr><td>Quận / huyện, Tỉnh / thành phố</td><td>Xếp hạng dự án tham chiếu theo vị trí (gần hơn được ưu tiên). Để trống thì chỉ xếp theo quy mô. Giá nước lấy theo biểu giá TP. Hồ Chí Minh; dự án nơi khác có ghi chú nhắc kiểm tra hoá đơn nước địa phương.</td></tr>
+        <tr><td>Quận / huyện, Tỉnh / thành phố</td><td>Xếp hạng dự án tham chiếu theo vị trí (gần hơn được ưu tiên). Tỉnh / thành phố chọn từ danh sách 34 đơn vị cấp tỉnh, mặc định Hồ Chí Minh; để trống Quận / huyện thì chỉ xếp theo tỉnh và quy mô. Giá nước lấy theo biểu giá TP. Hồ Chí Minh; dự án nơi khác có ghi chú nhắc kiểm tra hoá đơn nước địa phương.</td></tr>
         <tr><td>Diện tích đất (m²)</td><td>Thông tin dự án trên bản giao.</td></tr>
         <tr><td>Diện tích cây xanh (m²)</td><td>Quyết định số nhân viên cây xanh (m² vườn trên mỗi người, tỷ lệ trong Roster Setup).</td></tr>
         <tr><td>Diện tích sân đường, lối đi (m²)</td><td>"Không gian mở": quyết định số bảo vệ tuần tra và nhân viên vệ sinh khu vực chung.</td></tr>
@@ -563,7 +567,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
     <form id="fr" autocomplete="off" style="margin-top:18px">
     <section>
       <h2>2. Dữ kiện file ngân sách không có</h2>
-      <div class="field"><label>Tỉnh / thành phố <span class="req">*</span> <small>bắt buộc: biểu giá nước lấy theo đó</small></label><input type="text" name="city" placeholder="Ho Chi Minh City"></div>
+      <div class="field"><label>Tỉnh / thành phố <span class="req">*</span> <small>bắt buộc: biểu giá nước lấy theo đó; mặc định Hồ Chí Minh</small></label><select name="city" data-city></select></div>
       <div class="field"><label>Quận / huyện <small>tuỳ chọn</small></label><input type="text" name="district"></div>
       <div class="field"><label>Số tháp</label><input type="number" name="tower_count" min="0" step="1"></div>
       <div class="field"><label>Số tầng <small>tổng các tháp</small></label><input type="number" name="floor_count" min="0" step="1"></div>
@@ -643,7 +647,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         </div>
         <div style="overflow-x:auto">
         <table id="adj">
-          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead>
+          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -705,6 +709,40 @@ let reviewSource = null;     // {id, project}: bản giao lượt cũ (Gen budge
 let libEntries = [];
 let historyLoaded = false;
 
+// Ô Tỉnh / thành phố: 34 đơn vị cấp tỉnh hiện hành (Nghị quyết 202/2025/QH15, hiệu lực 01/07/2025), mặc định Hồ Chí Minh.
+const DEFAULT_CITY = 'Hồ Chí Minh';
+const PROVINCES = ['Hà Nội', 'Hồ Chí Minh', 'Hải Phòng', 'Đà Nẵng', 'Cần Thơ', 'Huế',
+  'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Đắk Lắk', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Tĩnh',
+  'Hưng Yên', 'Khánh Hòa', 'Lai Châu', 'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi',
+  'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh', 'Thái Nguyên', 'Thanh Hóa', 'Tuyên Quang', 'Vĩnh Long'];
+function foldVi(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function initCitySelects() {
+  const sorted = [...PROVINCES].sort((a, b) => a.localeCompare(b, 'vi'));
+  document.querySelectorAll('select[data-city]').forEach(el => {
+    el.innerHTML = sorted.map(p => `<option>${p}</option>`).join('');
+    el.value = DEFAULT_CITY;
+  });
+}
+// Đặt giá trị cho ô tỉnh: khớp không dấu ("TP. Hồ Chí Minh", "Ho Chi Minh City", "Tỉnh Đồng Nai"); để trống thì mặc định
+// Hồ Chí Minh; giá trị lạ (file cũ ghi tên khác) được thêm làm một lựa chọn để không mất. Trả về true nếu phải mặc định.
+function setCity(el, v) {
+  const raw = String(v == null ? '' : v).trim();
+  if (!raw) { el.value = DEFAULT_CITY; return true; }
+  const f = foldVi(raw).replace(/^(thanh pho|tp|tinh) /, '').replace(/ city$/, '');
+  if (/(^| )(ho chi minh|hcm|tphcm|sai gon|saigon)( |$)/.test(f)) { el.value = DEFAULT_CITY; return false; }
+  const hit = [...el.options].find(o => foldVi(o.value) === f);
+  if (hit) { el.value = hit.value; return false; }
+  const extra = document.createElement('option');
+  extra.textContent = raw;
+  el.appendChild(extra);
+  el.value = raw;
+  return false;
+}
+initCitySelects();
+
 function setStatus(text, err, which) {
   const el = (which ? UIS[which] : ui).status;
   el.textContent = text; el.className = 'status' + (err ? ' err' : '');
@@ -738,7 +776,9 @@ function renderProducts() {
 function fillForm(d) {
   for (const [k, v] of Object.entries(d.scalars)) {
     const el = form.elements[k];
-    if (el) el.value = v == null ? '' : v;
+    if (!el) continue;
+    if (el.hasAttribute('data-city')) setCity(el, v);
+    else el.value = v == null ? '' : v;
   }
   products = d.products;
   renderProducts();
@@ -1090,7 +1130,7 @@ function subNew(it, s) {
 }
 function vnd(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US'); }
 function vpct(diff, base) { return Math.abs(base) < 0.5 ? 'N/A' : (diff >= 0 ? '+' : '') + (diff / base * 100).toFixed(1) + '%'; }
-function snap(it) { return JSON.stringify([it.adj_type, it.inflation, it.subs.map(s => [s.new_qty, s.new_price])]); }
+function snap(it) { return JSON.stringify([it.adj_type, it.inflation, it.subs.map(s => [s.new_qty, s.new_price]), it.remark || '']); }
 function isDirty(it) { return snap(it) !== adj.orig[it.key]; }
 function isAdjusted(it) { return !!it.adj_type; }
 
@@ -1102,7 +1142,7 @@ async function openAdjust(id, slot) {
   if (!r.ok) { body.classList.add('hidden'); return; }
   document.getElementById('adj-title').textContent = d.kind === 'review' ? '3. Điều chỉnh ngân sách năm mới trước khi giao' : 'Điều chỉnh ngân sách';
   adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set() };
-  d.items.forEach(it => { adj.orig[it.key] = snap(it); });
+  d.items.forEach(it => { it.remark0 = it.remark || ''; adj.orig[it.key] = snap(it); });
   body.classList.remove('hidden');
   document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
     (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
@@ -1146,23 +1186,46 @@ function subTable(it) {
 function renderAdjust() {
   if (!adj) return;
   const ap = adj.data.has_approved;
+  const cols = ap ? 12 : 11;
   let html = '';
-  for (const it of adj.items) {
-    if (!visible(it)) continue;
-    const nw = itemNew(it), df = nw - it.amount;
-    const open = adj.open.has(it.key) && it.has_subs;
-    const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
-    html += `<tr class="${cls}" data-k="${esc(it.key)}"><td><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
-      `<td><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
-      `<td><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td>${esc(it.name)}</td>` +
-      (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
-      `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
-      `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
-      `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td></tr>`;
-    if (open) html += `<tr class="sub"><td colspan="${ap ? 11 : 10}">${subTable(it)}</td></tr>`;
+  // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng.
+  for (const sec of ['R', 'E']) {
+    const group = adj.items.filter(it => it.section === sec && visible(it));
+    if (!group.length) continue;
+    html += groupHead(sec, group);
+    for (const it of group) {
+      const nw = itemNew(it), df = nw - it.amount;
+      const open = adj.open.has(it.key) && it.has_subs;
+      const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
+      html += `<tr class="${cls}" data-k="${esc(it.key)}"><td><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
+        `<td><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
+        `<td><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td>${esc(it.name)}</td>` +
+        (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
+        `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
+        `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
+        `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
+        `<td class="adj-rm"><textarea class="edit" rows="2" maxlength="5000" data-rm="${esc(it.key)}" aria-label="Remark năm mới của ${esc(it.code)}">${esc(it.remark || '')}</textarea></td></tr>`;
+      if (open) html += `<tr class="sub"><td colspan="${cols}">${subTable(it)}</td></tr>`;
+    }
   }
-  adjTbody.innerHTML = html || `<tr><td colspan="11">Không có mã nào khớp bộ lọc.</td></tr>`;
+  adjTbody.innerHTML = html || `<tr><td colspan="${cols}">Không có mã nào khớp bộ lọc.</td></tr>`;
   renderAdjPreview();
+}
+
+// Dòng tổng của một khu vực (Thu hoặc Chi): số mã, Duyệt, thành tiền gốc, mới, chênh lệch của các mã đang hiện.
+function groupHead(sec, group) {
+  const ap = adj.data.has_approved;
+  const o = group.reduce((a, i) => a + i.amount, 0), n = group.reduce((a, i) => a + itemNew(i), 0);
+  const a = group.reduce((s, i) => s + (i.approved || 0), 0);
+  return `<tr class="grp" data-grp="${sec}"><td colspan="4">${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã</td>` +
+    (ap ? `<td class="num">${vnd(a)}</td>` : '') + `<td colspan="2"></td>` +
+    `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td></td></tr>`;
+}
+function refreshGroups() {
+  for (const sec of ['R', 'E']) {
+    const tr = adjTbody.querySelector(`tr.grp[data-grp="${sec}"]`);
+    if (tr) tr.outerHTML = groupHead(sec, adj.items.filter(it => it.section === sec && visible(it)));
+  }
 }
 
 function renderAdjPreview() {
@@ -1203,7 +1266,12 @@ adjTbody.addEventListener('change', e => {
 });
 adjTbody.addEventListener('input', e => {
   const t = e.target;
-  if (t.dataset.pct) {
+  if (t.dataset.rm) {
+    const it = itemOf(t.dataset.rm);
+    it.remark = t.value;
+    t.closest('tr').classList.toggle('dirty', isDirty(it));
+    renderAdjPreview();                    // cập nhật số mã có thay đổi chưa lưu
+  } else if (t.dataset.pct) {
     const it = itemOf(t.dataset.pct);
     it.inflation = (Number(t.value) || 0) / 100;
     refreshRow(it);
@@ -1221,9 +1289,9 @@ function refreshRow(it) {
   const tr = adjTbody.querySelector(`tr.par[data-k="${CSS.escape(it.key)}"]`);
   if (!tr) return;
   const nw = itemNew(it), df = nw - it.amount, cells = tr.children, n = cells.length;
-  cells[n - 3].innerHTML = `<b>${vnd(nw)}</b>`;
-  cells[n - 2].textContent = vnd(df); cells[n - 2].className = negCls(df);
-  cells[n - 1].textContent = vpct(df, it.amount); cells[n - 1].className = negCls(df);
+  cells[n - 4].innerHTML = `<b>${vnd(nw)}</b>`;
+  cells[n - 3].textContent = vnd(df); cells[n - 3].className = negCls(df);
+  cells[n - 2].textContent = vpct(df, it.amount); cells[n - 2].className = negCls(df);   // n - 1 = Remark năm mới
   tr.classList.toggle('dirty', isDirty(it));
   const sub = tr.nextElementSibling;
   if (sub && sub.classList.contains('sub')) {
@@ -1234,6 +1302,7 @@ function refreshRow(it) {
       c[7].textContent = vnd(v); c[8].textContent = vnd(d); c[8].className = negCls(d); c[9].textContent = vpct(d, s.amount); c[9].className = negCls(d);
     });
   }
+  refreshGroups();
   renderAdjPreview();
 }
 adjTbody.addEventListener('click', e => {
@@ -1260,8 +1329,12 @@ document.getElementById('adj-save').addEventListener('click', async () => {
   if (!dirty.length) { setAdjStatus('Chưa có thay đổi để lưu.', true); return; }
   const bad = adjTbody.querySelector('input:invalid');
   if (bad) { setAdjStatus('Có ô số không hợp lệ (âm hoặc trống).', true); bad.focus(); return; }
-  const edits = dirty.map(it => ({ key: it.key, adj_type: it.adj_type, inflation: it.inflation,
-    subs: it.subs.map(s => ({ idx: s.idx, new_qty: s.qty_editable ? s.new_qty : null, new_price: s.new_price })) }));
+  const edits = dirty.map(it => {
+    const e = { key: it.key, adj_type: it.adj_type, inflation: it.inflation,
+      subs: it.subs.map(s => ({ idx: s.idx, new_qty: s.qty_editable ? s.new_qty : null, new_price: s.new_price })) };
+    if ((it.remark || '') !== it.remark0) e.remark = it.remark || '';      // chỉ gửi khi remark được sửa
+    return e;
+  });
   const save = document.getElementById('adj-save'), log = document.getElementById('adj-log'), bar = document.getElementById('adj-bar');
   save.disabled = true; save.dataset.busy = '1';
   log.classList.remove('hidden'); log.textContent = ''; bar.style.width = '3%';
@@ -1381,16 +1454,18 @@ async function cloneRun(id) {
 async function genFromRun(id, project) {
   try {
     const d = await fetchInput(id);
+    let miss = false;
     for (const k of ['city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots', 'moto_slots']) {
       const el = formReview.elements[k];
       const v = d.scalars[k];
-      if (el) el.value = v == null || v === 0 ? '' : v;
+      if (!el) continue;
+      if (k === 'city') miss = setCity(el, v);
+      else el.value = v == null || v === 0 ? '' : v;
     }
     setReviewSource({ id, project: d.project || project });
     ui = UIS.review;
     showTab('review');
-    const miss = !formReview.elements.city.value;
-    setStatus(miss ? `Nguồn: bản giao của lượt ${id}. Lượt cũ không có Tỉnh / thành phố: điền rồi bấm Tạo ngân sách năm mới.` :
+    setStatus(miss ? `Nguồn: bản giao của lượt ${id}. Lượt cũ không ghi Tỉnh / thành phố: đã đặt mặc định ${DEFAULT_CITY}, đổi nếu dự án ở nơi khác rồi bấm Tạo ngân sách năm mới.` :
       `Nguồn: bản giao của lượt ${id}. Dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới.`, miss);
     if (miss) formReview.elements.city.focus();
   } catch (e) { setStatus('Không lấy được dữ kiện của lượt: ' + e.message, true, 'review'); showTab('review'); }
