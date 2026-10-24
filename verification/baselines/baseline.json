@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-10-21T19:54:13+07:00",
-  "reason": "Change read-aggregate-rows-by-formula, signed off by the user 2026-10-21 (P7): Ref_RealBudgetValues.csv rebuilt from scan store v3 (aggregate rows by formula, ties after a filter or a double count accepted; 44 projects instead of 41); RM.AP median -5%, standard sample derived apartment rate 18,697 -> 17,959 VND/m2/month; before/after Savills-local/budget-test/2026-10-21-p7/before_after.md",
+  "recorded_at": "2026-10-22T17:25:42+07:00",
+  "reason": "Change widen-real-budget-store, signed off 2026-10-22: the real-budget ranges now hold 55 projects instead of 44 (six departmental, 2022 and no-code budgets read through reviewed code maps, two 2021 forms tied on R and E, three files with a checked NFA). RM.AP median rises 4.0 percent, so the standard sample apartment rate moves 17,959 to 18,671 VND/m2/month and the management fee, profit, margin and markup follow. Generator code unchanged; only Ref_RealBudgetValues.csv changed.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -12,17 +12,17 @@
   },
   "figures": {
     "derived_apartment_rate": {
-      "value": 17959.0,
+      "value": 18671.0,
       "unit": "VND/m²/month",
       "where": "Summary!R33C2"
     },
     "mgmt_fee_revenue_monthly": {
-      "value": 994168600.0,
+      "value": 1031833400.0,
       "unit": "VND",
       "where": "Summary!R34C2"
     },
     "mgmt_fee_revenue_annual": {
-      "value": 11930023200.0,
+      "value": 12382000800.0,
       "unit": "VND",
       "where": "Summary!R35C2"
     },
@@ -52,17 +52,17 @@
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 543554677.3782415,
+      "value": 995532277.3782415,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.04556191285346717,
+      "value": 0.08040156784501593,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.0477368972037598,
+      "value": 0.08743117107823156,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },

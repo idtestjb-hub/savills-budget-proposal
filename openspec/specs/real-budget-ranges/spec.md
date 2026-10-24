@@ -15,9 +15,12 @@ row SHALL hold:
 - the value in VND per m² of fee-paying NFA per month, excluding VAT, before and after bringing it to 2027 prices;
 - the CPI factor used.
 
+The store SHALL be built with the leaf-line and tie rules of `budget-workbook-aggregate-rows`, and SHALL record for
+each sheet its tie state and the explanation note.
+
 The store SHALL be read under these rules:
 - only each file's main operating-fund sheet, read directly from Excel, and only when its leaf lines tie to the
-  sheet's total rows;
+  sheet's total rows, directly or after explanation;
 - no scanned PDF, no converted xlsb, no file whose content duplicates another;
 - one file per project, the one with the latest budget year;
 - a file with no project name counts as its own project and is flagged;
@@ -32,7 +35,8 @@ The data file SHALL carry no project name, file name, address or other identifyi
 in `Savills-local`.
 
 Data files read: the scan store in `Savills-local` (build step only). Data files written:
-`Budget_Agent/data/real_budget_ranges/Ref_RealBudgetValues.csv`.
+`Budget_Agent/data/real_budget_ranges/Ref_RealBudgetValues.csv`. Recorded baseline figures can move when a project
+enters or leaves a range or its values change; the before/after is measured and signed off.
 
 #### Scenario: A project with two budget years
 
@@ -49,6 +53,16 @@ Data files read: the scan store in `Savills-local` (build step only). Data files
 
 - **WHEN** the data file is written
 - **THEN** none of the store's project names or file names SHALL appear in it
+
+#### Scenario: A main sheet that ties after a filter
+
+- **WHEN** a project's main sheet ties only after a filter
+- **THEN** its values SHALL be written like those of a sheet that ties directly
+
+#### Scenario: A main sheet that does not tie
+
+- **WHEN** a project's main sheet does not tie, directly or after explanation
+- **THEN** the project SHALL be left out, and the build log SHALL say so
 
 ### Requirement: Older budgets are brought to 2027 prices with a sourced CPI
 

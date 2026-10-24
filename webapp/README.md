@@ -40,7 +40,7 @@ thành công hoặc bị từ chối).
 Người dùng yêu cầu 20/10/2026: chọn ngân sách đã duyệt từ những dự án đã có thay vì tải file lên; hiện đủ 87 dòng của
 kho, file không đọc được hiện xám kèm lý do.
 
-- **Danh sách** đọc từ kho quét ngân sách thật (`final_v3\`: `dim_file.csv`, `project_map.csv`, `file_profile.csv`):
+- **Danh sách** đọc từ kho quét ngân sách thật (`final_v4\`: `dim_file.csv`, `project_map.csv`, `file_profile.csv`):
   tên dự án đọc trong file (không có thì theo tên file, ghi rõ), năm ngân sách theo nội dung, VAT, NFA, độ tin cậy sheet
   quỹ chính (Khớp tổng / Khớp tổng (đã giải thích) / Tổng không khớp / Form cũ, chưa đối soát; đổi tên 21/10/2026, thêm nhãn thứ hai cùng ngày) kèm câu giải thích lấy từ
   `reconcile.csv` của kho: số lệch thu / chi giữa cộng các dòng và dòng tổng của file, hoặc lý do chưa đối soát (form
@@ -58,7 +58,7 @@ kho, file không đọc được hiện xám kèm lý do.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `BUDGET_WEB_LIBRARY_STORE` | `%USERPROFILE%\Savills-local\budget-test\scan-2026-10-07\final_v3` | Thư mục bảng của kho quét. Không có thì danh sách trống và trang chuyển sang "Tải file lên". Trên Hub phải đặt biến này |
+| `BUDGET_WEB_LIBRARY_STORE` | `%USERPROFILE%\Savills-local\budget-test\scan-2026-10-07\final_v4` | Thư mục bảng của kho quét. Không có thì danh sách trống và trang chuyển sang "Tải file lên". Trên Hub phải đặt biến này |
 | `BUDGET_WEB_LIBRARY_ROOT` | `..\..\input\budget_planning` | Thư mục SharePoint chứa file ngân sách đã duyệt |
 
 Kiểm tra 20/10/2026: chọn CITY GARDEN 2026 trong danh sách, 91 giây, rc 0, 8/8 phép đối chiếu khớp; số duyệt (thu

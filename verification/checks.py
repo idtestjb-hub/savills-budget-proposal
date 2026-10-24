@@ -3418,7 +3418,7 @@ def check_service_levels(paths, input_path, names_list=None):
 
 
 _REAL_BUDGET_NAMES_DEFAULT = os.path.join(os.path.expanduser('~'), 'Savills-local', 'budget-test', 'scan-2026-10-07',
-                                          'final_v3', 'real_budget_ranges_names.txt')   # store v3 (2026-10-21)
+                                          'final_v4', 'real_budget_ranges_names.txt')   # store v4 (2026-10-22)
 
 
 def read_real_budget_ranges_sheet(analysis_path):

@@ -1,10 +1,12 @@
 """
 Build the anonymous real-budget values file (change use-real-budget-ranges, design D2, D3, D4, D6).
 
-    python build_real_budget_ranges.py --store <final_v2 folder or budget_scan_v2.sqlite> --out <data dir>
+    python build_real_budget_ranges.py --store <final_v4 folder or budget_scan_v2.sqlite> --out <data dir>
                                        [--cpi <Ref_CPI_VN.csv>] [--map <folder in Savills-local>]
+                                       [--nfa-table <nfa_per_file.csv in Savills-local>] [--master <master list csv>]
 
-Reads (read-only): the scan store's file_profile, dim_file, project_map and fact_line.
+Reads (read-only): the scan store's file_profile, dim_file, project_map, fact_line and vat_cut_period; the per-file
+NFA table (when given) and the residential master list.
 Writes:
   <out>/Ref_RealBudgetValues.csv          one row per anonymous project and code (no name, no file name)
   <out>/README.txt                        rules, build date, counts; files excluded or merged BY STORE ID only
@@ -29,6 +31,19 @@ Store rules (approved 2026-10-12, D3; grouping and NFA approved 2026-10-18):
   - rate codes (real_budget_ranges.RATE_CODES, today RM.AP; change price-fee-and-parking-from-portfolio): the value
     is (RM.AP + RM.0A, the developer's share on units not yet handed over) per month / file_profile.nfa_apartment,
     written with basis = apartment_nfa; a file with the line above 0 but no apartment NFA is left out for that code.
+
+Checked NFA (change widen-real-budget-store, approved 2026-10-22, design D4):
+  - first the per-file table (`--nfa-table`): a row the user approved (approved_on filled) gives the fee-paying NFA,
+    and the apartment NFA when known, as written in the file outside its info sheet; it wins over the profile's NFA
+    too (a reviewed correction);
+  - else the master list (`--master`): the project name equal after removing accents, case, spaces and punctuation,
+    one match only; the master list has no apartment NFA, so such a file is left out for RM.AP;
+  - either NFA is used only when the implied fee rate (all RM.* lines per month excluding VAT on the main sheet /
+    NFA) is within 15% of the reference rate: the table's ref_rate, else the master list's rate; a rate including
+    VAT is taken out of VAT at the budget year's rate (8% when most months of the year fall in a cut period of the
+    store's vat_cut_period table, else 10%). A file with no fee revenue passes only through an approved table row.
+    When the fee revenue mixes products at different rates (apartments, shops, nursery, villas, parking), the table's
+    ref_rate is the area-weighted rate of the rates written in the file (approved 2026-10-22), not the apartment rate.
 
 The script refuses to write when any output cell or the README would contain a store project or file name.
 """
@@ -55,6 +70,11 @@ FLAG_UNNAMED = 'file không có tên dự án'
 FLAG_NFA_GROUP_I = 'NFA lấy theo dòng I. (kho cộng cả dòng nhóm)'
 FLAG_STALE_NAME = 'tên trùng dự án khác nhưng NFA lệch trên 5%, tính riêng'
 FLAG_PARTIAL = 'kỳ {m:g} tháng'
+FLAG_NFA_TABLE = 'NFA lấy theo bảng NFA từng file (đã duyệt)'
+FLAG_NFA_MASTER = 'NFA lấy theo master list'
+MASTER_CSV = os.path.join(rbr.BUDGET_AGENT, 'data', 'master_list_verified', 'Dim_Property_Residential.csv')
+FEE_CHECK_BAND = 0.15
+VAT_STANDARD = 0.10
 
 
 class NameWouldLeak(RuntimeError):
@@ -121,12 +141,100 @@ def read_store(path, codes=STORE_CODES):
         lines = {}
         for r in con.execute(q, list(codes)):
             lines.setdefault((r['file_id'], r['code']), []).append(r['amount_excl_vat_per_month'])
+        # management-fee revenue per month excluding VAT on the main sheet (every RM.* leaf), for the NFA fee check
+        rm = {r[0]: r[1] or 0.0 for r in con.execute(
+            "select l.file_id, sum(l.amount_excl_vat_per_month) from fact_line l join file_profile f "
+            "on f.file_id = l.file_id and f.primary_sheet = l.sheet where l.code like 'RM.%' group by l.file_id")}
+        try:
+            cuts = [(str(r[0]), str(r[1]), float(r[2])) for r in con.execute(
+                'select "from", "to", rate from vat_cut_period')]
+        except sqlite3.OperationalError:
+            cuts = []
     finally:
         con.close()
-    return files, names, lines
+    for f in files:
+        f['rm_month'] = rm.get(f['file_id'], 0.0)
+    return files, names, lines, cuts
 
 
-def candidates(files, log):
+def vat_rate_of_year(year, cuts):
+    """The VAT rate of a budget year: the cut rate when most of its months fall in a cut period, else 10%."""
+    months = [f'{int(year)}-{m:02d}' for m in range(1, 13)]
+    for rate in sorted({c[2] for c in cuts}):
+        if sum(1 for m in months if any(a <= m <= b and r == rate for a, b, r in cuts)) > 6:
+            return rate
+    return VAT_STANDARD
+
+
+def load_nfa_table(path):
+    """{file_id: row} of the per-file NFA table; only rows the user approved (approved_on filled)."""
+    if not path:
+        return {}
+    with open(path, encoding='utf-8-sig', newline='') as fh:
+        return {r['file_id'].strip(): r for r in csv.DictReader(fh)
+                if (r.get('file_id') or '').strip() and (r.get('approved_on') or '').strip()}
+
+
+def load_master(path):
+    """{normalised name: [(NFA, fee rate, VAT label)]} of the residential master list."""
+    out = {}
+    if not path or not os.path.exists(path):
+        return out
+    with open(path, encoding='utf-8-sig', newline='') as fh:
+        for r in csv.DictReader(fh):
+            k = _norm(r.get('Name'))
+            if k:
+                out.setdefault(k, []).append((_f(r.get('NFA_m2')), _f(r.get('MgmtFeeRate_Primary')),
+                                              (r.get('MgmtFeeVAT') or '').strip()))
+    return out
+
+
+def checked_nfa(f, table, master, cuts):
+    """(nfa, nfa_apartment, flag, None) or (None, None, '', reason) for a file whose profile has no fee-paying NFA.
+    The log line never carries the project name (only store id, figures and the source)."""
+    fid, year = f['file_id'], _f(f.get('budget_year_v2'))
+    vat = vat_rate_of_year(year, cuts) if year else VAT_STANDARD
+    rm = f.get('rm_month') or 0.0
+
+    def excl(rate, label):
+        return rate / (1 + vat) if rate and 'incl' in (label or '').lower() else rate
+
+    hits = master.get(_norm(f.get('project_name'))) if _norm(f.get('project_name')) else None
+    row = table.get(fid)
+    if row:
+        nfa, apt = _f(row.get('nfa_fee')), _f(row.get('nfa_apartment'))
+        if not nfa:
+            return None, None, '', 'per-file table row without nfa_fee'
+        if rm <= 0:                                     # no fee revenue: the user's approval in the table is the check
+            return nfa, apt, FLAG_NFA_TABLE, None
+        ref = excl(_f(row.get('ref_rate')), row.get('ref_rate_vat'))
+        if not ref and hits and len(hits) == 1:         # no rate written in the file: the master list's rate
+            ref = excl(hits[0][1], hits[0][2])
+        source, why = 'table', 'NFA bảng lệch đơn giá'
+    else:
+        if not hits:
+            return None, None, '', 'no fee-paying NFA, no master-list match'
+        if len(hits) > 1:
+            return None, None, '', 'no fee-paying NFA, trùng tên master (several master-list rows)'
+        nfa, rate, label = hits[0]
+        apt = None
+        if not nfa:
+            return None, None, '', 'no fee-paying NFA, master list has none'
+        if rm <= 0:
+            return None, None, '', 'no fee-paying NFA, no fee revenue to check the master NFA'
+        ref = excl(rate, label)
+        source, why = 'master list', 'NFA master lệch đơn giá'
+    if not ref:
+        return None, None, '', f'NFA from {source} but no reference rate'
+    implied = rm / nfa
+    gap = implied / ref - 1
+    note = f'NFA {nfa:,.1f} from {source}, implied {implied:,.0f} vs reference {ref:,.0f} ({gap:+.1%})'
+    if abs(gap) > FEE_CHECK_BAND:
+        return None, None, '', f'{why}: {note}'
+    return nfa, apt, (FLAG_NFA_TABLE if source == 'table' else FLAG_NFA_MASTER), note
+
+
+def candidates(files, log, table=None, master=None, cuts=(), nfa_log=None):
     out = []
     for f in sorted(files, key=lambda f: f['file_id']):
         fid = f['file_id']
@@ -144,9 +252,15 @@ def candidates(files, log):
             log.append(f'{fid}: main sheet does not tie to its total rows ({f.get("primary_confidence") or "none"}), left out')
             continue
         nfa, nfa_flag = fee_nfa(f.get('nfa_total'), f.get('nfa_how'), f.get('nfa_types'))
-        if not nfa:
-            log.append(f'{fid}: no fee-paying NFA, left out')
-            continue
+        if not nfa or fid in (table or {}):          # an approved table row is a reviewed correction: it wins
+            nfa, apt, nfa_flag, note = checked_nfa(f, table or {}, master or {}, cuts)
+            if not nfa:
+                log.append(f'{fid}: {note}, left out')
+                continue
+            if apt:
+                f = dict(f, nfa_apartment=apt)
+            if nfa_log is not None:
+                nfa_log.append(f'{fid}: {note or "NFA " + format(nfa, ",.1f") + " from table, no fee revenue, approved"}')
         if not _f(f.get('months_in_period')) or not _f(f.get('budget_year_v2')):
             log.append(f'{fid}: no budget period or year, left out')
             continue
@@ -257,7 +371,7 @@ def name_scan(rows, texts, names):
                 raise NameWouldLeak(f'{label} would carry a store name; nothing written')
 
 
-def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES):
+def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES, nfa_log=()):
     lines = [f'Ref_RealBudgetValues.csv, built {datetime.datetime.now():%Y-%m-%d %H:%M}; {snapshot}',
              'Build: build_real_budget_ranges.py (change use-real-budget-ranges). Rules: see the script docstring.',
              'Unit: VND per m2 of fee-paying NFA per month, excluding VAT; value_m2_month at budget-year prices,',
@@ -275,6 +389,11 @@ def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES):
         nv = sum(1 for r in rows if r['code'] == code and r['status'] == rbr.STATUS_VALUE)
         nz = sum(1 for r in rows if r['code'] == code and r['status'] == rbr.STATUS_ZERO)
         lines.append(f'  {code}: {nv} / {nz} / {len(chosen) - nv - nz}')
+    nfa_src = _count(FLAG_NFA_TABLE if FLAG_NFA_TABLE in c['flags'] else
+                     (FLAG_NFA_MASTER if FLAG_NFA_MASTER in c['flags'] else 'file profile') for c in chosen)
+    lines += ['', 'NFA source of the projects kept: ' + ', '.join(f'{k} {v}' for k, v in sorted(nfa_src.items())),
+              'Files that took a checked NFA from the per-file table or the master list (store ids only; fee check within '
+              f'{FEE_CHECK_BAND:.0%}):'] + ['  ' + x for x in nfa_log]
     lines += ['', 'Files excluded or merged (store ids only):'] + ['  ' + x for x in log]
     return '\n'.join(lines) + '\n'
 
@@ -308,30 +427,35 @@ def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir):
             fh.write(n + '\n')
 
 
-def build(store, out_dir, cpi_path=None, map_dir=None):
+def build(store, out_dir, cpi_path=None, map_dir=None, nfa_table=None, master_path=MASTER_CSV):
     path = store_path(store)
     map_dir = map_dir or os.path.dirname(os.path.abspath(path))
     if os.path.abspath(map_dir).startswith(os.path.abspath(os.path.join(rbr.BUDGET_AGENT, ''))):
         raise ValueError('the name map must stay outside Budget_Agent (Savills-local)')
+    if nfa_table and os.path.abspath(nfa_table).startswith(os.path.abspath(os.path.join(rbr.BUDGET_AGENT, ''))):
+        raise ValueError('the per-file NFA table must stay outside Budget_Agent (Savills-local)')
     cpi = rbr.load_cpi(cpi_path)
-    files, names, lines = read_store(path)
-    log = []
-    chosen = group_projects(candidates(files, log), log)
+    files, names, lines, cuts = read_store(path)
+    log, nfa_log = [], []
+    cands = candidates(files, log, load_nfa_table(nfa_table), load_master(master_path), cuts, nfa_log)
+    chosen = group_projects(cands, log)
     rows, pids = build_rows(chosen, lines, cpi, log=log)
     snapshot = f'store {datetime.datetime.fromtimestamp(os.path.getmtime(path)):%Y-%m-%d}, {len(files)} files'
-    readme = summarise(rows, chosen, cpi, snapshot, log)
+    readme = summarise(rows, chosen, cpi, snapshot, log, nfa_log=nfa_log)
     write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir)
     return rows, readme
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Build the anonymous real-budget values file.')
-    ap.add_argument('--store', required=True, help='the scan store folder (final_v2) or its sqlite file')
+    ap.add_argument('--store', required=True, help='the scan store folder (final_v4) or its sqlite file')
     ap.add_argument('--out', required=True, help='output folder, e.g. Budget_Agent/data/real_budget_ranges')
     ap.add_argument('--cpi', default=rbr.CPI_CSV)
     ap.add_argument('--map', default=None, help='folder for the name map and names list (default: the store folder)')
+    ap.add_argument('--nfa-table', default=None, help='per-file NFA table (nfa_per_file.csv, in Savills-local)')
+    ap.add_argument('--master', default=MASTER_CSV, help='residential master list for the checked NFA')
     a = ap.parse_args(argv)
-    rows, readme = build(a.store, a.out, a.cpi, a.map)
+    rows, readme = build(a.store, a.out, a.cpi, a.map, a.nfa_table, a.master)
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
