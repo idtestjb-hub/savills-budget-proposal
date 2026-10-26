@@ -333,3 +333,89 @@ def test_table_row_wins_over_profile(mini_store, nfa_store, tmp_path):
     assert b.FLAG_NFA_TABLE in by[('n09', 'ESS12')]['flag']
     readme = open(out / b.README_FILE, encoding='utf-8').read()
     assert 'n09: NFA 97,237.5 from table, implied 18,000 vs reference 18,000 (+0.0%)' in readme
+
+
+# ---- change add-library-overview-tab, tasks 1.1-1.4: Ref_RealBudgetUsage.csv ----
+def _usage(out):
+    with open(out / b.USAGE_FILE, encoding='utf-8-sig', newline='') as fh:
+        rd = csv.DictReader(fh)
+        assert rd.fieldnames == b.USAGE_COLUMNS
+        return {r['file_id']: r for r in rd}
+
+
+def test_usage_has_one_row_per_store_file(mini_store, tmp_path):
+    rows, mapping, out, mp = _run(mini_store, tmp_path)
+    usage = _usage(out)
+    assert set(usage) == {f[0] for f in FILES}                    # exactly one row for each of the 15 files
+    used = {fid for fid, r in usage.items() if r['usage'] == b.USAGE_USED}
+    assert used == {m['file_id'] for m in mapping.values()}      # used rows = the projects of the values file
+    assert len(used) == len({r['project_id'] for r in rows})
+
+
+def test_usage_reasons(mini_store, tmp_path):
+    rows, mapping, out, mp = _run(mini_store, tmp_path)
+    u = _usage(out)
+    want = {'f01': ('merged', 'merged_newer', 'f02'), 'f04': ('merged', 'merged_newer', 'f05'),
+            'f14': ('merged', 'merged_newer', 'f15'), 'f02': ('used', 'used_full', ''), 'f05': ('used', 'used_full', ''),
+            'f06': ('used', 'used_full', ''), 'f15': ('used', 'used_full', ''),
+            'f03': ('used', 'used_without_rm_ap', ''),
+            'f12': ('used', 'used_same_name_other_project', ''), 'f13': ('used', 'used_same_name_other_project', ''),
+            'f07': ('left_out', 'scanned_pdf', ''), 'f08': ('left_out', 'converted_xlsb', ''),
+            'f09': ('left_out', 'content_duplicate', ''), 'f10': ('left_out', 'not_tied', ''),
+            'f11': ('left_out', 'no_nfa', '')}
+    assert {fid: (r['usage'], r['reason_code'], r['merged_into']) for fid, r in u.items()} == want
+
+
+def test_usage_agrees_with_readme(mini_store, tmp_path):
+    rows, mapping, out, mp = _run(mini_store, tmp_path)
+    u = _usage(out)
+    readme = open(out / b.README_FILE, encoding='utf-8').read()
+    section = readme.split('Files excluded or merged (store ids only):')[1]
+    for line in section.splitlines():
+        if not line.strip():
+            continue
+        ids = line.strip().split(':')[0].split(' / ')
+        for fid in ids:
+            assert fid in u
+            if 'left out' in line and 'for RM.AP' not in line and 'two projects' not in line:
+                assert u[fid]['usage'] in (b.USAGE_LEFT_OUT, b.USAGE_MERGED)
+            if 'same project as' in line:
+                assert u[fid]['usage'] == b.USAGE_MERGED and u[fid]['merged_into'] in line
+            if 'above 0 but no apartment NFA' in line:
+                assert (u[fid]['usage'], u[fid]['reason_code']) == (b.USAGE_USED, 'used_without_rm_ap')
+            if 'two projects' in line:
+                assert u[fid]['reason_code'] == 'used_same_name_other_project'
+
+
+def test_usage_file_is_anonymous_and_checked(mini_store, tmp_path):
+    rows, mapping, out, mp = _run(mini_store, tmp_path)
+    u = _usage(out)
+    # usage and reason_code come from a closed vocabulary; the two id columns carry store ids only
+    assert {r['usage'] for r in u.values()} <= {b.USAGE_USED, b.USAGE_MERGED, b.USAGE_LEFT_OUT}
+    assert {r['reason_code'] for r in u.values()} <= b.USAGE_REASONS
+    text = b._norm(' '.join(r['file_id'] + ' ' + r['merged_into'] for r in u.values()))
+    for f in FILES:
+        for name in (f[1], f[2]):
+            if len(b._norm(name)) >= 4:
+                assert b._norm(name) not in text
+    bad = [{'file_id': 'f01', 'usage': 'used', 'reason_code': 'see Invented Tower', 'merged_into': ''}]
+    with pytest.raises(b.NameWouldLeak):
+        b.write_outputs([], [], {}, {'Invented Tower'}, 'ok', str(tmp_path / 'o2'), str(tmp_path / 'm2'), bad)
+    assert not os.path.exists(tmp_path / 'o2')
+
+
+def test_usage_output_leaves_values_file_unchanged(mini_store, tmp_path):
+    store, cpi = mini_store
+    out1, out2 = tmp_path / 'o1', tmp_path / 'o2'
+    for out, mp in ((out1, tmp_path / 'm1'), (out2, tmp_path / 'm2')):
+        b.main(['--store', store, '--out', str(out), '--map', str(mp), '--cpi', cpi, '--master', ''])
+    # a second run on the same store gives the same bytes; the usage file is deterministic too
+    assert open(out1 / b.VALUES_FILE, 'rb').read() == open(out2 / b.VALUES_FILE, 'rb').read()
+    assert open(out1 / b.USAGE_FILE, 'rb').read() == open(out2 / b.USAGE_FILE, 'rb').read()
+
+
+def test_usage_rows_unknown_case_is_left_out_other():
+    files = [{'file_id': 'a1'}, {'file_id': 'a2'}]
+    rows = b.usage_rows(files, [{'file_id': 'a1'}], {})
+    assert [(r['file_id'], r['usage'], r['reason_code']) for r in rows] == [('a1', 'used', 'used_full'),
+                                                                            ('a2', 'left_out', 'other')]

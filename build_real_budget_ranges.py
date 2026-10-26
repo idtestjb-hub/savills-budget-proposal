@@ -64,6 +64,13 @@ MAP_FILE = 'real_budget_ranges_map.csv'
 NAMES_FILE = 'real_budget_ranges_names.txt'
 VALUES_FILE = 'Ref_RealBudgetValues.csv'
 README_FILE = 'README.txt'
+USAGE_FILE = 'Ref_RealBudgetUsage.csv'
+USAGE_COLUMNS = ['file_id', 'usage', 'reason_code', 'merged_into']
+USAGE_USED, USAGE_MERGED, USAGE_LEFT_OUT = 'used', 'merged', 'left_out'
+USAGE_REASONS = {'used_full', 'used_same_name_other_project', 'used_without_rm_ap', 'merged_newer', 'scanned_pdf',
+                 'converted_xlsb', 'other_source', 'content_duplicate', 'no_main_sheet', 'not_tied', 'no_nfa',
+                 'no_period', 'other'}        # closed vocabulary: these words are not store names, so the name scan skips them
+SOURCE_REASON = {'pdf_ocr': 'scanned_pdf', 'xlsb_converted': 'converted_xlsb'}   # other non-Excel sources: 'other_source'
 SAME_NAME_NFA_GAP = 0.05
 
 FLAG_UNNAMED = 'file không có tên dự án'
@@ -234,28 +241,39 @@ def checked_nfa(f, table, master, cuts):
     return nfa, apt, (FLAG_NFA_TABLE if source == 'table' else FLAG_NFA_MASTER), note
 
 
-def candidates(files, log, table=None, master=None, cuts=(), nfa_log=None):
+def _decide(decisions, fid, usage, reason, merged_into=''):
+    """Record what happened to a store file, for Ref_RealBudgetUsage.csv (one decision per file; None = not wanted)."""
+    if decisions is not None:
+        decisions[fid] = (usage, reason, merged_into)
+
+
+def candidates(files, log, table=None, master=None, cuts=(), nfa_log=None, decisions=None):
     out = []
     for f in sorted(files, key=lambda f: f['file_id']):
         fid = f['file_id']
         src = f.get('source_type') or f.get('dim_source_type') or 'excel'
         if src != 'excel':
             log.append(f'{fid}: {src} source, left out')
+            _decide(decisions, fid, USAGE_LEFT_OUT, SOURCE_REASON.get(src, 'other_source'))
             continue
         if f.get('content_dup_of') or f.get('dim_dup'):
             log.append(f'{fid}: content duplicate of {f.get("content_dup_of") or f.get("dim_dup")}, left out')
+            _decide(decisions, fid, USAGE_LEFT_OUT, 'content_duplicate')
             continue
         if not f.get('primary_sheet'):
             log.append(f'{fid}: no main operating-fund sheet, left out')
+            _decide(decisions, fid, USAGE_LEFT_OUT, 'no_main_sheet')
             continue
         if (f.get('primary_confidence') or '') != 'high':
             log.append(f'{fid}: main sheet does not tie to its total rows ({f.get("primary_confidence") or "none"}), left out')
+            _decide(decisions, fid, USAGE_LEFT_OUT, 'not_tied')
             continue
         nfa, nfa_flag = fee_nfa(f.get('nfa_total'), f.get('nfa_how'), f.get('nfa_types'))
         if not nfa or fid in (table or {}):          # an approved table row is a reviewed correction: it wins
             nfa, apt, nfa_flag, note = checked_nfa(f, table or {}, master or {}, cuts)
             if not nfa:
                 log.append(f'{fid}: {note}, left out')
+                _decide(decisions, fid, USAGE_LEFT_OUT, 'no_nfa')
                 continue
             if apt:
                 f = dict(f, nfa_apartment=apt)
@@ -263,6 +281,7 @@ def candidates(files, log, table=None, master=None, cuts=(), nfa_log=None):
                 nfa_log.append(f'{fid}: {note or "NFA " + format(nfa, ",.1f") + " from table, no fee revenue, approved"}')
         if not _f(f.get('months_in_period')) or not _f(f.get('budget_year_v2')):
             log.append(f'{fid}: no budget period or year, left out')
+            _decide(decisions, fid, USAGE_LEFT_OUT, 'no_period')
             continue
         flags = [nfa_flag] if nfa_flag else []
         if not (f.get('project_name') or '').strip():
@@ -273,7 +292,7 @@ def candidates(files, log, table=None, master=None, cuts=(), nfa_log=None):
     return out
 
 
-def group_projects(cands, log):
+def group_projects(cands, log, decisions=None):
     """Union by name (NFA within 5%) and by identical NFA to the m2; keep the latest budget year, then file date."""
     parent = {c['file_id']: c['file_id'] for c in cands}
 
@@ -297,6 +316,7 @@ def group_projects(cands, log):
                     for x in (a, b):
                         if FLAG_STALE_NAME not in x['flags']:
                             x['flags'].append(FLAG_STALE_NAME)
+                        _decide(decisions, x['file_id'], USAGE_USED, 'used_same_name_other_project')
                     log.append(f'{a["file_id"]} / {b["file_id"]}: same name, NFA differs by more than 5%, two projects')
     by_nfa = {}
     for c in cands:
@@ -313,11 +333,12 @@ def group_projects(cands, log):
         keep = members[0]
         for m in members[1:]:
             log.append(f'{m["file_id"]}: same project as {keep["file_id"]}, older budget year or file date, left out')
+            _decide(decisions, m['file_id'], USAGE_MERGED, 'merged_newer', keep['file_id'])
         chosen.append(keep)
     return chosen
 
 
-def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES, log=None):
+def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES, log=None, decisions=None):
     """(rows, project_ids): rows in VALUE_COLUMNS order; project_ids maps file_id -> P001...
     A rate code (rbr.RATE_CODES, today RM.AP) is the full apartment fee (RM.AP + RM.0A) per m2 of APARTMENT NFA
     (design D1, D2); a file with the line above 0 but no apartment NFA gets no row and is listed in `log`."""
@@ -340,6 +361,7 @@ def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES, log=None):
                 if total > 0 and not denominator:
                     if log is not None:
                         log.append(f'{c["file_id"]}: {code} above 0 but no apartment NFA, left out for {code}')
+                    _decide(decisions, c['file_id'], USAGE_USED, 'used_without_rm_ap')
                     continue
             # a stale name (same name, NFA more than 5% apart) is matched by NFA only at run time
             key = '' if FLAG_STALE_NAME in c['flags'] else rbr.name_key(c.get('project_name'))
@@ -405,8 +427,26 @@ def _count(items):
     return out
 
 
-def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir):
-    name_scan(rows, [(f'README line {i}', t) for i, t in enumerate(readme.splitlines(), start=1)], names)
+def usage_rows(files, chosen, decisions):
+    """One row per store file: {file_id, usage, reason_code, merged_into}. A file of `chosen` with no other decision is
+    used in full; a file with no decision at all (a new kind of left-out case) is left out with reason 'other', so the
+    count of rows always equals the number of store files."""
+    kept = {c['file_id'] for c in chosen}
+    out = []
+    for f in sorted(files, key=lambda f: f['file_id']):
+        fid = f['file_id']
+        usage, reason, into = decisions.get(fid) or ((USAGE_USED, 'used_full', '') if fid in kept
+                                                      else (USAGE_LEFT_OUT, 'other', ''))
+        out.append({'file_id': fid, 'usage': usage, 'reason_code': reason, 'merged_into': into})
+    return out
+
+
+def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage=None):
+    texts = [(f'README line {i}', t) for i, t in enumerate(readme.splitlines(), start=1)]
+    texts += [(f'usage {r["file_id"]}.{k}', r[k]) for r in (usage or []) for k in USAGE_COLUMNS
+              if not (k == 'usage' and r[k] in (USAGE_USED, USAGE_MERGED, USAGE_LEFT_OUT))
+              and not (k == 'reason_code' and r[k] in USAGE_REASONS)]
+    name_scan(rows, texts, names)
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(map_dir, exist_ok=True)
     with open(os.path.join(out_dir, VALUES_FILE), 'w', encoding='utf-8-sig', newline='') as fh:
@@ -416,6 +456,11 @@ def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir):
             w.writerow(r)
     with open(os.path.join(out_dir, README_FILE), 'w', encoding='utf-8') as fh:
         fh.write(readme)
+    if usage is not None:
+        with open(os.path.join(out_dir, USAGE_FILE), 'w', encoding='utf-8-sig', newline='') as fh:
+            w = csv.DictWriter(fh, fieldnames=USAGE_COLUMNS)
+            w.writeheader()
+            w.writerows(usage)
     with open(os.path.join(map_dir, MAP_FILE), 'w', encoding='utf-8-sig', newline='') as fh:
         w = csv.writer(fh)
         w.writerow(['project_id', 'file_id', 'project_name', 'file_name', 'nfa_fee_m2', 'budget_year'])
@@ -437,12 +482,14 @@ def build(store, out_dir, cpi_path=None, map_dir=None, nfa_table=None, master_pa
     cpi = rbr.load_cpi(cpi_path)
     files, names, lines, cuts = read_store(path)
     log, nfa_log = [], []
-    cands = candidates(files, log, load_nfa_table(nfa_table), load_master(master_path), cuts, nfa_log)
-    chosen = group_projects(cands, log)
-    rows, pids = build_rows(chosen, lines, cpi, log=log)
+    decisions = {}
+    cands = candidates(files, log, load_nfa_table(nfa_table), load_master(master_path), cuts, nfa_log, decisions)
+    chosen = group_projects(cands, log, decisions)
+    rows, pids = build_rows(chosen, lines, cpi, log=log, decisions=decisions)
+    usage = usage_rows(files, chosen, decisions)
     snapshot = f'store {datetime.datetime.fromtimestamp(os.path.getmtime(path)):%Y-%m-%d}, {len(files)} files'
     readme = summarise(rows, chosen, cpi, snapshot, log, nfa_log=nfa_log)
-    write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir)
+    write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage)
     return rows, readme
 
 

@@ -569,6 +569,12 @@ def get_library(user=Depends(require_user)):
                              root=library.root_dir(), store=library.store_dir()))
 
 
+@router.get('/api/library/overview')
+def get_library_overview(user=Depends(require_user)):
+    """Số tổng hợp của kho (tab Kho ngân sách): theo năm, nhóm, lý do, loại file. Chỉ có số đếm, không có tên hay đường dẫn."""
+    return JSONResponse(library.overview())
+
+
 @router.get('/api/history')
 def get_history(request: Request, user=Depends(require_user)):
     """Mọi lượt trong thư mục runs, mới nhất trước; file theo vai trò (viewer chỉ bản giao)."""

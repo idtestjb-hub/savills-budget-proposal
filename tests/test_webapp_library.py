@@ -254,3 +254,119 @@ def test_a_file_read_through_a_code_map_ties_but_is_not_selectable(tmp_path, mon
 
 def test_default_store_is_the_v4_scan():
     assert library.DEFAULT_STORE.endswith('final_v4')
+
+
+# ---- change add-library-overview-tab, tasks 2.1-2.3: reason_kind, aggregates, api/library/overview ----
+def test_reason_kind_per_branch(store, monkeypatch):
+    by = {e['id']: e for e in library.entries()}
+    assert by['aaa111']['reason_kind'] == '' and by['bbb222']['reason_kind'] == '' and by['ddd444']['reason_kind'] == ''
+    assert by['ccc333']['reason_kind'] == 'not_xlsx'
+    assert by['eee555']['reason_kind'] == 'missing_file'
+    assert by['fff666']['reason_kind'] == 'no_fund_sheet'
+    monkeypatch.setattr(library, 'template_year', lambda: 2026)
+    library._cache['key'] = None
+    by = {e['id']: e for e in library.entries()}
+    assert by['aaa111']['reason_kind'] == 'year_not_before_template' and not by['aaa111']['selectable']
+    assert all(bool(e['reason_kind']) == (not e['selectable']) for e in by.values())
+
+
+def _write_usage(path, rows, header=('file_id', 'usage', 'reason_code', 'merged_into')):
+    _write(path, list(header), rows)
+
+
+FULL_USAGE = [('aaa111', 'used', 'used_full', ''), ('bbb222', 'merged', 'merged_newer', 'aaa111'),
+              ('ccc333', 'left_out', 'scanned_pdf', ''), ('ddd444', 'used', 'used_without_rm_ap', ''),
+              ('eee555', 'used', 'used_full', ''), ('fff666', 'left_out', 'no_main_sheet', '')]
+
+
+def _years(view):
+    return {y['label']: y['counts'] for y in view['years']}
+
+
+def test_overview_review_view_shape(store, tmp_path, monkeypatch):
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_USAGE', str(tmp_path / 'khong-co.csv'))
+    ov = library.overview()
+    assert ov['total'] == 6 and ov['message'] == ''
+    rv = ov['review']
+    assert rv['selectable'] == 3
+    assert {c['key']: c['count'] for c in rv['classes']} == {'selectable': 3, 'not_selectable': 3}
+    assert _years(rv) == {'2023': {'selectable': 1, 'not_selectable': 0}, '2025': {'selectable': 1, 'not_selectable': 0},
+                          '2026': {'selectable': 1, 'not_selectable': 2}, 'Chưa rõ': {'selectable': 0, 'not_selectable': 1}}
+    for table in ('years', 'reasons', 'types'):                # mỗi bảng cộng đủ tổng
+        key = 'count' if table == 'reasons' else 'total'
+        assert sum(r[key] for r in rv[table]) == 6
+    assert {t['type']: t['total'] for t in rv['types']} == {'xlsx': 5, 'pdf': 1}
+
+
+def test_overview_ranges_view_ties_to_usage_file(store, tmp_path, monkeypatch):
+    usage = tmp_path / 'usage.csv'
+    _write_usage(usage, FULL_USAGE)
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_USAGE', str(usage))
+    rg = library.overview()['ranges']
+    assert rg['available'] and rg['reason'] == ''
+    assert {c['key']: c['count'] for c in rg['classes']} == {'used': 3, 'merged': 1, 'left_out': 2}
+    assert _years(rg)['2026'] == {'used': 2, 'merged': 0, 'left_out': 1}
+    for table, key in (('years', 'total'), ('reasons', 'count'), ('types', 'total')):
+        assert sum(r[key] for r in rg[table]) == 6
+    labels = {(r['cls'], r['reason']): r['count'] for r in rg['reasons']}
+    assert labels[('used', 'Đủ điều kiện, dùng toàn bộ mã')] == 2
+    assert labels[('left_out', 'PDF quét chữ (OCR), độ tin cậy thấp')] == 1
+
+
+def test_overview_without_usage_file_hides_ranges_only(store, tmp_path, monkeypatch):
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_USAGE', str(tmp_path / 'khong-co.csv'))
+    ov = library.overview()
+    assert ov['review']['selectable'] == 3
+    assert ov['ranges']['available'] is False and 'Ref_RealBudgetUsage.csv' in ov['ranges']['reason']
+    assert set(ov['ranges']) == {'available', 'reason'}
+
+
+def test_overview_usage_not_matching_the_store(store, tmp_path, monkeypatch):
+    usage = tmp_path / 'usage.csv'
+    _write_usage(usage, FULL_USAGE[:-2] + [('zzz999', 'used', 'used_full', '')])       # thiếu 2 file, thừa 1 id
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_USAGE', str(usage))
+    rg = library.overview()['ranges']
+    assert rg['available'] is False
+    assert '2 file của kho chưa có' in rg['reason'] and '1 dòng' in rg['reason']
+
+
+def test_overview_unreadable_usage_file(store, tmp_path, monkeypatch):
+    usage = tmp_path / 'usage.csv'
+    _write_usage(usage, [('aaa111', 'used')], header=('file_id', 'usage'))             # thiếu cột
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_USAGE', str(usage))
+    rg = library.overview()['ranges']
+    assert rg['available'] is False and 'Không đọc được' in rg['reason']
+
+
+def test_overview_empty_store_gives_a_message(tmp_path, monkeypatch):
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_STORE', str(tmp_path / 'khong-co'))
+    library._cache['key'] = None
+    ov = library.overview()
+    assert ov['total'] == 0 and 'kho' in ov['message'].lower()
+    assert ov['ranges']['available'] is False and ov['review']['selectable'] == 0
+
+
+def test_api_overview_needs_login(client, monkeypatch):
+    monkeypatch.setattr(server, 'current_user', lambda request: None)
+    assert client.get('/api/library/overview').status_code == 401
+    assert client.get('/api/library').status_code == 401
+
+
+def test_api_overview_has_no_names_or_paths(client, store, tmp_path, monkeypatch):
+    usage = tmp_path / 'usage.csv'
+    _write_usage(usage, FULL_USAGE)
+    monkeypatch.setenv('BUDGET_WEB_LIBRARY_USAGE', str(usage))
+    resp = client.get('/api/library/overview')
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['total'] == 6 and body['ranges']['available']
+    text = json.dumps(body, ensure_ascii=False).casefold()
+    names = [n for f in FILES for n in (f[0], f[1], f[2], os.path.splitext(f[1])[0])] + [v for v in NAMES.values() if v]
+    names += [str(store), str(tmp_path), 'budget_planning', library.NEW_SUBFOLDER]
+    for n in names:
+        assert n.casefold() not in text, n
+
+
+def test_api_overview_is_a_separate_route_from_library(client):
+    assert 'entries' in client.get('/api/library').json()
+    assert 'entries' not in client.get('/api/library/overview').json()

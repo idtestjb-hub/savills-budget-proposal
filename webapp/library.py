@@ -149,7 +149,7 @@ def _name_from_file(file_name):
 
 def load(root=None, store=None):
     """Mọi dòng của kho, mỗi dòng: id (file_id), project, project_from (file | tên file), file_name, folder, year, vat,
-    nfa, confidence, confidence_vi, ext, selectable, reason, path. Danh sách rỗng khi không có kho."""
+    nfa, confidence, confidence_vi, ext, selectable, reason, reason_kind, path. Danh sách rỗng khi không có kho."""
     root, store = root or root_dir(), store or store_dir()
     files = _read_csv(os.path.join(store, 'dim_file.csv'))
     names = {r['file_id']: r for r in _read_csv(os.path.join(store, 'project_map.csv'))}
@@ -165,18 +165,19 @@ def load(root=None, store=None):
         conf = (prof.get('primary_confidence') or '').strip()
         year = prof.get('budget_year_v2') or pm.get('budget_year_v2') or pm.get('year_in_name') or ''
         rec = recon.get((fid, prof.get('primary_sheet', '')))
-        reason = ''
+        reason, kind = '', ''
         if ext != 'xlsx':
-            reason = UNREADABLE_VI.get(ext, f'{ext}: không đọc được')
+            reason, kind = UNREADABLE_VI.get(ext, f'{ext}: không đọc được'), 'not_xlsx'
         elif not os.path.isfile(long_path(path)):
-            reason = 'Không thấy file trên SharePoint (đã đổi tên hoặc chuyển chỗ?)'
+            reason, kind = 'Không thấy file trên SharePoint (đã đổi tên hoặc chuyển chỗ?)', 'missing_file'
         elif not conf:
-            reason = 'Không tìm thấy sheet quỹ quản lý trong file'
+            reason, kind = 'Không tìm thấy sheet quỹ quản lý trong file', 'no_fund_sheet'
         elif (rec or {}).get('note', '').startswith(OTHER_FORM_NOTE):
-            reason = OTHER_FORM_REASON
+            reason, kind = OTHER_FORM_REASON, 'other_form'
         elif str(year).isdigit() and int(year) >= template_year():
             reason = (f'Ngân sách năm {int(year)}: công cụ lập ngân sách năm {template_year()}, nên chỉ review được '
                       f'ngân sách đã duyệt của năm {template_year() - 1} trở về trước')
+            kind = 'year_not_before_template'
         explained = conf == 'high' and (rec or {}).get('status', '').startswith('ok_')
         note = confidence_note(rec) if (conf != 'high' or explained) else ''
         out.append(dict(id=fid, project=project or _name_from_file(r.get('file_name', '')),
@@ -186,7 +187,7 @@ def load(root=None, store=None):
                         year=int(year) if str(year).isdigit() else None, vat=prof.get('vat_basis_v2') or '',
                         nfa=_float(prof.get('nfa_total')), confidence=conf,
                         confidence_vi=EXPLAINED_VI if explained else CONFIDENCE_VI.get(conf, conf),
-                        confidence_note=note, ext=ext, selectable=not reason, reason=reason, path=path,
+                        confidence_note=note, ext=ext, selectable=not reason, reason=reason, reason_kind=kind, path=path,
                         duplicate_of=r.get('content_dup_of') or ''))
     out.sort(key=lambda e: (not e['selectable'], e['project'].casefold(), -(e['year'] or 0)))
     return out
@@ -206,3 +207,109 @@ def entries():
 
 def find(file_id):
     return next((e for e in entries() if e['id'] == file_id), None)
+
+
+# ---- Tab "Kho ngân sách": số tổng hợp, không có tên file, tên dự án hay đường dẫn (change add-library-overview-tab) ----
+USAGE_FILE = 'Ref_RealBudgetUsage.csv'
+USAGE_COLUMNS = ('file_id', 'usage', 'reason_code', 'merged_into')
+CLASS_ORDER = ('selectable', 'not_selectable')
+RANGE_CLASS_ORDER = ('used', 'merged', 'left_out')
+REVIEW_CLASS_VI = {'selectable': 'Chọn được', 'not_selectable': 'Không chọn được'}
+RANGE_CLASS_VI = {'used': 'Dùng', 'merged': 'Gộp trùng dự án', 'left_out': 'Loại'}
+REVIEW_REASON_VI = {
+    '': 'Chọn được để review',
+    'not_xlsx': 'PDF quét, xlsb hoặc zip: không đọc được số',
+    'missing_file': 'Không thấy file trên SharePoint',
+    'no_fund_sheet': 'Không có sheet quỹ vận hành chính',
+    'other_form': 'Form riêng của chủ đầu tư, Review chưa đọc được',
+    'year_not_before_template': 'Ngân sách từ năm của mẫu trở lên',
+}
+RANGE_REASON_VI = {
+    'used_full': 'Đủ điều kiện, dùng toàn bộ mã',
+    'used_without_rm_ap': 'Dùng, bỏ mã RM.AP (thiếu NFA căn hộ)',
+    'used_same_name_other_project': 'Trùng tên nhưng NFA lệch hơn 5%: tính hai dự án riêng',
+    'merged_newer': 'Cùng dự án với file khác, giữ bản mới hơn',
+    'scanned_pdf': 'PDF quét chữ (OCR), độ tin cậy thấp',
+    'converted_xlsb': 'File xlsb đã chuyển đổi',
+    'other_source': 'Nguồn không phải Excel',
+    'content_duplicate': 'Nội dung trùng file khác',
+    'no_main_sheet': 'Không có sheet quỹ vận hành chính',
+    'not_tied': 'Sheet chính không khớp dòng tổng',
+    'no_nfa': 'Không có diện tích thu phí (NFA)',
+    'no_period': 'Không xác định được kỳ hoặc năm ngân sách',
+    'other': 'Lý do khác',
+}
+TYPE_VI = {'xlsx': 'Excel (.xlsx)', 'pdf': 'PDF quét chữ', 'xlsb': 'Excel nhị phân (.xlsb)', 'zip': 'Gói zip'}
+TYPE_ORDER = ('xlsx', 'pdf', 'xlsb', 'zip')
+UNKNOWN_YEAR = ''
+
+
+def usage_path():
+    """File phân loại của bảng giá thực tế (build_real_budget_ranges.py), nằm trong repo cạnh Ref_RealBudgetValues.csv."""
+    return os.path.abspath(os.environ.get('BUDGET_WEB_LIBRARY_USAGE') or
+                           os.path.join(BUDGET_AGENT, 'data', 'real_budget_ranges', USAGE_FILE))
+
+
+def _tally(entries, class_of, reason_of, class_order, class_vi, reason_vi):
+    """Gom các dòng của kho: theo năm x nhóm, theo lý do, theo loại file x nhóm. Chỉ có số đếm và nhãn cố định."""
+    years = sorted({str(e['year']) for e in entries if e['year']})
+    if any(not e['year'] for e in entries):
+        years.append(UNKNOWN_YEAR)
+    by_year = {y: {c: 0 for c in class_order} for y in years}
+    by_type = {t: {c: 0 for c in class_order} for t in TYPE_ORDER}
+    reasons = {}
+    for e in entries:
+        c, r = class_of(e), reason_of(e)
+        by_year[str(e['year']) if e['year'] else UNKNOWN_YEAR][c] += 1
+        by_type.setdefault(e['ext'], {k: 0 for k in class_order})[c] += 1
+        reasons[(c, r)] = reasons.get((c, r), 0) + 1
+    types = [t for t in list(TYPE_ORDER) + sorted(set(by_type) - set(TYPE_ORDER)) if sum(by_type[t].values())]
+    rank = {c: i for i, c in enumerate(class_order)}
+    return dict(
+        classes=[dict(key=c, label=class_vi[c], count=sum(v[c] for v in by_year.values())) for c in class_order],
+        years=[dict(year=y, label=y or 'Chưa rõ', counts=by_year[y], total=sum(by_year[y].values())) for y in years],
+        reasons=[dict(cls=c, reason=reason_vi.get(r, r), count=n)
+                 for (c, r), n in sorted(reasons.items(), key=lambda kv: (rank[kv[0][0]], -kv[1], kv[0][1]))],
+        types=[dict(type=t, label=TYPE_VI.get(t, t), counts=by_type[t], total=sum(by_type[t].values())) for t in types])
+
+
+def _read_usage():
+    """({file_id: (usage, reason_code)}, lý do không dùng được hoặc '')."""
+    path = usage_path()
+    if not os.path.isfile(path):
+        return None, ('Chưa có file phân loại của bảng giá thực tế (Ref_RealBudgetUsage.csv). '
+                      'Dựng lại bảng giá thực tế rồi cập nhật server để xem phần này.')
+    try:
+        rows = _read_csv(path)
+        if not rows or any(c not in rows[0] for c in USAGE_COLUMNS):
+            raise ValueError('thiếu cột')
+        return {r['file_id']: (r['usage'], r['reason_code']) for r in rows}, ''
+    except (OSError, ValueError, KeyError, csv.Error):
+        return None, 'Không đọc được file phân loại của bảng giá thực tế (Ref_RealBudgetUsage.csv).'
+
+
+def overview():
+    """Số tổng hợp cho tab Kho ngân sách. Hai view: 'review' (chọn được hay không) và 'ranges' (dùng cho bảng giá thực tế).
+    'ranges' chỉ có khi file phân loại khớp đúng các file của kho; không thì available=False kèm lý do. Không có tên."""
+    entries_ = entries()
+    out = dict(total=len(entries_), message='' if entries_ else 'Không tìm thấy kho ngân sách trên máy chủ này.')
+    out['review'] = _tally(entries_, lambda e: 'selectable' if e['selectable'] else 'not_selectable',
+                           lambda e: e.get('reason_kind', ''), CLASS_ORDER, REVIEW_CLASS_VI, REVIEW_REASON_VI)
+    out['review']['selectable'] = sum(e['selectable'] for e in entries_)
+    if not entries_:
+        out['ranges'] = dict(available=False, reason='Không có kho để đối chiếu.')
+        return out
+    usage, why = _read_usage()
+    ids = {e['id'] for e in entries_}
+    if usage is not None and set(usage) != ids:
+        unlisted, unknown = len(ids - set(usage)), len(set(usage) - ids)
+        usage, why = None, (f'File phân loại của bảng giá thực tế không khớp kho: {unlisted} file của kho chưa có trong '
+                            f'file phân loại, {unknown} dòng của file phân loại không có trong kho. '
+                            'Dựng lại bảng giá thực tế rồi cập nhật server.')
+    if usage is None:
+        out['ranges'] = dict(available=False, reason=why)
+        return out
+    out['ranges'] = dict(available=True, reason='', **_tally(
+        entries_, lambda e: usage[e['id']][0], lambda e: usage[e['id']][1], RANGE_CLASS_ORDER, RANGE_CLASS_VI,
+        RANGE_REASON_VI))
+    return out

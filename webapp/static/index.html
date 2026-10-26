@@ -200,6 +200,34 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #lib .warn { color: var(--sav-red); font-size: 12px; }
 #lib input[type=radio] { width: auto; }
 .modes button.hidden { display: none; }
+/* Tab Kho ngân sách: biểu đồ cột chồng và hai bảng số tổng hợp (chỉ số đếm). Màu theo bảng màu Primary, ghi rõ bằng hex. */
+.kho { --k0: #25273A; --k1: #79828C; --k2: #CE181E; --kt0: #FFFFFF; --kt1: #000000; --kt2: #FFFFFF; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kho { --k0: #EEE8E3; --k2: #D95F65; --kt0: #25273A; --kt2: #000000; } }
+:root[data-theme="dark"] .kho { --k0: #EEE8E3; --k2: #D95F65; --kt0: #25273A; --kt2: #000000; }
+.kho .switch { display: inline-flex; border: 2px solid var(--sav-navy); margin: 0 0 12px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kho .switch { border-color: var(--sav-yellow); } }
+:root[data-theme="dark"] .kho .switch { border-color: var(--sav-yellow); }
+.kho .switch button { font: 700 14px var(--sav-font); background: var(--sav-surface); color: var(--sav-text); border: 0; padding: 8px 16px; cursor: pointer; }
+.kho .switch button[aria-pressed="true"] { background: var(--sav-yellow); color: var(--sav-on-yellow); }
+.kho .switch button:focus-visible { outline: 3px solid var(--sav-teal); outline-offset: -3px; }
+.kho .kpis { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 820px) { .kho .kpis { grid-template-columns: 1fr 1fr; } }
+.kho .kpi.c0 { border-left-color: var(--k0); } .kho .kpi.c1 { border-left-color: var(--k1); } .kho .kpi.c2 { border-left-color: var(--k2); }
+.kho .two { display: grid; grid-template-columns: 1.25fr 1fr; gap: 22px; align-items: start; }
+@media (max-width: 960px) { .kho .two { grid-template-columns: 1fr; } }
+.kho svg { width: 100%; height: auto; display: block; }
+.kho svg .axis { stroke: #D9D9D9; stroke-width: .75; }
+.kho svg .cat { fill: var(--sav-muted); font: 12px var(--sav-font); }
+.kho svg .tot { fill: var(--sav-text); font: 700 12px var(--sav-font); }
+.kho svg .lab { font: 12px var(--sav-font); }
+.kho svg .seg { stroke: var(--sav-bg); stroke-width: .75; }
+.kho .kc0 { fill: var(--k0); } .kho .kc1 { fill: var(--k1); } .kho .kc2 { fill: var(--k2); }
+.kho .kt0 { fill: var(--kt0); } .kho .kt1 { fill: var(--kt1); } .kho .kt2 { fill: var(--kt2); }
+.kho table.sm { font-size: 13px; margin: 0 0 14px; }
+.kho table.sm th, .kho table.sm td { padding: 4px 8px; }
+.kho table.sm th.n, .kho table.sm td.n { text-align: right; }
+.kho table.sm th { text-align: left; }
+.kho .note { background: var(--sav-panel); padding: 8px 12px; font-size: 13px; margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -217,6 +245,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
     <button type="button" data-tab="review" id="tab-review">Review dự án đang vận hành</button>
     <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả dự án mới</button>
     <button type="button" data-tab="lichsu">Dự án đã tạo</button>
+    <button type="button" data-tab="kho" id="tab-kho">Kho ngân sách</button>
     <button type="button" data-tab="huongdan">Hướng dẫn</button>
   </nav>
 
@@ -683,6 +712,37 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       <p class="src"><b>Clone</b>: điền sẵn tab Nhập liệu từ form của lượt đó (đổi tên dự án, năm rồi bấm Tạo ngân sách). <b>Gen budget for new year</b>: mở tab Review với bản giao của lượt đó làm ngân sách năm ngoái, dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới. <b>Điều chỉnh</b>: mở kết quả của lượt kèm bảng điều chỉnh.</p>
     </section>
   </div>
+  <div class="panel kho" id="panel-kho">
+    <section>
+      <h2>Kho ngân sách thực tế</h2>
+      <p class="src" id="kho-info">Đang tải…</p>
+      <div id="kho-body" hidden>
+        <div class="switch" role="group" aria-label="Chọn cách phân loại">
+          <button type="button" id="kho-v-review" aria-pressed="true">Dùng cho Review</button>
+          <button type="button" id="kho-v-ranges" aria-pressed="false">Dùng cho bảng giá thực tế</button>
+        </div>
+        <p class="src" id="kho-explain" style="margin:0 0 10px"></p>
+        <div class="note" id="kho-unavailable" hidden></div>
+        <div id="kho-view">
+          <div class="kpis" id="kho-kpis"></div>
+          <div class="two">
+            <div>
+              <h3 style="font-size:14px;margin:0 0 4px">Số file theo năm ngân sách</h3>
+              <div id="kho-chart"></div>
+              <p class="note" id="kho-chart-note"></p>
+              <h3 style="font-size:14px;margin:14px 0 4px">Theo loại file</h3>
+              <table class="sm" id="kho-types"></table>
+            </div>
+            <div>
+              <h3 style="font-size:14px;margin:0 0 4px">Phân loại và lý do</h3>
+              <table class="sm" id="kho-reasons"></table>
+            </div>
+          </div>
+        </div>
+        <p class="src">Chỉ có số đếm, không có tên file hay tên dự án. Năm là năm ngân sách xác định khi quét kho; "Chưa rõ" là file chưa xác định được năm. NFA là diện tích thu phí.</p>
+      </div>
+    </section>
+  </div>
 </div>
 
 <script>
@@ -889,11 +949,105 @@ function collect() {
   return { scalars, products: prods };
 }
 
+// ---- Tab Kho ngân sách: số tổng hợp từ /api/library/overview (chỉ số đếm) ----
+let khoData = null, khoView = 'review', khoLoaded = false;
+const KHO_COLORS = { review: [0, 2], ranges: [0, 1, 2] };      // chỉ số màu theo thứ tự nhóm: navy, xám, đỏ (đỏ = không dùng được)
+const KHO_EXPLAIN = {
+  review: 'Tab Review chọn được những file nào để review ngân sách đã duyệt của dự án đang vận hành.',
+  ranges: 'Những file nào đã vào bảng giá thực tế dùng để so sánh khi lập ngân sách (mỗi dự án một file, bản mới hơn giữ lại).'
+};
+
+async function loadKho() {
+  const info = document.getElementById('kho-info');
+  info.textContent = 'Đang tải…';
+  let r;
+  try { r = await fetch(`${PREFIX}/api/library/overview`); }
+  catch (e) { info.innerHTML = `Không tải được: ${esc(e.message)} <a href="#" id="kho-retry">Thử lại</a>`; document.getElementById('kho-retry').onclick = ev => { ev.preventDefault(); loadKho(); }; return; }
+  if (r.status === 401) { location.reload(); return; }
+  if (!r.ok) { info.textContent = 'Không tải được số liệu của kho (lỗi ' + r.status + ').'; return; }
+  khoData = await r.json();
+  khoLoaded = true;
+  renderKho();
+}
+
+function khoChart(view) {
+  const cols = KHO_COLORS[khoView], years = view.years, W = 700, H = 250, L = 10, R = 130, T = 22, B = 36;
+  const pw = W - L - R, ph = H - T - B, slot = pw / years.length, bw = slot * 0.62;
+  const maxv = Math.max(1, ...years.map(y => y.total));
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Số file theo năm ngân sách và phân loại" xmlns="http://www.w3.org/2000/svg">`;
+  s += `<line x1="${L}" y1="${T + ph}" x2="${L + pw}" y2="${T + ph}" class="axis"/>`;
+  years.forEach((y, i) => {
+    const x = L + i * slot + (slot - bw) / 2;
+    let base = T + ph;
+    view.classes.forEach((c, k) => {
+      const v = y.counts[c.key] || 0;
+      if (!v) return;
+      const h = ph * v / maxv;
+      base -= h;
+      s += `<rect x="${x.toFixed(1)}" y="${base.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" class="seg kc${cols[k]}"/>`;
+      if (h >= 13) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${(base + h / 2 + 4).toFixed(1)}" class="lab kt${cols[k]}" text-anchor="middle">${v}</text>`;
+    });
+    s += `<text x="${(x + bw / 2).toFixed(1)}" y="${(base - 5).toFixed(1)}" class="tot" text-anchor="middle">${y.total}</text>`;
+    s += `<text x="${(x + bw / 2).toFixed(1)}" y="${T + ph + 18}" class="cat" text-anchor="middle">${esc(y.label)}</text>`;
+  });
+  view.classes.forEach((c, k) => {
+    const ly = T + 30 + k * 24;
+    s += `<rect x="${L + pw + 20}" y="${ly}" width="12" height="12" class="seg kc${cols[k]}"/>`;
+    s += `<text x="${L + pw + 40}" y="${ly + 11}" class="cat">${esc(c.label)}</text>`;
+  });
+  return s + '</svg>';
+}
+
+function renderKho() {
+  const info = document.getElementById('kho-info'), body = document.getElementById('kho-body');
+  if (!khoData || !khoData.total) {
+    info.textContent = (khoData && khoData.message) || 'Chưa có số liệu của kho.';
+    body.hidden = true;
+    return;
+  }
+  info.textContent = `Kho có ${fmt(khoData.total)} file ngân sách thực tế đã quét.`;
+  body.hidden = false;
+  document.getElementById('kho-v-review').setAttribute('aria-pressed', String(khoView === 'review'));
+  document.getElementById('kho-v-ranges').setAttribute('aria-pressed', String(khoView === 'ranges'));
+  document.getElementById('kho-explain').textContent = KHO_EXPLAIN[khoView];
+  const view = khoData[khoView], un = document.getElementById('kho-unavailable'), main = document.getElementById('kho-view');
+  if (khoView === 'ranges' && !view.available) {
+    un.hidden = false; un.textContent = view.reason; main.hidden = true;
+    return;
+  }
+  un.hidden = true; main.hidden = false;
+  const cols = KHO_COLORS[khoView];
+  document.getElementById('kho-kpis').innerHTML =
+    `<div class="kpi"><small>File trong kho</small><b>${fmt(khoData.total)}</b></div>` +
+    view.classes.map((c, k) => `<div class="kpi c${cols[k]}"><small>${esc(c.label)}</small><b>${fmt(c.count)}</b></div>`).join('');
+  document.getElementById('kho-chart').innerHTML = khoChart(view);
+  const y26 = view.years.find(y => y.year === '2026'), unk = view.years.find(y => y.year === '');
+  document.getElementById('kho-chart-note').textContent =
+    (y26 ? `Năm 2026 có ${y26.total} trong ${fmt(khoData.total)} file (${Math.round(100 * y26.total / khoData.total)}%).` : '') +
+    (unk ? ` ${unk.total} file chưa xác định được năm.` : '');
+  let prev = null;
+  document.getElementById('kho-reasons').innerHTML =
+    '<thead><tr><th>Nhóm</th><th>Lý do</th><th class="n">File</th></tr></thead><tbody>' +
+    view.reasons.map(r => {
+      const cls = view.classes.find(c => c.key === r.cls), tag = r.cls !== prev ? `<b>${esc(cls ? cls.label : r.cls)}</b>` : '';
+      prev = r.cls;
+      return `<tr><td>${tag}</td><td>${esc(r.reason)}</td><td class="n">${fmt(r.count)}</td></tr>`;
+    }).join('') + `</tbody><tfoot><tr><td></td><td>Tổng</td><td>${fmt(view.reasons.reduce((a, r) => a + r.count, 0))}</td></tr></tfoot>`;
+  document.getElementById('kho-types').innerHTML =
+    '<thead><tr><th>Loại file</th>' + view.classes.map(c => `<th class="n">${esc(c.label)}</th>`).join('') + '<th class="n">Tổng</th></tr></thead><tbody>' +
+    view.types.map(t => `<tr><td>${esc(t.label)}</td>` + view.classes.map(c => `<td class="n">${t.counts[c.key] ? fmt(t.counts[c.key]) : '–'}</td>`).join('') + `<td class="n">${fmt(t.total)}</td></tr>`).join('') +
+    `</tbody><tfoot><tr><td>Tổng</td>${view.classes.map(c => `<td>${fmt(c.count)}</td>`).join('')}<td>${fmt(khoData.total)}</td></tr></tfoot>`;
+}
+
+document.getElementById('kho-v-review').addEventListener('click', () => { khoView = 'review'; renderKho(); });
+document.getElementById('kho-v-ranges').addEventListener('click', () => { khoView = 'ranges'; renderKho(); });
+
 function showTab(id) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + id));
   if (id === 'lichsu' && !historyLoaded) loadHistory();
   if (id === 'review' && !libEntries.length) loadLibrary();
+  if (id === 'kho' && !khoLoaded) loadKho();
 }
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 document.getElementById('rv-guide').addEventListener('click', e => {
