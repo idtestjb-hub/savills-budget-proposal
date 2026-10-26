@@ -48,7 +48,7 @@ When `Ref_RealBudgetUsage.csv` is missing, unreadable, or lists store ids that a
 - **THEN** the second view is marked unavailable and names how many files are not listed
 
 ### Requirement: The change moves no figure
-Adding the tab and the usage file SHALL NOT change `Ref_RealBudgetValues.csv`, any range, any generated workbook or any recorded verification baseline.
+Adding the tab and the usage file SHALL NOT change `Ref_RealBudgetValues.csv`, any range, any generated workbook or any recorded verification baseline. The tab and its endpoint only read the store files `dim_file.csv`, `file_profile.csv`, `project_map.csv` and `reconcile.csv` and the usage file `Ref_RealBudgetUsage.csv`; they write nothing. Besides its two existing outputs, the builder writes only `Ref_RealBudgetUsage.csv`.
 
 #### Scenario: Price data unchanged
 - **WHEN** the builder is run on the 2026-10-22 store before and after this change
