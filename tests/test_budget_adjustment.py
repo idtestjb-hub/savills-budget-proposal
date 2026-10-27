@@ -191,8 +191,8 @@ def test_parent_and_detail_rows(applied):
     assert ws['L5'].value == 0 and ws['D5'].value is None
     assert ws['I5'].value == '=SUM(I6:I7)' and ws['M5'].value == '=SUM(M6:M7)'
     assert ws['N5'].value == '=M5-I5' and ws['O5'].value == '=IF(I5=0,"N/A",N5/I5)'
-    assert ws['M6'].value == ('=IF($D$5="Số lượng",J6*H6,IF($D$5="Đơn giá",G6*K6,'
-                              'IF($D$5="Trượt giá",I6*(1+$L$5),I6)))')
+    assert ws['M6'].value == ('=IF($D$5="Số lượng",J6*H6,IF($D$5="Đơn giá",G6*K6,IF($D$5="Số lượng + Đơn giá",J6*K6,'
+                              'IF($D$5="Trượt giá",I6*(1+$L$5),I6))))')
     assert ws['N6'].value == '=M6-I6' and ws['O6'].value == '=IF(I6=0,"N/A",N6/I6)'
     assert ws['A5'].fill.fgColor.rgb.endswith('E4E6E8')
     assert ws['A7'].fill.fgColor.rgb.endswith('EEE8E3') and ws['A6'].fill.fill_type is None
@@ -211,7 +211,7 @@ def test_dropdown_on_every_parent_row(applied):
     _, ws, _ = applied
     dvs = ws.data_validations.dataValidation
     assert len(dvs) == 1 and dvs[0].type == 'list'
-    assert dvs[0].formula1 == '"Số lượng,Đơn giá,Trượt giá"'
+    assert dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá"'
     covered = {str(rng) for rng in dvs[0].sqref.ranges}
     assert covered == {'D5', 'D8', 'D10', 'D12'}
 
@@ -277,6 +277,11 @@ def test_each_adjustment_type_moves_the_fund_row(applied):
     assert ev.cell(MGMT, 'H14') == pytest.approx(10_500_000) and ev.cell(MGMT, 'S14') == pytest.approx(126_000_000)
     ws['D5'] = 'Trượt giá'                                      # the quantity edit no longer counts
     assert ev.cell(ba.SHEET_NAME, 'M5') == 1_752_000_000
+    ws['D5'], ws['K6'] = 'Số lượng + Đơn giá', 330_000_000      # 5 posts at the new price, CCTV unchanged
+    assert ev.cell(ba.SHEET_NAME, 'M6') == 1_650_000_000
+    assert ev.cell(ba.SHEET_NAME, 'M5') == 2_202_000_000 and ev.cell(MGMT, 'AK20') == pytest.approx(2_202_000_000)
+    ws['D8'] = 'Số lượng + Đơn giá'                             # lumped row: quantity stays the original
+    assert ev.cell(ba.SHEET_NAME, 'M8') == pytest.approx(290_400_000)
 
 
 def test_a_month_cell_that_is_already_a_formula_is_wrapped_not_replaced():
@@ -383,7 +388,7 @@ def test_excel_recalculates_without_errors_and_moves_as_expected(tmp_path):
         assert fund.Range('AK20').Value == 1_752_000_000 and fund.Range('F20').Value == 146_000_000
         assert fund.Range('AK14').Value == sum(RAMP) and common.Range('AK20').Value == 48_000_000
         assert adj.ProtectContents and not adj.Range('J6').Locked and adj.Range('I6').Locked
-        assert adj.Range('D5').Validation.Formula1.strip('"') == 'Số lượng,Đơn giá,Trượt giá'
+        assert adj.Range('D5').Validation.Formula1.strip('"') == 'Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá'
         assert adj.Rows(6).OutlineLevel == 2 and adj.Rows(6).Hidden
         adj.Range('D5').Value, adj.Range('J6').Value = 'Số lượng', 5
         adj.Range('D10').Value, adj.Range('L10').Value = 'Trượt giá', 0.05
@@ -392,6 +397,13 @@ def test_excel_recalculates_without_errors_and_moves_as_expected(tmp_path):
         assert abs(fund.Range('AK20').Value - 2_052_000_000) < 1
         assert abs(fund.Range('S14').Value - 126_000_000) < 1
         assert abs(book.Worksheets('1. Summary').Range('H29').Value - 2_052_000_000) < 1
+        # both quantity and price: 5 posts at 330,000,000 + 2 at 276,000,000; lumped row: original quantity x new price
+        adj.Range('D5').Value, adj.Range('K6').Value = 'Số lượng + Đơn giá', 330_000_000
+        adj.Range('D8').Value, adj.Range('K9').Value = 'Số lượng + Đơn giá', 290_400_000
+        xl.CalculateFull()
+        assert adj.Range('M6').Value == 1_650_000_000 and adj.Range('M5').Value == 2_202_000_000
+        assert abs(fund.Range('AK20').Value - 2_202_000_000) < 1
+        assert abs(adj.Range('M8').Value - 290_400_000) < 1 and abs(fund.Range('H22').Value - 24_200_000) < 1
         book.Close(SaveChanges=False)
     finally:
         xl.Quit()

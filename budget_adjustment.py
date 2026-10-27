@@ -2,7 +2,7 @@
 
 One parent (total) row per budget code that carries a figure on '2. Budget-Management Fund' or
 '2.2 Common area Fund', followed by its detail sub-rows (one per post, device, product... or a single lumped row).
-The PM picks an adjustment type on the parent row's dropdown (column D: quantity / unit price / inflation) and edits
+The PM picks an adjustment type on the parent row's dropdown (column D: quantity / unit price / both / inflation) and edits
 the yellow cells of the detail rows; column M recomputes the new amount, N and O the variance. The fund sheet's own
 month cells (H:S, and F for a Monthly row) are turned into formulas that scale the original month figure by the
 parent's M / I ratio, so '1. Summary', the contingency, the EM#/ES#/EE# totals and '2.2 Common area Fund' follow
@@ -28,8 +28,8 @@ from openpyxl.worksheet.properties import Outline
 
 SHEET_NAME = '4. Điều chỉnh'
 AFTER_SHEET = '3.1 Report-Sinking Fund'
-ADJUSTMENT_TYPES = ('Số lượng', 'Đơn giá', 'Trượt giá')
-TYPE_QTY, TYPE_PRICE, TYPE_INFLATION = ADJUSTMENT_TYPES
+ADJUSTMENT_TYPES = ('Số lượng', 'Đơn giá', 'Số lượng + Đơn giá', 'Trượt giá')
+TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION = ADJUSTMENT_TYPES
 ROW_KIND_TOTAL, ROW_KIND_DETAIL = 'Tổng', 'Chi tiết'
 
 TITLE_ROW, GUIDE_ROW, HEADER_ROW, FIRST_DATA_ROW = 1, 2, 4, 5
@@ -51,9 +51,10 @@ FUND_MONTHLY_COL = 6                       # F
 FUND_MONTH_FIRST_COL = 8                   # H .. S
 
 TITLE = 'ĐIỀU CHỈNH NGÂN SÁCH'
-GUIDE = ('Cách dùng: trên dòng Tổng của một mã, chọn Loại điều chỉnh ở cột D (Số lượng / Đơn giá / Trượt giá). '
-         'Bấm dấu + ở lề trái để mở các dòng Chi tiết rồi sửa ô vàng: SL mới (J) khi chọn Số lượng, Đơn giá mới (K) '
-         'khi chọn Đơn giá, Trượt giá % (L, trên dòng Tổng) khi chọn Trượt giá. Các ô khác đã khoá. '
+GUIDE = ('Cách dùng: trên dòng Tổng của một mã, chọn Loại điều chỉnh ở cột D (Số lượng / Đơn giá / Số lượng + Đơn giá '
+         '/ Trượt giá). Bấm dấu + ở lề trái để mở các dòng Chi tiết rồi sửa ô vàng: SL mới (J) khi chọn Số lượng, Đơn giá '
+         'mới (K) khi chọn Đơn giá, cả J và K khi chọn Số lượng + Đơn giá, Trượt giá % (L, trên dòng Tổng) khi chọn '
+         'Trượt giá. Các ô khác đã khoá. '
          "Thành tiền mới (M), Chênh lệch (N, O) và các sheet 1. Summary, 2. Budget-Management Fund, "
          "2.2 Common area Fund tự cập nhật. Để trống cột D = giữ nguyên số gốc.")
 
@@ -107,8 +108,8 @@ def detail_formula(parent_row, row):
     l = _ref(COL['inflation'], parent_row, absolute=True)
     g, h, i = (_ref(COL[k], row) for k in ('qty', 'unit_price', 'amount'))
     j, k = _ref(COL['new_qty'], row), _ref(COL['new_price'], row)
-    return (f'=IF({d}="{TYPE_QTY}",{j}*{h},IF({d}="{TYPE_PRICE}",{g}*{k},'
-            f'IF({d}="{TYPE_INFLATION}",{i}*(1+{l}),{i})))')
+    return (f'=IF({d}="{TYPE_QTY}",{j}*{h},IF({d}="{TYPE_PRICE}",{g}*{k},IF({d}="{TYPE_QTY_PRICE}",{j}*{k},'
+            f'IF({d}="{TYPE_INFLATION}",{i}*(1+{l}),{i}))))')
 
 
 def ratio_formula(parent_row):
@@ -259,6 +260,13 @@ def _link_fund_row(wb, item, parent_row):
     return r
 
 
+def type_validation():
+    """The list validation of column D (the adjustment types, blank allowed)."""
+    return DataValidation(type='list', formula1='"' + ','.join(ADJUSTMENT_TYPES) + '"', allow_blank=True,
+                          showDropDown=False, showErrorMessage=True, errorTitle='Loại điều chỉnh',
+                          error='Chọn một trong: ' + ' / '.join(ADJUSTMENT_TYPES) + ', hoặc để trống.')
+
+
 def build_sheet(wb, items):
     """The sheet alone (no fund-sheet links): {code: parent_row}. Rebuilt from scratch when it already exists."""
     if SHEET_NAME in wb.sheetnames:
@@ -268,9 +276,7 @@ def build_sheet(wb, items):
     _write_header(ws)
     ws.sheet_properties.outlinePr = Outline(summaryBelow=False, summaryRight=False)
 
-    dv = DataValidation(type='list', formula1='"' + ','.join(ADJUSTMENT_TYPES) + '"', allow_blank=True,
-                        showDropDown=False, showErrorMessage=True, errorTitle='Loại điều chỉnh',
-                        error='Chọn một trong: ' + ' / '.join(ADJUSTMENT_TYPES) + ', hoặc để trống.')
+    dv = type_validation()
     ws.add_data_validation(dv)
 
     parent_rows = {}

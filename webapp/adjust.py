@@ -11,9 +11,13 @@ Khoá liên kết là mã (cột A) + sheet quỹ (cột P) của dòng Tổng, 
 Excel làm khoá (dòng chỉ được tìm lại khi đọc file).
 
 Quy tắc (người dùng duyệt 20/10/2026):
-- Mỗi mã một loại điều chỉnh: '' (giữ số gốc), 'Số lượng', 'Đơn giá', 'Trượt giá'.
+- Mỗi mã một loại điều chỉnh: '' (giữ số gốc), 'Số lượng', 'Đơn giá', 'Số lượng + Đơn giá' (thêm 27/10/2026, change
+  add-qty-and-price-adjustment), 'Trượt giá'.
 - Số lượng: chỉ SL mới sửa được; dòng có SL khoá (cột J là công thức, dòng gộp "khoản") giữ nguyên.
-  Đơn giá: chỉ đơn giá mới. Trượt giá: chỉ % trên dòng Tổng (cho phép âm). Mã không có dòng Chi tiết: chỉ trượt giá.
+  Đơn giá: chỉ đơn giá mới. Số lượng + Đơn giá: SL mới × đơn giá mới (dòng SL khoá giữ SL gốc). Trượt giá: chỉ % trên
+  dòng Tổng (cho phép âm). Mã không có dòng Chi tiết: chỉ trượt giá.
+- Sheet của bản giao cũ (trước loại Số lượng + Đơn giá) được nâng cấp khi lưu: công thức M của dòng Chi tiết và danh
+  sách chọn cột D viết lại theo bản hiện tại; ba loại cũ cho đúng số như trước.
 - SL mới và đơn giá mới không được âm.
 - Các ô không thuộc loại đã chọn vẫn được ghi đúng giá trị gửi lên, nhưng công thức của template bỏ qua chúng.
 """
@@ -25,7 +29,8 @@ import budget_adjustment as ba
 
 SHEET = ba.SHEET_NAME
 TYPES = ('',) + tuple(ba.ADJUSTMENT_TYPES)
-TYPE_QTY, TYPE_PRICE, TYPE_INFLATION = ba.TYPE_QTY, ba.TYPE_PRICE, ba.TYPE_INFLATION
+TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION = ba.TYPE_QTY, ba.TYPE_PRICE, ba.TYPE_QTY_PRICE, ba.TYPE_INFLATION
+DETAIL_TYPES = (TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE)          # cần dòng Chi tiết
 C = ba.COL
 FUND_SHORT = {'2. Budget-Management Fund': 'MF', '2.2 Common area Fund': 'CA'}
 FUND_VI = {'MF': 'Quỹ quản lý vận hành', 'CA': 'Quỹ khai thác khu vực chung'}
@@ -126,6 +131,8 @@ def new_amount(item, adj_type=None, inflation=None, subs=None):
             total += (s['new_qty'] if s['qty_editable'] else s['qty']) * s['unit_price']
         elif adj_type == TYPE_PRICE:
             total += s['qty'] * s['new_price']
+        elif adj_type == TYPE_QTY_PRICE:
+            total += (s['new_qty'] if s['qty_editable'] else s['qty']) * s['new_price']
         elif adj_type == TYPE_INFLATION:
             total += s['amount'] * (1 + inflation)
         else:
@@ -137,7 +144,7 @@ def _validate(edit, item):
     adj_type = _text(edit.get('adj_type'))
     if adj_type not in TYPES:
         raise AdjustError(f"{item['code']}: loại điều chỉnh '{adj_type}' không hợp lệ.")
-    if adj_type in (TYPE_QTY, TYPE_PRICE) and not item['has_subs']:
+    if adj_type in DETAIL_TYPES and not item['has_subs']:
         raise AdjustError(f"{item['code']}: mã không có dòng chi tiết, chỉ điều chỉnh được bằng trượt giá.")
     try:
         inflation = float(edit.get('inflation') or 0)
@@ -185,6 +192,23 @@ def _validate_remark(wb, code, remark, fund_sheet, fund_row):
     return fund_sheet, int(fund_row), text
 
 
+def upgrade_sheet(ws, blocks):
+    """Viết lại công thức M của mọi dòng Chi tiết và danh sách chọn cột D theo bản hiện tại của budget_adjustment, để
+    sheet của bản giao cũ dùng được loại Số lượng + Đơn giá. Công thức chỉ phụ thuộc số dòng nên viết lại nhiều lần
+    vẫn như nhau; ba loại cũ cho đúng số như trước. `blocks`: (dòng Tổng, [dòng Chi tiết], ...) như index của apply_edits."""
+    for block in blocks:
+        prow, srows = block[0], block[1]
+        for r in srows:
+            ws.cell(row=r, column=C['new_amount']).value = ba.detail_formula(prow, r)
+    keep = [dv for dv in ws.data_validations.dataValidation
+            if not (dv.type == 'list' and TYPE_INFLATION in str(dv.formula1 or ''))]
+    ws.data_validations.dataValidation = keep
+    dv = ba.type_validation()
+    ws.add_data_validation(dv)
+    for block in blocks:
+        dv.add(ws.cell(row=block[0], column=C['adj_type']))
+
+
 def apply_edits(wb, edits):
     """Ghi các chỉnh sửa vào sheet '4. Điều chỉnh' của workbook `wb` (đã mở, không phải data_only).
 
@@ -214,6 +238,7 @@ def apply_edits(wb, edits):
         plan.append((prow, srows, editable, code) + _validate(edit, item))
         if edit.get('remark') is not None:          # chỉ khi gửi lên: mã không sửa remark giữ nguyên ô T
             remarks.append(_validate_remark(wb, code, edit['remark'], fund_sheet, fund_row))
+    upgrade_sheet(ws, index.values())
     written = []
     for sheet, row, text in remarks:
         wb[sheet].cell(row=row, column=REMARK_COL).value = text or None

@@ -167,7 +167,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj tr.par.dirty td { background: #FFF8CC; }
 #adj tr.par.saved td:nth-child(3) { box-shadow: inset 4px 0 0 var(--sav-teal); }
 #adj select, #adj input { font-size: 14px; padding: 3px 5px; }
-#adj select { width: 120px; }
+#adj select { width: 168px; }
 #adj tr.grp td { background: var(--sav-total); font-weight: 700; border-top: 2px solid var(--sav-rule); }
 #adj tr.par > td:nth-child(4) { min-width: 190px; }
 #adj td.adj-rm textarea { width: 100%; min-width: 220px; font: 13px var(--sav-font); resize: vertical; padding: 3px 5px; }
@@ -394,7 +394,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       </table>
       <h3>Điều chỉnh trước khi giao</h3>
       <ol>
-        <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá hoặc Trượt giá. Chọn Số lượng hoặc Đơn giá thì các dòng chi tiết mở ngay bên dưới.</li>
+        <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá, Số lượng + Đơn giá hoặc Trượt giá. Chọn một trong ba loại đầu thì các dòng chi tiết mở ngay bên dưới.</li>
         <li>Sửa ô vàng. Thành tiền mới, chênh lệch và % tính ngay; cột <b>Duyệt</b> cho thấy số năm cũ để so.</li>
         <li><b>Trượt giá hàng loạt:</b> lọc (ví dụ gõ ES), bấm "Chọn mọi mã đang hiện", nhập %, bấm "Áp cho các mã đã chọn".</li>
         <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>. Bản giao được ghi đè, bản cũ giữ làm backup có ngày giờ; Excel tính lại và trang hiện thu, chi, thặng dư trước và sau. Bản giao tải sau khi lưu mới là bản cuối.</li>
@@ -556,6 +556,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
           <tbody>
           <tr><td>Số lượng</td><td>SL mới</td><td>SL mới × đơn giá gốc</td></tr>
           <tr><td>Đơn giá</td><td>Đơn giá mới</td><td>SL gốc × đơn giá mới</td></tr>
+          <tr><td>Số lượng + Đơn giá</td><td>SL mới và Đơn giá mới</td><td>SL mới × đơn giá mới</td></tr>
           <tr><td>Trượt giá</td><td>Trượt giá %</td><td>Thành tiền gốc × (1 + %)</td></tr>
           </tbody>
         </table>
@@ -656,8 +657,8 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         <h2 id="adj-title">Điều chỉnh ngân sách năm mới</h2>
         <p class="src" id="adj-head"></p>
         <ol style="margin:6px 0 12px;padding-left:20px;font-size:14px">
-          <li>Chọn <b>loại điều chỉnh</b> trên dòng của mã: Số lượng, Đơn giá hoặc Trượt giá. Chọn Số lượng hoặc Đơn giá thì các dòng chi tiết mở ngay bên dưới.</li>
-          <li>Sửa ô vàng: SL mới (Số lượng), Đơn giá mới (Đơn giá), hoặc Trượt giá % trên dòng mã. Thành tiền mới và chênh lệch tính ngay.</li>
+          <li>Chọn <b>loại điều chỉnh</b> trên dòng của mã: Số lượng, Đơn giá, Số lượng + Đơn giá hoặc Trượt giá. Chọn một trong ba loại đầu thì các dòng chi tiết mở ngay bên dưới.</li>
+          <li>Sửa ô vàng: SL mới (Số lượng), Đơn giá mới (Đơn giá), cả hai (Số lượng + Đơn giá), hoặc Trượt giá % trên dòng mã. Thành tiền mới và chênh lệch tính ngay.</li>
           <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>: bản giao được ghi đè (bản cũ giữ làm backup có ngày), Excel tính lại và trang hiện thu, chi, thặng dư trước và sau.</li>
         </ol>
         <div class="adj-tools">
@@ -1280,7 +1281,8 @@ goReview.addEventListener('click', async () => {
 });
 
 // ---- Điều chỉnh ngân sách (sheet 4. Điều chỉnh của bản giao) ----
-const T_QTY = 'Số lượng', T_PRICE = 'Đơn giá', T_INF = 'Trượt giá';
+const T_QTY = 'Số lượng', T_PRICE = 'Đơn giá', T_QP = 'Số lượng + Đơn giá', T_INF = 'Trượt giá';
+const DETAIL_TYPES = [T_QTY, T_PRICE, T_QP];
 let adj = null;          // {id, items, orig: {key: json}, open: Set, sel: Set}
 const adjTbody = document.querySelector('#adj tbody');
 
@@ -1290,6 +1292,7 @@ function itemNew(it) {
   for (const s of it.subs) {
     if (it.adj_type === T_QTY) t += (s.qty_editable ? s.new_qty : s.qty) * s.unit_price;
     else if (it.adj_type === T_PRICE) t += s.qty * s.new_price;
+    else if (it.adj_type === T_QP) t += (s.qty_editable ? s.new_qty : s.qty) * s.new_price;
     else if (it.adj_type === T_INF) t += s.amount * (1 + it.inflation);
     else t += s.amount;
   }
@@ -1298,6 +1301,7 @@ function itemNew(it) {
 function subNew(it, s) {
   if (it.adj_type === T_QTY) return (s.qty_editable ? s.new_qty : s.qty) * s.unit_price;
   if (it.adj_type === T_PRICE) return s.qty * s.new_price;
+  if (it.adj_type === T_QP) return (s.qty_editable ? s.new_qty : s.qty) * s.new_price;
   if (it.adj_type === T_INF) return s.amount * (1 + it.inflation);
   return s.amount;
 }
@@ -1342,18 +1346,18 @@ function visible(it) {
 }
 
 function typeOptions(it) {
-  const opts = it.has_subs ? ['', T_QTY, T_PRICE, T_INF] : ['', T_INF];
+  const opts = it.has_subs ? ['', T_QTY, T_PRICE, T_QP, T_INF] : ['', T_INF];
   return opts.map(o => `<option value="${o}" ${o === it.adj_type ? 'selected' : ''}>${o || '(giữ số gốc)'}</option>`).join('');
 }
 
 function subTable(it) {
-  const q = it.adj_type === T_QTY, p = it.adj_type === T_PRICE;
+  const q = it.adj_type === T_QTY || it.adj_type === T_QP, p = it.adj_type === T_PRICE || it.adj_type === T_QP;
   return `<table class="subs"><thead><tr><th>Nội dung chi tiết</th><th>ĐVT</th><th class="num">SL gốc</th><th class="num">Đơn giá gốc</th><th class="num">Thành tiền gốc</th><th class="num">SL mới</th><th class="num">Đơn giá mới</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody>` +
     it.subs.map(s => {
       const nw = subNew(it, s), df = nw - s.amount;
       return `<tr><td>${esc(s.desc)}</td><td>${esc(s.unit)}</td><td class="num">${num(s.qty, 2)}</td><td class="num">${vnd(s.unit_price)}</td><td class="num">${vnd(s.amount)}</td>` +
-        `<td class="num">${q && s.qty_editable ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_qty" value="${s.new_qty}">` : `<span title="${s.qty_editable ? 'Chọn loại Số lượng để sửa' : 'Dòng gộp: số lượng khoá'}">${num(s.qty_editable ? s.new_qty : s.qty, 2)}</span>`}</td>` +
-        `<td class="num">${p ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_price" value="${s.new_price}">` : `<span title="Chọn loại Đơn giá để sửa">${vnd(s.new_price)}</span>`}</td>` +
+        `<td class="num">${q && s.qty_editable ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_qty" value="${s.new_qty}">` : `<span title="${s.qty_editable ? 'Chọn loại Số lượng hoặc Số lượng + Đơn giá để sửa' : 'Dòng gộp: số lượng khoá'}">${num(s.qty_editable ? s.new_qty : s.qty, 2)}</span>`}</td>` +
+        `<td class="num">${p ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_price" value="${s.new_price}">` : `<span title="Chọn loại Đơn giá hoặc Số lượng + Đơn giá để sửa">${vnd(s.new_price)}</span>`}</td>` +
         `<td class="num">${vnd(nw)}</td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, s.amount)}</td></tr>`;
     }).join('') + '</tbody></table>';
 }
@@ -1441,7 +1445,7 @@ adjTbody.addEventListener('change', e => {
   if (t.dataset.type) {
     const it = itemOf(t.dataset.type);
     it.adj_type = t.value;
-    if (it.adj_type === T_QTY || it.adj_type === T_PRICE) adj.open.add(it.key);
+    if (DETAIL_TYPES.includes(it.adj_type)) adj.open.add(it.key);
     renderAdjust();
   } else if (t.dataset.sel) {
     t.checked ? adj.sel.add(t.dataset.sel) : adj.sel.delete(t.dataset.sel);

@@ -115,6 +115,12 @@ def test_new_amount_follows_the_spec_formulas(deliv):
     lump = {i['key']: i for i in adjust.read_items(deliv)}['MF|EMA7']
     lump['subs'][0]['new_qty'] = 9                                  # SL khoá: bỏ qua
     assert adjust.new_amount(lump, adj_type='Số lượng') == 120.0
+    # Số lượng + Đơn giá: SL mới × đơn giá mới; dòng SL khoá giữ SL gốc (change add-qty-and-price-adjustment)
+    assert adjust.new_amount(e, adj_type='Số lượng + Đơn giá') == 4 * 200 + 2 * 330
+    e['subs'][0]['new_price'] = 220
+    assert adjust.new_amount(e, adj_type='Số lượng + Đơn giá') == 4 * 220 + 2 * 330
+    lump['subs'][0]['new_price'] = 132
+    assert adjust.new_amount(lump, adj_type='Số lượng + Đơn giá') == 132.0
 
 
 def test_apply_edits_writes_input_cells_by_key(deliv, tmp_path):
@@ -139,10 +145,62 @@ def test_apply_edits_writes_input_cells_by_key(deliv, tmp_path):
     assert wb2[ba.SHEET_NAME].cell(row=5, column=ba.COL['adj_type']).value is None
 
 
+def _old_form(path):
+    """The deliverable as an earlier release wrote it: column M without the combined type, dropdown of three types."""
+    from openpyxl.worksheet.datavalidation import DataValidation
+    wb = openpyxl.load_workbook(path)
+    ws = wb[ba.SHEET_NAME]
+    for r in range(ba.FIRST_DATA_ROW, ws.max_row + 1):
+        if ws.cell(row=r, column=ba.COL['kind']).value == ba.ROW_KIND_TOTAL:
+            parent = r
+        elif ws.cell(row=r, column=ba.COL['kind']).value == ba.ROW_KIND_DETAIL:
+            ws.cell(row=r, column=ba.COL['new_amount']).value = (
+                f'=IF($D${parent}="Số lượng",J{r}*H{r},IF($D${parent}="Đơn giá",G{r}*K{r},'
+                f'IF($D${parent}="Trượt giá",I{r}*(1+$L${parent}),I{r})))')
+    ws.data_validations.dataValidation = []
+    dv = DataValidation(type='list', formula1='"Số lượng,Đơn giá,Trượt giá"', allow_blank=True)
+    ws.add_data_validation(dv)
+    for r in (5, 8, 10, 12):
+        dv.add(ws.cell(row=r, column=ba.COL['adj_type']))
+    wb.save(path)
+    return path
+
+
+def test_apply_edits_upgrades_an_older_sheet_with_the_same_figures(deliv, tmp_path):
+    from tests.test_budget_adjustment import _Eval
+    old = _old_form(deliv)
+    edits = [dict(key='MF|ESS1', adj_type='Số lượng', inflation=0, subs=[dict(idx=0, new_qty=4)]),
+             dict(key='MF|EMA7', adj_type='Đơn giá', inflation=0, subs=[dict(idx=0, new_price=132)]),
+             dict(key='MF|RM.AP', adj_type='Trượt giá', inflation=0.05, subs=[])]
+    before = openpyxl.load_workbook(old)                        # the old formulas, written by hand as the web did
+    bws = before[ba.SHEET_NAME]
+    bws['D5'], bws['J6'], bws['D8'], bws['K9'], bws['D10'], bws['L10'] = 'Số lượng', 4, 'Đơn giá', 132, 'Trượt giá', 0.05
+    after = openpyxl.load_workbook(old)
+    adjust.apply_edits(after, edits)
+    aws = after[ba.SHEET_NAME]
+    assert 'Số lượng + Đơn giá' in aws['M6'].value and aws['M6'].value == ba.detail_formula(5, 6)
+    dvs = [dv for dv in aws.data_validations.dataValidation if dv.type == 'list']
+    assert len(dvs) == 1 and dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá"'
+    assert {str(r) for r in dvs[0].sqref.ranges} == {'D5', 'D8', 'D10', 'D12'}
+    eb, ea = _Eval(before), _Eval(after)
+    for ref in ('M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12'):
+        assert ea.cell(ba.SHEET_NAME, ref) == pytest.approx(eb.cell(ba.SHEET_NAME, ref)), ref
+    assert ea.cell(ba.SHEET_NAME, 'M5') == 4 * 200 + 2 * 300 and ea.cell(ba.SHEET_NAME, 'M8') == 132
+    adjust.apply_edits(after, [dict(key='MF|ESS1', adj_type='Số lượng + Đơn giá', inflation=0,
+                                    subs=[dict(idx=0, new_qty=4, new_price=220)])])
+    assert ea.cell(ba.SHEET_NAME, 'M5') == 4 * 220 + 2 * 300
+    assert len([dv for dv in aws.data_validations.dataValidation if dv.type == 'list']) == 1   # upgrade twice = once
+    out = str(tmp_path / 'upgraded.xlsx')
+    after.save(out)
+    assert {i['key']: i for i in adjust.read_items(out)}['MF|ESS1']['adj_type'] == 'Số lượng + Đơn giá'
+
+
 @pytest.mark.parametrize('edit, message', [
     (dict(key='MF|KHONGCO', adj_type='Số lượng'), 'Không có mã'),
     (dict(key='MF|ESS1', adj_type='Tăng'), 'không hợp lệ'),
     (dict(key='CA|ESS4', adj_type='Đơn giá'), 'chỉ điều chỉnh được bằng trượt giá'),
+    (dict(key='CA|ESS4', adj_type='Số lượng + Đơn giá'), 'chỉ điều chỉnh được bằng trượt giá'),
+    (dict(key='MF|ESS1', adj_type='Số lượng + Đơn giá', subs=[dict(idx=0, new_price=-5)]), 'không được âm'),
     (dict(key='MF|ESS1', adj_type='Số lượng', subs=[dict(idx=0, new_qty=-1)]), 'không được âm'),
     (dict(key='MF|ESS1', adj_type='Số lượng', subs=[dict(idx=5, new_qty=1)]), 'không có dòng chi tiết thứ 6'),
     (dict(key='MF|ESS1', adj_type='Trượt giá', inflation=-1.2), 'lớn hơn -100%'),
