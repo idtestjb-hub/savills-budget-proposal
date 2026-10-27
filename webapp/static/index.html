@@ -176,6 +176,30 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj button.tg { background: none; border: 0; font: 700 15px var(--sav-font); color: var(--sav-navy); cursor: pointer; width: 24px; }
 #adj button.tg:disabled { color: var(--sav-rule); cursor: default; }
 #adj tr.sub > td { background: var(--sav-panel) !important; padding: 4px 6px 10px 46px; }
+/* Khung điều chỉnh: cuộn hai chiều trong một hộp cao bằng cửa sổ; ghim 4 ô đầu (chọn, +/-, Mã, Hạng mục) và hàng tiêu đề. */
+#adj-wrap { overflow: auto; max-height: calc(100vh - 140px); border: 1px solid var(--sav-rule); }
+#adj { border-collapse: separate; border-spacing: 0; }
+#adj thead th { position: sticky; top: 0; z-index: 3; white-space: normal; vertical-align: bottom; }
+#adj .pin { position: sticky; z-index: 2; background-clip: padding-box; }
+#adj thead th.pin { z-index: 4; }
+#adj thead th.p3, #adj thead th.p4, #adj thead th.adj-rm { text-align: left; }
+#adj .p1 { left: 0; width: 32px; min-width: 32px; max-width: 32px; }
+#adj .p2 { left: 32px; width: 32px; min-width: 32px; max-width: 32px; }
+#adj .p3 { left: 64px; width: 70px; min-width: 70px; max-width: 70px; }
+#adj .p4 { left: 134px; width: 200px; min-width: 200px; max-width: 200px; box-shadow: inset -1px 0 0 var(--sav-rule); }
+#adj tr.par > td.pin, #adj tr.grp > td.pin { background: inherit; }
+#adj tr.par { background: var(--sav-surface); }
+#adj tr.par.dirty { background: #FFF8CC; }
+#adj tr.grp { background: var(--sav-total); }
+#adj td.unit { white-space: nowrap; font-size: 13px; color: var(--sav-muted); }
+#adj.hide-m .adj-mc, #adj.hide-rm .adj-rm { display: none; }
+@media (max-width: 700px) { #adj .p4 { position: static; box-shadow: none; } #adj .p3 { box-shadow: inset -1px 0 0 var(--sav-rule); } }
+#adj-box.adj-full { position: fixed; inset: 0; z-index: 50; margin: 0; max-width: none; overflow: auto; padding: 12px 16px;
+  background: var(--sav-bg, #fff); display: flex; flex-direction: column; }
+#adj-box.adj-full #adj-wrap { max-height: none; flex: 1 1 auto; min-height: 0; }
+#adj-box.adj-full > ol, #adj-box.adj-full > p.src { display: none; }
+#adj-box.adj-full .adj-tools { margin-bottom: 8px; }
+body.adj-full-on { overflow: hidden; }
 #adj table.subs { width: 100%; border-collapse: collapse; }
 #adj table.subs th { background: var(--sav-warm-grey); color: var(--sav-text); font-size: 12.5px; padding: 4px 6px; }
 #adj table.subs td { font-size: 13px; padding: 3px 6px; background: var(--sav-surface); }
@@ -653,7 +677,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 
   <div id="adj-home" class="hidden">
     <div id="adj-body" class="hidden">
-      <section>
+      <section id="adj-box">
         <h2 id="adj-title">Điều chỉnh ngân sách năm mới</h2>
         <p class="src" id="adj-head"></p>
         <ol style="margin:6px 0 12px;padding-left:20px;font-size:14px">
@@ -666,6 +690,9 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
           <label>Quỹ <select id="adj-fund"><option value="">Tất cả</option><option value="MF">Quỹ quản lý vận hành</option><option value="CA">Quỹ khu vực chung</option></select></label>
           <label>Mục <select id="adj-sec"><option value="">Thu và chi</option><option value="R">Thu</option><option value="E">Chi</option></select></label>
           <label><input type="checkbox" id="adj-only"> Chỉ mã đã điều chỉnh</label>
+          <label><input type="checkbox" id="adj-show-m" checked> Cột năm trước</label>
+          <label><input type="checkbox" id="adj-show-rm" checked> Cột Remark</label>
+          <button type="button" class="sm" id="adj-full" aria-pressed="false">Toàn màn hình</button>
         </div>
         <div class="adj-tools" style="border-top:1px solid var(--sav-rule);padding-top:10px">
           <b style="font-size:14px">Trượt giá hàng loạt:</b>
@@ -675,9 +702,9 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
           <button type="button" class="sm pri" id="adj-bulk-go">Áp cho các mã đã chọn</button>
           <span class="status" id="adj-sel"></span>
         </div>
-        <div style="overflow-x:auto">
+        <div id="adj-wrap">
         <table id="adj">
-          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-m hidden" data-m="n1"></th><th class="num adj-m hidden" data-m="actual"></th><th class="num adj-m hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
+          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -1325,7 +1352,7 @@ async function openAdjust(id, slot) {
     (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
   document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
   const ml = d.measure_labels || {};
-  document.querySelectorAll('.adj-m').forEach(th => { const k = th.dataset.m; th.classList.toggle('hidden', !ml[k]); th.textContent = ml[k] || ''; });
+  document.querySelectorAll('.adj-m').forEach(th => { const k = th.dataset.m; th.classList.toggle('hidden', !ml[k]); th.textContent = shortMeasure(ml[k] || ''); th.title = ml[k] || ''; });
   const save = document.getElementById('adj-save');
   save.disabled = !d.can_save;
   setAdjStatus(d.can_save ? 'Chưa có thay đổi.' : 'Tài khoản chỉ xem: xem được, không lưu được.');
@@ -1366,7 +1393,7 @@ function renderAdjust() {
   if (!adj) return;
   const ap = adj.data.has_approved;
   const mk = adjMeasureKeys();
-  const cols = (ap ? 12 : 11) + mk.length;
+  const cols = (ap ? 13 : 12) + mk.length;
   let html = '';
   // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng.
   for (const sec of ['R', 'E']) {
@@ -1377,10 +1404,11 @@ function renderAdjust() {
       const nw = itemNew(it), df = nw - it.amount;
       const open = adj.open.has(it.key) && it.has_subs;
       const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
-      html += `<tr class="${cls}" data-k="${esc(it.key)}"><td><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
-        `<td><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
-        `<td><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td>${esc(it.name)}</td>` +
-        mk.map(k => `<td class="num">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
+      html += `<tr class="${cls}" data-k="${esc(it.key)}"><td class="pin p1"><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
+        `<td class="pin p2"><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
+        `<td class="pin p3"><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
+        unitCell(it) +
+        mk.map(k => `<td class="num adj-mc">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
         (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
         `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
         `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
@@ -1399,15 +1427,46 @@ function adjMeasureKeys() {
   return ['n1', 'actual', 'expected'].filter(k => ml[k]);
 }
 
+// Tiêu đề ngắn của cột năm trước: "Duyệt NS 2025 (năm trước, quy đổi)" -> "Duyệt 2025"; nhãn đầy đủ để ở title.
+function shortMeasure(label) {
+  return label.split(String.fromCharCode(10))[0].replace(/\s*\(.*$/, '').replace('Duyệt NS', 'Duyệt').replace('Dự kiến cả năm', 'Dự kiến').trim();
+}
+
+// ĐVT của mã: đơn vị chung của các dòng chi tiết; "nhiều" khi khác nhau (rê chuột xem danh sách); trống khi không có dòng chi tiết.
+function unitCell(it) {
+  const units = [...new Set((it.subs || []).map(s => (s.unit || '').trim()).filter(Boolean))];
+  if (!units.length) return '<td class="unit"></td>';
+  if (units.length === 1) return `<td class="unit">${esc(units[0])}</td>`;
+  return `<td class="unit" title="${esc(units.join(', '))}">nhiều</td>`;
+}
+
+// Ẩn/hiện nhóm cột và chế độ toàn màn hình của khung điều chỉnh (nhớ trên máy bằng localStorage).
+(function adjLayout() {
+  const tbl = document.getElementById('adj'), box = document.getElementById('adj-box'), full = document.getElementById('adj-full');
+  const pairs = [['adj-show-m', 'hide-m'], ['adj-show-rm', 'hide-rm']];
+  for (const [id, cls] of pairs) {
+    const cb = document.getElementById(id), key = 'budget-adj-' + cls;
+    const hidden = localStorage.getItem(key) === '1';
+    cb.checked = !hidden; tbl.classList.toggle(cls, hidden);
+    cb.addEventListener('change', () => { tbl.classList.toggle(cls, !cb.checked); localStorage.setItem(key, cb.checked ? '0' : '1'); });
+  }
+  function setFull(on) {
+    box.classList.toggle('adj-full', on); document.body.classList.toggle('adj-full-on', on);
+    full.textContent = on ? 'Thoát toàn màn hình (Esc)' : 'Toàn màn hình'; full.setAttribute('aria-pressed', String(on));
+  }
+  full.addEventListener('click', () => setFull(!box.classList.contains('adj-full')));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && box.classList.contains('adj-full')) setFull(false); });
+})();
+
 // Dòng tổng của một khu vực (Thu hoặc Chi): số mã, cột năm trước, Duyệt, thành tiền gốc, mới, chênh lệch của các mã đang hiện.
 function groupHead(sec, group) {
   const ap = adj.data.has_approved;
   const o = group.reduce((a, i) => a + i.amount, 0), n = group.reduce((a, i) => a + itemNew(i), 0);
   const a = group.reduce((s, i) => s + (i.approved || 0), 0);
-  return `<tr class="grp" data-grp="${sec}"><td colspan="4">${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã</td>` +
-    adjMeasureKeys().map(k => `<td class="num">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
+  return `<tr class="grp" data-grp="${sec}"><td class="pin p1" colspan="4" style="width:auto;max-width:none">${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã</td><td></td>` +
+    adjMeasureKeys().map(k => `<td class="num adj-mc">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
     (ap ? `<td class="num">${vnd(a)}</td>` : '') + `<td colspan="2"></td>` +
-    `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td></td></tr>`;
+    `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td class="adj-rm"></td></tr>`;
 }
 function refreshGroups() {
   for (const sec of ['R', 'E']) {
