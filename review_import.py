@@ -32,9 +32,10 @@ from dataclasses import dataclass, field
 
 import openpyxl
 from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 import budget_rows as br
+import review_measures as rm
 import existing_staffing as es
 import existing_utilities as eu
 import operating_inputs as oi
@@ -58,6 +59,8 @@ LEAF_DESPITE_INDICATOR = {'EM#', 'ES#', 'EE#', 'ESR'}
 DERIVED = {'PL1', 'PL2'}
 TOL = 1.0
 MAX_ROWS, MAX_COLS = 1500, 90
+MEASURE_MAX_COLS = 130     # the N-1 approved / actual / expected columns are looked for this wide (as the store)
+UNRECOGNISED_MIN = 10       # a year-headed column with at least this many figures and no recognised kind goes in the notes
 HDR_PRI = [(re.compile(r'total budget of year'), 1), (re.compile(r'estimate budget of year|estimate budget'), 2),
            (re.compile(r'total budget|ngân sách năm|cả năm'), 3)]
 HDR_BAD = re.compile(r'approved|actual|average|allocated|%|expected|trung bình|thực tế|dự kiến')
@@ -170,6 +173,7 @@ NOTE_FACT = 'từ file dữ kiện'
 NOTE_INFO = 'đọc từ 0. Info'
 NOTE_CHECK = 'cần PM xác nhận'
 NOTE_SOURCE = 'nguồn'
+NOTE_MEASURE = 'cột năm trước'
 
 
 class PriorBudgetError(ValueError):
@@ -205,6 +209,7 @@ class FundRead:
     flags: list = field(default_factory=list)
     tie_state: str = ''           # budget_rows.explain_tie: ok | ok_filter | ok_double_count | mismatch | no_anchor
     tie_notes: list = field(default_factory=list)
+    measure_cands: list = field(default_factory=list)   # approved / actual / expected columns of the sheet
 
     @property
     def ties(self):
@@ -223,6 +228,8 @@ class PriorBudget:
     notes: list                   # (kind, where, text)
     budget_year: int
     period: list                  # [(y, m), ...] of the Management Fund sheet
+    measures: dict = field(default_factory=dict)   # {fund: {'n1' | 'actual' | 'expected': column}} of year N-1
+    n_year: 'int | None' = None   # year N for the N-1 columns: head cells of the sheet, else budget_year
 
     def lines(self):
         for fund in FUNDS:
@@ -370,23 +377,23 @@ def choose_fund_sheets(sheetnames, states=None):
 # ------------------------------------------------------------------------------------------------
 # Reading one fund sheet
 # ------------------------------------------------------------------------------------------------
-def _rows_of(ws):
+def _rows_of(ws, max_col=MAX_COLS):
     rows = []
-    for row in ws.iter_rows(min_row=1, max_row=MAX_ROWS, max_col=MAX_COLS, values_only=True):
+    for row in ws.iter_rows(min_row=1, max_row=MAX_ROWS, max_col=max_col, values_only=True):
         rows.append(tuple(row))
     while rows and all(v is None for v in rows[-1]):
         rows.pop()
     return rows
 
 
-def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
-    """One fund sheet -> FundRead, by the scan store's rules (design D1, D2) and the aggregate-row and tie rules
-    of budget_rows (change read-aggregate-rows-by-formula). `ws_formulas`: the same sheet read without data_only;
-    `layout`: (hidden rows, auto-filter range) from budget_rows.sheet_layout. Without them only the prefix rule
-    finds aggregate rows and no tie is explained by a filter."""
-    rows = _rows_of(ws)
+def _sheet_frame(ws, sheet_name, ws_formulas=None, layout=None):
+    """What every column of a coded sheet is read against: the code column, the R / E / PL1 rows, the leaf lines, and
+    the per-column sums and tie of budget_rows. Read MEASURE_MAX_COLS wide (the N-1 columns can sit right of the
+    form's month block); the year-column search of read_fund_sheet stays inside MAX_COLS. Raises PriorBudgetError
+    when the sheet has no code column or no R, E and PL1 rows."""
+    rows = _rows_of(ws, MEASURE_MAX_COLS)
     nrows = len(rows)
-    frows = _rows_of(ws_formulas) if ws_formulas is not None else []
+    frows = _rows_of(ws_formulas, MEASURE_MAX_COLS) if ws_formulas is not None else []
     hidden, af_ref = layout if layout else (set(), None)
 
     def get(r, c):
@@ -414,14 +421,9 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
     r_row = next((r for r, c in code_at.items() if c == 'R' and r in ind_at), None)
     e_row = next((r for r, c in code_at.items() if c == 'E' and r in ind_at and r_row is not None and r > r_row), None)
     pl1 = next((r for r, c in code_at.items() if c == 'PL1'), None)
-    pl2 = next((r for r, c in code_at.items() if c.startswith('PL2')), None)
     if None in (r_row, e_row, pl1):
         raise PriorBudgetError(f"sheet '{sheet_name}': the R, E and PL1 rows were not all found (R row "
                                f"{r_row}, E row {e_row}, PL1 row {pl1}).")
-    end_row = pl2 if pl2 is not None else pl1
-
-    def header(c):
-        return ' '.join(str(get(r, c)) for r in range(0, 14) if isinstance(get(r, c), str)).lower()
 
     # leaves: coded rows between R and PL1 without an indicator (plus the store's exceptions and a parent whose
     # children are all empty)
@@ -476,7 +478,6 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
                     sums[leaves[i]['section']] += v
         return sums, seen, vals, gone, aggs
 
-    ncols = max(len(r) for r in rows)
     anchor_rows = {'R': r_row, 'E': e_row}
     n_hidden = sum(1 for h in hidden if r_row < h < pl1)
     filtered = br.filter_on(af_ref, n_hidden, pl1 - r_row - 1)
@@ -487,6 +488,114 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
         doubles = br.double_counted(leaves, vals, gone, aggs, fget, c)
         anchors_c = {s: _num(get(anchor_rows[s], c)) for s in SECTIONS_COMPARED}
         return br.explain_tie(SECTIONS_COMPARED, items, doubles, anchors_c, hidden, filtered, n_hidden)
+
+    def header(c):
+        return ' '.join(str(get(r, c)) for r in range(0, 14) if isinstance(get(r, c), str)).lower()
+
+    ncols = max(len(r) for r in rows)
+    return dict(rows=rows, nrows=nrows, get=get, fget=fget, cc=cc, code_at=code_at, ind_at=ind_at, r_row=r_row,
+                e_row=e_row, pl1=pl1, leaves=leaves, col_sums=col_sums, tie=tie, header=header, anchor_rows=anchor_rows,
+                ncols=ncols)
+
+
+def _vat_basis(get, ncols):
+    """The sheet's VAT basis from its title rows, else the F7 switch: 'excl' | 'incl' | 'unknown'."""
+    for r in range(0, 8):
+        for c in range(0, min(40, ncols)):
+            v = get(r, c)
+            if isinstance(v, str) and vat_of(v):
+                return vat_of(v)
+    switch = ' '.join(str(get(6, 5) or '').split()).upper()
+    return 'excl' if switch == 'KHOÁN' else ('incl' if switch else 'unknown')
+
+
+def _month_text(v):
+    if isinstance(v, (datetime.datetime, datetime.date)) and _as_month(v):
+        return 'tháng %d/%d' % (v.month, v.year)
+    if isinstance(v, str):
+        m = rm.MONTH_RX.search(v) or rm.BARE_MONTH_RX.search(v)
+        if m:
+            return 'tháng %s/%s' % (m.group(1), m.group(2))
+    return None
+
+
+def measure_candidates(F, sheet_name, sheet_kind, sheet_state):
+    """Every column of the sheet whose own header (the head rows above the first code) is an approved, actual or
+    expected column (review_measures.classify), with its period, figures per (section, code), sums and tie
+    (change add-review-prior-and-actual-columns, design D1-D2). Plain dicts; nothing is chosen here."""
+    get, code_at = F['get'], F['code_at']
+    first_code = min((r for r, c in code_at.items() if CODE_RE.match(c)), default=14)
+    head_end = min(first_code, 14)
+
+    def own_header(c):
+        return ' '.join(str(get(r, c)).replace('\n', ' ') for r in range(0, head_end) if isinstance(get(r, c), str))
+
+    def group_label(c):       # a date cell in the column, or a month label to its left ("Tháng 1/2025")
+        out = []
+        for r in range(0, head_end):
+            v = get(r, c)
+            if v not in (None, ''):
+                if isinstance(v, (datetime.datetime, datetime.date)) and _month_text(v):
+                    out.append(_month_text(v))
+                continue
+            for k in range(1, 4):
+                v = get(r, c - k)
+                if v in (None, ''):
+                    continue
+                if _month_text(v):
+                    out.append(_month_text(v))
+                break
+        return ' '.join(out)
+
+    ty = rm.YEAR_RX.findall(sheet_name)
+    sheet_year = int(ty[-1]) if ty else None
+    basis = _vat_basis(get, F['ncols'])
+    leaves = F['leaves']
+    cols = []
+    for c in range(F['cc'] + 2, F['ncols']):
+        oh = own_header(c)
+        cls = rm.classify(oh)
+        if cls == 'other' and rm.YEAR_RX.search(oh):
+            # a column headed with a year that no rule recognises: listed in the notes when it carries figures
+            nz = sum(1 for lf in leaves if abs(_num(get(lf['row'], c)) or 0.0) > 0.5)
+            if nz >= UNRECOGNISED_MIN:
+                cols.append(dict(measure='unrecognised', header=rm.clean_header(oh)[:200], sheet=sheet_name, col=c + 1,
+                                 col_letter=get_column_letter(c + 1), n_nonzero=nz, start=None, end=None, how='unknown'))
+            continue
+        if cls not in rm.MEASURES:
+            continue
+        sums, seen, vals, gone, aggs = F['col_sums'](c)
+        values = {}
+        nz = 0
+        for i, lf in enumerate(leaves):
+            v = vals[i]
+            if v is None or i in gone:
+                continue
+            if abs(v) > 0.5:
+                nz += 1
+            key = (lf['section'], CODE_ALIASES.get(lf['code'], lf['code']))
+            values[key] = values.get(key, 0.0) + v
+        a, b, how = rm.parse_period(oh, group_label(c), sheet_year)
+        t = F['tie'](c, vals, gone, aggs) if seen else {'state': 'empty', 'notes': []}
+        anchors = {s: _num(get(F['anchor_rows'][s], c)) for s in SECTIONS_COMPARED}
+        cols.append(dict(measure=cls, header=rm.clean_header(oh)[:200], sheet=sheet_name, col=c + 1,
+                         col_letter=get_column_letter(c + 1), start=a, end=b, how=how, n_nonzero=nz,
+                         tie_ok=t['state'].startswith('ok'), tie_state=t['state'], tie_notes=list(t.get('notes') or []),
+                         sums=sums, anchors=anchors, values=values, sheet_kind=sheet_kind, sheet_state=sheet_state,
+                         vat_basis=basis))
+    rm.infer_cumulative(cols)
+    return cols
+
+
+def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None, sheet_state='visible'):
+    """One fund sheet -> FundRead, by the scan store's rules (design D1, D2) and the aggregate-row and tie rules
+    of budget_rows (change read-aggregate-rows-by-formula). `ws_formulas`: the same sheet read without data_only;
+    `layout`: (hidden rows, auto-filter range) from budget_rows.sheet_layout. Without them only the prefix rule
+    finds aggregate rows and no tie is explained by a filter. The approved, actual and expected columns of the sheet
+    come back as FundRead.measure_cands (change add-review-prior-and-actual-columns)."""
+    F = _sheet_frame(ws, sheet_name, ws_formulas, layout)
+    get, cc, leaves, col_sums, tie, header = F['get'], F['cc'], F['leaves'], F['col_sums'], F['tie'], F['header']
+    ncols = min(F['ncols'], MAX_COLS)          # the year column and its months are searched as before this change
 
     passing = []
     for c in range(cc + 2, ncols):
@@ -555,18 +664,7 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
         if re.search(r'remarks\s*\n?\s*ghi chú', h) or h.strip().startswith('remarks'):
             rem_col = c
     # VAT basis: the sheet's title rows and the F7 switch
-    basis = None
-    for r in range(0, 8):
-        for c in range(0, min(40, ncols)):
-            v = get(r, c)
-            if isinstance(v, str) and vat_of(v):
-                basis = vat_of(v)
-                break
-        if basis:
-            break
-    if basis is None:
-        switch = ' '.join(str(get(6, 5) or '').split()).upper()
-        basis = 'excl' if switch == 'KHOÁN' else ('incl' if switch else 'unknown')
+    basis = _vat_basis(get, ncols)
     if basis == 'unknown':
         flags.append('không đọc được cơ sở VAT của sheet')
 
@@ -593,9 +691,96 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None):
     for l in lines:
         if seen[l.code] > 1:
             l.flags.append(FLAG_DUP)
-    anchors = {s: _num(get(anchor_rows[s], value_col)) for s in SECTIONS_COMPARED}
+    anchors = {s: _num(get(F['anchor_rows'][s], value_col)) for s in SECTIONS_COMPARED}
+    cands = [m for m in measure_candidates(F, sheet_name, 'budget', sheet_state) if m['col'] != value_col + 1]
     return FundRead(fund, sheet_name, lines, anchors, value_col + 1, value_how, [c + 1 for c in month_cols], period,
-                    basis, flags, value_tie['state'], value_tie['notes'])
+                    basis, flags, value_tie['state'], value_tie['notes'], measure_cands=cands)
+
+
+def fund_of_report(name):
+    """The fund a report sheet belongs to (the store's measure rule): the sheet-name fund, else MF for report-like
+    names ("Thực tế", "KH - TH", "Report", "Báo cáo", "QVH", "Vận hành")."""
+    f = fund_of(name)
+    if f != 'OTHER':
+        return f
+    return 'MF' if re.search(r'thực tế|kh\s*-\s*th|report|báo cáo|qvh|vận hành', _nfc(name), re.I) else 'OTHER'
+
+
+def head_year(ws_rows):
+    """Year N from the sheet's own head cells, as the store reads it: the "Budget Year" cell, else the year with most
+    months between the Starting and Ending Month cells; None when the head has neither."""
+    start = end = None
+    for r in range(0, min(9, len(ws_rows))):
+        row = ws_rows[r]
+        for c, v in enumerate(row):
+            if not isinstance(v, str):
+                continue
+            t = _key(v)
+            right = [x for x in row[c + 1:c + 5] if x not in (None, '')]
+            if re.search(r'budget year|dự toán của năm', t) and right:
+                y = right[0]
+                if isinstance(y, (int, float)) and not isinstance(y, bool) and 2010 <= y <= 2040:
+                    return int(y)
+                if isinstance(y, str) and re.fullmatch(r'\s*20[1-4]\d\s*', y):
+                    return int(y)
+            if re.search(r'starting month|tháng bắt đầu', t) and right:
+                start = _as_month(right[0]) or start
+            if re.search(r'ending month|tháng kết thúc', t) and right:
+                end = _as_month(right[0]) or end
+    if start and end and end >= start:
+        return rm.year_most_months(start, end)
+    return None
+
+
+def choose_measures(funds, report_cands, n_year, own_name='', other_names=(), saved_month=None):
+    """{fund: {kind: column}} of year N-1 and the notes on the columns left out (design D2-D3). `report_cands`:
+    {fund: [candidates of its report sheets]}."""
+    out, notes = {}, []
+    for fund, fr in funds.items():
+        cands = list(fr.measure_cands) + list(report_cands.get(fund, []))
+        for c in cands:
+            if c['measure'] == 'unrecognised':
+                notes.append((NOTE_MEASURE, f"{c['sheet']} cột {c['col_letter']}",
+                              f"cột có số, tiêu đề chưa nhận diện: '{c['header'][:60]}' ({c['n_nonzero']} dòng có số)"))
+        chosen = {}
+        for kind in rm.KINDS:
+            ok = []
+            for c in cands:
+                if rm.KIND_OF_MEASURE.get(c['measure']) != kind:
+                    continue
+                fl = rm.flags_of(c, own_name, other_names, saved_month)
+                where = f"{c['sheet']} cột {c['col_letter']}"
+                if fl:
+                    if c['n_nonzero']:
+                        notes.append((NOTE_MEASURE, where, f"bỏ cột '{c['header'][:60]}': "
+                                      + ', '.join(rm.FLAG_VI.get(f, f) for f in fl)))
+                    continue
+                if not rm.year_ok(c, n_year):
+                    notes.append((NOTE_MEASURE, where, f"bỏ cột '{c['header'][:60]}': kỳ {rm.period_text(c)} không phải "
+                                  f"năm {n_year - 1} (năm trước năm ngân sách {n_year})"))
+                    continue
+                ok.append(c)
+            if ok:
+                best = rm.choose(ok)
+                chosen[kind] = best
+                state = 'khớp tổng' if best['tie_ok'] else 'chưa khớp tổng'
+                notes.append((NOTE_MEASURE, f"{best['sheet']} cột {best['col_letter']}",
+                              f"{rm.KIND_VI[kind]} {rm.period_text(best)}: '{best['header'][:60]}', {state}"))
+        if chosen:
+            out[fund] = chosen
+    return out, notes
+
+
+def _saved_month(wb, path):
+    """(y, m) the file was last saved: the workbook's own property, else the file time."""
+    d = getattr(getattr(wb, 'properties', None), 'modified', None)
+    if isinstance(d, datetime.datetime):
+        return (d.year, d.month)
+    try:
+        t = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+        return (t.year, t.month)
+    except OSError:
+        return None
 
 
 def _project_name(ws_rows, info_name):
@@ -628,6 +813,69 @@ def template_codes(path=TEMPLATE_PATH):
     return out
 
 
+TEMPLATE_VALUE_COL = {'MF': 'AK', 'CA': 'AG'}         # the annual column, where the group rows carry SUBTOTAL(9, …)
+_SUBTOTAL_RANGE_RE = re.compile(r'\$?[A-Z]+\$?(\d+)\s*:\s*\$?[A-Z]+\$?(\d+)')
+
+
+def template_groups(path=TEMPLATE_PATH):
+    """{fund: {'groups': {code: dict(row, name, parent)}, 'parent_of_row': {row: group code}}} of the 2027 template:
+    a group row is a code row whose annual cell is SUBTOTAL(9, range); a row's parent is the smallest group range that
+    holds it (so EM# belongs to EM, not EMO). Sections R and E are not groups here. Cached."""
+    cache = template_groups.__dict__.setdefault('_cache', {})
+    if path in cache:
+        return cache[path]
+    wb = openpyxl.load_workbook(path, read_only=True)
+    out = {}
+    try:
+        for fund, sheet in FUND_SHEETS.items():
+            vcol = column_index_from_string(TEMPLATE_VALUE_COL[fund])
+            spans, names, code_rows = {}, {}, {}
+            for i, row in enumerate(_template_rows(wb[sheet], vcol), start=1):
+                code, name, f = row
+                if not (isinstance(code, str) and code.strip()):
+                    continue
+                code = code.strip()
+                code_rows.setdefault(i, code)
+                f = str(f or '').upper()
+                m = _SUBTOTAL_RANGE_RE.search(f) if 'SUBTOTAL' in f else None
+                if m and code not in ('R', 'E') and code not in spans:
+                    spans[code] = (i, int(m.group(1)), int(m.group(2)))
+                    names[code] = ' '.join(str(name or '').split('\n')[0].split())
+
+            def parent(r):
+                best = None
+                for g, (gr, a, b) in spans.items():
+                    if gr != r and a <= r <= b and (best is None or b - a < spans[best][2] - spans[best][1]):
+                        best = g
+                return best
+
+            groups = {g: dict(row=gr, name=names[g], parent=parent(gr)) for g, (gr, a, b) in spans.items()}
+            out[fund] = dict(groups=groups, parent_of_row={r: parent(r) for r in code_rows})
+    finally:
+        wb.close()
+    cache[path] = out
+    return out
+
+
+def _template_rows(ws, vcol, max_row=700):
+    """(code Y, item Z, annual cell) per row of a template fund sheet."""
+    for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=25, max_col=max(vcol, 26), values_only=True):
+        yield row[0], row[1], row[vcol - 25]
+
+
+def group_chain(fund, code, row, groups=None):
+    """Group codes from the top down that a Review line of `code` (template row `row`) sits in; a line whose code is
+    itself a group (an older file's single row for RO2, say) sits inside that group. [] for a code not on the form."""
+    tg = (groups if groups is not None else template_groups()).get(fund) or {}
+    gs, por = tg.get('groups', {}), tg.get('parent_of_row', {})
+    chain = [code] if code in gs else []
+    g = por.get(row)
+    while g and g not in chain:
+        chain.append(g)
+        g = gs.get(g, {}).get('parent')
+    return chain[::-1]
+
+
 def catalogue_methods(path=CATALOGUE_PATH):
     """{code: (method, item_vi)} from the costing catalogue."""
     with open(path, encoding='utf-8-sig') as f:
@@ -636,8 +884,9 @@ def catalogue_methods(path=CATALOGUE_PATH):
             for r in csv.DictReader(io.StringIO(body)) if r.get('code', '').strip()}
 
 
-def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
-    """The approved budget workbook -> PriorBudget (design D1, D2, D4). Raises PriorBudgetError."""
+def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH, other_names=()):
+    """The approved budget workbook -> PriorBudget (design D1, D2, D4). Raises PriorBudgetError. `other_names`:
+    upper-case project names of the store, to leave out a column headed with another project's name."""
     wb, opened = open_workbook(path, workdir)
     wbf = None
     try:
@@ -648,9 +897,11 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
         # formulas and hidden rows of the same file (the stripped copy when that is what opened)
         try:
             wbf = openpyxl.load_workbook(opened, read_only=True)
-            layouts = br.sheet_layout(opened, {n for n in chosen.values() if n})
+            reports = [n for n in wb.sheetnames if kind_of(n) == 'report' and fund_of_report(n) in FUNDS]
+            layouts = br.sheet_layout(opened, {n for n in chosen.values() if n} | set(reports))
         except Exception as exc:
             wbf, layouts = None, {}
+            reports = [n for n in wb.sheetnames if kind_of(n) == 'report' and fund_of_report(n) in FUNDS]
             notes.append((NOTE_SOURCE, os.path.basename(path), f'không đọc được công thức ({type(exc).__name__}): '
                                                                 f'dòng gộp chỉ nhận theo tiền tố mã'))
         funds = {}
@@ -661,7 +912,8 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
                 notes.append((NOTE_UNREAD, FUND_SHEETS[fund], 'file không có sheet này'))
                 continue
             try:
-                fr = read_fund_sheet(wb[name], fund, name, wbf[name] if wbf is not None else None, layouts.get(name))
+                fr = read_fund_sheet(wb[name], fund, name, wbf[name] if wbf is not None else None, layouts.get(name),
+                                     wb[name].sheet_state)
             except PriorBudgetError as exc:
                 if fund == 'MF':
                     raise PriorBudgetError(f'{os.path.basename(path)}: {exc}') from None
@@ -699,7 +951,24 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH):
         budget_year = max(set(years), key=lambda y: (years.count(y), y)) if years else None
         if budget_year is None:
             raise PriorBudgetError(f"{os.path.basename(path)}: no month columns on '{mf.sheet}', so the budget year is unknown.")
-        return PriorBudget(path, project_name, funds, notes, budget_year, list(mf.period))
+        n_year = head_year(_rows_of(wb[chosen['MF']])[:9]) or budget_year
+        if n_year != budget_year:
+            notes.append((NOTE_SOURCE, mf.sheet, f'năm ngân sách theo ô Budget Year / Starting-Ending Month là {n_year}, theo '
+                                                 f'cột tháng là {budget_year}: các cột năm trước đọc theo năm {n_year}'))
+        report_cands = {}
+        for name in reports:
+            fund = fund_of_report(name)
+            if fund not in funds:
+                continue
+            try:
+                F = _sheet_frame(wb[name], name, wbf[name] if wbf is not None else None, layouts.get(name))
+            except PriorBudgetError:
+                continue                                             # a report sheet without codes has no such column
+            report_cands.setdefault(fund, []).extend(measure_candidates(F, name, 'report', wb[name].sheet_state))
+        measures, m_notes = choose_measures(funds, report_cands, n_year, project_name, other_names,
+                                            _saved_month(wb, path))
+        notes.extend(m_notes)
+        return PriorBudget(path, project_name, funds, notes, budget_year, list(mf.period), measures, n_year)
     finally:
         wb.close()
         if wbf is not None:

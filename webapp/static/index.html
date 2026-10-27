@@ -621,7 +621,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       <section>
         <h2 id="rv-title">Ngân sách đã duyệt so với ngân sách năm mới do công cụ sinh</h2>
         <p class="src" id="rv-meta"></p>
-        <table id="rv-sum"><thead></thead><tbody></tbody></table>
+        <div class="dg-wrap"><table id="rv-sum"><thead></thead><tbody></tbody></table></div>
         <p class="src" id="rv-counts"></p>
       </section>
       <section>
@@ -631,7 +631,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
       </section>
       <section>
         <h2>10 dòng lệch lớn nhất</h2>
-        <table id="rv-top"><thead><tr><th>#</th><th>Quỹ</th><th>Mã</th><th>Hạng mục</th><th>Duyệt (quy đổi)</th><th>Công cụ</th><th>Chênh</th><th>%</th><th>Cách công cụ ra số</th></tr></thead><tbody></tbody></table>
+        <div class="dg-wrap"><table id="rv-top"><thead><tr><th>#</th><th>Quỹ</th><th>Mã</th><th>Hạng mục</th><th>Duyệt (quy đổi)</th><th>Công cụ</th><th>Chênh</th><th>%</th><th>Cách công cụ ra số</th></tr></thead><tbody></tbody></table></div>
         <p class="src" id="rv-top-src"></p>
       </section>
       <section>
@@ -676,7 +676,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
         </div>
         <div style="overflow-x:auto">
         <table id="adj">
-          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
+          <thead><tr><th></th><th></th><th>Mã</th><th>Hạng mục</th><th class="num adj-m hidden" data-m="n1"></th><th class="num adj-m hidden" data-m="actual"></th><th class="num adj-m hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -1090,23 +1090,42 @@ function renderReview(run) {
     `Nguồn: ${run.source && run.source.startsWith('lượt') ? run.source + ' (bản giao, Excel tính lại)' : (m.file_name || run.source || '')}; kỳ ${m.period_text || ''}; file ${m.file_incl ? 'gồm' : 'chưa gồm'} VAT, so trên cơ sở ${m.deliverable_incl ? 'gồm' : 'chưa gồm'} VAT của bản giao. Đơn vị: triệu VND/năm.`;
   const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
   const thead = document.querySelector('#rv-sum thead'), tbody = document.querySelector('#rv-sum tbody');
-  thead.innerHTML = `<tr><th>Quỹ / mục</th><th class="num">Duyệt NS ${esc(py)} (quy đổi)</th><th class="num">Công cụ NS ${esc(by)}</th><th class="num">Chênh (công cụ − duyệt)</th><th class="num">%</th></tr>`;
+  // Cột năm trước đọc từ chính file (Duyệt N-1, Thực tế, Dự kiến N-1): chỉ hiện cột mà lượt chạy có.
+  const mm = m.measures || {}, n1 = py ? py - 1 : '';
+  const has = k => Object.values(mm).some(f => f && f[k]);
+  const anyOf = k => Object.values(mm).map(f => f && f[k]).find(Boolean) || {};
+  const mcols = [];
+  if (has('n1')) mcols.push(['n1', `Duyệt NS ${n1}`]);
+  if (has('actual')) mcols.push(['actual', `Thực tế ${anyOf('actual').period || n1}`]);
+  if (has('expected')) mcols.push(['expected', `Dự kiến cả năm ${n1}`]);
+  const pcols = [];
+  if (has('n1')) pcols.push(['p_n_n1', `% ${py} so ${n1}`]);
+  if (has('n1') && has('expected')) pcols.push(['p_exp_n1', `% Dự kiến so Duyệt ${n1}`]);
+  if (has('expected')) pcols.push(['p_n_exp', `% ${py} so Dự kiến ${n1}`]);
+  const ncol = 5 + mcols.length + pcols.length;
+  thead.innerHTML = `<tr><th>Quỹ / mục</th>` + mcols.map(([, h]) => `<th class="num">${esc(h)}</th>`).join('') +
+    `<th class="num">Duyệt NS ${esc(py)} (quy đổi)</th><th class="num">Công cụ NS ${esc(by)}</th><th class="num">Chênh (công cụ − duyệt)</th><th class="num">%</th>` +
+    pcols.map(([, h]) => `<th class="num">${esc(h)}</th>`).join('') + `</tr>`;
   let rows = '';
   for (const fund of ['MF', 'CA']) {
     const f = (s.summary || {})[fund];
     if (!f) continue;
-    rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
+    rows += `<tr><td colspan="${ncol}" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
     for (const [key, lab] of [['R', 'Tổng thu'], ['E', 'Tổng chi'], ['S', 'Thặng dư']]) {
       const t = f[key] || {};
-      rows += `<tr><td>${lab}</td><td class="${negCls(t.converted)}">${mil(t.converted)}</td><td class="${negCls(t.tool)}">${mil(t.tool)}</td><td class="${negCls(t.diff)}">${mil(t.diff)}</td><td class="${negCls(t.pct)}">${pct(t.pct)}</td></tr>`;
+      rows += `<tr><td>${lab}</td>` + mcols.map(([k]) => `<td class="${negCls(t[k])}">${mil(t[k])}</td>`).join('') +
+        `<td class="${negCls(t.converted)}">${mil(t.converted)}</td><td class="${negCls(t.tool)}">${mil(t.tool)}</td><td class="${negCls(t.diff)}">${mil(t.diff)}</td><td class="${negCls(t.pct)}">${pct(t.pct)}</td>` +
+        pcols.map(([k]) => `<td class="${negCls(t[k])}">${pct(t[k])}</td>`).join('') + `</tr>`;
     }
   }
-  tbody.innerHTML = rows || `<tr><td colspan="5">${esc(s.note || 'Chưa có số tóm tắt.')}</td></tr>`;
+  tbody.innerHTML = rows || `<tr><td colspan="${ncol}">${esc(s.note || 'Chưa có số tóm tắt.')}</td></tr>`;
   const c = s.counts || {};
   document.getElementById('rv-counts').textContent = c.lines == null ? '' :
     `Dòng so sánh: ${c.lines} (cả hai có số ${c.both}, chỉ file duyệt ${c.only_approved}, chỉ công cụ ${c.only_tool}); mã không có trên form 2027: ${c.not_on_form}; chưa có phương pháp: ${c.no_method}; công cụ ra 0: ${c.tool_zero}. Nguồn: ${s.source || ''}.`;
   document.getElementById('rv-ties').innerHTML = (s.ties || []).map(t =>
     `<li>${esc(t.kind)}, ${FUND_VI[t.fund] || t.fund} ${esc(t.section)}: ${Math.round(t.left).toLocaleString('en-US')} / ${Math.round(t.right).toLocaleString('en-US')}, lệch ${Math.round(t.diff).toLocaleString('en-US')} → <b class="${t.ok ? 'ok' : 'bad'}">${t.ok ? 'KHỚP' : 'LỆCH'}</b></li>`).join('') || '<li>Chưa có phép đối chiếu.</li>';
+  document.getElementById('rv-ties').innerHTML += (s.measure_ties || []).map(t =>
+    `<li style="color:var(--sav-muted)">${esc(t.kind)}, ${FUND_VI[t.fund] || t.fund} ${esc(t.section)}: ${Math.round(t.left).toLocaleString('en-US')} / ${Math.round(t.right).toLocaleString('en-US')}, lệch ${Math.round(t.diff).toLocaleString('en-US')} → <b class="${t.ok ? 'ok' : 'bad'}">${t.ok ? 'KHỚP' : 'LỆCH'}</b> (không tính vào kết quả)</li>`).join('');
   document.querySelector('#rv-top tbody').innerHTML = (s.top || []).map((x, i) =>
     `<tr><td>${i + 1}</td><td>${esc(x.fund)}</td><td>${esc(x.code)}</td><td>${esc(x.item)}</td><td class="num">${mil(x.converted)}</td><td class="num">${mil(x.tool_num)}</td><td class="${negCls(x.diff)}">${mil(x.diff)}</td><td class="${negCls(x.pct)}">${pct(x.pct)}</td><td>${esc(x.label)}${x.remark ? ` <small style="color:var(--sav-muted)">${esc(x.remark)}</small>` : ''}</td></tr>`).join('') ||
     '<tr><td colspan="9">Chưa có dòng.</td></tr>';
@@ -1301,6 +1320,8 @@ async function openAdjust(id, slot) {
   document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
     (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
   document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
+  const ml = d.measure_labels || {};
+  document.querySelectorAll('.adj-m').forEach(th => { const k = th.dataset.m; th.classList.toggle('hidden', !ml[k]); th.textContent = ml[k] || ''; });
   const save = document.getElementById('adj-save');
   save.disabled = !d.can_save;
   setAdjStatus(d.can_save ? 'Chưa có thay đổi.' : 'Tài khoản chỉ xem: xem được, không lưu được.');
@@ -1340,7 +1361,8 @@ function subTable(it) {
 function renderAdjust() {
   if (!adj) return;
   const ap = adj.data.has_approved;
-  const cols = ap ? 12 : 11;
+  const mk = adjMeasureKeys();
+  const cols = (ap ? 12 : 11) + mk.length;
   let html = '';
   // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng.
   for (const sec of ['R', 'E']) {
@@ -1354,6 +1376,7 @@ function renderAdjust() {
       html += `<tr class="${cls}" data-k="${esc(it.key)}"><td><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
         `<td><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
         `<td><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td>${esc(it.name)}</td>` +
+        mk.map(k => `<td class="num">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
         (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
         `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
         `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
@@ -1366,12 +1389,19 @@ function renderAdjust() {
   renderAdjPreview();
 }
 
-// Dòng tổng của một khu vực (Thu hoặc Chi): số mã, Duyệt, thành tiền gốc, mới, chênh lệch của các mã đang hiện.
+// Cột năm trước (Duyệt N-1, Thực tế, Dự kiến N-1) mà lượt review có, theo thứ tự cột của bảng.
+function adjMeasureKeys() {
+  const ml = (adj && adj.data.measure_labels) || {};
+  return ['n1', 'actual', 'expected'].filter(k => ml[k]);
+}
+
+// Dòng tổng của một khu vực (Thu hoặc Chi): số mã, cột năm trước, Duyệt, thành tiền gốc, mới, chênh lệch của các mã đang hiện.
 function groupHead(sec, group) {
   const ap = adj.data.has_approved;
   const o = group.reduce((a, i) => a + i.amount, 0), n = group.reduce((a, i) => a + itemNew(i), 0);
   const a = group.reduce((s, i) => s + (i.approved || 0), 0);
   return `<tr class="grp" data-grp="${sec}"><td colspan="4">${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã</td>` +
+    adjMeasureKeys().map(k => `<td class="num">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
     (ap ? `<td class="num">${vnd(a)}</td>` : '') + `<td colspan="2"></td>` +
     `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td></td></tr>`;
 }

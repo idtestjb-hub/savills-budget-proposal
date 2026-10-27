@@ -234,3 +234,45 @@ def test_post_adjust_refusals(client, run_id, monkeypatch):
     assert r.status_code == 400 and 'không được âm' in r.json()['detail']
     assert client.post(f'/api/runs/{run_id}/adjust', json=ok).status_code == 200
     assert client.post(f'/api/runs/{run_id}/adjust', json=ok).status_code == 409    # một lượt tại một thời điểm
+
+
+def test_review_columns_old_and_new_layout(tmp_path):
+    """The adjust table reads the Review sheet by header: a sheet written before change
+    add-review-prior-and-actual-columns (Duyệt at column 5) and one with the N-1 columns in front."""
+    from tests.test_review_prior_columns import _measures, _meta_with
+    old = openpyxl.Workbook()
+    ws = old.active
+    ws.title = 'Review'
+    ws['A1'] = 'Review — ngân sách đã duyệt 2026 so với ngân sách 2027 do công cụ sinh'
+    ws.append([])
+    ws.append([adjust.FUND_VI['MF'] + ' (2. Budget-Management Fund)'])
+    ws.append(['Mã', 'Hạng mục', 'Duyệt NS 2026 (như file)', 'Hệ số VAT', 'Duyệt NS 2026 (quy đổi)', 'Công cụ NS 2027'])
+    ws.append(['EMH2', 'Lương', 1_000.0, 1.0, 1_000.0, 1_100.0])
+    p_old = str(tmp_path / 'old.xlsx')
+    old.save(p_old)
+    cols = adjust.review_columns(p_old)
+    assert cols['approved'] == {'MF|EMH2': 1_000.0} and cols['n1'] == {} and cols['labels'] == {}
+
+    prior_lines, anchors, tool, meta = _data()
+    meta2 = _meta_with(meta)
+    data = review.assemble(prior_lines, anchors, tool, meta2, _ctx(), template={'MF': {}}, measures=_measures())
+    wb = openpyxl.Workbook()
+    review.build_review_sheet(wb, data, meta2)
+    p = str(tmp_path / 'new.xlsx')
+    wb.save(p)
+    cols = adjust.review_columns(p)
+    assert cols['approved']['MF|EMH2'] == 1_200_000_000.0               # Duyệt N, now at column 8
+    assert cols['n1']['MF|EMH2'] == 1_000_000_000.0
+    assert cols['actual']['MF|EMH2'] == 700_000_000.0
+    assert cols['expected']['MF|EMH2'] == 1_100_000_000.0
+    assert cols['labels']['n1'] == 'Duyệt NS 2025 (năm trước, quy đổi)'
+    assert cols['labels']['actual'] == 'Thực tế 01–09/2025 (9 tháng, quy đổi)'
+    assert adjust.review_years(p) == (2026, 2027)
+
+    plain = review.assemble(prior_lines, anchors, tool, meta, _ctx(), template={'MF': {}})
+    wb = openpyxl.Workbook()
+    review.build_review_sheet(wb, plain, meta)                           # no N-1 columns: 'File không có số'
+    p3 = str(tmp_path / 'plain.xlsx')
+    wb.save(p3)
+    cols = adjust.review_columns(p3)
+    assert cols['n1'] == {} and cols['labels'] == {} and cols['approved']['MF|EMH2'] == 1_200_000_000.0

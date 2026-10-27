@@ -1,0 +1,33 @@
+## 1. Baseline before any edit
+
+- [x] 1.1 Record the reference on scratch copies in `C:\ZWork\budget-agent\<date>\`: run `review.py` on the anonymised review fixture of `tests/test_review_sheet.py` and on two store files of 2026 (one with all three columns, one with none, picked from `measure_column.csv`), keep `review_summary.json` and the existing-column values of the Review sheet; verify the files exist.
+  Done 2026-10-26 (`C:\ZWork\budget-agent\2026-10-26\moc\truoc\`): fixture (with its non-tying "Approved 2025" decoy), store file `af4d13e79552` (all three columns). No store file of 2026 without the columns could serve: of the four, `2020f361796c` and `67b7d566b159` already stop in today's Review (year check; a staff-cost sheet taken as a fund sheet), `8c4260d92f87` stops (old form without R/E rows) and `88518930f76f` is cloud-only on this PC. The no-column case uses the fixture built without the decoy column (`fixture_plain`).
+
+## 2. Column recognition (`review_measures.py`)
+
+- [x] 2.1 Port `classify()`, the period parser and the flag rules (variance, tham khảo, AAA, other project, no period, empty, actual after save date) from the scan; verify with unit tests on the store's top headers per measure (the product's class equals the store's recorded `measure` for each).
+- [x] 2.2 Primary choice per fund and measure (ties → longest period, so a cumulative actual wins over a one-month column → report sheet → visible → more figures) and the year check (all three of N-1); cumulative actual without period ends before "Total Expected From". Verify with unit tests, including the "Approved budget of Year 2026" in a 2026 file case.
+
+## 3. Reader (`review_import.py`)
+
+- [x] 3.1 For each fund read, find measure columns on the fund sheet and on its report sheet, read them on the same leaf lines (report sheet: by code within section), tie each to its own R and E rows; lines gain `measures`. Verify with tests on a fixture workbook built in the test (fund sheet + 2.1 report, three columns, one not tying) and on a workbook without columns (lines unchanged).
+- [x] 3.2 Import notes list rejected columns with the reason (wrong year, flag) and unrecognised measure-like headers. Verify in the same tests.
+
+## 4. Review (`review.py`)
+
+- [x] 4.1 `assemble()`: rows gain N-1 / actual / expected (as read, factor, converted) and the three %; info ties excluded from the exit code. Verify with unit tests on plain data: all three present, expected not tying (exit code unchanged), actual never in a %, a 0 base gives a blank %.
+- [x] 4.2 `build_review_sheet()` and summaries: new block before Duyệt N, headers with real years, actual period and months, "File không có số …", "(chưa khớp tổng, lệch X)"; A1 unchanged. Verify: for a file without columns every existing figure, tie and the exit code equal the 1.1 reference; header test for a file with columns.
+
+- [x] 4.3 (added 2026-10-27, design D8) Group the Review sheet's lines as on the 2027 form: `review_import.template_groups()` / `group_chain()` from the template's SUBTOTAL ranges, a "Cộng <code>" summary row above each group with `SUBTOTAL(9, …)` and recomputed %, outline levels by depth (summary above), codes not on the form under "Cộng ngoài form". Verify: unit test on the real template's codes (order, levels, each subtotal range equals its lines, EM# under EM, the web reads lines only); on scratch copies of the three 1.1 files every code row and `review_summary.json` identical to the 6.1 run, and after Excel recalculation 0 error cells, each summary row = its direct children and the top-level rows = "Tổng R / E" in every money column.
+
+## 5. Web
+
+- [x] 5.1 `webapp/adjust.py`: `approved_by_key()` by header (both old and new layouts), new `measures_by_key()`; `/api/runs/{id}/adjust` returns the three figures per item and their years. Verify in `tests/test_webapp_adjust.py` on both layouts.
+- [x] 5.2 `webapp/results.py` and `webapp/static/index.html`: summary table (three figures + three %) and adjust table (three figures), shown only for the columns the run has. Verify in the browser on a local server (ZWork run folder, auth off) with one run with columns and one without (the latter looks as before), at 400 px and 1280 px, light and dark; `tests/test_webapp_results.py` passes.
+
+## 6. End-to-end and sign-off
+
+- [x] 6.1 Re-run the two store files of 1.1 on scratch copies: Excel recalculation, 0 error cells; Duyệt N, tool, difference and % identical before/after; for the file with columns, the N-1 / expected totals equal the store's `measure_column` R and E sums for the same columns. Record the before/after table. Sign-off on the display: the user (data analytics manager); on the business reading of the columns: Head of PM.
+- [ ] 6.2 (measured 2026-10-26, reasons for 6 differences still to find: product-only `dcdac7ae4a81`, `100f4b06c3e5`; store-only `76173d3ae446`, `e8ef39ffacfe`, `c33761adfe10`, `67ef251387b6`; table `C:\ZWork\budget-agent\2026-10-26\cov\do-phu.csv`. 48 of 53 read (3 stop in today's Review, 2 cloud-only); MF Duyệt N-1 37 (all tie) vs store 39, Thực tế 39 vs 40, Dự kiến 38 vs 38.) Coverage on the 53 selectable files (metadata run, no figures printed): how many get each column, compared with the store's count (44 with a tied N-1 approved column on the Management Fund); differences listed with reason.
+- [x] 6.3 Full test suite (cache in ZWork) passes; `openspec validate --all --strict` passes; `python verification/verify.py`, run from `Budget_Agent/source_code/`, PASS (no baseline figure moves).
+- [ ] 6.4 Release note for [Hub] (`releases\YYYY-MM-DD-budget-web-review-n1.txt`) with hash, files, data touched, checks, rollback, "Sẵn sàng deploy: budget-web <hash>"; `docs/project-status.md` updated.

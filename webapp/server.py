@@ -505,14 +505,20 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
     except adjust.AdjustError as exc:
         raise HTTPException(400, str(exc))
     analysis = next((o['path'] for o in run['outputs'] if o['kind'] == 'analysis'), None)
-    approved, years = {}, (None, None)
+    cols, years = {}, (None, None)
     if run.get('kind') == 'review' and analysis:
-        approved = adjust.approved_by_key(analysis)
+        cols = adjust.review_columns(analysis)
         years = adjust.review_years(analysis)
+    approved = cols.get('approved') or {}
+    measures = {k: cols.get(k) or {} for k in ('n1', 'actual', 'expected')}   # cột năm trước có trong file (nếu có)
     for it in items:
         it['approved'] = approved.get(it['key'])
+        for k, by_key in measures.items():
+            if by_key:
+                it[k] = by_key.get(it['key'])
     return JSONResponse(dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'),
                              deliverable=os.path.basename(path), items=items, has_approved=bool(approved),
+                             measure_labels={k: v for k, v in (cols.get('labels') or {}).items() if measures.get(k)},
                              prior_year=years[0], budget_year=years[1],
                              last=results.adjust_result(run['workdir']) or None,
                              can_save=role_of(request) != ROLE_VIEWER, active=_active['id']))

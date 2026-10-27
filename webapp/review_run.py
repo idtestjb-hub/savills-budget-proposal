@@ -43,6 +43,17 @@ def year_hint(message):
             f'dùng tab Nhập liệu nếu đây là dự án mới.')
 
 
+def store_names():
+    """Tên dự án (chữ hoa) của kho ngân sách thật, để bỏ cột năm trước mang tên dự án khác (change
+    add-review-prior-and-actual-columns); rỗng khi không đọc được kho."""
+    try:
+        from webapp import library
+        return {n for n in (' '.join((e.get('project') or '').split()).upper() for e in library.entries())
+                if len(n) >= 4 and n != 'AAA'}
+    except Exception:
+        return set()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--prior', required=True)
@@ -67,7 +78,8 @@ def main():
             dst = os.path.join(workdir, RECALC_FILE)
             review.recalc_copy(prior, dst)
             prior = dst
-        code, result = review.run(prior, facts_path=args.facts, workdir=workdir, quiet=False)
+        code, result = review.run(prior, facts_path=args.facts, workdir=workdir, quiet=False,
+                                  other_names=store_names())
     except (ri.PriorBudgetError, review.ReviewError, ValueError, LookupError, RuntimeError) as exc:
         print(f'STOPPED: {exc}')
         hint = year_hint(str(exc))

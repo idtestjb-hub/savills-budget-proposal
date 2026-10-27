@@ -170,14 +170,15 @@ def _clean(value):
 REVIEW_SOURCE = ("review_summary.json của lượt review: sheet 'Review' cuối bản phân tích nội bộ; số công cụ đo bằng Excel "
                  "trên bản giao, số duyệt đọc từ file ngân sách đã duyệt và quy đổi về cơ sở VAT của bản giao")
 _REVIEW_META_KEYS = ('prior_year', 'budget_year', 'deliverable_incl', 'file_incl', 'file_name', 'period_text',
-                     'project', 'ran_at')
+                     'project', 'ran_at', 'measures')
 
 
 def review_summary(workdir):
     """{'kind': 'review', 'meta', 'summary' {MF/CA: {R, E, S}}, 'counts', 'ties', 'top', 'notes', 'filled', 'note',
-    'source'}: review_summary.json và review_notes.json của lượt review. Thiếu file thì có note, không đoán."""
+    'source', 'measure_ties'}: meta.measures và các số n1 / actual / expected / p_* trong summary chỉ có khi file có cột năm
+    trước (change add-review-prior-and-actual-columns); review_summary.json và review_notes.json của lượt review. Thiếu file thì có note, không đoán."""
     out = dict(kind='review', meta={}, summary={}, counts={}, ties=[], top=[], notes=[], filled={}, note='',
-               source=REVIEW_SOURCE)
+               source=REVIEW_SOURCE, measure_ties=[])
     path = os.path.join(workdir, 'review_summary.json')
     if not os.path.exists(path):
         out['note'] = 'Chưa có review_summary.json: lượt review dừng trước khi ghi sheet Review (xem log).'
@@ -190,6 +191,7 @@ def review_summary(workdir):
         out['counts'] = data.get('counts') or {}
         out['ties'] = data.get('ties') or []
         out['top'] = data.get('top') or []
+        out['measure_ties'] = data.get('measure_ties') or []      # cột năm trước: tham khảo, không tính vào kết quả
     notes_path = os.path.join(workdir, 'review_notes.json')
     if os.path.exists(notes_path):
         with open(notes_path, encoding='utf-8') as fh:

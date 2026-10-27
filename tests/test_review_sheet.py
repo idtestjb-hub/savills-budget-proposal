@@ -3,6 +3,7 @@ invented figures (no Excel); and one end-to-end run on an invented approved budg
 import os
 
 import openpyxl
+from openpyxl.utils import get_column_letter
 import pytest
 
 import review
@@ -130,6 +131,59 @@ def test_review_sheet_is_written_last_with_summary_and_rows(tmp_path):
     wb.save(p)
     md = review.summary_md(data, meta)
     assert '| Tổng thu |' in md and 'Top 10' in md
+
+
+def test_group_chain_follows_the_form_subtotal_ranges():
+    rows = ri.template_codes()
+    assert ri.group_chain('MF', 'EMH2', rows['MF']['EMH2']) == ['EM', 'EMH']
+    assert ri.group_chain('MF', 'EM#', rows['MF']['EM#']) == ['EM']                 # after the EMO lines, but in EM
+    assert ri.group_chain('MF', 'ERF1.1', rows['MF']['ERF1.1']) == ['ER', 'ERF', 'ERF1']
+    assert ri.group_chain('MF', 'RO2', rows['MF']['RO2']) == ['RO', 'RO2']          # an older file's single RO2 row
+    assert ri.group_chain('CA', 'EMH1', rows['CA']['EMH1']) == ['EM', 'EMH']
+    assert ri.group_chain('MF', 'XYZ9', 10 ** 6) == []
+    assert ri.template_groups()['MF']['groups']['EMH']['name'].startswith('Human Resource')
+
+
+def _subtotal_of(ws, row, col):
+    """The value Excel gives the SUBTOTAL(9, …) of a summary row: the lines in its range, nested summary rows left out."""
+    f = ws.cell(row=row, column=col).value
+    a, b = (int(x) for x in f.split(',')[1].rstrip(')').replace(f'{get_column_letter(col)}', '').split(':'))
+    return sum(ws.cell(row=i, column=col).value or 0.0 for i in range(a, b + 1)
+               if not str(ws.cell(row=i, column=1).value or '').startswith(review.GROUP_PREFIX))
+
+
+def test_review_sheet_groups_lines_by_the_form_with_subtotals(tmp_path):
+    prior_lines, anchors, tool, meta = _data()
+    data = review.assemble(prior_lines, anchors, tool, meta, _ctx())          # the real 2027 template's rows
+    wb = openpyxl.Workbook()
+    ws = review.build_review_sheet(wb, data, meta)
+    col_a = {str(ws.cell(row=i, column=1).value or ''): i for i in range(1, ws.max_row + 1)}
+    # form order, the summary row above its lines, nested groups inside their parent
+    assert col_a['Cộng RM'] < col_a['RM.AP'] < col_a['Cộng RPa'] < col_a['RP1'] < col_a['RP2'] < col_a['Cộng ngoài form'] < col_a['RO2a']
+    assert col_a['Cộng EM'] < col_a['Cộng EMH'] < col_a['EMH2'] < col_a['Cộng ES'] < col_a['Cộng ESS'] < col_a['ESS1']
+    assert ws.cell(row=col_a['Cộng EMH'], column=2).value.startswith('Human Resource')
+    lvl = {k: ws.row_dimensions[i].outline_level for k, i in col_a.items()}
+    assert lvl['Cộng EM'] == 0 and lvl['Cộng EMH'] == 1 and lvl['EMH2'] == 2 and lvl['RM.AP'] == 1 and lvl['RO2a'] == 1
+    assert ws.sheet_properties.outlinePr.summaryBelow is False
+    # every subtotal equals its lines, in each money column; a group never takes a line of another
+    by_code = {x['code']: x for b in data['rows_by'].values() for x in b['rows']}
+    for g, members in (('EM', ['EMH2']), ('EMH', ['EMH2']), ('ES', ['ESS1', 'ESS38', 'ESM4']), ('ESS', ['ESS1', 'ESS38']),
+                       ('EE', ['EEE.C']), ('RPa', ['RP1', 'RP2'])):
+        for col, key in ((6, 'approved'), (8, 'converted'), (9, 'tool_num'), (10, 'diff')):
+            assert _subtotal_of(ws, col_a[f'Cộng {g}'], col) == pytest.approx(sum(by_code[c][key] for c in members)), (g, key)
+    assert _subtotal_of(ws, col_a['Cộng ngoài form'], 6) == pytest.approx(12_000_000.0)
+    r = col_a['Cộng ESS']
+    assert ws.cell(row=r, column=11).value == f'=IF(ABS(H{r})<0.5,"",J{r}/H{r})'
+    assert ws.cell(row=r, column=3).value is None and ws.cell(row=r, column=12).value is None   # no N-1 column in the file
+    # the section total still adds the lines once
+    tot_e = col_a['Tổng E']
+    assert ws.cell(row=tot_e, column=6).value == pytest.approx(sum(x['approved'] for x in data['rows_by'][('MF', 'E')]['rows']))
+    # the web's code reader takes the lines only, never a summary row
+    p = os.path.join(tmp_path, 'groups.xlsx')
+    wb.save(p)
+    from webapp import adjust
+    keys = set(adjust.review_columns(p)['approved'])
+    assert keys == {f'MF|{c}' for c in by_code}
 
 
 def _excel_available():

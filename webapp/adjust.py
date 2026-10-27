@@ -230,8 +230,27 @@ def apply_edits(wb, edits):
     return written
 
 
-def approved_by_key(analysis_path):
-    """{key: số duyệt năm cũ đã quy đổi} từ sheet 'Review' của bản phân tích (lượt review); {} khi không có sheet."""
+N_CONVERTED_RE = re.compile(r'^Duyệt NS \d{4} \(quy đổi\)$')    # cột số duyệt năm N đã quy đổi (bố cục cũ và mới)
+MEASURE_HEADS = (('n1', 'Duyệt NS'), ('actual', 'Thực tế'), ('expected', 'Dự kiến cả năm'))
+N1_MARK, NO_COLUMN = 'năm trước', 'File không có số'
+
+
+def _measure_of(header):
+    """'n1' | 'actual' | 'expected' cho tiêu đề một cột năm trước của sheet Review, None với cột khác hoặc cột 'File
+    không có số' (change add-review-prior-and-actual-columns)."""
+    h = _text(header)
+    if not h or NO_COLUMN in h:
+        return None
+    for kind, head in MEASURE_HEADS:
+        if h.startswith(head) and (kind != 'n1' or N1_MARK in h):
+            return kind
+    return None
+
+
+def review_columns(analysis_path):
+    """Số theo key từ sheet 'Review': {'approved': {key: duyệt năm N quy đổi}, 'n1' | 'actual' | 'expected': {key: số},
+    'labels': {kind: tiêu đề dòng đầu}}. Cột tìm theo tiêu đề ở dòng 'Mã' của từng quỹ, nên đọc được cả sheet trước change
+    add-review-prior-and-actual-columns (cột duyệt ở vị trí 5) và sau (cột năm trước đứng trước). {} khi không có sheet."""
     out = {}
     try:
         wb = openpyxl.load_workbook(analysis_path, read_only=True, data_only=True)
@@ -240,17 +259,38 @@ def approved_by_key(analysis_path):
     try:
         if 'Review' not in wb.sheetnames:
             return out
-        fund = None
+        out = dict(approved={}, n1={}, actual={}, expected={}, labels={})
+        fund, cols = None, {'approved': 4}
         for row in wb['Review'].iter_rows(values_only=True):
             a = _text(row[0]) if row else ''
             for short, vi in FUND_VI.items():
                 if a.startswith(vi):
                     fund = short
-            if fund and CODE_RE.match(a) and len(row) >= 5 and _num(row[4]) is not None:
-                out[f'{fund}|{a}'] = out.get(f'{fund}|{a}', 0.0) + _num(row[4])
+            if a == 'Mã':
+                cols = {}
+                for i, h in enumerate(row):
+                    if N_CONVERTED_RE.match(_text(h)):
+                        cols['approved'] = i
+                    kind = _measure_of(h)
+                    if kind:
+                        cols[kind] = i
+                        out['labels'].setdefault(kind, _text(h).split(chr(10))[0])
+                cols.setdefault('approved', 4)
+                continue
+            if fund and CODE_RE.match(a):
+                key = f'{fund}|{a}'
+                for kind, i in cols.items():
+                    v = _num(row[i]) if i < len(row) else None
+                    if v is not None:
+                        out[kind][key] = out[kind].get(key, 0.0) + v
         return out
     finally:
         wb.close()
+
+
+def approved_by_key(analysis_path):
+    """{key: số duyệt năm cũ đã quy đổi} từ sheet 'Review' của bản phân tích (lượt review); {} khi không có sheet."""
+    return review_columns(analysis_path).get('approved', {})
 
 
 def review_years(analysis_path):

@@ -123,6 +123,21 @@ def test_review_summary_reader(runs_dir):
     assert s['top'][0]['code'] == 'ESS38' and len(s['notes']) == 2 and s['filled']['blank'] == ['Site Area']
     assert results.review_summary(str(runs_dir))['note'].startswith('Chưa có review_summary.json')
     assert results.summarize_run(str(wd), 'review')['kind'] == 'review'
+    assert s['measure_ties'] == [] and s['meta']['measures'] is None          # a run without N-1 columns
+
+
+def test_review_summary_reader_with_n1_columns(runs_dir):
+    wd = _review_run(runs_dir)
+    path = wd / 'review_summary.json'
+    data = json.loads(path.read_text(encoding='utf-8'))
+    data['meta']['measures'] = {'MF': {'n1': dict(period='2025', months=12, tie_ok=True, tie_diff=0.0)}}
+    data['summary']['MF']['S'].update(n1=15.0, p_n_n1=0.2)
+    data['measure_ties'] = [dict(kind='Duyệt 2025 = file nguồn (tham khảo)', fund='MF', section='E', left=1.0, right=1.0,
+                                 diff=0.0, ok=True, note='')]
+    path.write_text(json.dumps(data), encoding='utf-8')
+    s = results.review_summary(str(wd))
+    assert s['meta']['measures']['MF']['n1']['period'] == '2025'
+    assert s['summary']['MF']['S']['n1'] == 15.0 and len(s['measure_ties']) == 1
 
 
 # ---- API: lịch sử, dựng lại từ đĩa, Clone -----------------------------------------------------------

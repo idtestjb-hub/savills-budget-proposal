@@ -22,12 +22,14 @@ import sys
 import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.properties import Outline
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import review_import as ri                       # noqa: E402
+import review_measures as rm                     # noqa: E402
 import utility_tariffs as ut                     # noqa: E402
 
 BUDGET_AGENT = os.path.dirname(HERE)
@@ -63,9 +65,22 @@ THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 MONEY = '#,##0'
 PCT = '0.0%'
-COLUMNS = ['Mã', 'Hạng mục', 'Duyệt NS {py} (như file)', 'Hệ số VAT', 'Duyệt NS {py} (quy đổi)', 'Công cụ NS {by}',
-           'Chênh (công cụ − duyệt)', '%', 'Cách công cụ ra số', 'Ghi chú']
-WIDTHS = [10, 46, 20, 9, 20, 20, 20, 8, 34, 50]
+COLUMNS = ['Mã', 'Hạng mục', '{n1_hdr}', '{actual_hdr}', '{expected_hdr}', 'Duyệt NS {py} (như file)', 'Hệ số VAT',
+           'Duyệt NS {py} (quy đổi)', 'Công cụ NS {by}', 'Chênh (công cụ − duyệt)', '%', '% {py} so {n1}',
+           '% Dự kiến {n1} so Duyệt {n1}', '% {py} so Dự kiến {n1}', 'Cách công cụ ra số', 'Ghi chú']
+WIDTHS = [10, 46, 18, 18, 18, 20, 9, 20, 20, 20, 8, 10, 10, 10, 34, 50]
+NCOLS = len(COLUMNS)
+MONEY_COLS, FACTOR_COL, PCT_COLS = (3, 4, 5, 6, 8, 9, 10), 7, (11, 12, 13, 14)
+# The N-1 columns read from the file of year N (change add-review-prior-and-actual-columns). Header words the web's
+# adjust table reads them by: 'năm trước' marks Duyệt N-1, 'Thực tế' and 'Dự kiến cả năm' the other two.
+N1_MARK = 'năm trước'
+NO_COLUMN = 'File không có số'
+# Groups of the 2027 form on the Review sheet: a SUBTOTAL row above each group's lines, one fill per depth.
+GROUP_PREFIX = 'Cộng'
+GROUP_FILLS = [PatternFill(start_color=c, end_color=c, fill_type='solid') for c in ('E2EFDA', 'EDF4E7', 'F5F9F2')]
+OFF_FORM_GROUP = '__off_form__'
+OFF_FORM_LABEL = f'{GROUP_PREFIX} ngoài form'
+OFF_FORM_NAME = LABEL_NOT_ON_FORM + ' (vẫn tính vào tổng duyệt)'
 
 
 class ReviewError(RuntimeError):
@@ -212,10 +227,23 @@ def _tie_text(t):
     return ('KHỚP' if t['ok'] else 'LỆCH') + (f" (giải thích: {t['note']})" if t.get('note') else '')
 
 
-def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
+def _pct_of(value, base):
+    """(value − base) / base, or None when either is missing or the base is 0."""
+    return None if value is None or base is None else _pct(value - base, base)
+
+
+def _measure_pcts(n_conv, m):
+    """The three % of design D4: Duyệt N so Duyệt N-1, Dự kiến N-1 so Duyệt N-1, Duyệt N so Dự kiến N-1."""
+    return dict(p_n_n1=_pct_of(n_conv, m.get('n1')), p_exp_n1=_pct_of(m.get('expected'), m.get('n1')),
+                p_n_exp=_pct_of(n_conv, m.get('expected')))
+
+
+def assemble(prior_lines, anchors, tool, meta, ctx, template=None, measures=None):
     """Everything the sheet, the summary and the ties need, from plain data (no Excel): rows per fund and
     section, totals, ties. `prior_lines`: dicts (fund, section, code, item, approved, incl_vat, flags, on_form,
-    remark). `anchors`: {fund: {'R': v, 'E': v}} of the source file. `tool`: tool_lines() output."""
+    remark). `anchors`: {fund: {'R': v, 'E': v}} of the source file. `tool`: tool_lines() output. `measures`:
+    {fund: {'n1' | 'actual' | 'expected': column}} of year N-1 (review_import.choose_measures, with 'incl' and
+    'months' set by run()); each row then carries the three converted figures and three %."""
     tcodes = template if template is not None else ri.template_codes()
     vat_rows = ut.load_rows()
     d_incl = bool(meta.get('deliverable_incl', True))
@@ -237,6 +265,12 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
                         e['flags'].append(f)
                 if l.get('remark') and not e['remark']:
                     e['remark'] = l['remark']
+            fm = (measures or {}).get(fund) or {}
+            for col in fm.values():
+                for (s_, code), v in col['values'].items():
+                    if s_ == sec:
+                        agg.setdefault(code, dict(code=code, item='', approved=0.0, incl=d_incl, flags=[],
+                                                  on_form=code in tcodes.get(fund, {}), remark=''))
             tl = (tool.get(fund) or {}).get('lines', {})
             for code, t in tl.items():
                 if t['sec'] != sec:
@@ -249,7 +283,13 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
             rows = []
             for code, e in agg.items():
                 tool_amt = e.get('tool')
-                if abs(e['approved']) < 0.5 and (tool_amt is None or abs(tool_amt) < 0.5):
+                mv = {}
+                for kind, col in fm.items():
+                    raw = col['values'].get((sec, code))
+                    if raw is not None:
+                        mv[kind] = raw * vat_factor(code, col['months'], col['incl'], d_incl, vat_rows)
+                if (abs(e['approved']) < 0.5 and (tool_amt is None or abs(tool_amt) < 0.5)
+                        and not any(abs(v) >= 0.5 for v in mv.values())):
                     continue
                 factor = vat_factor(code, months, e['incl'], d_incl, vat_rows)
                 conv = e['approved'] * factor
@@ -261,12 +301,17 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
                 rows.append(dict(code=code, item=item_vi or e['item'], approved=e['approved'], factor=factor,
                                  converted=conv, tool=t_show, tool_num=t_num, diff=t_num - conv,
                                  pct=_pct(t_num - conv, conv), label=label, remark=remark, on_form=e['on_form'],
-                                 order=(0 if e['on_form'] else 1, tcodes.get(fund, {}).get(code, 10 ** 6), code)))
+                                 order=(0 if e['on_form'] else 1, tcodes.get(fund, {}).get(code, 10 ** 6), code),
+                                 n1=mv.get('n1'), actual=mv.get('actual'), expected=mv.get('expected'),
+                                 **_measure_pcts(conv, mv)))
             rows.sort(key=lambda x: x['order'])
             tot = dict(approved=sum(x['approved'] for x in rows), converted=sum(x['converted'] for x in rows),
                        tool=sum(x['tool_num'] for x in rows))
             tot['diff'] = tot['tool'] - tot['converted']
             tot['pct'] = _pct(tot['diff'], tot['converted'])
+            for kind in rm.KINDS:
+                tot[kind] = sum(x[kind] or 0.0 for x in rows) if kind in fm else None
+            tot.update(_measure_pcts(tot['converted'], tot))
             rows_by[(fund, sec)] = dict(rows=rows, total=tot)
     ties = []
     for fund in ri.FUNDS:
@@ -286,6 +331,18 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
                                  diff=tot['approved'] - a_anchor,
                                  ok=abs(tot['approved'] - a_anchor) <= TOL or explained,
                                  note='; '.join(a_meta.get('notes') or []) if explained else ''))
+    measure_ties = []
+    for fund in ri.FUNDS:
+        for kind, col in ((measures or {}).get(fund) or {}).items():
+            explained = col.get('tie_state', '').startswith('ok_')
+            for sec in ri.SECTIONS_COMPARED:
+                left, right = col['sums'].get(sec, 0.0), col['anchors'].get(sec)
+                if right is None:
+                    continue
+                measure_ties.append(dict(kind=f"{rm.KIND_VI[kind]} {col['period']} = file nguồn (tham khảo)", fund=fund,
+                                         section=sec, left=left, right=right, diff=left - right,
+                                         ok=abs(left - right) <= TOL or explained,
+                                         note='; '.join(col.get('tie_notes') or []) if explained else ''))
     summary = {}
     for fund in ri.FUNDS:
         if (fund, 'R') in rows_by and (fund, 'E') in rows_by:
@@ -294,6 +351,11 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
                                                  approved=r['approved'] - e['approved']))
             summary[fund]['S']['diff'] = summary[fund]['S']['tool'] - summary[fund]['S']['converted']
             summary[fund]['S']['pct'] = _pct(summary[fund]['S']['diff'], summary[fund]['S']['converted'])
+            if (measures or {}).get(fund):
+                s_ = summary[fund]['S']
+                for kind in rm.KINDS:
+                    s_[kind] = None if r[kind] is None else r[kind] - e[kind]
+                s_.update(_measure_pcts(s_['converted'], s_))
     all_rows = [dict(x, fund=f, section=s) for (f, s), b in rows_by.items() for x in b['rows']]
     counts = dict(lines=len(all_rows), both=sum(abs(x['approved']) >= 0.5 and abs(x['tool_num']) >= 0.5 for x in all_rows),
                   only_approved=sum(abs(x['approved']) >= 0.5 and abs(x['tool_num']) < 0.5 for x in all_rows),
@@ -302,11 +364,69 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None):
                   no_method=sum(x['label'] == LABEL_NO_METHOD for x in all_rows),
                   tool_zero=sum(x['label'] == LABEL_ZERO for x in all_rows))
     top = sorted(all_rows, key=lambda x: -abs(x['diff']))[:TOP]
-    return dict(rows_by=rows_by, ties=ties, summary=summary, counts=counts, top=top)
+    return dict(rows_by=rows_by, ties=ties, summary=summary, counts=counts, top=top, measure_ties=measure_ties)
 
 
-def build_review_sheet(wb, data, meta):
-    """Write the Review sheet from assemble()'s output. Returns the worksheet."""
+def measure_headers(meta, fund):
+    """Header texts of the three N-1 columns of one fund: the year, the actual's period, a flag when the column
+    does not tie, or 'File không có số' when the file has no such column."""
+    n1 = meta['prior_year'] - 1
+    cols = (meta.get('measures') or {}).get(fund) or {}
+
+    def flag(c):
+        return '' if c['tie_ok'] else f"\n(chưa khớp tổng, lệch {c['tie_diff']:,.0f})"
+
+    out = {}
+    c = cols.get('n1')
+    out['n1_hdr'] = (f'Duyệt NS {n1} ({N1_MARK}, quy đổi)' + flag(c)) if c else f'Duyệt NS {n1} ({N1_MARK})\n{NO_COLUMN}'
+    c = cols.get('actual')
+    out['actual_hdr'] = (f"Thực tế {c['period']} ({c['months']} tháng, quy đổi)" + flag(c)) if c else f'Thực tế {n1}\n{NO_COLUMN}'
+    c = cols.get('expected')
+    out['expected_hdr'] = (f'Dự kiến cả năm {n1} (quy đổi)' + flag(c)) if c else f'Dự kiến cả năm {n1}\n{NO_COLUMN}'
+    return out
+
+
+def _put(ws, r, vals, fill=None, bold=False):
+    for col, v in enumerate(vals, start=1):
+        cell = ws.cell(row=r, column=col, value=v if v != '' else None)
+        cell.border = BORDER
+        if fill:
+            cell.fill = fill
+        if bold:
+            cell.font = Font(bold=True)
+        if col in MONEY_COLS:
+            cell.number_format = MONEY
+        elif col == FACTOR_COL:
+            cell.number_format = '0.00'
+        elif col in PCT_COLS:
+            cell.number_format = PCT
+
+
+def group_row_values(code, name, row, last, missing=()):
+    """The 16 cells of a group's summary row (above its lines, as on the form): SUBTOTAL(9, …) over the rows below
+    it in every money column (nested summary rows are skipped by SUBTOTAL), the % recomputed on those sums, blank for
+    an N-1 column the file does not carry. Column A never reads as a bare code, so the web's code reader skips it."""
+    def sub(col):
+        c = get_column_letter(col)
+        return f'=SUBTOTAL(9,{c}{row + 1}:{c}{last})'
+
+    def pct(val, base):
+        return f'=IF(ABS({base}{row})<0.5,"",({val}{row}-{base}{row})/{base}{row})'
+
+    n1, actual, expected = (None if k in missing else sub(c) for k, c in (('n1', 3), ('actual', 4), ('expected', 5)))
+    return [OFF_FORM_LABEL if code == OFF_FORM_GROUP else f'{GROUP_PREFIX} {code}', name, n1, actual, expected,
+            sub(6), '', sub(8), sub(9), sub(10), f'=IF(ABS(H{row})<0.5,"",J{row}/H{row})',
+            None if 'n1' in missing else pct('H', 'C'),
+            None if 'n1' in missing or 'expected' in missing else pct('E', 'C'),
+            None if 'expected' in missing else pct('H', 'E'), '', '']
+
+
+def build_review_sheet(wb, data, meta, groups=None):
+    """Write the Review sheet from assemble()'s output. Returns the worksheet. Lines sit in the 2027 form's groups
+    (`groups`: review_import.template_groups(), read from the template when None), each group with a SUBTOTAL row
+    above its lines and an Excel outline to fold it; codes not on the form sit in one block with its own subtotal."""
+    if groups is None:
+        groups = ri.template_groups()
     if REVIEW_SHEET in wb.sheetnames:
         del wb[REVIEW_SHEET]
     ws = wb.create_sheet(REVIEW_SHEET)
@@ -317,52 +437,64 @@ def build_review_sheet(wb, data, meta):
                 f"{meta.get('period_text', '')}; file {'gồm' if meta.get('file_incl') else 'chưa gồm'} VAT, bản giao "
                 f"{'gồm' if meta.get('deliverable_incl', True) else 'chưa gồm'} VAT. Số duyệt quy về cơ sở bản giao theo "
                 f"từng dòng (lương, thuế phí, phí và lãi ngân hàng không VAT; 8% kỳ giảm, 10% còn lại). "
-                f"Công cụ = dòng lá bản giao sau khi Excel tính lại.")
+                f"Công cụ = dòng lá bản giao sau khi Excel tính lại. Ba cột năm {py - 1} (duyệt, thực tế, dự kiến) đọc từ "
+                f"chính file, quy đổi cùng quy tắc; thực tế giữ nguyên số tháng, không quy ra năm.")
     ws['A2'].font = Font(italic=True, size=9, color='7F7F7F')
     ws['A2'].alignment = Alignment(wrap_text=True, vertical='top')
-    ws.merge_cells('A2:J2')
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=NCOLS)
     ws.row_dimensions[2].height = 42
     c = data['counts']
     ws['A3'] = (f"Dòng so sánh: {c['lines']} (cả hai có số {c['both']}, chỉ file duyệt {c['only_approved']}, chỉ công cụ "
                 f"{c['only_tool']}); mã không có trên form 2027: {c['not_on_form']}; chưa có phương pháp: {c['no_method']}; "
                 f"công cụ ra 0: {c['tool_zero']}. Phần D (VAT, CIT) không so.")
     ws['A3'].font = Font(size=9)
-    ws.merge_cells('A3:J3')
+    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=NCOLS)
 
     r = 5
     ws.cell(row=r, column=1, value='TÓM TẮT (Quỹ quản lý vận hành)').font = Font(bold=True)
     r += 1
-    for col, h in enumerate(['', f'Duyệt NS {py} (quy đổi)', f'Công cụ NS {by}', 'Chênh', '%'], start=1):
+    n1 = py - 1
+    mh = measure_headers(meta, 'MF')
+    head = ['', mh['n1_hdr'], mh['actual_hdr'], mh['expected_hdr'], '', '', f'Duyệt NS {py} (quy đổi)', f'Công cụ NS {by}',
+            'Chênh', '%', f'% {py} so {n1}', f'% Dự kiến {n1} so Duyệt {n1}', f'% {py} so Dự kiến {n1}']
+    for col, h in enumerate(head, start=1):
+        if col in (5, 6):
+            continue
         cell = ws.cell(row=r, column=col, value=h)
         cell.fill, cell.font, cell.border = HEADER_FILL, HEADER_FONT, BORDER
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    ws.row_dimensions[r].height = 42
     r += 1
     s = data['summary'].get('MF')
     if s:
         for key, lab in (('R', 'Tổng thu'), ('E', 'Tổng chi'), ('S', 'Thặng dư')):
             t = s[key]
-            vals = [lab, t['converted'], t['tool'], t['diff'], t['pct']]
+            vals = [lab, t.get('n1'), t.get('actual'), t.get('expected'), None, None, t['converted'], t['tool'], t['diff'],
+                    t['pct'], t.get('p_n_n1'), t.get('p_exp_n1'), t.get('p_n_exp')]
             for col, v in enumerate(vals, start=1):
+                if col in (5, 6):
+                    continue
                 cell = ws.cell(row=r, column=col, value=v)
                 cell.border = BORDER
-                if col in (2, 3, 4):
+                if col in (2, 3, 4, 7, 8, 9):
                     cell.number_format = MONEY
-                if col == 5:
+                if col in (10, 11, 12, 13):
                     cell.number_format = PCT
             ws.cell(row=r, column=1).font = Font(bold=True)
             r += 1
     r += 1
     ws.cell(row=r, column=1, value='ĐỐI CHIẾU TỔNG').font = Font(bold=True)
     r += 1
-    for t in data['ties']:
+    for t in list(data['ties']) + list(data.get('measure_ties') or []):
         text = (f"{t['kind']} — {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} so với {t['right']:,.0f}, "
                 f"lệch {t['diff']:,.0f} → {_tie_text(t)}")
         ws.cell(row=r, column=1, value=text).font = Font(size=9, color='006100' if t['ok'] else 'C00000')
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NCOLS)
         r += 1
 
     r += 1
-    headers = [h.format(py=py, by=by) for h in COLUMNS]
     for fund in ri.FUNDS:
+        headers = [h.format(py=py, by=by, n1=n1, **measure_headers(meta, fund)) for h in COLUMNS]
         if not any((fund, s_) in data['rows_by'] for s_ in ri.SECTIONS_COMPARED):
             continue
         ws.cell(row=r, column=1, value=f"{ri.FUND_VI[fund]} ({meta.get('sheets', {}).get(fund, fund)})").font = Font(bold=True, size=12)
@@ -371,7 +503,7 @@ def build_review_sheet(wb, data, meta):
             cell = ws.cell(row=r, column=col, value=h)
             cell.fill, cell.font, cell.border = HEADER_FILL, HEADER_FONT, BORDER
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        ws.row_dimensions[r].height = 30
+        ws.row_dimensions[r].height = 42
         r += 1
         for sec in ri.SECTIONS_COMPARED:
             block = data['rows_by'].get((fund, sec))
@@ -379,54 +511,62 @@ def build_review_sheet(wb, data, meta):
                 continue
             cell = ws.cell(row=r, column=1, value=f'{sec} — {SECTION_VI[sec]}')
             cell.font, cell.fill = Font(bold=True), SECTION_FILL
-            for col in range(2, 11):
+            for col in range(2, NCOLS + 1):
                 ws.cell(row=r, column=col).fill = SECTION_FILL
             r += 1
-            shown_off_form = False
-            for x in block['rows']:
-                if not x['on_form'] and not shown_off_form:
-                    ws.cell(row=r, column=1, value=LABEL_NOT_ON_FORM + ' (vẫn tính vào tổng duyệt)').font = Font(italic=True)
-                    r += 1
-                    shown_off_form = True
-                vals = [x['code'], x['item'], x['approved'], x['factor'], x['converted'], x['tool'], x['diff'], x['pct'],
-                        x['label'], x['remark']]
-                for col, v in enumerate(vals, start=1):
-                    cell = ws.cell(row=r, column=col, value=v)
-                    cell.border = BORDER
-                    if col in (3, 5, 6, 7):
-                        cell.number_format = MONEY
-                    elif col == 4:
-                        cell.number_format = '0.00'
-                    elif col == 8:
-                        cell.number_format = PCT
-                    if col in (2, 9, 10):
-                        cell.alignment = Alignment(wrap_text=False, vertical='top')
-                r += 1
             tot = block['total']
-            vals = [f'Tổng {sec}', '', tot['approved'], '', tot['converted'], tot['tool'], tot['diff'], tot['pct'], '', '']
-            for col, v in enumerate(vals, start=1):
-                cell = ws.cell(row=r, column=col, value=v if v != '' else None)
-                cell.fill, cell.border, cell.font = TOTAL_FILL, BORDER, Font(bold=True)
-                if col in (3, 5, 6, 7):
-                    cell.number_format = MONEY
-                elif col == 8:
-                    cell.number_format = PCT
+            missing = {kind for kind in rm.KINDS if tot.get(kind) is None}
+            stack = []                      # open groups: (code, name, summary row, depth)
+
+            def close():
+                g, name, hr, depth = stack.pop()
+                _put(ws, hr, group_row_values(g, name, hr, r - 1, missing), GROUP_FILLS[min(depth, len(GROUP_FILLS) - 1)],
+                     bold=True)
+                ws.cell(row=hr, column=2).alignment = Alignment(indent=depth, vertical='top')
+                if depth:
+                    ws.row_dimensions[hr].outline_level = depth
+
+            for x in block['rows']:
+                if x['on_form']:
+                    chain = ri.group_chain(fund, x['code'], x['order'][1], groups)
+                else:
+                    chain = [OFF_FORM_GROUP]
+                while stack and [s[0] for s in stack] != chain[:len(stack)]:
+                    close()
+                for g in chain[len(stack):]:
+                    name = (OFF_FORM_NAME if g == OFF_FORM_GROUP
+                            else ((groups.get(fund) or {}).get('groups', {}).get(g, {}).get('name', '')))
+                    stack.append((g, name, r, len(stack)))
+                    r += 1
+                vals = [x['code'], x['item'], x.get('n1'), x.get('actual'), x.get('expected'), x['approved'], x['factor'],
+                        x['converted'], x['tool'], x['diff'], x['pct'], x.get('p_n_n1'), x.get('p_exp_n1'),
+                        x.get('p_n_exp'), x['label'], x['remark']]
+                _put(ws, r, vals)
+                for col in (2, 15, 16):
+                    ws.cell(row=r, column=col).alignment = Alignment(wrap_text=False, vertical='top')
+                if chain:
+                    ws.cell(row=r, column=2).alignment = Alignment(wrap_text=False, vertical='top', indent=len(chain))
+                    ws.row_dimensions[r].outline_level = len(chain)
+                r += 1
+            while stack:
+                close()
+            vals = [f'Tổng {sec}', '', tot.get('n1'), tot.get('actual'), tot.get('expected'), tot['approved'], '',
+                    tot['converted'], tot['tool'], tot['diff'], tot['pct'], tot.get('p_n_n1'), tot.get('p_exp_n1'),
+                    tot.get('p_n_exp'), '', '']
+            _put(ws, r, vals, TOTAL_FILL, bold=True)
             r += 1
         s = data['summary'].get(fund)
         if s:
-            vals = ['Thặng dư (R − E)', '', s['S']['approved'], '', s['S']['converted'], s['S']['tool'], s['S']['diff'], s['S']['pct'], '', '']
-            for col, v in enumerate(vals, start=1):
-                cell = ws.cell(row=r, column=col, value=v if v != '' else None)
-                cell.fill, cell.border, cell.font = TOTAL_FILL, BORDER, Font(bold=True)
-                if col in (3, 5, 6, 7):
-                    cell.number_format = MONEY
-                elif col == 8:
-                    cell.number_format = PCT
+            t = s['S']
+            vals = ['Thặng dư (R − E)', '', t.get('n1'), t.get('actual'), t.get('expected'), t['approved'], '', t['converted'],
+                    t['tool'], t['diff'], t['pct'], t.get('p_n_n1'), t.get('p_exp_n1'), t.get('p_n_exp'), '', '']
+            _put(ws, r, vals, TOTAL_FILL, bold=True)
             r += 1
         r += 1
     for i, w in enumerate(WIDTHS, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = 'A5'
+    ws.sheet_properties.outlinePr = Outline(summaryBelow=False, summaryRight=True)
     return ws
 
 
@@ -452,6 +592,16 @@ def summary_md(data, meta):
         for key, lab in (('R', 'Tổng thu'), ('E', 'Tổng chi'), ('S', 'Thặng dư')):
             t = s[key]
             md.append(f"| {lab} | {_m(t['converted'])} | {_m(t['tool'])} | {_m(t['diff'])} | {_p(t['pct'])} |")
+    if s and (meta.get('measures') or {}).get('MF'):
+        n1 = py - 1
+        mh = measure_headers(meta, 'MF')
+        md.append(f"\nNăm {n1} trong file (quỹ quản lý vận hành, quy đổi): {mh['actual_hdr'].replace(chr(10), ' ')}\n")
+        md.append(f'| | Duyệt {n1} | Thực tế | Dự kiến {n1} | Duyệt {py} | % {py} so {n1} | % Dự kiến so Duyệt {n1} | '
+                  f'% {py} so Dự kiến |\n|---|---:|---:|---:|---:|---:|---:|---:|')
+        for key, lab in (('R', 'Tổng thu'), ('E', 'Tổng chi'), ('S', 'Thặng dư')):
+            t = s[key]
+            md.append(f"| {lab} | {_m(t.get('n1'))} | {_m(t.get('actual'))} | {_m(t.get('expected'))} | {_m(t['converted'])} | "
+                      f"{_p(t.get('p_n_n1'))} | {_p(t.get('p_exp_n1'))} | {_p(t.get('p_n_exp'))} |")
     c = data['counts']
     md.append(f"\nDòng so sánh: {c['lines']} (cả hai có số {c['both']}, chỉ file duyệt {c['only_approved']}, chỉ công cụ "
               f"{c['only_tool']}); mã không có trên form 2027: {c['not_on_form']}; chưa có phương pháp: {c['no_method']}; "
@@ -460,6 +610,11 @@ def summary_md(data, meta):
     for t in data['ties']:
         md.append(f"- {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} / {t['right']:,.0f}, lệch "
                   f"{t['diff']:,.0f} → {_tie_text(t)}")
+    if data.get('measure_ties'):
+        md.append('\nĐối chiếu cột năm trước (tham khảo, không tính vào kết quả):')
+        for t in data['measure_ties']:
+            md.append(f"- {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} / {t['right']:,.0f}, lệch "
+                      f"{t['diff']:,.0f} → {_tie_text(t)}")
     md.append(f'\nTop {TOP} theo |chênh lệch|:\n')
     md.append('| # | Quỹ | Mã | Hạng mục | Duyệt (quy đổi) | Công cụ | Chênh | % | Cách ra số |\n|---:|---|---|---|---:|---:|---:|---:|---|')
     for i, x in enumerate(data['top'], 1):
@@ -469,15 +624,19 @@ def summary_md(data, meta):
 
 
 def summary_json(data, meta):
-    return dict(meta=meta, summary=data['summary'], counts=data['counts'], ties=data['ties'],
-                top=[{k: v for k, v in x.items() if k != 'order'} for x in data['top']])
+    out = dict(meta=meta, summary=data['summary'], counts=data['counts'], ties=data['ties'],
+               top=[{k: v for k, v in x.items() if k != 'order'} for x in data['top']])
+    if data.get('measure_ties'):
+        out['measure_ties'] = data['measure_ties']
+    return out
 
 
 # ------------------------------------------------------------------------------------------------
 # The command
 # ------------------------------------------------------------------------------------------------
-def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, now=None):
-    """The whole review. Returns (exit_code, result dict)."""
+def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, now=None, other_names=()):
+    """The whole review. Returns (exit_code, result dict). `other_names`: upper-case project names of the store
+    (a year-N-1 column headed with another project's name is left out)."""
     from verification.run_workflow import run_workflow
 
     now = now or datetime.datetime.now()
@@ -491,7 +650,7 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
             print(text)
 
     say(f'[1/4] Đọc file ngân sách đã duyệt: {prior_path}')
-    prior = ri.read_prior_budget(prior_path, workdir=workdir)
+    prior = ri.read_prior_budget(prior_path, workdir=workdir, other_names=other_names)
     wb, _ = ri.open_workbook(prior_path, workdir)
     try:
         info = ri.read_info(wb)
@@ -505,6 +664,10 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
                 f"E {fr.section_total('E'):,.0f} (sheet {fr.anchors['E']:,.0f}), {len(fr.lines)} dòng, "
                 f"{'chưa' if fr.vat_basis == 'excl' else 'gồm'} VAT, cột năm {fr.value_how}")
     say(f'    dự án {prior.project_name!r}, năm {prior.budget_year}, {len(prior.notes)} ghi chú nhập')
+    for fund, ks in prior.measures.items():
+        for kind, col in ks.items():
+            say(f"    {fund} {rm.KIND_VI[kind]} {rm.period_text(col)}: {col['sheet']} cột {col['col_letter']}, "
+                f"{'khớp tổng' if col['tie_ok'] else 'chưa khớp tổng'}")
 
     say('[2/4] Đổ form Existing project')
     form_dir = os.path.join(workdir, 'input')
@@ -544,13 +707,28 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
                parking_codes={c for c, k in (('RP2', 'car'), ('RP1', 'moto')) if k in filled['parking']},
                cob_codes=set(filled.get('cob', {})) | {ri.oi.cob_pairing().get(c, '') for c in filled.get('cob', {})},
                methods=ri.catalogue_methods())
-    meta = dict(prior_year=prior.budget_year, budget_year=prior.budget_year + 1,
+    measures, m_meta = {}, {}
+    for fund, ks in prior.measures.items():
+        fbasis = prior.funds[fund].vat_basis
+        for kind, col in ks.items():
+            incl = (col['vat_basis'] if col['vat_basis'] in ('incl', 'excl') else fbasis) == 'incl'
+            months = rm.month_list(col['start'], col['end'])
+            diff = max((abs(col['sums'][s] - col['anchors'][s]) for s in ri.SECTIONS_COMPARED
+                        if col['anchors'].get(s) is not None), default=0.0)
+            measures.setdefault(fund, {})[kind] = dict(col, incl=incl, months=months, period=rm.period_text(col))
+            m_meta.setdefault(fund, {})[kind] = dict(sheet=col['sheet'], col=col['col_letter'], header=col['header'],
+                                                     period=rm.period_text(col), months=len(months), tie_ok=col['tie_ok'],
+                                                     tie_diff=diff, incl_vat=incl)
+    year_n = prior.n_year or prior.budget_year      # labels: the head cells' year when the month columns disagree
+    meta = dict(prior_year=year_n, budget_year=year_n + 1,
                 deliverable_incl=tool.get('MF', {}).get('incl_vat', True), file_incl=mf.vat_basis == 'incl',
                 file_name=os.path.basename(prior_path), sheets={f: fr.sheet for f, fr in prior.funds.items()},
                 period=prior.period, period_text=f'{prior.period[0][1]:02d}/{prior.period[0][0]}–{prior.period[-1][1]:02d}/{prior.period[-1][0]}',
                 project=prior.project_name, form=form, deliverable=deliverable, analysis=analysis, workdir=workdir,
                 ran_at=now.isoformat(timespec='seconds'))
-    data = assemble(prior_lines, anchors, tool, meta, ctx)
+    if m_meta:
+        meta['measures'] = m_meta
+    data = assemble(prior_lines, anchors, tool, meta, ctx, measures=measures)
     awb = openpyxl.load_workbook(analysis)
     build_review_sheet(awb, data, meta)
     awb.save(analysis)
@@ -559,6 +737,10 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
     json.dump(summary_json(data, meta), open(os.path.join(workdir, 'review_summary.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1, default=str)
     say(md)
+    for t in data['measure_ties']:
+        if not t['ok']:
+            say(f"Lệch (tham khảo, không tính vào kết quả): {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: "
+                f"{t['left']:,.0f} so với {t['right']:,.0f} (lệch {t['diff']:,.0f})")
     bad = [t for t in data['ties'] if not t['ok']]
     for t in bad:
         say(f"LỆCH: {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} so với {t['right']:,.0f} "
