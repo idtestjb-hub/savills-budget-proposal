@@ -118,6 +118,30 @@ def read_items(path):
         wb.close()
 
 
+OFF_FORM_GROUP = '__off_form__'
+OFF_FORM_NAME = 'Mã ngoài form 2027'
+
+
+def add_groups(items, codes=None, groups=None):
+    """Gắn nhóm của form 2027 cho từng mã, như sheet Review (review_import.group_chain): it['groups'] = [{code, name}]
+    từ cấp trên xuống, không gồm chính mã đó; it['order'] = dòng của mã trên template (mã ngoài form: sau cùng, trong
+    nhóm OFF_FORM_GROUP). Bảng điều chỉnh trên web dùng để xếp và cộng theo nhóm."""
+    import review_import as ri
+    codes = ri.template_codes() if codes is None else codes
+    groups = ri.template_groups() if groups is None else groups
+    for it in items:
+        fund, code = it.get('fund'), it.get('code')
+        row = (codes.get(fund) or {}).get(code)
+        if row is None:
+            it['groups'], it['order'] = [dict(code=OFF_FORM_GROUP, name=OFF_FORM_NAME)], 10 ** 6
+            continue
+        gs = (groups.get(fund) or {}).get('groups', {})
+        it['groups'] = [dict(code=g, name=gs.get(g, {}).get('name', '')) for g in ri.group_chain(fund, code, row, groups)
+                        if g != code]
+        it['order'] = row
+    return items
+
+
 def new_amount(item, adj_type=None, inflation=None, subs=None):
     """Thành tiền mới của một mã theo đúng công thức của template (để xem trước và để kiểm tra)."""
     adj_type = item['adj_type'] if adj_type is None else adj_type

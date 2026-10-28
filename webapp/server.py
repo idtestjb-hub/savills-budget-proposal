@@ -504,6 +504,10 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
         items = adjust.read_items(path)
     except adjust.AdjustError as exc:
         raise HTTPException(400, str(exc))
+    try:
+        adjust.add_groups(items)                     # nhóm của form 2027 như sheet Review; thiếu template thì bảng không chia nhóm
+    except Exception:  # noqa: BLE001
+        pass
     analysis = next((o['path'] for o in run['outputs'] if o['kind'] == 'analysis'), None)
     cols, years = {}, (None, None)
     if run.get('kind') == 'review' and analysis:

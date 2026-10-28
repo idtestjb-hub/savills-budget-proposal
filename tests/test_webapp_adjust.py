@@ -334,3 +334,27 @@ def test_review_columns_old_and_new_layout(tmp_path):
     wb.save(p3)
     cols = adjust.review_columns(p3)
     assert cols['n1'] == {} and cols['labels'] == {} and cols['approved']['MF|EMH2'] == 1_200_000_000.0
+
+
+# ---- nhóm của form 2027 cho bảng điều chỉnh trên web (như sheet Review) ----
+def test_add_groups_follows_the_form_chain():
+    codes = {'MF': {'EM': 40, 'EMH': 41, 'EMH2': 43, 'EMA': 50, 'EMA7': 57, 'RM': 13, 'RM.AP': 14}}
+    groups = {'MF': {'groups': {'EM': dict(row=40, name='Chi phí quản lý', parent=None),
+                                'EMH': dict(row=41, name='Nhân sự', parent='EM'),
+                                'EMA': dict(row=50, name='Hành chính', parent='EM'),
+                                'RM': dict(row=13, name='Phí quản lý', parent=None)},
+                     'parent_of_row': {43: 'EMH', 57: 'EMA', 14: 'RM', 41: 'EM', 50: 'EM'}}}
+    items = [dict(fund='MF', code='EMH2'), dict(fund='MF', code='EMA7'), dict(fund='MF', code='RM.AP'),
+             dict(fund='MF', code='EMH'), dict(fund='CA', code='ZZ9')]
+    adjust.add_groups(items, codes=codes, groups=groups)
+    chain = {it['code']: [g['code'] for g in it['groups']] for it in items}
+    assert chain == {'EMH2': ['EM', 'EMH'], 'EMA7': ['EM', 'EMA'], 'RM.AP': ['RM'], 'EMH': ['EM'],
+                     'ZZ9': [adjust.OFF_FORM_GROUP]}
+    assert items[0]['groups'][1]['name'] == 'Nhân sự'
+    assert [it['order'] for it in items] == [43, 57, 14, 41, 10 ** 6]
+
+
+def test_add_groups_on_the_real_template():
+    items = adjust.add_groups([dict(fund='MF', code='ESS1'), dict(fund='MF', code='RM.AP')])
+    assert items[0]['groups'] and items[0]['groups'][0]['code'] == 'ES'
+    assert items[1]['groups'][0]['code'] == 'RM'

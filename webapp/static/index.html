@@ -191,6 +191,10 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj tr.par { background: var(--sav-surface); }
 #adj tr.par.dirty { background: #FFF8CC; }
 #adj tr.grp { background: var(--sav-total); }
+/* Nhóm của form 2027 (như sheet Review): dòng "Cộng <mã>" nhạt hơn dòng Thu/Chi, thụt theo cấp, nút thu/mở. */
+#adj tr.grp.sg td { background: var(--sav-panel); font-weight: 700; border-top: 1px solid var(--sav-rule); font-size: 13px; }
+#adj tr.grp.sg { background: var(--sav-panel); }
+#adj button.gtg { background: none; border: 0; font: 700 13px var(--sav-font); color: inherit; cursor: pointer; padding: 0 4px 0 0; }
 #adj td.unit { white-space: nowrap; font-size: 13px; color: var(--sav-muted); }
 #adj.hide-m .adj-mc, #adj.hide-rm .adj-rm { display: none; }
 @media (max-width: 700px) { #adj .p4 { position: static; box-shadow: none; } #adj .p3 { box-shadow: inset -1px 0 0 var(--sav-rule); } }
@@ -693,6 +697,8 @@ body.adj-full-on { overflow: hidden; }
           <label><input type="checkbox" id="adj-show-m" checked> Cột năm trước</label>
           <label><input type="checkbox" id="adj-show-rm" checked> Cột Remark</label>
           <button type="button" class="sm" id="adj-full" aria-pressed="false">Toàn màn hình</button>
+          <button type="button" class="sm" id="adj-gopen">Mở mọi nhóm</button>
+          <button type="button" class="sm" id="adj-gclose">Thu gọn mọi nhóm</button>
         </div>
         <div class="adj-tools" style="border-top:1px solid var(--sav-rule);padding-top:10px">
           <b style="font-size:14px">Trượt giá hàng loạt:</b>
@@ -1368,7 +1374,7 @@ async function openAdjust(id, slot) {
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { body.classList.add('hidden'); return; }
   document.getElementById('adj-title').textContent = d.kind === 'review' ? '3. Điều chỉnh ngân sách năm mới trước khi giao' : 'Điều chỉnh ngân sách';
-  adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set() };
+  adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set(), closed: new Set(), groups: {} };
   d.items.forEach(it => { it.remark0 = it.remark || ''; adj.orig[it.key] = snap(it); });
   body.classList.remove('hidden');
   document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
@@ -1418,12 +1424,32 @@ function renderAdjust() {
   const mk = adjMeasureKeys();
   const cols = (ap ? 13 : 12) + mk.length;
   let html = '';
-  // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng.
+  adj.groups = {};
+  // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng; trong đó các mã xếp và lồng theo nhóm của form 2027
+  // (như sheet Review): quỹ MF trước CA, theo dòng của template, mỗi nhóm một dòng "Cộng" thu/mở được.
+  const FUND_RANK = { MF: 0, CA: 1 };
   for (const sec of ['R', 'E']) {
-    const group = adj.items.filter(it => it.section === sec && visible(it));
+    const group = adj.items.map((it, i) => [it, i]).filter(([it]) => it.section === sec && visible(it))
+      .sort(([a, i], [b, j]) => ((FUND_RANK[a.fund] ?? 9) - (FUND_RANK[b.fund] ?? 9)) || ((a.order ?? 0) - (b.order ?? 0)) || (i - j))
+      .map(([it]) => it);
     if (!group.length) continue;
-    html += groupHead(sec, group);
+    adj.groups[sec] = { label: `${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã`, depth: 0, members: group };
+    html += groupHead(sec);
+    const stack = [];                                      // id các nhóm đang mở theo cấp
     for (const it of group) {
+      const chain = (it.groups || []).map(g => `${it.fund}:${g.code}`);
+      while (stack.length && stack.join('/') !== chain.slice(0, stack.length).join('/')) stack.pop();
+      for (let d = stack.length; d < chain.length; d++) {
+        const id = chain[d], g = it.groups[d];
+        const hidden = stack.some(s => adj.closed.has(s));
+        stack.push(id);
+        // Tên nhóm trên form là "English/ Tiếng Việt": trên web chỉ hiện phần tiếng Việt, tên đầy đủ để ở title.
+        const vi = g.name.includes('/') ? g.name.split('/').slice(1).join('/').trim() || g.name : g.name;
+        if (!adj.groups[id]) adj.groups[id] = { label: g.code === '__off_form__' ? `${g.name} (${it.fund})` : `Cộng ${g.code} · ${vi}`, full: g.name, fund: it.fund, depth: d + 1, members: [] };
+        if (!hidden) html += `<!--g:${id}-->`;             // dòng Cộng điền sau, khi đã biết đủ mã của nhóm
+      }
+      chain.forEach(id => adj.groups[id].members.push(it));
+      if (stack.some(s => adj.closed.has(s))) continue;
       const nw = itemNew(it), df = nw - it.amount;
       const open = adj.open.has(it.key) && it.has_subs;
       const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
@@ -1440,6 +1466,7 @@ function renderAdjust() {
       if (open) html += `<tr class="sub"><td colspan="${cols}">${subTable(it)}</td></tr>`;
     }
   }
+  html = html.replace(/<!--g:(.*?)-->/g, (_, id) => groupHead(id));
   adjTbody.innerHTML = html || `<tr><td colspan="${cols}">Không có mã nào khớp bộ lọc.</td></tr>`;
   renderAdjPreview();
 }
@@ -1482,19 +1509,22 @@ function unitCell(it) {
 })();
 
 // Dòng tổng của một khu vực (Thu hoặc Chi): số mã, cột năm trước, Duyệt, thành tiền gốc, mới, chênh lệch của các mã đang hiện.
-function groupHead(sec, group) {
+// Dòng tổng của một nhóm: khu vực Thu/Chi (id 'R'/'E') hoặc nhóm của form ('MF:EM'...), cộng các mã đang hiện của nhóm.
+function groupHead(id) {
+  const g = adj.groups[id], group = g.members, sub = g.depth > 0, closed = adj.closed.has(id);
   const ap = adj.data.has_approved;
   const o = group.reduce((a, i) => a + i.amount, 0), n = group.reduce((a, i) => a + itemNew(i), 0);
   const a = group.reduce((s, i) => s + (i.approved || 0), 0);
-  return `<tr class="grp" data-grp="${sec}"><td class="pin p1" colspan="4" style="width:auto;max-width:none">${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã</td><td></td>` +
+  const btn = sub ? `<button type="button" class="gtg" data-gtg="${esc(id)}" aria-expanded="${!closed}" title="${closed ? 'Mở nhóm' : 'Thu gọn nhóm'}">${closed ? '▸' : '▾'}</button>` : '';
+  const pad = sub ? `padding-left:${6 + 14 * (g.depth - 1)}px;` : '';
+  return `<tr class="grp${sub ? ' sg' : ''}" data-grp="${esc(id)}"><td class="pin p1" colspan="4" style="width:auto;max-width:none;${pad}"${g.full ? ` title="${esc(g.full)}"` : ''}>${btn}${esc(g.label)}${sub ? ` <small style="font-weight:400">(${group.length} mã)</small>` : ''}</td><td></td>` +
     adjMeasureKeys().map(k => `<td class="num adj-mc">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
     (ap ? `<td class="num">${vnd(a)}</td>` : '') + `<td colspan="2"></td>` +
     `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td class="adj-rm"></td></tr>`;
 }
 function refreshGroups() {
-  for (const sec of ['R', 'E']) {
-    const tr = adjTbody.querySelector(`tr.grp[data-grp="${sec}"]`);
-    if (tr) tr.outerHTML = groupHead(sec, adj.items.filter(it => it.section === sec && visible(it)));
+  for (const tr of adjTbody.querySelectorAll('tr.grp[data-grp]')) {
+    if (adj.groups[tr.dataset.grp]) tr.outerHTML = groupHead(tr.dataset.grp);
   }
 }
 
@@ -1576,6 +1606,13 @@ function refreshRow(it) {
   renderAdjPreview();
 }
 adjTbody.addEventListener('click', e => {
+  const gb = e.target.closest('button[data-gtg]');
+  if (gb) {
+    const id = gb.dataset.gtg;
+    adj.closed.has(id) ? adj.closed.delete(id) : adj.closed.add(id);
+    renderAdjust();
+    return;
+  }
   const b = e.target.closest('button[data-tg]');
   if (!b) return;
   const k = b.dataset.tg;
@@ -1585,6 +1622,12 @@ adjTbody.addEventListener('click', e => {
 ['adj-q', 'adj-fund', 'adj-sec', 'adj-only'].forEach(id => document.getElementById(id).addEventListener('input', renderAdjust));
 document.getElementById('adj-selall').addEventListener('click', () => { adj.items.filter(visible).forEach(i => adj.sel.add(i.key)); renderAdjust(); });
 document.getElementById('adj-selnone').addEventListener('click', () => { adj.sel.clear(); renderAdjust(); });
+document.getElementById('adj-gopen').addEventListener('click', () => { if (adj) { adj.closed.clear(); renderAdjust(); } });
+document.getElementById('adj-gclose').addEventListener('click', () => {
+  if (!adj) return;
+  Object.entries(adj.groups).forEach(([id, g]) => { if (g.depth === 1) adj.closed.add(id); });
+  renderAdjust();
+});
 document.getElementById('adj-bulk-go').addEventListener('click', () => {
   if (!adj.sel.size) { setAdjStatus('Chưa chọn mã nào: tick ô đầu dòng, hoặc lọc rồi bấm "Chọn mọi mã đang hiện".', true); return; }
   const pctv = Number(document.getElementById('adj-bulk').value);
