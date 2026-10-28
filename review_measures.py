@@ -92,9 +92,11 @@ BARE_MONTH_RX = re.compile(r'(?<![\d/.])(\d{1,2})\s*[./]\s*(20[1-4]\d)(?!\d)')
 YEAR_RX = re.compile(r'(?<!\d)(20[1-4]\d)(?!\d)')
 
 
-def parse_period(text, group, sheet_year):
+def parse_period(text, group, sheet_year, measure=None):
     """((y, m) first, (y, m) last, how) of a measure column from its own header, its month-group label and the
-    sheet's year; (None, None, 'unknown') when nothing gives a period."""
+    sheet's year; (None, None, 'unknown') when nothing gives a period. `measure` (the column's class) lets an
+    approved / expected column keep its header year over a month written in another style, and an actual column its
+    header month over the group label. The scan store imports this function (scan_budgets_v2)."""
     t = nfc(text or '')
     m = RANGE_RX.search(t)
     if m:
@@ -111,11 +113,18 @@ def parse_period(text, group, sheet_year):
         a = (int(m.group(2)), int(m.group(1)))
         return a, a, 'header_month'
     # a year in the column's own header wins over the month-group label: the label can pick up the sheet's Starting
-    # Month cell ("Expected Report Year 2025" under a 01/2026 head cell). The store read the label first.
+    # Month cell ("Expected Report Year 2025" under a 01/2026 head cell). An approved / expected column is a whole year
+    # even when its header also writes months the range pattern misses ("From 01,2024 to 12.2024"). Two years: the last.
     ys = YEAR_RX.findall(t)
-    if ys and not (MONTH_ONLY_RX.search(t) or ACTUAL_N_RX.search(t) or BARE_MONTH_RX.search(t)):
+    month_in_header = MONTH_ONLY_RX.search(t) or ACTUAL_N_RX.search(t) or BARE_MONTH_RX.search(t)
+    if ys and (measure in ('approved_prior', 'expected_year') or not month_in_header):
         y = int(ys[-1])
         return (y, 1), (y, 12), 'header_year'
+    # an actual column's own month ("01/2025 Actual") before the group label
+    m = BARE_MONTH_RX.search(t) if measure == 'actual' else None
+    if m and 1 <= int(m.group(1)) <= 12:
+        a = (int(m.group(2)), int(m.group(1)))
+        return a, a, 'header_month_bare'
     m = MONTH_RX.search(group or '')
     if m and 1 <= int(m.group(1)) <= 12:
         a = (int(m.group(2)), int(m.group(1)))

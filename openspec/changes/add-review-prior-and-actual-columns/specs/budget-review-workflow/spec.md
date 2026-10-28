@@ -18,6 +18,13 @@ N-1; for the other two: the year with most of their months is N-1). A column of 
 SHALL be listed in the import notes. A cumulative actual without its own period SHALL end the month before the sheet's
 "Total Expected From" column starts.
 
+A column's period SHALL come from its own header before the month label of the column group around it (a date cell or
+a "Tháng m/yyyy" label to its left, which can be the sheet's Starting Month): a month range or "from" month first; then,
+for an approved or expected column, a year in the header gives January–December of that year even when the header also
+writes a month in another style ("From 01,2024 to 12.2024"); for an actual column, a month in the header ("01/2025
+Actual") gives that month and a year without a month gives the whole year. A header naming two years takes the last
+one. Only a header without a year takes the group label.
+
 When several columns of one kind qualify on one fund, the reader SHALL take, in order: one that ties to its own R and E
 rows, one on a report sheet, one on a visible sheet, the one with more figures. Each column SHALL be read for every
 leaf line the approved figure is read for (on the fund sheet: the same rows and aggregate-row rules; on a report sheet:
@@ -41,6 +48,11 @@ baseline figure moves.
 #### Scenario: An actual column without its own period
 - **WHEN** a report sheet of a 2026 file has "Lũy kế" without dates and "Total Expected From 10/2025"
 - **THEN** the actual column SHALL be read as 01/2025–09/2025, 9 months
+
+#### Scenario: A year header under another year's group label
+- **WHEN** a 2026 file's approved column is headed "Approved Budget of Year 2025 (From 01,2025 to 12.2025)" and the
+  month label to its left reads 01/2026
+- **THEN** the column SHALL be read as 2025, January–December, 12 months
 
 #### Scenario: A file without the columns
 - **WHEN** the file has no approved, actual or expected column of year N-1

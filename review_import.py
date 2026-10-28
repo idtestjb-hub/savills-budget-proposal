@@ -575,7 +575,7 @@ def measure_candidates(F, sheet_name, sheet_kind, sheet_state):
                 nz += 1
             key = (lf['section'], CODE_ALIASES.get(lf['code'], lf['code']))
             values[key] = values.get(key, 0.0) + v
-        a, b, how = rm.parse_period(oh, group_label(c), sheet_year)
+        a, b, how = rm.parse_period(oh, group_label(c), sheet_year, cls)
         t = F['tie'](c, vals, gone, aggs) if seen else {'state': 'empty', 'notes': []}
         anchors = {s: _num(get(F['anchor_rows'][s], c)) for s in SECTIONS_COMPARED}
         cols.append(dict(measure=cls, header=rm.clean_header(oh)[:200], sheet=sheet_name, col=c + 1,

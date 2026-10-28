@@ -31,7 +31,13 @@ files are the reference for this change.
    `build_final_v2.py` with their regexes, and unit-tested on the header texts the store found (top headers per
    measure). One deliberate difference: a year in the column's own header is read before the
    month-group label, because the label can pick up the sheet's Starting Month cell (the store read "Expected Report
-   Year 2025" under a 01/2026 head cell as 01/2026). On the store's 1,402 headers `classify()` gives the same class. *Alternative:* import from `Savills-local`. Rejected: the scan lives outside the repo and the server has no
+   Year 2025" under a 01/2026 head cell as 01/2026). On the store's 1,402 headers `classify()` gives the same class.
+   *Amended 2026-10-28 (user's choice "Kho + web", task 7):* the period rule is one function for both. `parse_period`
+   takes the column's measure: an approved or expected column takes the year of its header even when the header also
+   writes a month in another style ("From 01,2024 to 12.2024", which the range pattern misses); an actual column takes
+   a bare month of its header ("01/2025 Actual") before the group label; two years in a header → the last one. The
+   scan (`scan_budgets_v2.py`) now imports `review_measures.parse_period` from the source folder it already reads
+   `budget_rows.py` from, so the two cannot drift; its build log records both files. *Alternative:* import from `Savills-local`. Rejected: the scan lives outside the repo and the server has no
    copy.
 
 2. **Read on the fund sheet and its report sheet, keep the fund's leaf rows.** For each fund the reader already picks a

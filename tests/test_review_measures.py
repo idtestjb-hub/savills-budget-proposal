@@ -41,6 +41,32 @@ def test_periods():
     assert rm.parse_period('Actual', 'tháng 3/2025', None)[:2] == ((2025, 3), (2025, 3))
 
 
+@pytest.mark.parametrize('header,group,measure,period', [
+    # headers as the store found them (project names removed); the group label is the one the store read first
+    ('Approved Budget of Year 2025/ Tổng Ngân sách được duyệt 2025', 'tháng 12/2026', 'approved_prior', ((2025, 1), (2025, 12))),
+    ('Approved Budget of Year 2023 (From BOC provided)/ Tổng Ngân sách được duyệt 2023', 'tháng 12/2022', 'approved_prior',
+     ((2023, 1), (2023, 12))),
+    # months written in a style the range pattern misses: still the header's whole year for an approved column
+    ('Approved Budget of Year 2024 (From 01,2024 to 12.2024)/ Tổng Ngân sách được duyệt 2024', 'tháng 1/2025', 'approved_prior',
+     ((2024, 1), (2024, 12))),
+    # two years in one header: the last one (user's choice 2026-10-28)
+    ('Approved Budget of Year 2024 (From 01-12/25)/ Tổng Ngân sách được duyệt 2025', 'tháng 12/2025', 'approved_prior',
+     ((2025, 1), (2025, 12))),
+    ('Expected Report Year 2023-2024 Báo cáo dự kiến', 'tháng 8/2024', 'expected_year', ((2024, 1), (2024, 12))),
+    ('Expected Report Year 2025 Báo cáo dự kiến', 'tháng 1/2026', 'expected_year', ((2025, 1), (2025, 12))),
+    # an actual column: its own month before the group label; a year alone is the whole year
+    ('01/2025 Actual', 'tháng 8/2025', 'actual', ((2025, 1), (2025, 1))),
+    ('01.2025 Y Actual', 'tháng 12/2024 tháng 1/2025', 'actual', ((2025, 1), (2025, 1))),
+    ('Báo cáo thực tế 2024 (không VAT)', 'tháng 1/2025', 'actual', ((2024, 1), (2024, 12))),
+    ('YEAR TO DATE/ SỐ LIỆU CỘNG DỒN TỪ 01/01/2024 ĐẾN 31/12/2024', 'tháng 1/2025', 'actual', ((2024, 1), (2024, 12))),
+    # no year in the header: the group label, as before
+    ('Actual', 'tháng 3/2025', 'actual', ((2025, 3), (2025, 3))),
+    ('Thực tế', 'tháng 10/2025', 'actual', ((2025, 10), (2025, 10))),
+])
+def test_period_header_before_group_label(header, group, measure, period):
+    assert rm.parse_period(header, group, None, measure)[:2] == period
+
+
 def _col(measure, header='', start=None, end=None, n=5, tie_ok=True, kind='budget', state='visible', how='header_year'):
     return dict(measure=measure, header=header, start=start, end=end, n_nonzero=n, tie_ok=tie_ok, sheet_kind=kind,
                 sheet_state=state, how=how)
