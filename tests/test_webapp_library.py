@@ -370,3 +370,79 @@ def test_api_overview_has_no_names_or_paths(client, store, tmp_path, monkeypatch
 def test_api_overview_is_a_separate_route_from_library(client):
     assert 'entries' in client.get('/api/library').json()
     assert 'entries' not in client.get('/api/library/overview').json()
+
+
+# ---- change add-prior-coverage-to-library-tab: độ phủ cột năm trước (prior_coverage.csv) ----
+def _write_prior(store_dir, rows, header=None):
+    """rows: (file_id, budget_year, status, n1, n1_tie, actual, actual_tie, expected, expected_tie)."""
+    header = header or (['file_id', 'budget_year', 'status', 'error_kind', 'n_year'] +
+                        [f'{k}_{f}' for k in ('n1', 'actual', 'expected') for f in ('kept', 'tie', 'period')] +
+                        ['built_at', 'code_commit'])
+    out = []
+    for f, y, st, a, at, b, bt, c, ct in rows:
+        out.append([f, y, st, '' if st == 'ok' else 'PriorBudgetError', y,
+                    a, at, '', b, bt, '', c, ct, '', '2026-10-28 09:00', 'abc1234'])
+    _write(os.path.join(store_dir, 'prior_coverage.csv'), header, out)
+
+
+def _store_dir():
+    return os.environ['BUDGET_WEB_LIBRARY_STORE']
+
+
+def test_overview_prior_counts_tie_to_the_coverage_file(store):
+    _write_prior(_store_dir(), [('aaa111', 2026, 'ok', 1, 1, 1, 0, 1, 1),        # đủ ba cột, Thực tế lệch tổng
+                                ('bbb222', 2025, 'ok', 1, 1, 0, 0, 0, 0),
+                                ('ddd444', 2023, 'error', 0, 0, 0, 0, 0, 0),
+                                ('zzz999', 2024, 'ok', 1, 1, 1, 1, 1, 1)])       # không còn trong kho: bỏ qua
+    p = library.overview()['prior']
+    assert p['available'] and p['built_at'] == '2026-10-28 09:00'
+    assert p['total'] == {'selectable': 3, 'read': 2, 'all3': 1, 'n1': 2, 'n1_tie': 2, 'actual': 1, 'actual_tie': 0,
+                          'expected': 1, 'expected_tie': 1}
+    by_year = {y['label']: y for y in p['years']}
+    assert set(by_year) == {'2023', '2025', '2026'}
+    assert by_year['2023']['selectable'] == 1 and by_year['2023']['read'] == 0 and by_year['2023']['n1'] == 0
+    assert by_year['2026']['all3'] == 1
+    assert p['total']['selectable'] == library.overview()['review']['selectable']
+    for k in ('selectable', 'read', 'n1', 'actual', 'expected', 'all3'):    # các năm cộng đúng dòng tổng
+        assert sum(y[k] for y in p['years']) == p['total'][k]
+
+
+def test_overview_prior_missing_or_stale_file(store):
+    p = library.overview()['prior']
+    assert p['available'] is False and 'prior_coverage.csv' in p['reason'] and 'total' not in p
+    _write_prior(_store_dir(), [('aaa111', 2026, 'ok', 1, 1, 1, 1, 1, 1)])     # thiếu 2 file chọn được
+    p = library.overview()['prior']
+    assert p['available'] is False and '2 file chọn được' in p['reason']
+
+
+def test_overview_prior_unreadable_file(store):
+    _write(os.path.join(_store_dir(), 'prior_coverage.csv'), ['file_id', 'status'], [('aaa111', 'ok')])
+    p = library.overview()['prior']
+    assert p['available'] is False and 'Không đọc được' in p['reason']
+
+
+def test_api_overview_prior_has_no_names(client, store):
+    _write_prior(_store_dir(), [('aaa111', 2026, 'ok', 1, 1, 1, 1, 1, 1), ('bbb222', 2025, 'ok', 0, 0, 0, 0, 0, 0),
+                                ('ddd444', 2023, 'ok', 0, 0, 0, 0, 0, 0)])
+    body = json.dumps(client.get('/api/library/overview').json()['prior'], ensure_ascii=False)
+    for f, n, rel, *_ in FILES:
+        assert n not in body and rel not in body and f not in body
+    for name in NAMES.values():
+        if name:
+            assert name not in body
+
+
+def test_builder_writes_one_row_per_selectable_file_without_names(store, tmp_path):
+    import build_prior_coverage as bpc
+    path, rows = bpc.build(workdir=str(tmp_path / 'tmp_cov'), other_names=set(), commit='abc1234',
+                           now=__import__('datetime').datetime(2026, 10, 28, 9, 0))
+    assert os.path.dirname(path) == _store_dir() and os.path.basename(path) == 'prior_coverage.csv'
+    assert sorted(r['file_id'] for r in rows) == ['aaa111', 'bbb222', 'ddd444']
+    text = open(path, encoding='utf-8-sig').read()
+    assert text.splitlines()[0].split(',') == list(bpc.COLUMNS)
+    for f, n, rel, *_ in FILES:
+        assert n not in text and rel not in text
+    assert all(r['status'] in ('ok', 'error') and r['built_at'] == '2026-10-28 09:00' for r in rows)
+    assert not os.listdir(tmp_path / 'tmp_cov')                     # bản chép đã xoá
+    library._cache['key'] = None
+    assert library.overview()['prior']['available']                  # web đọc được file vừa ghi

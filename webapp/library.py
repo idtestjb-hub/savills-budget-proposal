@@ -288,14 +288,62 @@ def _read_usage():
         return None, 'Không đọc được file phân loại của bảng giá thực tế (Ref_RealBudgetUsage.csv).'
 
 
+# ---- Độ phủ cột năm trước (N-1) đo bằng bộ đọc Review (change add-prior-coverage-to-library-tab) ----
+PRIOR_FILE = 'prior_coverage.csv'
+PRIOR_KINDS = (('n1', 'Duyệt N-1'), ('actual', 'Thực tế N-1'), ('expected', 'Dự kiến N-1'))
+PRIOR_COLUMNS = ('file_id', 'budget_year', 'status') + tuple(f'{k}_{f}' for k, _ in PRIOR_KINDS for f in ('kept', 'tie'))
+
+
+def _prior_coverage(entries_):
+    """Khối 'prior' của overview(): số file chọn được / đọc được / có từng cột N-1 (quỹ MF) theo năm của kho, từ
+    prior_coverage.csv (build_prior_coverage.py). available=False kèm lý do khi thiếu file hoặc file không phủ hết."""
+    sel = [e for e in entries_ if e['selectable']]
+    path = os.path.join(store_dir(), PRIOR_FILE)
+    if not os.path.isfile(path):
+        return dict(available=False, reason='Chưa đo cột năm trước cho kho này (thiếu prior_coverage.csv). '
+                                            'Chạy build_prior_coverage.py rồi cập nhật server để xem phần này.')
+    try:
+        rows = _read_csv(path)
+        if not rows or any(c not in rows[0] for c in PRIOR_COLUMNS):
+            raise ValueError('thiếu cột')
+        cov = {r['file_id']: r for r in rows}
+    except (OSError, ValueError, KeyError, csv.Error):
+        return dict(available=False, reason='Không đọc được prior_coverage.csv.')
+    missing = sum(e['id'] not in cov for e in sel)
+    if missing:
+        return dict(available=False, reason=f'Số đo cột năm trước đã cũ: {missing} file chọn được của kho chưa được đo. '
+                                            'Chạy lại build_prior_coverage.py rồi cập nhật server.')
+    flag = lambda r, k, f: r['status'] == 'ok' and str(r.get(f'{k}_{f}')) == '1'  # noqa: E731
+
+    def count(es):
+        rs = [cov[e['id']] for e in es]
+        c = dict(selectable=len(rs), read=sum(r['status'] == 'ok' for r in rs),
+                 all3=sum(all(flag(r, k, 'kept') for k, _ in PRIOR_KINDS) for r in rs))
+        for k, _ in PRIOR_KINDS:
+            c[k], c[k + '_tie'] = sum(flag(r, k, 'kept') for r in rs), sum(flag(r, k, 'kept') and flag(r, k, 'tie')
+                                                                          for r in rs)
+        return c
+    years = sorted({str(e['year']) for e in sel if e['year']}) + ([UNKNOWN_YEAR] if any(not e['year'] for e in sel)
+                                                                    else [])
+    built = sorted({r.get('built_at', '') for r in rows if r.get('built_at')})
+    return dict(available=True, reason='', built_at=built[-1] if built else '',
+                kinds=[dict(key=k, label=lab) for k, lab in PRIOR_KINDS],
+                years=[dict(year=y, label=y or 'Chưa rõ',
+                            **count([e for e in sel if (str(e['year']) if e['year'] else UNKNOWN_YEAR) == y]))
+                       for y in years],
+                total=count(sel))
+
+
 def overview():
     """Số tổng hợp cho tab Kho ngân sách. Hai view: 'review' (chọn được hay không) và 'ranges' (dùng cho bảng giá thực tế).
-    'ranges' chỉ có khi file phân loại khớp đúng các file của kho; không thì available=False kèm lý do. Không có tên."""
+    'ranges' chỉ có khi file phân loại khớp đúng các file của kho; không thì available=False kèm lý do. 'prior': độ phủ
+    cột năm trước của các file chọn được (_prior_coverage). Không có tên."""
     entries_ = entries()
     out = dict(total=len(entries_), message='' if entries_ else 'Không tìm thấy kho ngân sách trên máy chủ này.')
     out['review'] = _tally(entries_, lambda e: 'selectable' if e['selectable'] else 'not_selectable',
                            lambda e: e.get('reason_kind', ''), CLASS_ORDER, REVIEW_CLASS_VI, REVIEW_REASON_VI)
     out['review']['selectable'] = sum(e['selectable'] for e in entries_)
+    out['prior'] = _prior_coverage(entries_) if entries_ else dict(available=False, reason='Không có kho.')
     if not entries_:
         out['ranges'] = dict(available=False, reason='Không có kho để đối chiếu.')
         return out

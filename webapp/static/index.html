@@ -766,6 +766,11 @@ body.adj-full-on { overflow: hidden; }
               <table class="sm" id="kho-reasons"></table>
             </div>
           </div>
+          <div id="kho-prior" hidden>
+            <h3 style="font-size:14px;margin:16px 0 4px">Cột năm trước (N-1) khi chạy Review</h3>
+            <p class="src" id="kho-prior-note" style="margin:0 0 6px"></p>
+            <table class="sm" id="kho-prior-t"></table>
+          </div>
         </div>
         <p class="src">Chỉ có số đếm, không có tên file hay tên dự án. Năm là năm ngân sách xác định khi quét kho; "Chưa rõ" là file chưa xác định được năm. NFA là diện tích thu phí.</p>
       </div>
@@ -1065,6 +1070,24 @@ function renderKho() {
     '<thead><tr><th>Loại file</th>' + view.classes.map(c => `<th class="n">${esc(c.label)}</th>`).join('') + '<th class="n">Tổng</th></tr></thead><tbody>' +
     view.types.map(t => `<tr><td>${esc(t.label)}</td>` + view.classes.map(c => `<td class="n">${t.counts[c.key] ? fmt(t.counts[c.key]) : '–'}</td>`).join('') + `<td class="n">${fmt(t.total)}</td></tr>`).join('') +
     `</tbody><tfoot><tr><td>Tổng</td>${view.classes.map(c => `<td>${fmt(c.count)}</td>`).join('')}<td>${fmt(khoData.total)}</td></tr></tfoot>`;
+  renderKhoPrior();
+}
+
+// Độ phủ cột năm trước (N-1) của các file chọn được, đo bằng bộ đọc Review (prior_coverage.csv); chỉ ở view Review.
+function renderKhoPrior() {
+  const box = document.getElementById('kho-prior'), p = khoData.prior;
+  box.hidden = khoView !== 'review' || !p;
+  if (box.hidden) return;
+  const note = document.getElementById('kho-prior-note'), t = document.getElementById('kho-prior-t');
+  if (!p.available) { note.textContent = p.reason; t.innerHTML = ''; return; }
+  note.textContent = `Số file chọn được mà Review thêm được cột năm trước của quỹ quản lý vận hành (đúng năm N-1, khớp tổng ghi trong ngoặc). ` +
+    `Đo bằng chính bộ đọc của Review${p.built_at ? ' lúc ' + p.built_at : ''}.`;
+  const cell = (c, k) => c[k] ? `${fmt(c[k])}${c[k + '_tie'] !== c[k] ? ` <small>(${fmt(c[k + '_tie'])} khớp)</small>` : ''}` : '–';
+  const tr = (lab, c, tag) => `<tr><${tag}>${esc(lab)}</${tag}><${tag} class="n">${fmt(c.selectable)}</${tag}><${tag} class="n">${fmt(c.read)}</${tag}>` +
+    p.kinds.map(k => `<${tag} class="n">${cell(c, k.key)}</${tag}>`).join('') + `<${tag} class="n">${c.all3 ? fmt(c.all3) : '–'}</${tag}></tr>`;
+  t.innerHTML = '<thead><tr><th>Năm NS</th><th class="n">Chọn được</th><th class="n">Đọc được</th>' +
+    p.kinds.map(k => `<th class="n">${esc(k.label)}</th>`).join('') + '<th class="n">Đủ 3 cột</th></tr></thead><tbody>' +
+    p.years.map(y => tr(y.label, y, 'td')).join('') + '</tbody><tfoot>' + tr('Tổng', p.total, 'td') + '</tfoot>';
 }
 
 document.getElementById('kho-v-review').addEventListener('click', () => { khoView = 'review'; renderKho(); });
