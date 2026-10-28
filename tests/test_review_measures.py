@@ -65,6 +65,15 @@ def test_flags():
     assert 'khong_ro_ky' in rm.flags_of(_col('actual', 'Thực tế'))
 
 
+def test_store_name_without_letters_is_not_another_project():
+    # TEST DATA: a store entry named "2023" (from a file 2023.pdf) must not reject every 2023 column
+    names = {'2023', '2024-2025', 'ZZ OTHER TOWER'}
+    assert rm.flags_of(_col('approved_prior', 'ZZ TEST TOWER Approved budget of Year 2023', (2023, 1), (2023, 12)),
+                       own_name='ZZ TEST TOWER', other_names=names) == []
+    assert 'du_an_khac' in rm.flags_of(_col('approved_prior', 'ZZ OTHER TOWER Approved budget of Year 2023',
+                                            (2023, 1), (2023, 12)), own_name='ZZ TEST TOWER', other_names=names)
+
+
 def test_year_check_is_n_minus_1():
     assert rm.year_ok(_col('approved_prior', start=(2025, 1), end=(2025, 12)), 2026)
     assert not rm.year_ok(_col('approved_prior', start=(2026, 1), end=(2026, 12)), 2026)     # "Approved … 2026" in a 2026 file

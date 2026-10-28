@@ -161,7 +161,9 @@ def flags_of(col, own_name='', other_names=(), saved_month=None):
     if re.search(r'\bAAA\b', h):
         flags.append('mau_AAA')
     own = nfc(own_name or '').strip().upper()
-    other = [n for n in other_names if n and n != own and n in h and not (own and (n in own or own in n))]
+    # a store "name" without a letter (e.g. "2023" from a file named 2023.pdf) would match every header of that year
+    other = [n for n in other_names if n and re.search(r'[^\W\d_]', n) and n != own and n in h
+             and not (own and (n in own or own in n))]
     if other or re.search(r'tham khảo', col['header'] or '', re.I):
         flags.append('du_an_khac')
     if col['measure'] == 'actual' and col['start'] and saved_month and col['end'] > saved_month:
