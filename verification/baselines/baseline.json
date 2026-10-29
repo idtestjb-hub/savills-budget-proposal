@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-10-22T17:25:42+07:00",
-  "reason": "Change widen-real-budget-store, signed off 2026-10-22: the real-budget ranges now hold 55 projects instead of 44 (six departmental, 2022 and no-code budgets read through reviewed code maps, two 2021 forms tied on R and E, three files with a checked NFA). RM.AP median rises 4.0 percent, so the standard sample apartment rate moves 17,959 to 18,671 VND/m2/month and the management fee, profit, margin and markup follow. Generator code unchanged; only Ref_RealBudgetValues.csv changed.",
+  "recorded_at": "2026-10-28T18:56:40+07:00",
+  "reason": "2026-10-28 change budget-year-by-most-months: the 01/10/2026 diesel listed price 29,710 VND/l carries no VAT (fuel outside output VAT to 31/12/2026, Nghi quyet 43/2026/NQ-CP), not 8% as recorded; 2027 diesel = 29,710 x 1.10 = 32,681 VND/l instead of 30,260, so opex_diesel_annual +7,666,512 VND (+8.0%) and opex, profit, margin, markup move by that amount only.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -42,7 +42,7 @@
       "where": "Summary!R38C2"
     },
     "opex_annual": {
-      "value": 3572040564.0,
+      "value": 3579707076.0,
       "unit": "VND",
       "where": "Summary!R39C2"
     },
@@ -52,17 +52,17 @@
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 995532277.3782415,
+      "value": 987712435.3782415,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.08040156784501593,
+      "value": 0.07977001870152048,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.08743117107823156,
+      "value": 0.08668487261082491,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },
@@ -112,7 +112,7 @@
       "where": "OPEX!'Water' row 7, col 3"
     },
     "opex_diesel_annual": {
-      "value": 95831412.0,
+      "value": 103497924.0,
       "unit": "VND",
       "where": "OPEX!'Diesel (Generator Fuel)' row 8, col 3"
     },

@@ -4146,7 +4146,7 @@ def build_real_budget_ranges_sheet(wb, project, demand, staff):
     staff_lump = False
     if project.get('existing') is not None:
         from generate_project_budget import _staff_is_lump
-        staff_lump = _staff_is_lump(existing_result(project, demand, project['budget_period'].start_year))
+        staff_lump = _staff_is_lump(existing_result(project, demand, project['budget_period'].budget_year))
     results = real_budget_range_results(project, demand, incl_vat, staff_lump=staff_lump)
     rows = rbr.load_values()
     bp = project.get('budget_period') or budget_period.default()
@@ -4286,7 +4286,7 @@ def main():
     project, ratios, month, year, holiday_days, demand = read_input(INPUT_PATH)
     if project.get('utilities') is not None:
         # Existing-project EEE.C / EEW.C, on the same budget year and VAT basis as the deliverable.
-        project['utilities_result'] = utilities_result(project, project['budget_period'].start_year, template_vat_inclusive())
+        project['utilities_result'] = utilities_result(project, project['budget_period'].budget_year, template_vat_inclusive())
 
     wb = openpyxl.Workbook()
     ws_summary = wb.active
@@ -4307,7 +4307,7 @@ def main():
     build_owner_operating_position_sheet(wb, project, mgmt, summary, year1_strategy)
     build_savills_fee_position_sheet(wb, project, mgmt, summary)
     if project.get('existing') is not None:
-        build_staff_bridge_sheet(wb, existing_result(project, demand, project['budget_period'].start_year))
+        build_staff_bridge_sheet(wb, existing_result(project, demand, project['budget_period'].budget_year))
     if project.get('utilities_result') is not None:
         build_utility_bridge_sheet(wb, project['utilities_result'])
     build_real_budget_ranges_sheet(wb, project, demand, staff)

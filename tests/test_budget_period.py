@@ -43,3 +43,10 @@ def test_invalid_values_stop_and_name_the_field(value):
 
 def test_label_text():
     assert bp.from_value('09/2026').label() == '01/09/2026–31/08/2027'
+
+
+@pytest.mark.parametrize('start, year', [('01/2027', 2027), ('08/2025', 2026), ('07/2027', 2028), ('06/2027', 2027),
+                                         ('09/2026', 2027), ('12/2026', 2027)])
+def test_budget_year_is_the_year_holding_most_months(start, year):
+    # change budget-year-by-most-months: a 6/6 split takes the later year
+    assert bp.from_value(start).budget_year == year

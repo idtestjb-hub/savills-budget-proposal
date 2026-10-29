@@ -170,6 +170,14 @@ def test_diesel_listed_price_is_split_and_repriced_at_the_month_vat(tmp_path):
         ut.diesel_price(2026, 9, 'DO test', rows=rows)
 
 
+def test_diesel_own_vat_row_overrides_the_general_rate(tmp_path):
+    rows = _rows(tmp_path, BASE_ROWS + ['vat,diesel,vat_pct,0,%,2026-11-01,2026-12-31,,Resolution H,,2026-10-28,'])
+    assert ut.diesel_price(2026, 10, 'DO test', rows=rows).vat_pct == 8      # no own row yet: general rate
+    nov = ut.diesel_price(2026, 11, 'DO test', rows=rows)
+    assert nov.vat_pct == 0 and nov.gross() == pytest.approx(20000)
+    assert ut.diesel_price(2027, 1, 'DO test', rows=rows).vat_pct == 10      # own row ended: general rate again
+
+
 def test_a_second_water_group_has_its_own_base_but_the_same_charges(tmp_path):
     rows = _rows(tmp_path)
     p = ut.LineTariff(ut.WATER, category=ut.CAT_W_BUSINESS, region=ut.HCMC, rows=rows).month(2027, 1)
@@ -180,9 +188,19 @@ def test_real_table_general_vat_insurance_diesel_and_water_groups():
     rows = ut.load_rows()
     assert ut.vat_rate(2026, 12, rows=rows) == 8 and ut.vat_rate(2027, 1, rows=rows) == 10
     assert ut.vat_rate(2026, 12, ut.VAT_INSURANCE, rows=rows) == 10
+    # change budget-year-by-most-months: the 01/10/2026 listed price carries no VAT (fuel outside output VAT to 31/12/2026)
     d = ut.diesel_price(2027, 1, rows=rows)
-    assert d.listed == 29710 and d.listed_vat_pct == 8
-    assert d.gross() == pytest.approx(29710 / 1.08 * 1.10) and round(d.gross()) == 30260
+    assert d.listed == 29710 and d.listed_vat_pct == 0 and d.vat_pct == 10
+    assert round(d.gross()) == 32681
+    # monthly history: the price in force at 00:00 on the 1st, at diesel's own VAT where it differs from the general rate
+    jan25 = ut.diesel_price(2025, 1, rows=rows)
+    assert jan25.listed == 18630 and jan25.vat_pct == 10 and jan25.gross() == pytest.approx(18630)
+    assert ut.diesel_price(2025, 7, rows=rows).listed == 19340          # set at 00:00 on 01/07/2025
+    apr26 = ut.diesel_price(2026, 4, rows=rows)
+    assert apr26.listed == 35440 and apr26.vat_pct == 0 and apr26.gross() == pytest.approx(35440)
+    for y in (2024, 2025, 2026):
+        for m in range(1, 13 if y < 2026 else 10):
+            assert ut.diesel_price(y, m, rows=rows).rows['listed_price']['source_url']
     biz = ut.LineTariff(ut.WATER, category=ut.CAT_W_BUSINESS, region=ut.HCMC, rows=rows)
     adm = ut.LineTariff(ut.WATER, category=ut.CAT_W_ADMIN, region=ut.HCMC, rows=rows)
     # all-in per m3: base x 1.05 + 30% drainage charge x (1 + month's VAT)

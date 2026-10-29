@@ -87,7 +87,8 @@ def test_water_remark_flags_a_project_outside_hcmc(tmp_path):
 
 def test_diesel_remark_cites_the_listing_date_and_the_re_taxed_price(tmp_path):
     text = gpb._energy_narrative_vi('Diesel (Generator Fuel)', _project(tmp_path), '2027')
-    assert '01/10/2026' in text and '29,710' in text and '30,260' in text and 'DO 0,05S-II' in text
+    assert '01/10/2026' in text and '29,710' in text and '32,681' in text and 'DO 0,05S-II' in text
+    assert 'chưa gồm VAT' in text and 'VAT 0%' not in text      # the 01/10/2026 price carries no VAT
 
 
 def test_electricity_remark_states_the_price_before_vat_and_the_month_vat(tmp_path, monkeypatch):

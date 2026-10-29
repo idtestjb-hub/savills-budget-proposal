@@ -6,4 +6,4 @@
 ## 2. Sign-off
 
 - [x] 2.1 Web tests and full suite pass; `openspec validate --all --strict`; `python verification/verify.py` PASS. Done 2026-10-28: 1281 passed + 1 xfailed, openspec 47/47, verify.py PASS.
-- [ ] 2.2 Release note for [Hub]; `docs/project-status.md` updated.
+- [x] 2.2 Release note for [Hub]; `docs/project-status.md` updated. Deployed by [Hub] P14 2026-10-28 18:37 (content id c4fd229dadfe).

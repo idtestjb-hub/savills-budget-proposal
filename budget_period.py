@@ -82,6 +82,14 @@ class BudgetPeriod:
         return datetime.date(y, m, calendar.monthrange(y, m)[1])
 
     @property
+    def budget_year(self):
+        """The budget's year: the calendar year holding most of the twelve months, the later one on a 6/6 split
+        (change budget-year-by-most-months). The Savills form calls 09/2026-08/2027 "2027"; the Review import and the
+        scan store name an approved file's year the same way."""
+        years = [y for y, _ in self.months]
+        return max(set(years), key=lambda y: (years.count(y), y))
+
+    @property
     def calendar_years(self):
         return sorted({y for y, _ in self.months})
 

@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-10-22T17:26:34+07:00",
-  "reason": "Change widen-real-budget-store, signed off 2026-10-22: same Ref_RealBudgetValues.csv rebuild (55 projects instead of 44, RM.AP median +4.0 percent). The ramped year-1 figures follow the new apartment rate: collected fee, developer share and estimated surplus. Generator code unchanged.",
+  "recorded_at": "2026-10-28T18:58:50+07:00",
+  "reason": "2026-10-28 change budget-year-by-most-months: the 01/10/2026 diesel listed price 29,710 VND/l carries no VAT (fuel outside output VAT to 31/12/2026, Nghi quyet 43/2026/NQ-CP), not 8%; 2027 diesel 32,681 instead of 30,260 VND/l, so the year-1 surplus falls by the ramped diesel cost only (7,779,943 VND).",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -42,7 +42,7 @@
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 1384845008.9467125,
+      "value": 1377065066.0131454,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     },

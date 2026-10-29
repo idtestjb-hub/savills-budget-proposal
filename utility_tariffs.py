@@ -31,13 +31,16 @@ ELECTRICITY = 'electricity'
 WATER = 'water'
 UTILITIES = (ELECTRICITY, WATER)        # the lines LineTariff prices
 # Rows that are not a line of their own (change apply-head-of-pm-decisions-2026-10, group 2):
-VAT = 'vat'            # the VAT rates; category 'general' or 'insurance'
+VAT = 'vat'            # the VAT rates; category 'general', 'insurance' or 'diesel'
 DIESEL = 'diesel'      # the listed pump price, which already carries VAT
 ROW_UTILITIES = UTILITIES + (VAT, DIESEL)
 COMPONENTS = ('base', 'wastewater_pct', 'vat_pct', 'wastewater_vat_pct', 'listed_price', 'listed_vat_pct')
 VAT_GENERAL = 'general'
 VAT_INSURANCE = 'insurance'
 VAT_KINDS = (VAT_GENERAL, VAT_INSURANCE)
+# Diesel's own VAT rate where it differs from the general one (0% from 27/03/2026, Nghị quyết 19/2026/QH16 and its
+# extensions; change budget-year-by-most-months). A month without such a row uses the general rate.
+VAT_DIESEL = 'diesel'
 HCMC = 'TP.HCM'
 
 CAT_E_LT6 = 'Hành chính sự nghiệp, dưới 6 kV'
@@ -181,7 +184,8 @@ class DieselPrice:
 
 
 def diesel_price(year, month, category=CAT_DIESEL, rows=None, path=UTILITY_TARIFF_CSV):
-    """The DieselPrice for a budget month: the latest listed price on or before the 1st of the month."""
+    """The DieselPrice for a budget month: the latest listed price on or before the 1st of the month, re-priced at
+    diesel's own VAT rate of the month where the table has one, else the general rate."""
     rows = load_rows(path) if rows is None else rows
     day = datetime.date(year, month, 1)
     used = {}
@@ -191,10 +195,11 @@ def diesel_price(year, month, category=CAT_DIESEL, rows=None, path=UTILITY_TARIF
             raise TariffError(f'Ref_UtilityTariffs.csv has no diesel {comp} for "{category}" in force on '
                               f'{day.strftime("%d/%m/%Y")}.')
         used[comp] = r
-    general = vat_row(rows, year, month, VAT_GENERAL)
-    used['vat_pct'] = general
+    own = _in_force(_candidates(rows, VAT, 'vat_pct', VAT_DIESEL, ''), day)
+    vat = own if own is not None else vat_row(rows, year, month, VAT_GENERAL)
+    used['vat_pct'] = vat
     return DieselPrice(year, month, used['listed_price']['value'], used['listed_vat_pct']['value'],
-                       general['value'], used)
+                       vat['value'], used)
 
 
 class MonthPrice:

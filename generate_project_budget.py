@@ -1522,7 +1522,9 @@ def _energy_narrative_vi(category, project, yr):
     if d:
         bp = project.get('budget_period') or budget_period.default()
         price = (f"Giá dầu DO 0,05S-II Vùng 1 niêm yết ngày {d['as_of'].strftime('%d/%m/%Y')} là "
-                 f"{d['listed']:,.0f} đ/lít đã gồm VAT {d['listed_vat']:g}%; quy đổi theo VAT từng tháng "
+                 f"{d['listed']:,.0f} đ/lít "
+                 + (f"đã gồm VAT {d['listed_vat']:g}%" if d['listed_vat'] else "chưa gồm VAT (xăng dầu tạm không tính thuế GTGT)")
+                 + "; quy đổi theo VAT từng tháng "
                  f"({_rate_phrase(bp.months, d['vat_by_month'])}) là {tariff:,.0f} {tunit}"
                  + (" tháng đầu" if len(set(e.get('tariff_by_month', []))) > 1 else "") + ".")
     else:
@@ -2307,7 +2309,7 @@ def real_budget_range_results(project, demand, incl_vat, staff_lump=False):
               else "chưa cộng VAT theo mô hình tài chính đã chọn")
     return real_budget_ranges.price_all(
         real_budget_ranges.load_values(), nfa=project['total_nfa'], vat_rate=rates[0] / 100,
-        vat_inclusive=incl_vat, budget_year=bp.start_year, self_name=project['name'],
+        vat_inclusive=incl_vat, budget_year=bp.budget_year, self_name=project['name'],
         has_pool=project.get('has_pool'), tower_count=project.get('towers'),
         inhouse_pool_staff=_inhouse_pool_staff(demand), staff_lump=staff_lump, vat_factors=factors, vat_clause=clause)
 
@@ -4861,12 +4863,13 @@ def build_budget(project, demand, year):
     # The budget period (change apply-head-of-pm-decisions-2026-10, group 1): the fund sheet's twelve month columns
     # start from AH6 (its month headers and the ramp sheets all read it), so the template's own 01/09/2026-31/08/2027
     # was being shown beside a summary that said calendar 2027. One period, written to every place that shows it,
-    # and AL5 (the budget year the narratives quote) is the period's first year.
+    # and AL5 (the budget year the narratives quote) is the year holding most of its months (change
+    # budget-year-by-most-months: 08/2025-07/2026 is 2026, as the form and the PM files name it).
     _period = project['budget_period']
     _fund = wb['2. Budget-Management Fund']
     _fund['AH6'] = datetime.datetime.combine(_period.first_day, datetime.time())
     _fund['AL6'] = datetime.datetime.combine(_period.last_day, datetime.time())
-    _fund['AL5'] = _period.start_year
+    _fund['AL5'] = _period.budget_year
     wb['1. Summary']['H4'] = datetime.datetime.combine(_period.first_day, datetime.time())
     wb['1. Summary']['H5'] = datetime.datetime.combine(_period.last_day, datetime.time())
 
