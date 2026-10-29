@@ -15,7 +15,7 @@
 
 - [x] 2.1 `webapp/library.py`: `review_unread` reason from `prior_coverage.csv`; `build_prior_coverage.py` measures without it
 - [x] 2.2 `webapp/static/index.html`: `#adj-prev` and `#adj-res-t` in a sideways-scrolling box
-- [ ] 2.3 Rebuild `prior_coverage.csv`, copy into `_kho_quet`; tests for 2.1
+- [x] 2.3 Rebuild `prior_coverage.csv`, copy into `_kho_quet`; tests for 2.1
 
 ## 3. Verify
 

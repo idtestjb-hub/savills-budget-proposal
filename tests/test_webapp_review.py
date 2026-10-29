@@ -5,6 +5,7 @@ file ngân sách bịa của tests/test_review_import.py (bỏ qua khi máy khô
 """
 import json
 import os
+import threading
 import time
 
 import openpyxl
@@ -182,9 +183,22 @@ def test_api_input_for_clone(client, runs_dir):
 
 # ---- API: api/reviews (worker giả) -------------------------------------------------------------------
 
+class _Seen(dict):
+    """What the fake worker saw. The worker runs on the server's own thread, so a read waits for it to finish (a
+    read right after the POST lost that race now and then: KeyError 'run')."""
+
+    def __init__(self):
+        super().__init__()
+        self.done = threading.Event()
+
+    def __getitem__(self, key):
+        self.done.wait(10)
+        return super().__getitem__(key)
+
+
 @pytest.fixture
 def fake_worker(monkeypatch):
-    seen = {}
+    seen = _Seen()
 
     def worker(run_id):
         run = server._runs[run_id]
@@ -197,6 +211,7 @@ def fake_worker(monkeypatch):
         run['finished'] = '2026-10-20T10:00:05'
         history.write_meta(run['workdir'], status='done', rc=0)
         server._active['id'] = None
+        seen.done.set()
 
     monkeypatch.setattr(server, '_worker', worker)
     return seen

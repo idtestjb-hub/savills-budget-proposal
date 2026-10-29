@@ -24,5 +24,5 @@
 ## 5. Verify and hand over
 
 - [x] 5.1 Full test suite, `openspec validate --all --strict`, `python verification/verify.py` PASS
-- [ ] 5.2 Dry run of `prune_failed` on a copy of a local runs folder (list of what would go); write the dry-run command into the release note for [Hub]
+- [x] 5.2 Dry run of `prune_failed` on a copy of a local runs folder (list of what would go); write the dry-run command into the release note for [Hub]
 - [ ] 5.3 Release note `releases\YYYY-MM-DD-budget-web-log-review.txt`; deploy through [Hub]; after the deploy, check one Review on the server leaves `generator.log`
