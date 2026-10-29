@@ -46,6 +46,7 @@ section h2 { font-size: 16px; font-weight: 700; margin: 0 0 12px; text-transform
 .field:last-child { border-bottom: 0; }
 .field label { color: var(--sav-text); }
 .field small { display: block; color: var(--sav-muted); font-size: 12px; }
+.field small.fsrc { margin-top: 3px; color: var(--sav-link); }
 input, select { font: 15px var(--sav-font); color: var(--sav-text); background: var(--sav-surface);
   border: 1px solid var(--sav-rule); padding: 6px 8px; width: 100%; text-align: right; }
 input[type=text] { text-align: left; }
@@ -969,6 +970,71 @@ document.querySelector('#lib tbody').addEventListener('click', e => {
   document.getElementById('lib-picked').textContent = `Đã chọn: ${libPick.project}, năm ${libPick.year || '?'} (${libPick.file_name}).` +
     (libPick.confidence !== 'high' || libPick.confidence_note ? ` ${libPick.confidence_vi}${libPick.confidence_note ? ': ' + libPick.confidence_note : ''}.` : '');
   renderLibrary();
+  prefillFacts(libPick);
+});
+
+// Mục 2 điền sẵn khi chọn một dòng kho (change prefill-review-facts): lượt trước cùng dự án > sheet 0. Info > danh sách
+// master. Mỗi ô ghi nguồn, và số của nguồn khác khi khác nhau. PM sửa ô nào thì trang gửi số PM.
+const FACT_KEYS = ['city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots', 'moto_slots'];
+function factNote(key, text) {
+  const el = formReview.elements[key];
+  if (!el) return;
+  const box = el.closest('.field');
+  let n = box.querySelector('.fsrc');
+  if (!n) { n = document.createElement('small'); n.className = 'fsrc'; box.appendChild(n); }
+  n.textContent = text || '';
+  n.dataset.text = text || '';
+}
+function factShown(key, v) {
+  if (key === 'has_pool') return v === 'Yes' ? 'có' : 'không';
+  return typeof v === 'number' ? v.toLocaleString('vi-VN') : v;
+}
+// Giá trị của ô tỉnh cho một tên tỉnh: tên trong danh sách, Hồ Chí Minh cho các cách viết TP.HCM, null nếu không nhận ra.
+function cityOption(el, v) {
+  const f = foldVi(v).replace(/^(thanh pho|tp|tinh) /, '').replace(/ city$/, '');
+  if (/(^| )(ho chi minh|hcm|tphcm|sai gon|saigon)( |$)/.test(f)) return DEFAULT_CITY;
+  const hit = [...el.options].find(o => foldVi(o.value) === f);
+  return hit ? hit.value : null;
+}
+async function prefillFacts(pick) {
+  for (const k of FACT_KEYS) {
+    const el = formReview.elements[k];
+    if (!el) continue;
+    el.value = k === 'city' ? DEFAULT_CITY : '';
+    factNote(k, '');
+  }
+  let d;
+  try {
+    const r = await fetch(`${PREFIX}/api/library/${encodeURIComponent(pick.id)}/facts`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+    d = await r.json();
+  } catch (e) { setStatus('Không lấy được dữ kiện điền sẵn: ' + e.message, true, 'review'); return; }
+  if (libPick !== pick) return;        // PM đã chọn dòng khác trong lúc chờ
+  let filled = 0;
+  for (const [k, f] of Object.entries(d.fields)) {
+    const el = formReview.elements[k];
+    if (!el) continue;
+    if (k === 'city') {
+      const opt = cityOption(el, f.value);
+      if (!opt) { factNote(k, `${f.label} ghi "${f.value}", không phải tên tỉnh trong danh sách: chọn tay`); continue; }
+      el.value = opt;
+    } else el.value = f.value;
+    filled++;
+    const others = f.others.map(o => `${o.label} ${factShown(k, o.value)}`).join(' · ');
+    factNote(k, `Nguồn: ${f.label}` + (others ? ` · khác: ${others}` : ''));
+  }
+  for (const n of d.notes) {
+    if (n.key) factNote(n.key, n.text);
+  }
+  const general = d.notes.filter(n => !n.key).map(n => n.text);
+  setStatus(filled ? `Đã điền sẵn ${filled} ô ở mục 2 (nguồn ghi dưới từng ô); kiểm tra, sửa nếu cần rồi bấm Tạo ngân sách năm mới.` +
+    (general.length ? ' ' + general.join('; ') + '.' : '') :
+    'Không có dữ kiện điền sẵn cho dự án này (chưa có lượt trước, sheet Info và danh sách master không có số): nhập tay mục 2.' +
+    (general.length ? ' ' + general.join('; ') + '.' : ''), false, 'review');
+}
+formReview.addEventListener('input', e => {
+  const n = e.target.closest('.field') && e.target.closest('.field').querySelector('.fsrc');
+  if (n && n.dataset.text && !n.dataset.text.startsWith('Đã sửa tay')) n.textContent = 'Đã sửa tay; ' + n.dataset.text.charAt(0).toLowerCase() + n.dataset.text.slice(1);
 });
 ['lib-q', 'lib-year', 'lib-ok', 'lib-all'].forEach(id => document.getElementById(id).addEventListener('input', renderLibrary));
 

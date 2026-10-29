@@ -41,7 +41,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import adjust, auth, fill_input, history, library, results  # noqa: E402
+from webapp import adjust, auth, facts_prefill, fill_input, history, library, results  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -577,6 +577,17 @@ def get_library(user=Depends(require_user)):
     rows = [{k: v for k, v in e.items() if k != 'path'} for e in library.entries()]
     return JSONResponse(dict(entries=rows, total=len(rows), selectable=sum(e['selectable'] for e in rows),
                              root=library.root_dir(), store=library.store_dir()))
+
+
+@router.get('/api/library/{file_id}/facts')
+def get_library_facts(file_id: str, user=Depends(require_user)):
+    """Dữ kiện điền sẵn cho mục 2 của tab Review khi chọn một dòng kho (change prefill-review-facts): lượt trước cùng
+    dự án > sheet 0. Info > danh sách master, mỗi ô kèm nguồn và số khác của nguồn sau."""
+    entry = library.find(file_id)
+    if entry is None:
+        raise HTTPException(404, 'Không thấy dòng này trong kho.')
+    entry = dict(entry, path=library.long_path(entry['path']) if entry.get('selectable') else '')
+    return JSONResponse(facts_prefill.prefill(entry, history.scan(RUNS_DIR)))
 
 
 @router.get('/api/library/overview')
