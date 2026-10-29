@@ -23,4 +23,5 @@
 
 - [x] 4.1 `master_facts` leaves TowerCount out and adds a note "master ghi N tháp; số tháp để PM kiểm và nhập"; the page
       appends a note after a filled field's source instead of replacing it; tests updated
-- [ ] 4.2 Full tests + verify.py PASS; release note for [Hub]
+- [x] 4.2 Full tests + verify.py PASS; release note for [Hub]. Done 2026-10-29: 1295 passed + 1 xfailed, verify.py PASS;
+      note `releases\2026-10-29-budget-web-bo-so-thap-master.txt` (3cc71cd)
