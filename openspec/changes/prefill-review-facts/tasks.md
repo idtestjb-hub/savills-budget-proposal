@@ -17,4 +17,10 @@
 ## 3. Verify and ship
 
 - [x] 3.1 Full tests + `verification/verify.py` PASS. Done 2026-10-28: 7 prefill tests + full suite 1288 passed + 1 xfailed; verify.py PASS
-- [ ] 3.2 Release note for [Hub]
+- [x] 3.2 Release note for [Hub]. Done 2026-10-29: deployed with 57fa053 (8b9a6a1f3e2c); server route checked by [Hub], three Reviews run from it
+
+## 4. Master tower count not filled (user's choice 2026-10-29)
+
+- [x] 4.1 `master_facts` leaves TowerCount out and adds a note "master ghi N tháp; số tháp để PM kiểm và nhập"; the page
+      appends a note after a filled field's source instead of replacing it; tests updated
+- [ ] 4.2 Full tests + verify.py PASS; release note for [Hub]

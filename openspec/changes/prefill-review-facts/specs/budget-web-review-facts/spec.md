@@ -8,9 +8,9 @@ zero or blank SHALL count as no value. A field no source fills SHALL stay blank.
 
 #### Scenario: Earlier run wins
 
-- **WHEN** an earlier run of the project entered 3 towers and the master list says 2
-- **THEN** the field SHALL show 3 with the source of that run
-- **AND** the page SHALL show that the master list says 2
+- **WHEN** an earlier run of the project entered 400 car bays and the master list says 246
+- **THEN** the field SHALL show 400 with the source of that run
+- **AND** the page SHALL show that the master list says 246
 
 #### Scenario: Master list only
 
@@ -42,6 +42,16 @@ master's figure is per tower and stay for the PM.
 
 - **WHEN** the master list gives 3 towers and 29 floors
 - **THEN** "Số tầng" SHALL stay blank with the note that the master gives 29 floors per tower
+
+### Requirement: The master's tower count is never filled
+
+The master list's TowerCount SHALL NOT fill "Số tháp"; the field SHALL say what the master gives and stay for the PM,
+unless an earlier run fills it. A tower count from the master SHALL still decide whether the master's floor count is used.
+
+#### Scenario: Master gives 22 towers
+
+- **WHEN** the master list gives 22 towers and no earlier run has a tower count
+- **THEN** "Số tháp" SHALL stay blank with the note that the master gives 22 towers
 
 ### Requirement: The PM's entry wins
 

@@ -17,4 +17,4 @@
 ## 3. Verify and ship
 
 - [x] 3.1 Full tests + `verification/verify.py` PASS; local Review of the three files completes. Done 2026-10-28: 1288 passed + 1 xfailed; verify.py PASS after re-recording the three baselines (diesel only, +7,666,512 VND/year); Masteri, ONE VERANDAH, HAGV complete locally
-- [ ] 3.2 Release note for [Hub] (code + data); after deploy rerun the three Reviews on the server
+- [x] 3.2 Release note for [Hub] (code + data); after deploy rerun the three Reviews on the server. Done 2026-10-29: 57fa053 deployed 12:52 (8b9a6a1f3e2c); HAGV, Masteri An Phú, ONE VERANDAH reruns done (rc 0)

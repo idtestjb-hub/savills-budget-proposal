@@ -43,8 +43,8 @@ def test_master_unique_match_zero_is_no_value_and_pool_from_count(tmp_path):
     path = _master(tmp_path, [['Test Tower A', 'HCM', 'Quận 9', '1', '30', '0', '120', '', '1'],
                               ['Test Tower B', '', '', '0', '0', '2', '0', '500', '0']])
     a, notes = fp.master_facts('TEST TOWER A', path)
-    assert a == {'city': 'HCM', 'district': 'Quận 9', 'tower_count': 1, 'floor_count': 30, 'car_slots': 120,
-                 'has_pool': 'Yes'} and notes == []
+    assert a == {'city': 'HCM', 'district': 'Quận 9', 'floor_count': 30, 'car_slots': 120, 'has_pool': 'Yes'}
+    assert notes == [dict(key='tower_count', text='master ghi 1 tháp; số tháp để PM kiểm và nhập')]   # towers never filled
     b, _ = fp.master_facts('test tower b', path)
     assert b == {'gate_count': 2, 'moto_slots': 500}          # zeros and blanks fill nothing, PoolCount 0 too
 
@@ -52,8 +52,9 @@ def test_master_unique_match_zero_is_no_value_and_pool_from_count(tmp_path):
 def test_master_floors_of_one_tower_only(tmp_path):
     path = _master(tmp_path, [['Test Park', 'HCM', '', '3', '29', '1', '', '', '']])
     facts, notes = fp.master_facts('Test Park', path)
-    assert 'floor_count' not in facts and facts['tower_count'] == 3
-    assert notes == [dict(key='floor_count', text='master ghi 29 tầng/tháp với 3 tháp; số tầng cả dự án để PM nhập')]
+    assert 'floor_count' not in facts and 'tower_count' not in facts
+    assert notes == [dict(key='floor_count', text='master ghi 29 tầng/tháp với 3 tháp; số tầng cả dự án để PM nhập'),
+                     dict(key='tower_count', text='master ghi 3 tháp; số tháp để PM kiểm và nhập')]
 
 
 def test_master_duplicate_names_fill_nothing(tmp_path):

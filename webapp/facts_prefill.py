@@ -77,6 +77,11 @@ def master_facts(name, path=MASTER_CSV):
         notes.append(dict(key='floor_count', text=f'master ghi {facts["floor_count"]:g} tầng/tháp với {towers or "?"} '
                                                    f'tháp; số tầng cả dự án để PM nhập'))
         facts['floor_count'] = None
+    if towers is not None:
+        # Số tháp của master không tự điền (người dùng chốt 29/10/2026: ONE VERANDAH ghi 22 tháp), vì nó vào số giám sát
+        # vệ sinh và giá thật; chỉ ghi chú để PM nhập.
+        notes.append(dict(key='tower_count', text=f'master ghi {towers:g} tháp; số tháp để PM kiểm và nhập'))
+        facts['tower_count'] = None
     pools = _clean('pool_volume', row.get('PoolCount'))      # số dương, hoặc None khi 0 / trống
     facts['has_pool'] = 'Yes' if pools else None
     return {k: v for k, v in facts.items() if v is not None}, notes

@@ -1024,7 +1024,9 @@ async function prefillFacts(pick) {
     factNote(k, `Nguồn: ${f.label}` + (others ? ` · khác: ${others}` : ''));
   }
   for (const n of d.notes) {
-    if (n.key) factNote(n.key, n.text);
+    if (!n.key || !formReview.elements[n.key]) continue;
+    const had = formReview.elements[n.key].closest('.field').querySelector('.fsrc');
+    factNote(n.key, had && had.dataset.text ? `${had.dataset.text} · ${n.text}` : n.text);   // nối sau nguồn đã điền
   }
   const general = d.notes.filter(n => !n.key).map(n => n.text);
   setStatus(filled ? `Đã điền sẵn ${filled} ô ở mục 2 (nguồn ghi dưới từng ô); kiểm tra, sửa nếu cần rồi bấm Tạo ngân sách năm mới.` +

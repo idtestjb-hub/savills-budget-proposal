@@ -15,8 +15,8 @@ most of these facts: the PM's own earlier run of the same project, the file's `0
     letter or a digit dropped ("HOANG ANH RIVER VIEW" = "Hoang Anh Riverview"). No near matches.
   - A master name that folds to two or more rows is not used ("master có N dòng trùng tên").
   - A zero or blank is "no value" in every source (the form writes a blank as 0).
-  - Master columns: City_Province, District, TowerCount, FloorCount (only when TowerCount is 1: the master gives the
-    floors of one tower, the form wants all towers), GateCount, CarParkingSlots, BikeParkingSlots, PoolCount (> 0 →
+  - Master columns: City_Province, District, FloorCount (only when TowerCount is 1: the master gives the floors of
+    one tower, the form wants all towers), GateCount, CarParkingSlots, BikeParkingSlots, PoolCount (> 0 →
     "Có").
 - The Review tab fills section 2 from it when a library row is picked; each field shows its source, and a line
   "khác: <nguồn> <số>" when another source disagrees. A master city that is not a province on the list is not used.
@@ -24,7 +24,8 @@ most of these facts: the PM's own earlier run of the same project, the file's `0
   (`review_import.write_form`), as today.
 
 User's choices on 2026-10-28: all three sources, priority earlier run > Info > master; exact match after folding; a
-master zero is "no value"; master floors only for a one-tower project.
+master zero is "no value"; master floors only for a one-tower project. 2026-10-29, after the server reruns (ONE VERANDAH: master 22 towers): the
+master's tower count is never filled, only shown as a note.
 
 ## Capabilities
 
