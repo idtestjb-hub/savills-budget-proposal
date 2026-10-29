@@ -11,4 +11,4 @@
 ## 3. Sign-off
 
 - [x] 3.1 Web tests and full suite pass; `openspec validate --all --strict`; `python verification/verify.py` PASS. Done 2026-10-28: 1279 passed + 1 xfailed, openspec 46/46, verify.py PASS.
-- [ ] 3.2 Release note for [Hub] (code + copy `prior_coverage.csv` into the server store `_kho_quet`); `docs/project-status.md` updated.
+- [x] 3.2 Release note for [Hub] (code + copy `prior_coverage.csv` into the server store `_kho_quet`); `docs/project-status.md` updated. Deployed by [Hub] 2026-10-28 17:20 (746e260, content id 081b35d8decd); server table shows Tổng 53 | 50 | 41 | 41 | 41 | 40.
