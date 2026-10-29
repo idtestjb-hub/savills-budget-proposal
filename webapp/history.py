@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import re
+import shutil
 
 META_FILE = 'web_meta.json'
 RUN_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*$')
@@ -124,7 +125,8 @@ def describe(workdir, run_id=None):
     return dict(id=run_id, kind=kind, project=project, budget_year=budget_year, prior_year=prior_year,
                 started=meta.get('started') or _started_from_name(run_id), finished=meta.get('finished'),
                 user=meta.get('user') or '', status=status, rc=meta.get('rc'), outputs=outputs,
-                input_form=input_form_of(workdir, kind), source=meta.get('source') or '', workdir=workdir)
+                input_form=input_form_of(workdir, kind), source=meta.get('source') or '', workdir=workdir,
+                error=meta.get('error') or '')
 
 
 def scan(runs_dir, active_id=None):
@@ -149,3 +151,65 @@ def read_log(workdir):
         return []
     with open(path, encoding='utf-8', errors='replace') as fh:
         return [ln.rstrip('\r\n') for ln in fh]
+
+
+_LINK_TAGS = (0xA000000C, 0xA0000003)      # IO_REPARSE_TAG_SYMLINK, IO_REPARSE_TAG_MOUNT_POINT (junction)
+
+
+def _is_link(path):
+    """A symbolic link or a junction (Python 3.8+; an OneDrive cloud file is a reparse point too, but not a link)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return os.path.islink(path) or getattr(st, 'st_reparse_tag', 0) in _LINK_TAGS
+
+
+def _has_link(folder):
+    """True when anything inside `folder` is a symbolic link or a junction (never followed)."""
+    stack = [folder]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if _is_link(entry.path):
+                    return True
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(entry.path)
+    return False
+
+
+def _age_from(entry, workdir):
+    for key in ('finished', 'started'):
+        try:
+            if entry.get(key):
+                return datetime.datetime.fromisoformat(str(entry[key]))
+        except ValueError:
+            pass
+    return datetime.datetime.fromtimestamp(os.path.getmtime(workdir))
+
+
+def prune_failed(runs_dir, active_id=None, max_age_days=30, now=None, log=print, dry_run=False):
+    """Delete failed runs older than `max_age_days` (change log-review-runs). Done runs are never touched: a done
+    deliverable is next year's approved budget. Status as History reads it (scan); age from finished, else started,
+    else the folder time. A folder holding a junction or symbolic link is skipped. Returns (deleted, skipped) ids."""
+    now = now or datetime.datetime.now()
+    root = os.path.realpath(runs_dir)
+    deleted, skipped = [], []
+    for e in scan(runs_dir, active_id):
+        if e['status'] != 'failed' or e['id'] == active_id:
+            continue
+        workdir = os.path.join(runs_dir, e['id'])
+        if os.path.dirname(os.path.realpath(workdir)) != root:
+            continue
+        age = now - _age_from(e, workdir)
+        if age <= datetime.timedelta(days=max_age_days):
+            continue
+        if _is_link(workdir) or _has_link(workdir):
+            skipped.append(e['id'])
+            log(f'prune: skipped {e["id"]} (has a junction or link inside)')
+            continue
+        if not dry_run:
+            shutil.rmtree(workdir)
+        deleted.append(e['id'])
+        log(f'prune: {"would delete" if dry_run else "deleted"} failed run {e["id"]} ({age.days} days old)')
+    return deleted, skipped

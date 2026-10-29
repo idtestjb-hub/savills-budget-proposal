@@ -151,6 +151,7 @@ button.sm:disabled { color: var(--sav-grey); border-color: var(--sav-rule); back
   :root:not([data-theme="light"]) button.sm.pri { color: var(--sav-on-yellow); } }
 .his td, .his th { padding: 6px 8px; vertical-align: top; font-size: 14px; }
 .his td.files a { display: block; color: var(--sav-link); font-size: 13px; }
+.his .his-err { color: var(--sav-muted); font-weight: 400; font-size: 12px; max-width: 260px; }
 .his .st-done { color: var(--sav-teal); font-weight: 700; } .his .st-failed { color: var(--sav-neg); font-weight: 700; } .his .st-running { color: var(--sav-muted); font-weight: 700; }
 .ties li { margin: 3px 0; } .ties b.ok { color: var(--sav-teal); } .ties b.bad { color: var(--sav-neg); }
 .num { text-align: right; white-space: nowrap; }
@@ -719,7 +720,7 @@ body.adj-full-on { overflow: hidden; }
       </section>
       <section>
         <h2>Xem trước tổng các mã trên bảng</h2>
-        <table class="adj-sum" id="adj-prev"><thead><tr><th>Quỹ / mục</th><th class="num">Gốc</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table>
+        <div class="dg-wrap"><table class="adj-sum" id="adj-prev"><thead><tr><th>Quỹ / mục</th><th class="num">Gốc</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table></div>
         <p class="src">Cộng các mã trên bảng, tính trên trang. Tổng chính thức (gồm dự phòng và phần chia quỹ) do Excel đo sau khi lưu.</p>
       </section>
       <div class="actions">
@@ -732,7 +733,7 @@ body.adj-full-on { overflow: hidden; }
       <section id="adj-res" class="hidden">
         <h2>Kết quả lần lưu gần nhất (Excel đo)</h2>
         <p class="src" id="adj-res-head"></p>
-        <table class="adj-sum" id="adj-res-t"><thead><tr><th>Quỹ / mục</th><th class="num">Trước điều chỉnh</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table>
+        <div class="dg-wrap"><table class="adj-sum" id="adj-res-t"><thead><tr><th>Quỹ / mục</th><th class="num">Trước điều chỉnh</th><th class="num">Sau điều chỉnh</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody></tbody></table></div>
         <p class="src" id="adj-res-note"></p>
       </section>
     </div>
@@ -1788,7 +1789,7 @@ async function loadHistory() {
     const files = x.outputs.map(o => `<a href="${PREFIX}/api/runs/${encodeURIComponent(x.id)}/files/${encodeURIComponent(o.name)}" download title="${esc(o.name)}">${esc(o.title.split(' (')[0])}</a>`).join('');
     const dis = x.status === 'running' ? 'disabled' : '';
     return `<tr data-id="${esc(x.id)}"><td><b>${esc(x.project)}</b><br><small style="color:var(--sav-muted)">${esc(x.id)}</small></td><td>${esc(year)}</td><td>${KIND_VI[x.kind] || x.kind}</td>` +
-      `<td>${esc((x.started || '').replace('T', ' '))}</td><td>${esc(x.user || '—')}</td><td class="st-${esc(x.status)}">${STATUS_VI[x.status] || x.status}</td><td class="files">${files || '—'}</td>` +
+      `<td>${esc((x.started || '').replace('T', ' '))}</td><td>${esc(x.user || '—')}</td><td class="st-${esc(x.status)}">${STATUS_VI[x.status] || x.status}${x.error ? `<div class="his-err">${esc(x.error)}</div>` : ''}</td><td class="files">${files || '—'}</td>` +
       `<td><button type="button" class="sm" data-act="view" ${dis}>Xem</button>` +
       `<button type="button" class="sm" data-act="clone" ${x.can_clone ? '' : 'disabled'}>Clone</button>` +
       `<button type="button" class="sm" data-act="adjust" ${x.can_gen && x.status === 'done' ? '' : 'disabled'}>Điều chỉnh</button>` +

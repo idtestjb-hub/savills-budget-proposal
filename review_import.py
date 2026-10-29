@@ -64,6 +64,9 @@ UNRECOGNISED_MIN = 10       # a year-headed column with at least this many figur
 HDR_PRI = [(re.compile(r'total budget of year'), 1), (re.compile(r'estimate budget of year|estimate budget'), 2),
            (re.compile(r'total budget|ngân sách năm|cả năm'), 3)]
 HDR_BAD = re.compile(r'approved|actual|average|allocated|%|expected|trung bình|thực tế|dự kiến')
+EXCEL_ERRORS = ('#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A')
+# start with "2." like the fund sheets, but are not; "hv" / "hòa vốn" = a break-even scenario, not the approved budget
+NOT_A_FUND_SHEET = re.compile(r'staff cost|ca đêm|\bhv\b|hòa vốn')
 
 # Lines that carry no VAT on either basis (the scan store's v2 rule, as compare_m3.py): salaries, taxes and
 # fees, bank fees, bank interest.
@@ -322,6 +325,20 @@ def _as_month(v):
 # ------------------------------------------------------------------------------------------------
 # Opening the workbook
 # ------------------------------------------------------------------------------------------------
+def _load_read_only(path):
+    """openpyxl.load_workbook(path, read_only=True, data_only=True), but a workbook that fails to load releases its
+    file at once: load_workbook leaves the zip open in a reference cycle until garbage collection, so on Windows the
+    source stays locked while its repaired copy is read."""
+    from openpyxl.reader.excel import ExcelReader
+    reader = ExcelReader(path, read_only=True, data_only=True)
+    try:
+        reader.read()
+    except Exception:
+        reader.archive.close()
+        raise
+    return reader.wb
+
+
 def open_workbook(path, workdir=None):
     """Read-only, values only. A workbook openpyxl refuses (broken defined names, OneDrive artefacts) is read
     from a stripped copy written into `workdir` (never beside the source). PDF and xlsb stop with a message."""
@@ -332,7 +349,7 @@ def open_workbook(path, workdir=None):
         raise PriorBudgetError(f'{os.path.basename(path)}: a {ext or "file without extension"} cannot be read; the '
                                f'approved budget must be an .xlsx workbook on the Savills form (PDF and xlsb are not read).')
     try:
-        return openpyxl.load_workbook(path, read_only=True, data_only=True), path
+        return _load_read_only(path), path
     except Exception as first:
         if not workdir:
             raise PriorBudgetError(f'{os.path.basename(path)}: openpyxl cannot open it ({type(first).__name__}: {first}) '
@@ -348,7 +365,7 @@ def open_workbook(path, workdir=None):
                     if it.filename == 'xl/workbook.xml':
                         b = re.sub(r'<definedNames>.*?</definedNames>', '', b.decode('utf8'), flags=re.S).encode('utf8')
                     zout.writestr(it, b)
-            return openpyxl.load_workbook(dst, read_only=True, data_only=True), dst
+            return _load_read_only(dst), dst
         except Exception as second:
             raise PriorBudgetError(f'{os.path.basename(path)}: cannot be read even after stripping its defined names '
                                    f'({type(second).__name__}: {second}).') from None
@@ -365,7 +382,8 @@ def choose_fund_sheets(sheetnames, states=None):
         if exact:
             chosen[fund] = exact
             continue
-        cands = [n for n in sheetnames if fund_of(n) == fund and kind_of(n) == 'budget']
+        cands = [n for n in sheetnames if fund_of(n) == fund and kind_of(n) == 'budget'
+                 and not NOT_A_FUND_SHEET.search(_key(n))]
         cands.sort(key=lambda n: states.get(n, 'visible') != 'visible')          # stable: file order within each
         chosen[fund] = cands[0] if cands else None
     if chosen['MF'] is None:
@@ -645,15 +663,22 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None, sheet_s
                 return ym
         return None
 
+    # the first run of twelve such columns, else the longest run: a Remarks cell with a 'mm/yyyy' text in those rows
+    # is a run of one and no longer hides the months further right (change fix-review-reading-gaps)
+    runs, run = [], []
     for c in range(value_col + 1, min(ncols, value_col + 40)):
         ym = month_header(c)
         if ym:
-            month_cols.append(c)
-            period.append(ym)
-        elif month_cols:
-            break
-        if len(month_cols) == 12:
-            break
+            run.append((c, ym))
+            if len(run) == 12:
+                break
+        elif run:
+            runs.append(run)
+            run = []
+    if run:
+        runs.append(run)
+    best = next((r for r in runs if len(r) == 12), max(runs, key=len) if runs else [])
+    month_cols, period = [c for c, _ in best], [ym for _, ym in best]
     if len(month_cols) != 12:
         flags.append(f'tìm thấy {len(month_cols)} cột tháng thay vì 12')
 
@@ -686,6 +711,8 @@ def read_fund_sheet(ws, fund, sheet_name, ws_formulas=None, layout=None, sheet_s
             lflags.append(FLAG_MONTHS)
         item = ' '.join(str(get(r, cc + 1) or '').split())
         remark = ' '.join(str(get(r, rem_col) or '').split()) if rem_col is not None else ''
+        if remark in EXCEL_ERRORS:          # written back as is, openpyxl would make it an error cell
+            remark = f'(ghi chú trong file gốc là ô lỗi {remark})'
         lines.append(PriorLine(fund, sheet_name, r + 1, lf['section'], code, item, annual, months, remark, lflags))
         seen[code] = seen.get(code, 0) + 1
     for l in lines:
@@ -764,6 +791,8 @@ def choose_measures(funds, report_cands, n_year, own_name='', other_names=(), sa
                 best = rm.choose(ok)
                 chosen[kind] = best
                 state = 'khớp tổng' if best['tie_ok'] else 'chưa khớp tổng'
+                if best['how'] == 'header_year_over_range':
+                    state += '; khoảng tháng trong tiêu đề là chữ cũ của template, lấy năm ghi trong tiêu đề'
                 notes.append((NOTE_MEASURE, f"{best['sheet']} cột {best['col_letter']}",
                               f"{rm.KIND_VI[kind]} {rm.period_text(best)}: '{best['header'][:60]}', {state}"))
         if chosen:

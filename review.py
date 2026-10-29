@@ -35,6 +35,7 @@ import utility_tariffs as ut                     # noqa: E402
 BUDGET_AGENT = os.path.dirname(HERE)
 DEFAULT_WORKDIR = os.path.join(BUDGET_AGENT, 'reports', 'review')
 REVIEW_SHEET = 'Review'
+GENERATOR_LOG = 'generator.log'     # what the two generators print, in the review folder (change log-review-runs)
 TOL = 1.0
 TOP = 10
 
@@ -680,7 +681,9 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
     say('[3/4] Chạy hai generator (cô lập)')
     run_dir = os.path.join(workdir, 'run')
     os.makedirs(run_dir, exist_ok=True)
-    outputs, _, _ = run_workflow(sample=form, workdir=run_dir, quiet=True)
+    say(f'    log hai generator: {GENERATOR_LOG}')
+    outputs, _, _ = run_workflow(sample=form, workdir=run_dir, quiet=True,
+                                 log_path=os.path.join(workdir, GENERATOR_LOG))
     deliverables = glob.glob(os.path.join(outputs['deliverable_dir'], '*Consulting Budget*.xlsx'))
     if len(deliverables) != 1:
         raise ReviewError(f'expected one deliverable in {outputs["deliverable_dir"]}, found {deliverables}')

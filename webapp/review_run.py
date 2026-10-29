@@ -13,13 +13,14 @@ year column read as empty; Excel recalculates a copy first (<workdir>/prior_reca
 
 After the review, <workdir>/review_notes.json holds the import notes and what was filled on the form, so the
 page can show them without re-reading the form. Exit code: review.run's own (0 = every tie holds, 1 = a tie
-fails), 2 = stopped with a message (printed as "STOPPED: ...").
+fails), 2 = stopped with a message (printed as "STOPPED: ..."; the traceback in <workdir>/review_error.txt).
 """
 import argparse
 import json
 import os
 import re
 import sys
+import traceback
 
 SOURCE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SOURCE_DIR not in sys.path:
@@ -27,6 +28,7 @@ if SOURCE_DIR not in sys.path:
 
 NOTES_FILE = 'review_notes.json'
 RECALC_FILE = 'prior_recalc.xlsx'
+ERROR_FILE = 'review_error.txt'      # traceback of a stopped review (change log-review-runs)
 
 YEAR_STOP = re.compile(r"Prior Budget Year' is (\d{4}), which is not before the budget year (\d{4})")
 
@@ -52,6 +54,16 @@ def store_names():
                 if len(n) >= 4 and n != 'AAA'}
     except Exception:
         return set()
+
+
+def _write_traceback(workdir):
+    """The traceback of the exception being handled, into <workdir>/review_error.txt (internal: not an output, so a
+    viewer cannot download it). A disk error here must not hide the STOPPED line."""
+    try:
+        with open(os.path.join(workdir, ERROR_FILE), 'w', encoding='utf-8') as fh:
+            fh.write(traceback.format_exc())
+    except OSError:
+        pass
 
 
 def main():
@@ -81,10 +93,15 @@ def main():
         code, result = review.run(prior, facts_path=args.facts, workdir=workdir, quiet=False,
                                   other_names=store_names())
     except (ri.PriorBudgetError, review.ReviewError, ValueError, LookupError, RuntimeError) as exc:
+        _write_traceback(workdir)
         print(f'STOPPED: {exc}')
         hint = year_hint(str(exc))
         if hint:
             print(hint)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - the page must learn why; the traceback goes to the internal file
+        _write_traceback(workdir)
+        print(f'STOPPED: lỗi không lường trước ({type(exc).__name__}): {exc}')
         return 2
     notes = [dict(kind=k, where=w, text=t) for k, w, t in result['notes']]
     with open(os.path.join(workdir, NOTES_FILE), 'w', encoding='utf-8') as fh:

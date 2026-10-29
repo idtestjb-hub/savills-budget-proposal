@@ -71,7 +71,7 @@ def coverage_row(entry, workdir, other_names):
 def build(store=None, workdir=None, entries=None, other_names=None, now=None, commit=None):
     """Ghi prior_coverage.csv vào thư mục kho; trả về (đường dẫn, các dòng)."""
     store = store or library.store_dir()
-    entries = [e for e in (entries if entries is not None else library.entries()) if e['selectable']]
+    entries = [e for e in (entries if entries is not None else library.load(coverage=False)) if e['selectable']]
     other_names = review_run.store_names() if other_names is None else other_names
     built_at = (now or datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')
     commit = _commit() if commit is None else commit

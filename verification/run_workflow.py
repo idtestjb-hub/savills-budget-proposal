@@ -73,9 +73,11 @@ def diff_snapshots(before, after):
     return changes
 
 
-def run_workflow(sample=DEFAULT_SAMPLE, workdir=None, quiet=True):
+def run_workflow(sample=DEFAULT_SAMPLE, workdir=None, quiet=True, log_path=None):
     """Run both generators against `sample`, writing everything into `workdir`.
 
+    `log_path`: the generators' stdout goes to this file, each under a header line, written as they print so a
+    failure keeps what came before it (change log-review-runs); `quiet` is then ignored.
     Returns (outputs, before, after). Raises ProductionTouched if any live artefact moved.
     """
     import contextlib
@@ -89,13 +91,16 @@ def run_workflow(sample=DEFAULT_SAMPLE, workdir=None, quiet=True):
     import generate_project_budget as gpb
     import generate_project_output as gpo
 
-    generator_log = io.StringIO()
+    generator_log = open(log_path, 'w', encoding='utf-8') if log_path else io.StringIO()
     completed = []
     try:
         with redirected_paths(sample, workdir) as resolved:
             for label, module in (('budget generator', gpb), ('analysis generator', gpo)):
                 try:
-                    if quiet:
+                    if log_path:
+                        generator_log.write(f'===== {label} ({module.__name__}.py) =====\n')
+                        generator_log.flush()
+                    if quiet or log_path:
                         with contextlib.redirect_stdout(generator_log):
                             module.main()
                     else:
@@ -115,6 +120,7 @@ def run_workflow(sample=DEFAULT_SAMPLE, workdir=None, quiet=True):
                     ) from exc
                 completed.append(label)
     finally:
+        generator_log.close()
         after = snapshot()
         changes = diff_snapshots(before, after)
         if changes:

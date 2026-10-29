@@ -123,3 +123,16 @@ def test_choice_order():
 def test_period_text():
     assert rm.period_text(_col('actual', start=(2025, 1), end=(2025, 9))) == '01–09/2025'
     assert rm.period_text(_col('approved_prior', start=(2025, 1), end=(2025, 12))) == '2025'
+
+
+# ---- change fix-review-reading-gaps: a whole-year range of another year is the older template's text ----
+@pytest.mark.parametrize('header, measure, expected', [
+    ('Approved budget of Year 2025 (From 01.2023 to 12.2023)', 'approved_prior', ((2025, 1), (2025, 12), 'header_year_over_range')),
+    ('Expected Year 2025 (From 01.2024 to 12.2024)', 'expected_year', ((2025, 1), (2025, 12), 'header_year_over_range')),
+    ('Approved budget of Year 2025 (From 01.2025 to 12.2025)', 'approved_prior', ((2025, 1), (2025, 12), 'header_range')),
+    ('Expected Year 2025 (From 08.2024 to 07.2025)', 'expected_year', ((2024, 8), (2025, 7), 'header_range')),
+    ('Total Actual 2025 (From 01.2023 to 12.2023)', 'actual', ((2023, 1), (2023, 12), 'header_range')),
+    ('Approved budget (From 01.2023 to 12.2023)', 'approved_prior', ((2023, 1), (2023, 12), 'header_range')),
+])
+def test_stated_year_over_a_stale_full_year_range(header, measure, expected):
+    assert rm.parse_period(header, '', 2026, measure) == expected

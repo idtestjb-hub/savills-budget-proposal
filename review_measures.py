@@ -103,6 +103,13 @@ def parse_period(text, group, sheet_year, measure=None):
         m1, y1, m2, y2 = int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4))
         y1 = int(y1) if y1 else y2
         if 1 <= m1 <= 12 and 1 <= m2 <= 12 and (y2, m2) >= (y1, m1):
+            # "Year 2025 (From 01.2023 to 12.2023)": a whole-year range of another year is the older template's
+            # text; the year the PM wrote wins (approved / expected only; change fix-review-reading-gaps)
+            stated = {int(y) for y in YEAR_RX.findall(t[:m.start()] + ' ' + t[m.end():])}
+            if (measure in ('approved_prior', 'expected_year') and (m1, m2) == (1, 12) and y1 == y2
+                    and len(stated) == 1 and y2 not in stated):
+                y = stated.pop()
+                return (y, 1), (y, 12), 'header_year_over_range'
             return (y1, m1), (y2, m2), 'header_range'
     m = FROM_RX.search(t)
     if m and 1 <= int(m.group(1)) <= 12:

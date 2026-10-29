@@ -22,6 +22,7 @@ Tiền tố (BUDGET_WEB_PREFIX, mặc định /budget): reverse proxy chuyển /
 nhận "/" ; mọi link và fetch trên trang mang tiền tố. Các route được đăng ký hai lần, ở gốc và ở tiền tố, để
 mở trực tiếp http://host:port/budget/ (không qua proxy) cũng chạy. GET / trả 200 cho heartbeat.
 """
+import contextlib
 import datetime
 import json
 import os
@@ -30,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -328,6 +330,19 @@ def _start(run_id, run, who, what):
     threading.Thread(target=_worker, args=(run_id,), daemon=True).start()
 
 
+def _failed_before_start(workdir, kind, project, who, started, exc):
+    """A run whose folder exists but whose subprocess never started: web_meta.json says failed and why, so History shows
+    the reason (change log-review-runs). Returns the HTTPException for the page: the same one, or a 500 with a message."""
+    detail = exc.detail if isinstance(exc, HTTPException) else f'Không chuẩn bị được lượt chạy: {type(exc).__name__}: {exc}'
+    try:
+        history.write_meta(workdir, kind=kind, project=project, user=who, started=started, finished=_now(),
+                           status='failed', rc=None, error=str(detail))
+    except OSError:
+        pass
+    _log(f'run {os.path.basename(workdir)} failed before start: {detail}')
+    return exc if isinstance(exc, HTTPException) else HTTPException(500, detail)
+
+
 @router.post('/api/runs')
 def start_run(request: Request, values: dict, user=Depends(require_user)):
     with _lock:
@@ -340,14 +355,16 @@ def start_run(request: Request, values: dict, user=Depends(require_user)):
         workdir = os.path.join(RUNS_DIR, run_id)
         os.makedirs(workdir, exist_ok=True)
         input_path = os.path.join(workdir, 'Project_Budget_Input.xlsx')
+        started = _now()
         try:
             fill_input.write_input(values, input_path)
         except Exception as exc:
-            raise HTTPException(400, f'Không ghi được file nhập liệu: {exc}')
+            raise _failed_before_start(workdir, 'new', name, _who(request, user), started,
+                                       HTTPException(400, f'Không ghi được file nhập liệu: {exc}'))
         cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'run_budget.py'),
                '--input', input_path, '--workdir', workdir]
         run = dict(kind='new', project=name, source='', status='running', rc=None, log=[f'Thư mục chạy: {workdir}'],
-                   started=_now(), finished=None, workdir=workdir, input=input_path, outputs=[], summary=None, cmd=cmd)
+                   started=started, finished=None, workdir=workdir, input=input_path, outputs=[], summary=None, cmd=cmd)
         _start(run_id, run, _who(request, user), f'for project {name!r}')
     return _public(run_id, role=role_of(request))
 
@@ -429,20 +446,24 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         run_id = _new_run_id(tag)
         workdir = os.path.join(RUNS_DIR, run_id)
         os.makedirs(os.path.join(workdir, 'prior'), exist_ok=True)
-        if copy_from is not None:      # bản chụp của file sống: lượt chạy lại sau vẫn ra cùng số
-            prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
-            shutil.copy2(library.long_path(copy_from), prior_src)
-        if upload is not None:
-            prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
-            with open(prior_src, 'wb') as fh:
-                fh.write(upload)
+        started = _now()
         facts_path = os.path.join(workdir, 'facts.json')
-        with open(facts_path, 'w', encoding='utf-8') as fh:
-            json.dump(fact_map, fh, ensure_ascii=False, indent=1)
+        try:
+            if copy_from is not None:      # bản chụp của file sống: lượt chạy lại sau vẫn ra cùng số
+                prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
+                shutil.copy2(library.long_path(copy_from), prior_src)
+            if upload is not None:
+                prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
+                with open(prior_src, 'wb') as fh:
+                    fh.write(upload)
+            with open(facts_path, 'w', encoding='utf-8') as fh:
+                json.dump(fact_map, fh, ensure_ascii=False, indent=1)
+        except Exception as exc:
+            raise _failed_before_start(workdir, 'review', project, _who(request, user), started, exc)
         cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'review_run.py'),
                '--prior', prior_src, '--facts', facts_path, '--workdir', workdir] + (['--recalc'] if recalc else [])
         run = dict(kind='review', project=project, source=source, status='running', rc=None,
-                   log=[f'Thư mục chạy: {workdir}', f'Ngân sách năm ngoái: {source}'], started=_now(), finished=None,
+                   log=[f'Thư mục chạy: {workdir}', f'Ngân sách năm ngoái: {source}'], started=started, finished=None,
                    workdir=workdir, input=None, outputs=[], summary=None, cmd=cmd, facts=raw)
         _start(run_id, run, _who(request, user), what)
     return _public(run_id, role=role_of(request))
@@ -608,6 +629,7 @@ def get_history(request: Request, user=Depends(require_user)):
         rows.append(dict(id=e['id'], kind=e['kind'], project=e['project'], budget_year=e['budget_year'],
                          prior_year=e['prior_year'], started=e['started'], finished=e['finished'], user=e['user'],
                          status=e['status'], source=e['source'], outputs=visible_outputs(e['outputs'], role),
+                         error=e.get('error', '') if role != ROLE_VIEWER else '',
                          can_clone=bool(e['input_form']),
                          can_gen=any(o['kind'] == 'deliverable' for o in e['outputs']),
                          gen_block=_gen_block(e['budget_year'])))
@@ -625,7 +647,30 @@ def _gen_block(budget_year):
     return ''
 
 
-app = FastAPI(title='Budget Agent - nhập liệu', docs_url=None, redoc_url=None)
+# Dọn lượt lỗi cũ (change log-review-runs): lượt failed quá số ngày này bị xoá lúc server khởi động và mỗi 24 giờ;
+# lượt done không bao giờ bị xoá tự động. 0 = tắt.
+PRUNE_FAILED_DAYS = int(os.environ.get('BUDGET_WEB_PRUNE_FAILED_DAYS') or 30)
+
+
+def _prune_loop():
+    while True:
+        try:
+            with _lock:
+                active = _active['id']
+            history.prune_failed(RUNS_DIR, active, max_age_days=PRUNE_FAILED_DAYS, log=_log)
+        except Exception as exc:  # noqa: BLE001 - dọn lỗi không được làm dừng server
+            _log(f'prune: error {type(exc).__name__}: {exc}')
+        time.sleep(24 * 3600)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    if PRUNE_FAILED_DAYS > 0:
+        threading.Thread(target=_prune_loop, daemon=True, name='prune-failed-runs').start()
+    yield
+
+
+app = FastAPI(title='Budget Agent - nhập liệu', docs_url=None, redoc_url=None, lifespan=_lifespan)
 app.include_router(router)                 # sau khi proxy bỏ tiền tố: "/"
 if PREFIX:
     app.include_router(router, prefix=PREFIX)   # mở trực tiếp, không qua proxy: "/budget/"

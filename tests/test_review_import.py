@@ -329,3 +329,72 @@ def test_fresh_form_is_built_in_the_work_folder_only(prior_path, tmp_path, monke
     wbv = openpyxl.load_workbook(path, data_only=True)
     assert ri.SHEET in wbv.sheetnames and es.ROSTER_SHEET in wbv.sheetnames
     assert 'Tower Count' in filled['blank']
+
+
+def test_a_workbook_read_through_its_repaired_copy_releases_the_source(tmp_path):
+    """A defined name openpyxl refuses (`#N/A` print titles) sends the read to a repaired copy; the source file is
+    released at once, not at garbage collection (on Windows a held file cannot be renamed or deleted)."""
+    import zipfile
+    good = os.path.join(tmp_path, 'good.xlsx')
+    wb = openpyxl.Workbook()
+    wb.active.title = 'Sheet A'
+    wb.active['A1'] = 1
+    wb.save(good)
+    bad = os.path.join(tmp_path, 'bad.xlsx')
+    with zipfile.ZipFile(good) as zin, zipfile.ZipFile(bad, 'w') as zout:
+        for it in zin.infolist():
+            b = zin.read(it.filename)
+            if it.filename == 'xl/workbook.xml':
+                b = b.replace(b'<definedNames/>', b'<definedNames><definedName name="_xlnm.Print_Titles" '
+                                                  b'localSheetId="0">#N/A</definedName></definedNames>')
+            zout.writestr(it, b)
+    wb, used = ri.open_workbook(bad, str(tmp_path / 'work'))
+    try:
+        assert used.endswith('bad__repaired.xlsx')     # the first open failed on the defined name
+        assert wb['Sheet A']['A1'].value == 1
+        os.rename(bad, bad + '.moved')             # raises PermissionError on Windows while the source is held
+    finally:
+        wb.close()
+
+
+# ---- change fix-review-reading-gaps ----
+def _cell_of(ws, col, value):
+    return next(r for r in range(1, ws.max_row + 1) if ws.cell(row=r, column=col).value == value)
+
+
+def test_a_month_text_in_the_remarks_column_does_not_hide_the_twelve_months(prior_path, tmp_path):
+    wb = openpyxl.load_workbook(prior_path)
+    ws = wb['2. Budget-Management Fund']
+    ws.cell(row=11, column=MF_LAYOUT[2] + 4, value='Dự kiến doanh thu năm 2026: số đến 12/2025')    # Remarks, rows 8-14
+    wb.save(prior_path)
+    mf = ri.read_prior_budget(prior_path, workdir=str(tmp_path)).funds['MF']
+    assert len(mf.month_cols) == 12 and mf.period[0] == (2026, 1) and mf.period[-1] == (2026, 12)
+    assert not any('cột tháng' in f for f in mf.flags)
+
+
+def test_the_longest_run_is_taken_when_no_run_has_twelve_months(prior_path, tmp_path):
+    wb = openpyxl.load_workbook(prior_path)
+    ws = wb['2. Budget-Management Fund']
+    ws.cell(row=10, column=MF_LAYOUT[3] + 11).value = None                      # December header gone: 11 months
+    ws.cell(row=11, column=MF_LAYOUT[2] + 4, value='12/2025')
+    wb.save(prior_path)
+    mf = ri.read_prior_budget(prior_path, workdir=str(tmp_path)).funds['MF']
+    assert len(mf.month_cols) == 11 and mf.period[0] == (2026, 1)
+    assert 'tìm thấy 11 cột tháng thay vì 12' in mf.flags
+
+
+def test_an_error_remark_becomes_a_reminder_text(prior_path, tmp_path):
+    wb = openpyxl.load_workbook(prior_path)
+    ws = wb['2.2 Common area Fund']
+    ws.cell(row=_cell_of(ws, CA_LAYOUT[0], 'EN1'), column=CA_LAYOUT[2] + 4, value='#REF!')
+    wb.save(prior_path)
+    en1 = next(l for l in ri.read_prior_budget(prior_path, workdir=str(tmp_path)).funds['CA'].lines if l.code == 'EN1')
+    assert en1.remark == '(ghi chú trong file gốc là ô lỗi #REF!)'
+
+
+def test_a_staff_cost_sheet_is_never_the_management_fund():
+    names = ['Cover', '1. Summary (N1) 100%', '2. Budget-M Fund (N1) 100%', '2.1. Staff cost From Savills',
+             '2.1.1. Ca đêm Lễ Tết (năm 1)', '2. Budget-M Fund (N1) hv']
+    with pytest.raises(ri.PriorBudgetError, match='no Management Fund budget sheet found'):
+        ri.choose_fund_sheets(names)
+    assert ri.choose_fund_sheets(names + ['2. Budget-Management Fund'])['MF'] == '2. Budget-Management Fund'

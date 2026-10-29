@@ -319,3 +319,10 @@ def test_end_to_end_review_through_the_api(client, runs_dir, tmp_path):
     hist = client.get('/api/history').json()['runs']
     assert hist[0]['id'] == rid and hist[0]['status'] == 'done' and hist[0]['kind'] == 'review' and hist[0]['can_gen']
     assert hist[0]['project'] == 'ZZ TEST TOWER'
+    # change log-review-runs: what the two generators print is kept beside the run
+    with open(os.path.join(run['workdir'], 'generator.log'), encoding='utf-8') as fh:
+        gen = fh.read()
+    assert '===== budget generator' in gen and '===== analysis generator' in gen
+    assert gen.index('===== budget generator') < gen.index('===== analysis generator')
+    assert any('generator.log' in ln for ln in run['log'])
+    assert all(o['name'] != 'generator.log' for o in run['outputs'])

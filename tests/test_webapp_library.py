@@ -396,11 +396,11 @@ def test_overview_prior_counts_tie_to_the_coverage_file(store):
                                 ('zzz999', 2024, 'ok', 1, 1, 1, 1, 1, 1)])       # không còn trong kho: bỏ qua
     p = library.overview()['prior']
     assert p['available'] and p['built_at'] == '2026-10-28 09:00'
-    assert p['total'] == {'selectable': 3, 'read': 2, 'all3': 1, 'n1': 2, 'n1_tie': 2, 'actual': 1, 'actual_tie': 0,
+    # ddd444: bộ đọc Review báo lỗi, nên không còn chọn được (change fix-review-reading-gaps)
+    assert p['total'] == {'selectable': 2, 'read': 2, 'all3': 1, 'n1': 2, 'n1_tie': 2, 'actual': 1, 'actual_tie': 0,
                           'expected': 1, 'expected_tie': 1}
     by_year = {y['label']: y for y in p['years']}
-    assert set(by_year) == {'2023', '2025', '2026'}
-    assert by_year['2023']['selectable'] == 1 and by_year['2023']['read'] == 0 and by_year['2023']['n1'] == 0
+    assert set(by_year) == {'2025', '2026'}
     assert by_year['2026']['all3'] == 1
     assert p['total']['selectable'] == library.overview()['review']['selectable']
     for k in ('selectable', 'read', 'n1', 'actual', 'expected', 'all3'):    # các năm cộng đúng dòng tổng
@@ -446,3 +446,20 @@ def test_builder_writes_one_row_per_selectable_file_without_names(store, tmp_pat
     assert not os.listdir(tmp_path / 'tmp_cov')                     # bản chép đã xoá
     library._cache['key'] = None
     assert library.overview()['prior']['available']                  # web đọc được file vừa ghi
+
+
+# ---- change fix-review-reading-gaps: file bộ đọc Review không đọc được thì không chọn được ----
+def test_a_file_the_review_reader_cannot_read_is_not_selectable(store):
+    _write_prior(_store_dir(), [('aaa111', 2026, 'ok', 1, 1, 1, 1, 1, 1), ('bbb222', 2025, 'error', 0, 0, 0, 0, 0, 0),
+                                ('ddd444', 2023, 'ok', 0, 0, 0, 0, 0, 0)])
+    by = {e['id']: e for e in library.entries()}
+    assert not by['bbb222']['selectable'] and by['bbb222']['reason_kind'] == 'review_unread'
+    assert 'Review chưa đọc được' in by['bbb222']['reason']
+    assert by['aaa111']['selectable'] and by['ddd444']['selectable']
+    # build_prior_coverage đo lại cả file đó, để cờ không tự tắt ở lần dựng sau
+    assert {e['id'] for e in library.load(coverage=False) if e['selectable']} >= {'aaa111', 'bbb222', 'ddd444'}
+
+
+def test_without_a_coverage_file_nothing_changes(store):
+    by = {e['id']: e for e in library.entries()}
+    assert all(e['reason_kind'] != 'review_unread' for e in by.values())

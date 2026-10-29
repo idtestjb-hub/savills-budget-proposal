@@ -45,6 +45,10 @@ NO_ANCHOR_NOTE = ('sheet quỹ không có đủ các dòng mốc R, E, PL1, PL2 
 OTHER_FORM_NOTE = 'form khác, đọc qua bảng ghép'
 OTHER_FORM_REASON = ('Form riêng của chủ đầu tư, kho quét đọc qua bảng ghép mã để làm khoảng ngân sách thật; '
                      'Review chưa đọc được form này')
+# File mà bộ đọc Review đọc lỗi khi đo cột năm trước (prior_coverage.csv, status error): không cho chọn, để PM không bấm
+# rồi mới thấy dừng (change fix-review-reading-gaps).
+REVIEW_UNREAD_REASON = ('Review chưa đọc được file này (sheet quỹ quản lý khác form chuẩn, ví dụ ngân sách nhiều '
+                        'giai đoạn)')
 NO_VALUE_COL_NOTE ='kho quét không xác định được cột số cả năm; khi chạy, Review đọc lại và tự đối soát'
 UNREADABLE_VI = {'pdf': 'PDF ảnh quét: không đọc được số', 'xlsb': 'xlsb: dùng bản chuyển đổi xlsx bên dưới',
                  'zip': 'zip: dùng file đã giải nén bên dưới'}
@@ -147,14 +151,16 @@ def _name_from_file(file_name):
     return stem.strip() or file_name
 
 
-def load(root=None, store=None):
+def load(root=None, store=None, coverage=True):
     """Mọi dòng của kho, mỗi dòng: id (file_id), project, project_from (file | tên file), file_name, folder, year, vat,
-    nfa, confidence, confidence_vi, ext, selectable, reason, reason_kind, path. Danh sách rỗng khi không có kho."""
+    nfa, confidence, confidence_vi, ext, selectable, reason, reason_kind, path. Danh sách rỗng khi không có kho.
+    `coverage=False`: bỏ lý do review_unread (build_prior_coverage.py đo lại cả các file đó)."""
     root, store = root or root_dir(), store or store_dir()
     files = _read_csv(os.path.join(store, 'dim_file.csv'))
     names = {r['file_id']: r for r in _read_csv(os.path.join(store, 'project_map.csv'))}
     profiles = {r['file_id']: r for r in _read_csv(os.path.join(store, 'file_profile.csv'))}
     recon = {(r['file_id'], r['sheet']): r for r in _read_csv(os.path.join(store, 'reconcile.csv'))}
+    unread = {r['file_id'] for r in _read_csv(os.path.join(store, PRIOR_FILE)) if r.get('status') == 'error'}         if coverage else set()
     out = []
     for r in files:
         fid = r['file_id']
@@ -178,6 +184,8 @@ def load(root=None, store=None):
             reason = (f'Ngân sách năm {int(year)}: công cụ lập ngân sách năm {template_year()}, nên chỉ review được '
                       f'ngân sách đã duyệt của năm {template_year() - 1} trở về trước')
             kind = 'year_not_before_template'
+        elif fid in unread:
+            reason, kind = REVIEW_UNREAD_REASON, 'review_unread'
         explained = conf == 'high' and (rec or {}).get('status', '').startswith('ok_')
         note = confidence_note(rec) if (conf != 'high' or explained) else ''
         out.append(dict(id=fid, project=project or _name_from_file(r.get('file_name', '')),
@@ -198,7 +206,7 @@ def entries():
     store = store_dir()
     key = (root_dir(), store) + tuple(
         os.path.getmtime(os.path.join(store, n)) if os.path.exists(os.path.join(store, n)) else 0
-        for n in ('dim_file.csv', 'project_map.csv', 'file_profile.csv'))
+        for n in ('dim_file.csv', 'project_map.csv', 'file_profile.csv', PRIOR_FILE))
     with _cache_lock:
         if _cache['key'] != key:
             _cache['entries'], _cache['key'] = load(), key
@@ -223,6 +231,7 @@ REVIEW_REASON_VI = {
     'no_fund_sheet': 'Không có sheet quỹ vận hành chính',
     'other_form': 'Form riêng của chủ đầu tư, Review chưa đọc được',
     'year_not_before_template': 'Ngân sách từ năm của mẫu trở lên',
+    'review_unread': 'Review chưa đọc được (sheet quỹ khác form chuẩn)',
 }
 RANGE_REASON_VI = {
     'used_full': 'Đủ điều kiện, dùng toàn bộ mã',
