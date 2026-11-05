@@ -10,8 +10,9 @@ runtime, the generators, the reference data and that site's approved budget only
 ## What Changes
 
 User's choices on 2026-11-05: local web with the Python runtime inside the package, the site's own data only; the
-page keeps the tabs Review, Dự án đã tạo and Hướng dẫn; a one-shot run without the web page is built as a trial
-beside it.
+page keeps the tabs Review, Dự án đã tạo and Hướng dẫn. A one-shot run without the web page was built as a trial
+beside it and removed the same day on the user's decision ("PM phải nhập và sửa được"): the web page is the only way
+to run at a site.
 
 - **A build script makes one package per site** from this repository and a prepared runtime folder:
   `BudgetAgent-<site>\` with `python\` (Python 3.14 copied from the build PC and pruned, plus the packages the web
@@ -29,11 +30,8 @@ beside it.
 - **Launcher `Chay Budget Agent.cmd`**: starts the local web on a free port of 127.0.0.1 with the package's own
   runs and temp folders, opens the browser, and keeps a console window whose closing stops the web. A second click
   while it runs only opens the browser.
-- **One-shot trial `Chay mot lan.cmd`**: runs the Review once on the packaged budget and facts, writes the same three
-  workbooks into `runs\<lượt>\`, renders a static `ket-qua.html` (approved vs tool, ties, 10 largest differences,
-  entry notes, file links) and opens it. Adjustments are then made on sheet `4. Điều chỉnh` in Excel. No server.
-- **Build-PC checks:** the build script starts the packaged runtime and imports every needed module; the one-shot run
-  is executed on one site package before delivery.
+- **Build-PC checks:** the build script starts the packaged runtime, imports every needed module and reads the
+  packaged budget; a Review through the packaged web is run on one site package before delivery.
 
 ## Capabilities
 
@@ -47,8 +45,7 @@ beside it.
 ## Impact
 
 - New: `build_site_runtime.py` (runtime folder, once per build PC), `build_site_package.py` (one package per site),
-  `webapp/start_site.py` (launcher), `webapp/site_once.py` + `webapp/static_report.py` (one-shot run and its HTML),
-  launcher `.cmd` files and `HUONG-DAN.txt` written by the build script.
+  `webapp/start_site.py` (launcher), the launcher `.cmd` and `HUONG-DAN.txt` written by the build script.
 - Changed: `webapp/server.py` (`api/site`, `site=1` source of `POST api/reviews`, site mode flag into the page),
   `webapp/static/index.html` (site mode: tabs, default source, pre-filled facts, guide sections), `webapp/README.md`,
   `RUNNING.md`.

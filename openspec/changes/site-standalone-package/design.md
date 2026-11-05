@@ -22,7 +22,7 @@ one run; sending results back to the office (the PM mails the workbook as today)
 
 **D1. Package layout.** `BudgetAgent-<site>\python\`, `app\Budget_Agent\source_code\`, `app\Budget_Agent\data\`,
 `app\Budget_Agent\reports\Project_Budget_Input.xlsx`, `app\input\template\<form>.xlsx`, `site\site.json`,
-`site\<approved>.xlsx`, `runs\`, `tmp\`, `Chay Budget Agent.cmd`, `Chay mot lan.cmd`, `HUONG-DAN.txt`. Keeping the
+`site\<approved>.xlsx`, `runs\`, `tmp\`, `Chay Budget Agent.cmd`, `HUONG-DAN.txt`. Keeping the
 `Budget_Agent\source_code` depth means every existing relative path in the generators works unchanged.
 
 **D2. Runtime from the build PC, not downloaded.** `build_site_runtime.py` copies the build PC's Python 3.14
@@ -65,18 +65,15 @@ browser after the first successful `GET /`. The `.cmd` runs
 `python\python.exe app\Budget_Agent\source_code\webapp\start_site.py` with `chcp 65001` and the console left open
 ("Đóng cửa sổ này để tắt").
 
-**D6. One-shot `webapp/site_once.py`.** Creates `runs\<yyyymmdd-hhmmss>_review-<site>\`, copies the packaged file to
-`prior\`, writes `facts.json` from `site.json`, runs `review_run.py` as a subprocess (same command the server uses),
-then `static_report.render(workdir)` writes `ket-qua.html` from `results.review_summary()` (same sections and
-wording as the page; Arial, Savills palette tokens, no logo) and opens it with the default browser. On `STOPPED` the
-page shows the stop line and the hint. The one-shot run writes `web_meta.json` the way the server does
-(`history.write_meta`) at start and at the end, so the Dự án đã tạo tab of the local web lists it correctly (a run
-folder without that file shows as "Thất bại" with the folder name as project, seen in the trial).
+**D6. No run without the page.** A one-shot launcher (`site_once.py` + a static `ket-qua.html`) was built and
+tried on 2026-11-05 and removed the same day: the user wants the PM to enter facts and adjust on the page, so the
+local web is the only entry point of a package. The build check reads the packaged budget with `review_import`
+directly instead.
 
 **D7. Build checks** (`build_site_package.py --check`): runs
 `python\python.exe -c "import openpyxl, win32com.client, fastapi, uvicorn, msal"` inside the package, then
-`site_once.py --dry-run` (reads the packaged budget with `review_import`, no Excel) and reports size per folder. A full
-one-shot run on one package before delivery is a task, done by hand because it needs Excel.
+a `-c` script that reads the packaged budget with `review_import` (no Excel), and reports size per folder. A full
+Review through the packaged web on one package before delivery is a task, done by hand because it needs Excel.
 
 **D8. What is not in the package.** The scan store, `input\budget_planning`, tests, `legacy\`, `openspec\`, docs,
 `.git`, `__pycache__`, other sites' files, `prior_coverage.csv`, any `web_runs`.
@@ -86,6 +83,6 @@ one-shot run on one package before delivery is a task, done by hand because it n
 - A PC that blocks running unsigned `.cmd` or `python.exe` from a user folder stops the package. Mitigation: the
   guide tells the PM to extract to `C:\BudgetAgent\` and names the file to allow; signing is out of scope.
 - `msal` and `requests` are imported at start although SSO is off; kept to avoid touching `auth.py` in this change.
-- Excel absent: the Review stops at [4/4] with the existing message; the one-shot HTML says so.
+- Excel absent: the Review stops at [4/4] with the existing message on the page.
 - Each package carries the reference data; a change in data or code means rebuilding and resending every package.
   The build script writes `code` (git hash) into `site.json` and the guide so the office can tell versions apart.

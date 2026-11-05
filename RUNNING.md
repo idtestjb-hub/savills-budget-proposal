@@ -421,8 +421,8 @@ python build_site_package.py --site "Project name" --prior "<approved budget .xl
 The runtime is a pruned copy of this PC's Python 3.14 plus only the packages the generators and the web import
 (pinned versions checked, nothing downloaded). The package holds `python\`, `app\` (this folder without tests, legacy,
 OpenSpec, docs and the two build scripts; `data\`; the input form; the 2027 template), `site\` (`site.json` + the
-approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tabs, see `webapp/README.md`),
-`Chay mot lan.cmd` (one Review, static `ket-qua.html`, adjustments on sheet 4 in Excel) and `HUONG-DAN.txt`.
+approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tabs, see `webapp/README.md`) and
+`HUONG-DAN.txt`.
 `--check` imports the modules with the packaged Python, reads the approved budget, and scans the package for the build
 PC's user name, machine name, paths and AI-tool names. The scan store and `input\budget_planning` never go into a package.
 

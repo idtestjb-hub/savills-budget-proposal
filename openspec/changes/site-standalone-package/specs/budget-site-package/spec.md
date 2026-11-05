@@ -4,8 +4,7 @@
 A site package SHALL be one folder `BudgetAgent-<site>\` (delivered as a zip) holding: a Python 3.14 runtime with
 the packages the generators and the web import; the generators, `data\`, the 2027 form template and the input form
 under `app\`; the site's approved budget `.xlsx` and `site.json` (project name, approved file name, pre-filled facts,
-build time, code version) under `site\`; an empty `runs\`; the launchers `Chay Budget Agent.cmd` and `Chay mot
-lan.cmd`; and `HUONG-DAN.txt`. It SHALL NOT contain the scan store, `input\budget_planning`, tests, legacy code,
+build time, code version) under `site\`; an empty `runs\`; the launcher `Chay Budget Agent.cmd`; and `HUONG-DAN.txt`. It SHALL NOT contain the scan store, `input\budget_planning`, tests, legacy code,
 OpenSpec, docs, git metadata, compiled bytecode, earlier web runs, another site's budget, or any user name, machine
 name or path of the build PC.
 
@@ -47,14 +46,3 @@ the web. Nothing SHALL be written outside the package folder except the browser'
 #### Scenario: Port in use
 - **WHEN** port 8090 is taken by another program
 - **THEN** the web starts on the next free port and the browser opens that address
-
-### Requirement: The one-shot run gives the Review without a server
-`Chay mot lan.cmd` SHALL run one Review on the packaged budget and facts into `runs\<lượt>\`, write the three
-workbooks there, render `ket-qua.html` (approved vs tool per fund, the eight ties, the 10 largest differences with
-the tool's method, entry notes, links to the files) and open it. A stop SHALL show the `STOPPED:` line and hint on
-the page.
-
-#### Scenario: One-shot run completes
-- **WHEN** the one-shot launcher is run and Excel is present
-- **THEN** `runs\<lượt>\` holds the three workbooks and `ket-qua.html`, the page shows the same figures as
-  `review_summary.json`, and adjustments can be made on sheet `4. Điều chỉnh` in Excel

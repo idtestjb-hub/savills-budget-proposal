@@ -1,5 +1,5 @@
 """Chế độ gói site của trang web (change site-standalone-package): api/site, nguồn site=1 của api/reviews, kho rỗng,
-trang ngoài chế độ site không đổi; static_report.render; start_site chọn cổng. Dữ liệu và tên dự án đều bịa."""
+trang ngoài chế độ site không đổi; start_site chọn cổng. Dữ liệu và tên dự án đều bịa."""
 import json
 import os
 import socket
@@ -10,8 +10,8 @@ os.environ['BUDGET_WEB_AUTH'] = 'off'
 pytest.importorskip('fastapi')
 from fastapi.testclient import TestClient  # noqa: E402
 
-from webapp import history, server, start_site, static_report  # noqa: E402
-from tests.test_webapp_review import DELIV, INTERNAL, _review_run, fake_worker, runs_dir  # noqa: E402, F401
+from webapp import history, server, start_site  # noqa: E402
+from tests.test_webapp_review import fake_worker, runs_dir  # noqa: E402, F401
 
 PROJECT = 'Khu Thu Nghiem'
 PRIOR = 'NS duyet 2026 (ban cuoi).xlsx'
@@ -93,32 +93,6 @@ def test_review_from_site_refused_outside_site_mode(client, runs_dir, monkeypatc
     monkeypatch.setattr(server, 'SITE_DIR', None)
     r = client.post('/api/reviews', data=dict(site='1', facts=json.dumps(dict(city='Hồ Chí Minh'))))
     assert r.status_code == 400
-
-
-def test_static_report_renders_the_review_figures(runs_dir):
-    wd = _review_run(runs_dir)
-    (wd / 'review_notes.json').write_text(json.dumps(dict(
-        notes=[dict(kind='để trống, PM điền', where='Site Area', text='không có trên file')],
-        filled=dict(blank=['Site Area'], facts=['City / Province']))), encoding='utf-8')
-    (wd / 'run.log').write_text('[1/4] x\n', encoding='utf-8')
-    path = static_report.render(str(wd))
-    assert os.path.basename(path) == 'ket-qua.html'
-    html = open(path, encoding='utf-8').read()
-    assert 'Khu Thu Nghiem' in html and 'Ngân sách đã duyệt 2026 so với ngân sách 2027' in html
-    assert 'Quỹ quản lý vận hành' in html and 'Tổng thu' in html and 'Thặng dư' in html
-    assert 'Duyệt NS 2026 (quy đổi)' in html and 'Công cụ NS 2027' in html
-    assert 'ESS38' in html and 'Chưa có phương pháp' in html
-    assert 'KHỚP' in html and 'LỆCH' in html
-    assert 'Site Area' in html and DELIV in html and all(n in html for n in INTERNAL)
-    assert 'href="run/' in html and str(wd) not in html
-
-
-def test_static_report_shows_the_stop_line(runs_dir):
-    wd = runs_dir / '20261105-100000_review-Khu-Thu-Nghiem'
-    wd.mkdir()
-    (wd / 'run.log').write_text('[1/4] x\nSTOPPED: no month columns\nGợi ý: ...\n', encoding='utf-8')
-    html = open(static_report.render(str(wd), project=PROJECT), encoding='utf-8').read()
-    assert 'STOPPED: no month columns' in html and 'Lượt chưa ra kết quả' in html
 
 
 def test_start_site_skips_a_taken_port():

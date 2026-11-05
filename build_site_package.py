@@ -7,10 +7,10 @@
 
 Gói ra: <out>\\BudgetAgent-<site>\\ với python\\ (chép từ --runtime), app\\Budget_Agent\\source_code (không tests, legacy,
 openspec, docs, bytecode), app\\Budget_Agent\\data, app\\Budget_Agent\\reports\\Project_Budget_Input.xlsx,
-app\\input\\template\\<form 2027>, site\\site.json + file đã duyệt, runs\\, tmp\\, hai launcher .cmd, HUONG-DAN.txt.
+app\\input\\template\\<form 2027>, site\\site.json + file đã duyệt, runs\\, tmp\\, launcher .cmd, HUONG-DAN.txt.
 Dữ kiện mục 2: --facts (JSON {city, district, tower_count, ...}) hoặc điền sẵn từ kho khi có --library-id (lượt trước
 cùng dự án, sheet 0. Info, danh sách master); --city ghi đè / bổ sung Tỉnh / thành phố (bắt buộc để chạy).
---check: python trong gói import đủ module, site_once.py --dry-run đọc được file đã duyệt, quét gói không chứa tên
+--check: python trong gói import đủ module, đọc được file đã duyệt bằng review_import, quét gói không chứa tên
 người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI. --zip: nén gói thành <out>\\BudgetAgent-<site>.zip.
 """
 import argparse
@@ -50,16 +50,20 @@ echo Trang da tat. Nhan phim bat ky de dong cua so.
 pause >nul
 """
 
-LAUNCH_ONCE = """@echo off
-chcp 65001 >nul
-cd /d "%~dp0"
-set PYTHONNOUSERSITE=1
-set PYTHONDONTWRITEBYTECODE=1
-title Budget Agent - chay mot lan - {site}
-"%~dp0python\\python.exe" -s "%~dp0app\\Budget_Agent\\source_code\\webapp\\site_once.py"
-echo.
-echo Xong. Nhan phim bat ky de dong cua so.
-pause >nul
+READ_CHECK = """
+import os, shutil, sys
+sys.path.insert(0, os.path.join('app', 'Budget_Agent', 'source_code'))
+import json
+import review_import as ri
+info = json.load(open(os.path.join('site', 'site.json'), encoding='utf-8'))
+tmp = os.path.join('tmp', 'check')
+os.makedirs(tmp, exist_ok=True)
+try:
+    p = ri.read_prior_budget(os.path.join('site', info['prior_file']), workdir=tmp)
+    print('Đọc được: dự án %r, năm %s, ' % (p.project_name, p.budget_year)
+          + ', '.join('%s %d dòng' % (f, len(fr.lines)) for f, fr in p.funds.items()))
+finally:
+    shutil.rmtree(tmp, ignore_errors=True)
 """
 
 GUIDE = """BUDGET AGENT - GÓI CHẠY RIÊNG CHO DỰ ÁN {site}
@@ -73,10 +77,8 @@ Microsoft Excel. Không cần cài Python hay phần mềm nào khác.
    - Kiểm tra mục 2 (dữ kiện file ngân sách không có), rồi bấm "Tạo ngân sách năm mới". Khoảng 1-2 phút.
    - Kết quả, bảng điều chỉnh và nút tải file hiện ngay bên dưới. Tab "Dự án đã tạo" giữ các lượt đã chạy.
    - Đóng cửa sổ đen là tắt trang. Bấm đúp lại để mở tiếp.
-3. Không cần trang web: bấm đúp "Chay mot lan.cmd". Công cụ chạy một lượt rồi mở trang kết quả ket-qua.html;
-   điều chỉnh làm thẳng trong file bản giao, sheet "4. Điều chỉnh".
-4. Mọi lượt nằm trong runs\\<ngày-giờ>_review-<dự án>\\run\\ (bản giao khách, bản phân tích nội bộ, lịch trực).
-5. Có file duyệt mới hơn: trên trang chọn "Tải file lên" và chọn file .xlsx đó.
+3. Mọi lượt nằm trong runs\\<ngày-giờ>_review-<dự án>\\run\\ (bản giao khách, bản phân tích nội bộ, lịch trực).
+4. Có file duyệt mới hơn: trên trang chọn "Tải file lên" và chọn file .xlsx đó.
 
 Khi Windows hỏi có chạy file không: chọn Run / Chạy. Nếu máy chặn hẳn, nhờ IT cho phép thư mục C:\\BudgetAgent\\.
 Lỗi thì gửi về văn phòng thư mục runs\\<lượt>\\ (file run.log, review_error.txt nếu có) kèm bản mã ở trên.
@@ -165,8 +167,6 @@ def build(site, prior, runtime, out, facts, store_id='', library_id=''):
         os.makedirs(os.path.join(pkg, d))
     with open(os.path.join(pkg, 'Chay Budget Agent.cmd'), 'w', encoding='utf-8') as fh:
         fh.write(LAUNCH_WEB.format(site=_safe(site)))
-    with open(os.path.join(pkg, 'Chay mot lan.cmd'), 'w', encoding='utf-8') as fh:
-        fh.write(LAUNCH_ONCE.format(site=_safe(site)))
     with open(os.path.join(pkg, 'HUONG-DAN.txt'), 'w', encoding='utf-8-sig') as fh:
         fh.write(GUIDE.format(site=site, code=code, built=built))
     return pkg
@@ -207,8 +207,7 @@ def check(pkg):
     r = subprocess.run([py, '-s', '-c', IMPORT_CHECK], capture_output=True, text=True, encoding='utf-8',
                        errors='replace', env=env, cwd=pkg)
     print('import:', 'OK' if r.returncode == 0 else 'LỖI ' + (r.stderr or r.stdout)[-400:])
-    once = os.path.join(pkg, 'app', 'Budget_Agent', 'source_code', 'webapp', 'site_once.py')
-    r2 = subprocess.run([py, '-s', once, '--package', pkg, '--dry-run'], capture_output=True, text=True,
+    r2 = subprocess.run([py, '-s', '-X', 'utf8', '-c', READ_CHECK], capture_output=True, text=True,
                         encoding='utf-8', errors='replace', env=env, cwd=pkg)
     print('đọc file đã duyệt:', 'OK ' + r2.stdout.strip() if r2.returncode == 0 else 'LỖI ' + (r2.stderr or r2.stdout)[-400:])
     hits = scan_text(pkg)
