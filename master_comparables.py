@@ -489,7 +489,7 @@ def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, 
     precision bucket, not before it: a first draft of this put it before, which let a hand-verified
     candidate with NO coordinates outrank a real, close, non-verified one purely on verified-status —
     concretely, it let two coordinate-less Hà Nội projects (Lumi Prestige & Elite, Lumi Signature) beat
-    Masteri An Phu, which sits 0.08km from a real HCMC query and carries a real Apartment rate. That
+    a master-list HCMC project sitting 0.08km from a real HCMC query with a real Apartment rate. That
     would have reversed task 2.4's "prefer the more precise measure" principle rather than refining it,
     and since both of derive_product_rate_capped()'s two branches would have agreed on the same
     geographically-wrong pick, its ±20% swing cap would never have caught it either. Caught by testing

@@ -30,7 +30,7 @@ SRC_RUN, SRC_INFO, SRC_MASTER = 'run', 'info', 'master'
 
 
 def fold(name):
-    """Tên dự án đã gấp: 'HOÀNG ANH GIAI VIỆT' == 'Hoang Anh Giai Viet', 'HOANG ANH RIVER VIEW' == 'Hoang Anh Riverview'."""
+    """Tên dự án đã gấp: 'KHU THỬ NGHIỆM' == 'Khu Thu Nghiem', 'THAP MAY XANH' == 'Tháp Mây Xanh'."""
     s = unicodedata.normalize('NFD', str(name or '').replace('đ', 'd').replace('Đ', 'D'))
     s = ''.join(c for c in s if unicodedata.category(c) != 'Mn').lower()
     return ''.join(c for c in s if c.isalnum())
@@ -78,7 +78,7 @@ def master_facts(name, path=MASTER_CSV):
                                                    f'tháp; số tầng cả dự án để PM nhập'))
         facts['floor_count'] = None
     if towers is not None:
-        # Số tháp của master không tự điền (người dùng chốt 29/10/2026: ONE VERANDAH ghi 22 tháp), vì nó vào số giám sát
+        # Số tháp của master không tự điền (người dùng chốt 29/10/2026: một dự án trong master ghi 22 tháp), vì nó vào số giám sát
         # vệ sinh và giá thật; chỉ ghi chú để PM nhập.
         notes.append(dict(key='tower_count', text=f'master ghi {towers:g} tháp; số tháp để PM kiểm và nhập'))
         facts['tower_count'] = None

@@ -23,6 +23,12 @@ import subprocess
 import sys
 import zipfile
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+import site_data  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGET_AGENT = os.path.dirname(HERE)
 BASE = os.path.dirname(BUDGET_AGENT)
@@ -31,7 +37,13 @@ INPUT_FORM = os.path.join(BUDGET_AGENT, 'reports', 'Project_Budget_Input.xlsx')
 # Không mang sang site: test, mã cũ, OpenSpec, tài liệu (.md có đường dẫn máy văn phòng), bytecode, và chính hai script
 # dựng gói (chỉ chạy ở máy văn phòng).
 SOURCE_IGNORE = shutil.ignore_patterns('tests', 'legacy', 'openspec', 'docs', '__pycache__', '*.pyc', '.git*',
-                                       '.pytest_cache', '*.log', '*.md', 'build_site_*.py')
+                                       '.pytest_cache', '*.log', '*.md', 'build_site_*.py',
+                                       # Script dựng dữ liệu / nghiên cứu: chỉ chạy ở máy văn phòng, có tên dự án
+                                       # thật trong chú thích (change site-data-isolation).
+                                       'build_master_rate_card.py', 'build_project_plan_v2.py', 'build_real_budget_ranges.py',
+                                       'build_service_levels.py', 'build_prior_coverage.py', 'build_roster_input_form.py',
+                                       'rescan_*.py', 'etl_*.py', 'derive_*.py', 'study_*.py', 'transform_*.py',
+                                       'extract_info_sheets.py', 'method_coverage.py')
 DATA_IGNORE = shutil.ignore_patterns('__pycache__', '*.backup-*', '*.bak')
 IMPORT_CHECK = 'import openpyxl, fastapi, uvicorn, msal, win32com.client, pythoncom, pydantic_core, itsdangerous'
 TEXT_EXT = {'.py', '.txt', '.md', '.json', '.html', '.cmd', '.csv', '.pth', '._pth'}
@@ -149,7 +161,10 @@ def build(site, prior, runtime, out, facts, store_id='', library_id=''):
     copy_tree(runtime, os.path.join(pkg, 'python'))
     app = os.path.join(pkg, 'app', 'Budget_Agent')
     copy_tree(HERE, os.path.join(app, 'source_code'), SOURCE_IGNORE)
-    copy_tree(os.path.join(BUDGET_AGENT, 'data'), os.path.join(app, 'data'), DATA_IGNORE)
+    # Dữ liệu: chỉ các file lượt Review đọc, tên dự án khác ẩn danh (site_data, change site-data-isolation).
+    sd = site_data.build(os.path.join(BUDGET_AGENT, 'data'), os.path.join(app, 'data'), own_names=[site])
+    print(f"dữ liệu: {len(sd['copied'])} file, {len(sd['pseudonyms'])} tên dự án khác đã ẩn danh, "
+          f"cột văn bản xoá ở {len(sd['masked'])} file")
     os.makedirs(os.path.join(app, 'reports'))
     shutil.copy2(INPUT_FORM, os.path.join(app, 'reports'))
     os.makedirs(os.path.join(pkg, 'app', 'input', 'template'))
@@ -201,7 +216,7 @@ def scan_text(pkg, extra_words=()):
     return hits
 
 
-def check(pkg):
+def check(pkg, leak_words=None):
     py = os.path.join(pkg, 'python', 'python.exe')
     env = dict(os.environ, PYTHONNOUSERSITE='1', PYTHONDONTWRITEBYTECODE='1', PYTHONIOENCODING='utf-8')
     r = subprocess.run([py, '-s', '-c', IMPORT_CHECK], capture_output=True, text=True, encoding='utf-8',
@@ -212,10 +227,19 @@ def check(pkg):
     print('đọc file đã duyệt:', 'OK ' + r2.stdout.strip() if r2.returncode == 0 else 'LỖI ' + (r2.stderr or r2.stdout)[-400:])
     hits = scan_text(pkg)
     print('quét văn bản:', 'sạch' if not hits else 'CÓ ' + '; '.join(f'{p}: {w}' for p, w in hits[:10]))
+    found = site_data.find_leaks(pkg, leak_words) if leak_words else []
+    # Form chuẩn 2027 là biểu mẫu của đội PM (mọi PM đều có); ghi chú trong đó nhắc vài dự án: báo riêng, không tính là rò rỉ.
+    tpl = os.path.join('app', 'input', 'template')
+    leaks = [h for h in found if not h[0].startswith(tpl)]
+    in_tpl = [h for h in found if h[0].startswith(tpl)]
+    print(f'quét tên dự án khác ({len(leak_words or [])} tên):', 'sạch' if not leaks else
+          'CÓ ' + '; '.join(f'{p}: {w}' for p, w in leaks[:40]))
+    if in_tpl:
+        print('  ghi chú sẵn trong form chuẩn (không tính):', '; '.join(f'{p}: {w}' for p, w in in_tpl))
     for d in ('python', 'app', 'site'):
         print(f'  {d:7} {_size(os.path.join(pkg, d)) / 1e6:7.1f} MB')
     print(f'  {"tổng":7} {_size(pkg) / 1e6:7.1f} MB')
-    return r.returncode == 0 and r2.returncode == 0 and not hits
+    return r.returncode == 0 and r2.returncode == 0 and not hits and not leaks
 
 
 def make_zip(pkg):
@@ -229,6 +253,23 @@ def make_zip(pkg):
     return zpath
 
 
+DEFAULT_STORE = os.path.join(os.environ.get('USERPROFILE', ''), 'Savills-local', 'budget-agent', 'scan-2026-10-07', 'final_v4')
+
+
+def _leak_words(site, store):
+    """Tên không được có trong gói (site_data.leak_words): danh sách master + tên file kho quét, trừ chính dự án."""
+    return site_data.leak_words(os.path.join(BUDGET_AGENT, 'data'), own_names=[site] if site else (),
+                                store_dir=store if store and os.path.isdir(store) else None)
+
+
+def _site_name(pkg):
+    try:
+        with open(os.path.join(pkg, 'site', 'site.json'), encoding='utf-8') as fh:
+            return json.load(fh).get('project', '')
+    except (OSError, ValueError):
+        return ''
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Đóng một gói chạy độc lập cho một site.')
     ap.add_argument('--site', help='tên dự án (hiện trên trang và trong tên gói)')
@@ -239,12 +280,14 @@ def main(argv=None):
     ap.add_argument('--city', default='', help='Tỉnh / thành phố (bắt buộc để chạy; ghi đè dữ kiện khác)')
     ap.add_argument('--library-id', default='', help='id dòng kho để điền sẵn dữ kiện')
     ap.add_argument('--facts', default='', help='file JSON dữ kiện {city, district, tower_count, ...}')
+    ap.add_argument('--store', default=DEFAULT_STORE, help='thư mục kho quét (dim_file.csv) để lấy tên file cho bước quét rò rỉ')
     ap.add_argument('--zip', action='store_true')
     ap.add_argument('--check', action='store_true')
     a = ap.parse_args(argv)
     sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
     if a.check_only:
-        return 0 if check(os.path.abspath(a.check_only)) else 1
+        pkg = os.path.abspath(a.check_only)
+        return 0 if check(pkg, _leak_words(_site_name(pkg), a.store)) else 1
     if not all((a.site, a.prior, a.runtime, a.out)):
         raise SystemExit('Cần --site, --prior, --runtime và --out (hoặc --check-only <gói>).')
     if not os.path.isfile(a.prior) or not a.prior.lower().endswith('.xlsx'):
@@ -256,7 +299,7 @@ def main(argv=None):
         print('Chú ý: chưa có Tỉnh / thành phố; PM phải chọn trên trang trước khi chạy.')
     pkg = build(a.site, os.path.abspath(a.prior), os.path.abspath(a.runtime), os.path.abspath(a.out), facts,
                 library_id=a.library_id)
-    ok = check(pkg) if a.check else True
+    ok = check(pkg, _leak_words(a.site, a.store)) if a.check else True
     if a.zip:
         make_zip(pkg)
     return 0 if ok else 1

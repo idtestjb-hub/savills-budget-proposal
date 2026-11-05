@@ -1562,27 +1562,27 @@ def _write_capex_subtotal(ws, r, category, start, end, subtotal_cells):
 # ============================================================================================
 # Real, from A&K Tower's own "B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B ("ĐỀ XUẤT ĐƠN GIÁ
 # GỬI XE TẠI DỰ ÁN" — proposed parking price at the project) — A&K's own ACTUAL decision, not just
-# a market survey, informed by 6 real comparables (Marq, Estella Heights, Canary Heights, Canary
-# Homez, Habitat, Sky Bridge) shown in Section A of the same sheet.
+# a market survey, informed by 6 real comparable projects shown in Section A of the same sheet
+# (names kept out of the code: change site-data-isolation).
 PARKING_FEE_CAR_MONTHLY = 1_100_000
 PARKING_FEE_MOTO_MONTHLY = 110_000
 PARKING_FEE_SOURCE = ('A&K Tower\'s own proposed parking price ("B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B) — '
-                       'informed by 6 real comparable projects\' rates (Marq/Estella Heights/Canary Heights/Canary '
-                       'Homez/Habitat/Sky Bridge, shown in that sheet\'s Section A), not just A&K\'s own guess.')
+                       'informed by the rates of 6 real comparable projects shown in that sheet\'s Section A, not just '
+                       'A&K\'s own guess.')
 
 # Real, from "Cho thuê bãi xe ô tô" sheet — a DIFFERENT revenue model than per-vehicle fees above:
 # leasing the WHOLE parking area to a third-party operator for one fixed monthly rent, instead of
-# billing each resident's vehicle individually. 3 real comparables (The Sun Avenue, Sunrise City
-# Central, Sunrise Riverside) — their car-slot-count ÷ parking-NFA ratio is remarkably tight
+# billing each resident's vehicle individually. 3 real comparables (named Dự án so sánh 1-3 since
+# change site-data-isolation) — their car-slot-count ÷ parking-NFA ratio is remarkably tight
 # (902/11,275=12.500, 289/3,613=12.502, 1,058/13,225=12.500 m²/slot — real, not assumed), so
 # parking NFA for a new project is estimated from its own real car slot count via that same ratio.
 # The rental RATE per m² has much wider real spread (17,391-77,880 VND/m² NFA/month across the 3),
 # so both the average AND that range are shown — never collapsed into one falsely-precise number.
 PARKING_LEASE_NFA_PER_SLOT = 12.5  # m² NFA per car slot — real, n=3, tight agreement (see comment above)
 PARKING_LEASE_COMPARABLES = [
-    ('The Sun Avenue', 902, 11275, 522430288.73, 46335.28),
-    ('Sunrise City Central', 289, 3613, 281380804, 77880.10),
-    ('Sunrise Riverside', 1058, 13225, 230000000, 17391.30),
+    ('Dự án so sánh 1', 902, 11275, 522430288.73, 46335.28),
+    ('Dự án so sánh 2', 289, 3613, 281380804, 77880.10),
+    ('Dự án so sánh 3', 1058, 13225, 230000000, 17391.30),
 ]
 PARKING_LEASE_RATE_AVG = round(sum(c[4] for c in PARKING_LEASE_COMPARABLES) / len(PARKING_LEASE_COMPARABLES), 2)
 
@@ -1822,7 +1822,7 @@ def build_additional_revenue_sheet(wb, project):
 
     section(ws, r, 'ALTERNATIVE: LEASE WHOLE PARKING AREA TO AN OPERATOR (fixed rent, zero occupancy risk)', ncols=6); r += 1
     ws.cell(row=r, column=1,
-            value=('Real data (3 comparables — The Sun Avenue/Sunrise City Central/Sunrise Riverside): car-slot-count ÷ '
+            value=('Real data (3 comparable projects, Dự án so sánh 1-3): car-slot-count ÷ '
                    f'parking-NFA is a tight, consistent {PARKING_LEASE_NFA_PER_SLOT:g} m²/slot across all 3, used to estimate '
                    'this project\'s own parking NFA from its real car slot count. Rental RATE per m² has a much wider real '
                    'spread (17,391–77,880 VND/m²/month) — shown as a range, not one falsely-precise number. Unlike '
@@ -1839,9 +1839,9 @@ def build_additional_revenue_sheet(wb, project):
     for label, val, basis in [
         ('Car Slots (from Project Info)', car_slots, ''),
         ('Estimated Parking NFA (m²)', est_parking_nfa, f'Car Slots × {PARKING_LEASE_NFA_PER_SLOT:g} m²/slot (real ratio, n=3)'),
-        ('Estimated Monthly Lease Revenue — low end (VND)', round(est_parking_nfa * 17391.30), 'At the lowest real comparable rate (Sunrise Riverside)'),
+        ('Estimated Monthly Lease Revenue — low end (VND)', round(est_parking_nfa * 17391.30), 'At the lowest real comparable rate (Dự án so sánh 3)'),
         ('Estimated Monthly Lease Revenue — average (VND)', round(est_parking_nfa * PARKING_LEASE_RATE_AVG), f'At the {PARKING_LEASE_RATE_AVG:,.0f} VND/m² average of 3 real comparables'),
-        ('Estimated Monthly Lease Revenue — high end (VND)', round(est_parking_nfa * 77880.10), 'At the highest real comparable rate (Sunrise City Central)'),
+        ('Estimated Monthly Lease Revenue — high end (VND)', round(est_parking_nfa * 77880.10), 'At the highest real comparable rate (Dự án so sánh 2)'),
     ]:
         ws.cell(row=r, column=1, value=label).border = BORDER
         ws.cell(row=r, column=1).alignment = LEFT
