@@ -19,7 +19,12 @@ run (no approved figure exists); changing the Review sheet; changing which codes
 
 ## Decisions
 
-**D1. Zero rows are added in `review.run()`, not in the generator.** The generator does not know the approved
+**D1. Zero rows are added in `review.run()`, not in the generator.** (Applied 2026-11-05 after the recalculation, not
+before it: `review.zero_tool_rows(data)` takes the rows of `assemble()` (tool figure measured by Excel) and
+`review.add_zero_rows(deliverable, rows)` appends them right after `assemble`, so the choice of codes uses the real tool
+figure instead of a guess from the un-recalculated workbook. The added lines are 0 untouched, so the recalculated copy
+the Review sheet was built from stays valid; the measured run below recalculates the final deliverable to prove it.
+The description below is the original plan.) The generator does not know the approved
 figures. After [3/4], before `recalc_copy`, `review.add_zero_rows(deliverable, data_rows)` opens the deliverable with
 openpyxl, builds the items `{code, sheet, name_vi, freq, months: [0]*12, annual: 0, subs: [lumped row qty 1, price 0,
 amount 0, qty locked]}` for each on-form row with `abs(approved) >= 0.5` and `abs(tool_num) < 0.5` whose code is
@@ -61,3 +66,21 @@ Sort control "Thứ tự: form 2027 | lệch lớn nhất"; in the second order 
   remark names the spread. The PM can instead type month figures in Excel as before.
 - Older deliverables without the type: `upgrade_sheet` already rewrites column M and the dropdown on save; the new
   branch rides on that path, so no separate migration.
+
+## Measured (2026-11-05, task 2.3)
+
+Review of CITY GARDEN (`Budget 2026 City Garden_rv5_05.12.2025.xlsx`, store id dcdac7ae4a81; MF 411 and CA 373 lines
+read, budget 2026, new year 2027), run in a work folder outside the library with the code of this change. Exit 0, ties
+8 of 8. The run added **102 "Nhập số" lines** to sheet 4 (sheet 4 has 138 total rows, 36 before); 0 skipped.
+Excel recalculation of the deliverable before and after the lines were added:
+
+| | before | after |
+|---|---:|---:|
+| MF R | 39,598,242,982.74 | 39,598,242,982.74 |
+| MF E | 36,236,851,099.00 | 36,236,851,099.00 |
+| CA R | 47,636,364.00 | 47,636,364.00 |
+| CA E | 43,211,326.74 | 43,211,326.74 |
+
+No line of either fund sheet moved (409 and 371 lines compared), no error cell in the recalculated workbook. Nine of
+the ten codes of the Review's top list are now on the web table (ESS38, RM.AP, RO15, EEW.AA, EEW.A, RR8, EMH1, ESS16,
+ESI1); RI1 (tool 43.2 triệu, a figure read from another sheet) stays off sheet 4 as before.

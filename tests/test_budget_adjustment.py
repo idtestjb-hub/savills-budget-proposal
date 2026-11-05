@@ -192,7 +192,7 @@ def test_parent_and_detail_rows(applied):
     assert ws['I5'].value == '=SUM(I6:I7)' and ws['M5'].value == '=SUM(M6:M7)'
     assert ws['N5'].value == '=M5-I5' and ws['O5'].value == '=IF(I5=0,"N/A",N5/I5)'
     assert ws['M6'].value == ('=IF($D$5="Số lượng",J6*H6,IF($D$5="Đơn giá",G6*K6,IF($D$5="Số lượng + Đơn giá",J6*K6,'
-                              'IF($D$5="Trượt giá",I6*(1+$L$5),I6))))')
+                              'IF($D$5="Trượt giá",I6*(1+$L$5),IF($D$5="Nhập số",K6,I6)))))')
     assert ws['N6'].value == '=M6-I6' and ws['O6'].value == '=IF(I6=0,"N/A",N6/I6)'
     assert ws['A5'].fill.fgColor.rgb.endswith('E4E6E8')
     assert ws['A7'].fill.fgColor.rgb.endswith('EEE8E3') and ws['A6'].fill.fill_type is None
@@ -211,7 +211,7 @@ def test_dropdown_on_every_parent_row(applied):
     _, ws, _ = applied
     dvs = ws.data_validations.dataValidation
     assert len(dvs) == 1 and dvs[0].type == 'list'
-    assert dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá"'
+    assert dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá,Nhập số"'
     covered = {str(rng) for rng in dvs[0].sqref.ranges}
     assert covered == {'D5', 'D8', 'D10', 'D12'}
 
@@ -235,14 +235,14 @@ def test_protection_and_unlocked_cells(applied):
 def test_fund_month_cells_point_at_the_parent_row(applied):
     wb, _, _ = applied
     ws = wb[MGMT]
-    expected = ("='4. Điều chỉnh'!$S$5*IF('4. Điều chỉnh'!$I$5=0,1,"
-                "'4. Điều chỉnh'!$M$5/'4. Điều chỉnh'!$I$5)")
+    expected = ("=IF('4. Điều chỉnh'!$I$5=0,'4. Điều chỉnh'!$M$5/12,'4. Điều chỉnh'!$S$5*IF('4. Điều chỉnh'!$I$5=0,1,"
+                "'4. Điều chỉnh'!$M$5/'4. Điều chỉnh'!$I$5))")
     assert ws['H20'].value == expected and ws['F20'].value == expected
     assert ws['S20'].value == expected.replace('$S$5', '$AD$5')
     assert ws['F14'].value is None                             # Schedule: F untouched
-    assert ws['H14'].value.startswith("='4. Điều chỉnh'!$S$10*")
+    assert "'4. Điều chỉnh'!$S$10*" in ws['H14'].value and ws['H14'].value.startswith("=IF(")
     assert ws['H21'].value == 24_000_000 and ws['F21'].value == 24_000_000   # ESS4 not covered
-    assert wb[COMMON]['H20'].value.startswith("='4. Điều chỉnh'!$S$12*")
+    assert "'4. Điều chỉnh'!$S$12*" in wb[COMMON]['H20'].value
     assert ws['G20'].value.startswith('=IF($C20=') and ws['AK20'].value == '=SUM(AQ20:BB20)'
 
 
@@ -329,7 +329,7 @@ def test_row_is_found_by_code_not_by_the_row_number():
     items = _items()[:1]
     items[0]['row'] = 99                                        # stale row number: the code wins
     ba.apply(wb, items)
-    assert wb[MGMT]['H20'].value.startswith("='4. Điều chỉnh'!")
+    assert "'4. Điều chỉnh'!$S$5*" in wb[MGMT]['H20'].value
     assert wb[MGMT]['H99'].value is None
     assert wb[ba.SHEET_NAME]['Q5'].value == 20                 # the resolved row is what the sheet records
     with pytest.raises(ValueError):
@@ -388,7 +388,7 @@ def test_excel_recalculates_without_errors_and_moves_as_expected(tmp_path):
         assert fund.Range('AK20').Value == 1_752_000_000 and fund.Range('F20').Value == 146_000_000
         assert fund.Range('AK14').Value == sum(RAMP) and common.Range('AK20').Value == 48_000_000
         assert adj.ProtectContents and not adj.Range('J6').Locked and adj.Range('I6').Locked
-        assert adj.Range('D5').Validation.Formula1.strip('"') == 'Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá'
+        assert adj.Range('D5').Validation.Formula1.strip('"') == 'Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá,Nhập số'
         assert adj.Rows(6).OutlineLevel == 2 and adj.Rows(6).Hidden
         adj.Range('D5').Value, adj.Range('J6').Value = 'Số lượng', 5
         adj.Range('D10').Value, adj.Range('L10').Value = 'Trượt giá', 0.05
@@ -416,3 +416,94 @@ def _has_error(ws):
         return True
     except Exception:
         return False
+
+
+# ---- type "Nhập số" and append_items (change adjust-rows-for-zero-tool-codes) ----
+
+def _zero_item(code='ESS99', row=30, sheet=MGMT, name='Dòng công cụ ra 0'):
+    return {'code': code, 'sheet': sheet, 'row': row, 'name_vi': name, 'freq': 'Monthly', 'months': [0.0] * 12,
+            'annual': 0.0, 'subs': [{'desc_vi': name, 'unit_vi': 'khoản', 'qty': 1.0, 'unit_price': 0.0,
+                                     'amount': 0.0, 'qty_editable': False}]}
+
+
+def test_enter_type_is_the_fifth_item_of_the_dropdown(applied):
+    _, ws, _ = applied
+    assert ba.ADJUSTMENT_TYPES[-1] == ba.TYPE_ENTER == 'Nhập số' and len(ba.ADJUSTMENT_TYPES) == 5
+    assert ws.data_validations.dataValidation[0].formula1.endswith(',Nhập số"')
+
+
+def test_enter_type_takes_the_typed_figure_per_row(applied):
+    wb, ws, _ = applied
+    ws['D5'] = 'Nhập số'
+    ws['K6'], ws['K7'] = 100.0, 50.0
+    ev = _Eval(wb)
+    assert ev.cell(ba.SHEET_NAME, 'M6') == 100.0 and ev.cell(ba.SHEET_NAME, 'M5') == 150.0
+    assert ev.cell(MGMT, 'H20') == pytest.approx(146_000_000 * 150.0 / 1_752_000_000)
+
+
+def _zero_workbook():
+    wb = _workbook()
+    _fund_row(wb[MGMT], 30, 'ESS99', 'Monthly', [None] * 12)
+    wb[MGMT].cell(row=30, column=6).value = None
+    return wb
+
+
+def test_zero_original_month_is_the_new_amount_over_twelve():
+    wb = _zero_workbook()
+    ba.apply(wb, _items())
+    parents = ba.append_items(wb, [_zero_item()])
+    ws = wb[ba.SHEET_NAME]
+    assert parents == {'ESS99': 14}
+    p = parents['ESS99']
+    ws.cell(row=p, column=4).value = 'Nhập số'
+    ws.cell(row=p + 1, column=11).value = 1_200_000.0
+    ev = _Eval(wb)
+    assert ev.cell(ba.SHEET_NAME, f'M{p}') == 1_200_000.0
+    assert ev.cell(MGMT, 'F30') == 100_000.0 and ev.cell(MGMT, 'S30') == 100_000.0
+    assert ev.cell(MGMT, 'AK30') == 1_200_000.0
+
+
+def test_zero_original_untouched_stays_zero():
+    wb = _zero_workbook()
+    ba.apply(wb, _items())
+    ba.append_items(wb, [_zero_item()])
+    ev = _Eval(wb)
+    assert ev.cell(MGMT, 'AK30') == 0 and ev.cell(MGMT, 'H30') == 0
+
+
+def test_append_items_keeps_the_earlier_rows_and_extends_the_dropdown():
+    wb = _zero_workbook()
+    ba.apply(wb, _items())
+    ws = wb[ba.SHEET_NAME]
+    before = [[c.value for c in row] for row in ws.iter_rows(min_row=1, max_row=13)]
+    ba.append_items(wb, [_zero_item()])
+    assert [[c.value for c in row] for row in ws.iter_rows(min_row=1, max_row=13)] == before
+    assert [ws.cell(row=r, column=3).value for r in (14, 15)] == ['Tổng', 'Chi tiết']
+    assert (ws['A14'].value, ws['P14'].value, ws['Q14'].value) == ('ESS99', MGMT, 30)
+    assert ws['J15'].value == '=G15'                      # locked quantity
+    assert ws.protection.sheet and ws['K15'].protection.locked is False and ws['A14'].protection.locked
+    assert 'D14' in str(ws.data_validations.dataValidation[0].sqref)
+    assert ws.row_dimensions[15].outlineLevel == 1 and ws.row_dimensions[15].hidden
+    assert "'4. Điều chỉnh'!$M$14/12" in wb[MGMT]['F30'].value
+
+
+def test_append_items_skips_a_code_already_on_the_sheet():
+    wb = _zero_workbook()
+    ba.apply(wb, _items())
+    assert ba.append_items(wb, [_zero_item()]) == {'ESS99': 14}
+    assert ba.append_items(wb, [_zero_item()]) == {}
+    assert ba.append_items(wb, [_zero_item('ESS1', 20)]) == {}
+
+
+def test_append_items_reports_a_code_missing_from_the_fund_sheet():
+    wb = _zero_workbook()
+    ba.apply(wb, _items())
+    with pytest.raises(ValueError, match='not found'):
+        ba.append_items(wb, [_zero_item('NOPE', None)])
+
+
+def test_new_project_apply_is_unchanged_by_the_fifth_type():
+    wb = _workbook()
+    ba.apply(wb, _items())
+    ws = wb[ba.SHEET_NAME]
+    assert ws.max_row == 13 and [ws.cell(row=r, column=1).value for r in (5, 8, 10, 12)] == ['ESS1', 'ESS16', 'RM.AP', 'RA1.A']

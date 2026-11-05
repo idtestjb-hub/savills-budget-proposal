@@ -201,6 +201,11 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj button.gtg { background: none; border: 0; font: 700 13px var(--sav-font); color: inherit; cursor: pointer; padding: 0 4px 0 0; }
 #adj td.unit { white-space: nowrap; font-size: 13px; color: var(--sav-muted); }
 #adj.hide-m .adj-mc, #adj.hide-rm .adj-rm { display: none; }
+#adj .top10 { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--sav-yellow); color: var(--sav-on-yellow); font: 700 10px var(--sav-font); vertical-align: middle; }
+#adj .zero-tag { display: block; font-size: 11px; color: var(--sav-muted); }
+button.fold { background: none; border: 0; font: 700 16px var(--sav-font); color: inherit; cursor: pointer; padding: 0 6px 0 0; }
+section.folded > :not(h2) { display: none; }
+section.folded > h2 { margin-bottom: 0; }
 @media (max-width: 700px) { #adj .p4 { position: static; box-shadow: none; } #adj .p3 { box-shadow: inset -1px 0 0 var(--sav-rule); } }
 #adj-box.adj-full { position: fixed; inset: 0; z-index: 50; margin: 0; max-width: none; overflow: auto; padding: 12px 16px;
   background: var(--sav-bg, #fff); display: flex; flex-direction: column; }
@@ -426,7 +431,7 @@ body.adj-full-on { overflow: hidden; }
       </table>
       <h3>Điều chỉnh trước khi giao</h3>
       <ol>
-        <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá, Số lượng + Đơn giá hoặc Trượt giá. Chọn một trong ba loại đầu thì các dòng chi tiết mở ngay bên dưới.</li>
+        <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá, Số lượng + Đơn giá, Trượt giá hoặc Nhập số (gõ số cả năm cho mã công cụ ra 0). Chọn một loại có dòng chi tiết thì các dòng đó mở ngay bên dưới.</li>
         <li>Sửa ô vàng. Thành tiền mới, chênh lệch và % tính ngay; cột <b>Duyệt</b> cho thấy số năm cũ để so.</li>
         <li><b>Trượt giá hàng loạt:</b> lọc (ví dụ gõ ES), bấm "Chọn mọi mã đang hiện", nhập %, bấm "Áp cho các mã đã chọn".</li>
         <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>. Bản giao được ghi đè, bản cũ giữ làm backup có ngày giờ; Excel tính lại và trang hiện thu, chi, thặng dư trước và sau. Bản giao tải sau khi lưu mới là bản cuối.</li>
@@ -590,6 +595,7 @@ body.adj-full-on { overflow: hidden; }
           <tr><td>Đơn giá</td><td>Đơn giá mới</td><td>SL gốc × đơn giá mới</td></tr>
           <tr><td>Số lượng + Đơn giá</td><td>SL mới và Đơn giá mới</td><td>SL mới × đơn giá mới</td></tr>
           <tr><td>Trượt giá</td><td>Trượt giá %</td><td>Thành tiền gốc × (1 + %)</td></tr>
+          <tr><td>Nhập số</td><td>Số nhập (VND/năm) ở từng dòng chi tiết</td><td>Chính số đã nhập; dùng cho mã công cụ ra 0 (sheet quỹ chia đều 12 tháng)</td></tr>
           </tbody>
         </table>
         <p class="src">Chênh lệch và % tính ngay tại dòng; dòng tổng, sheet quỹ, 1. Summary và dự phòng chạy theo. Liên kết theo mã dòng, không theo số dòng Excel. Chưa sửa gì thì bản giao giữ nguyên số gốc.</p>
@@ -657,13 +663,13 @@ body.adj-full-on { overflow: hidden; }
       <p class="src" id="rv-head"></p>
       <div id="res-review" class="rv">
       <section>
-        <h2 id="rv-title">Ngân sách đã duyệt so với ngân sách năm mới do công cụ sinh</h2>
+        <h2><button type="button" class="fold" data-fold="rv-fold-sum" aria-expanded="true" title="Thu gọn / mở mục này">▾</button><span id="rv-title">Ngân sách đã duyệt so với ngân sách năm mới do công cụ sinh</span></h2>
         <p class="src" id="rv-meta"></p>
         <div class="dg-wrap"><table id="rv-sum"><thead></thead><tbody></tbody></table></div>
         <p class="src" id="rv-counts"></p>
       </section>
       <section>
-        <h2>Đối chiếu tổng</h2>
+        <h2><button type="button" class="fold" data-fold="rv-fold-ties" aria-expanded="true" title="Thu gọn / mở mục này">▾</button>Đối chiếu tổng</h2>
         <ul class="ties" id="rv-ties"></ul>
         <p class="src">Hai phép đối chiếu cho mỗi quỹ và mục: cột công cụ cộng lại bằng dòng R / E của bản giao; cột duyệt cộng lại bằng dòng R / E của file nguồn.</p>
       </section>
@@ -694,7 +700,7 @@ body.adj-full-on { overflow: hidden; }
         <h2 id="adj-title">Điều chỉnh ngân sách năm mới</h2>
         <p class="src" id="adj-head"></p>
         <ol style="margin:6px 0 12px;padding-left:20px;font-size:14px">
-          <li>Chọn <b>loại điều chỉnh</b> trên dòng của mã: Số lượng, Đơn giá, Số lượng + Đơn giá hoặc Trượt giá. Chọn một trong ba loại đầu thì các dòng chi tiết mở ngay bên dưới.</li>
+          <li>Chọn <b>loại điều chỉnh</b> trên dòng của mã: Số lượng, Đơn giá, Số lượng + Đơn giá, Trượt giá hoặc Nhập số (gõ số cả năm cho mã công cụ ra 0). Chọn một loại có dòng chi tiết thì các dòng đó mở ngay bên dưới.</li>
           <li>Sửa ô vàng: SL mới (Số lượng), Đơn giá mới (Đơn giá), cả hai (Số lượng + Đơn giá), hoặc Trượt giá % trên dòng mã. Thành tiền mới và chênh lệch tính ngay.</li>
           <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>: bản giao được ghi đè (bản cũ giữ làm backup có ngày), Excel tính lại và trang hiện thu, chi, thặng dư trước và sau.</li>
         </ol>
@@ -703,6 +709,7 @@ body.adj-full-on { overflow: hidden; }
           <label>Quỹ <select id="adj-fund"><option value="">Tất cả</option><option value="MF">Quỹ quản lý vận hành</option><option value="CA">Quỹ khu vực chung</option></select></label>
           <label>Mục <select id="adj-sec"><option value="">Thu và chi</option><option value="R">Thu</option><option value="E">Chi</option></select></label>
           <label><input type="checkbox" id="adj-only"> Chỉ mã đã điều chỉnh</label>
+          <label id="adj-order-wrap" class="hidden">Thứ tự <select id="adj-order"><option value="form">Theo form 2027</option><option value="diff">Lệch lớn nhất</option></select></label>
           <label><input type="checkbox" id="adj-show-m" checked> Cột năm trước</label>
           <label><input type="checkbox" id="adj-show-rm" checked> Cột Remark</label>
           <button type="button" class="sm" id="adj-full" aria-pressed="false">Toàn màn hình</button>
@@ -719,7 +726,7 @@ body.adj-full-on { overflow: hidden; }
         </div>
         <div id="adj-wrap">
         <table id="adj">
-          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
+          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th class="num adj-df" title="Thành tiền gốc (công cụ) trừ số duyệt; không đổi khi sửa">Chênh so với duyệt</th><th class="num adj-df" title="Chênh so với duyệt, tính trên số duyệt">% so với duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -1454,9 +1461,17 @@ goReview.addEventListener('click', async () => {
   await startRun(`${PREFIX}/api/reviews`, fd, null, 'review');
 });
 
+// ---- Thu gọn / mở hai mục kết quả của lượt review; trạng thái nhớ trên máy (mặc định mở) ----
+document.querySelectorAll('button.fold[data-fold]').forEach(b => {
+  const sec = b.closest('section'), key = b.dataset.fold;
+  const set = folded => { sec.classList.toggle('folded', folded); b.textContent = folded ? '▸' : '▾'; b.setAttribute('aria-expanded', String(!folded)); };
+  set(localStorage.getItem(key) === '1');
+  b.addEventListener('click', () => { const f = !sec.classList.contains('folded'); set(f); localStorage.setItem(key, f ? '1' : '0'); });
+});
+
 // ---- Điều chỉnh ngân sách (sheet 4. Điều chỉnh của bản giao) ----
-const T_QTY = 'Số lượng', T_PRICE = 'Đơn giá', T_QP = 'Số lượng + Đơn giá', T_INF = 'Trượt giá';
-const DETAIL_TYPES = [T_QTY, T_PRICE, T_QP];
+const T_QTY = 'Số lượng', T_PRICE = 'Đơn giá', T_QP = 'Số lượng + Đơn giá', T_INF = 'Trượt giá', T_ENT = 'Nhập số';
+const DETAIL_TYPES = [T_QTY, T_PRICE, T_QP, T_ENT];
 let adj = null;          // {id, items, orig: {key: json}, open: Set, sel: Set}
 const adjTbody = document.querySelector('#adj tbody');
 
@@ -1468,6 +1483,7 @@ function itemNew(it) {
     else if (it.adj_type === T_PRICE) t += s.qty * s.new_price;
     else if (it.adj_type === T_QP) t += (s.qty_editable ? s.new_qty : s.qty) * s.new_price;
     else if (it.adj_type === T_INF) t += s.amount * (1 + it.inflation);
+    else if (it.adj_type === T_ENT) t += s.new_price;
     else t += s.amount;
   }
   return t;
@@ -1477,6 +1493,7 @@ function subNew(it, s) {
   if (it.adj_type === T_PRICE) return s.qty * s.new_price;
   if (it.adj_type === T_QP) return (s.qty_editable ? s.new_qty : s.qty) * s.new_price;
   if (it.adj_type === T_INF) return s.amount * (1 + it.inflation);
+  if (it.adj_type === T_ENT) return s.new_price;
   return s.amount;
 }
 function vnd(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US'); }
@@ -1498,6 +1515,10 @@ async function openAdjust(id, slot) {
   document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
     (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
   document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
+  document.querySelectorAll('.adj-df').forEach(th => th.classList.toggle('hidden', !d.has_approved));
+  document.getElementById('adj-order-wrap').classList.toggle('hidden', !d.has_approved);
+  adj.order = d.has_approved && localStorage.getItem('budget-adj-order') === 'diff' ? 'diff' : 'form';
+  document.getElementById('adj-order').value = adj.order;
   const ml = d.measure_labels || {};
   document.querySelectorAll('.adj-m').forEach(th => { const k = th.dataset.m; th.classList.toggle('hidden', !ml[k]); th.textContent = shortMeasure(ml[k] || ''); th.title = ml[k] || ''; });
   const save = document.getElementById('adj-save');
@@ -1520,27 +1541,68 @@ function visible(it) {
 }
 
 function typeOptions(it) {
-  const opts = it.has_subs ? ['', T_QTY, T_PRICE, T_QP, T_INF] : ['', T_INF];
+  const opts = it.has_subs ? ['', T_QTY, T_PRICE, T_QP, T_INF, T_ENT] : ['', T_INF];
   return opts.map(o => `<option value="${o}" ${o === it.adj_type ? 'selected' : ''}>${o || '(giữ số gốc)'}</option>`).join('');
 }
 
 function subTable(it) {
-  const q = it.adj_type === T_QTY || it.adj_type === T_QP, p = it.adj_type === T_PRICE || it.adj_type === T_QP;
-  return `<table class="subs"><thead><tr><th>Nội dung chi tiết</th><th>ĐVT</th><th class="num">SL gốc</th><th class="num">Đơn giá gốc</th><th class="num">Thành tiền gốc</th><th class="num">SL mới</th><th class="num">Đơn giá mới</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody>` +
+  const q = it.adj_type === T_QTY || it.adj_type === T_QP, p = it.adj_type === T_PRICE || it.adj_type === T_QP || it.adj_type === T_ENT;
+  const ent = it.adj_type === T_ENT;
+  return `<table class="subs"><thead><tr><th>Nội dung chi tiết</th><th>ĐVT</th><th class="num">SL gốc</th><th class="num">Đơn giá gốc</th><th class="num">Thành tiền gốc</th><th class="num">SL mới</th><th class="num">${ent ? 'Số nhập (VND/năm)' : 'Đơn giá mới'}</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th></tr></thead><tbody>` +
     it.subs.map(s => {
       const nw = subNew(it, s), df = nw - s.amount;
       return `<tr><td>${esc(s.desc)}</td><td>${esc(s.unit)}</td><td class="num">${num(s.qty, 2)}</td><td class="num">${vnd(s.unit_price)}</td><td class="num">${vnd(s.amount)}</td>` +
         `<td class="num">${q && s.qty_editable ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_qty" value="${s.new_qty}">` : `<span title="${s.qty_editable ? 'Chọn loại Số lượng hoặc Số lượng + Đơn giá để sửa' : 'Dòng gộp: số lượng khoá'}">${num(s.qty_editable ? s.new_qty : s.qty, 2)}</span>`}</td>` +
-        `<td class="num">${p ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_price" value="${s.new_price}">` : `<span title="Chọn loại Đơn giá hoặc Số lượng + Đơn giá để sửa">${vnd(s.new_price)}</span>`}</td>` +
+        `<td class="num">${p ? `<input class="edit" type="number" min="0" step="any" data-k="${esc(it.key)}" data-i="${s.idx}" data-f="new_price" value="${s.new_price}">` : `<span title="Chọn loại Đơn giá, Số lượng + Đơn giá hoặc Nhập số để sửa">${vnd(s.new_price)}</span>`}</td>` +
         `<td class="num">${vnd(nw)}</td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, s.amount)}</td></tr>`;
     }).join('') + '</tbody></table>';
+}
+
+// Chênh so với duyệt = thành tiền gốc (số công cụ) trừ số duyệt quy đổi; cố định, không đổi khi sửa. Mã không có số duyệt tính duyệt = 0.
+function diffAp(it) { return it.amount - (it.approved || 0); }
+function diffCells(it) {
+  const d = diffAp(it);
+  return `<td class="${negCls(d)}">${vnd(d)}</td><td class="${negCls(d)}">${vpct(d, it.approved || 0)}</td>`;
+}
+function diffSumCells(group) {
+  const d = group.reduce((t, i) => t + diffAp(i), 0), a = group.reduce((t, i) => t + (i.approved || 0), 0);
+  return `<td class="${negCls(d)}">${vnd(d)}</td><td class="${negCls(d)}">${vpct(d, a)}</td>`;
+}
+let topCache = null;
+function topKeys() {
+  if (!topCache || topCache.src !== adj.data) topCache = { src: adj.data, set: new Set(adj.data.top_keys || []) };
+  return topCache.set;
+}
+// Thứ tự "lệch lớn nhất": giữ nhóm của form; trong mỗi nhóm, mã và nhóm con xếp theo |chênh so với duyệt| giảm dần
+// (nhóm con theo mã lớn nhất của nó). Các mã của một nhóm luôn đứng liền nhau nên dòng Cộng của nhóm vẫn đúng.
+function sortByDiff(items) {
+  const node = () => ({ kids: new Map(), items: [], max: 0 }), root = node();
+  for (const it of items) {
+    let n = root;
+    for (const g of (it.groups || [])) {
+      const id = `${it.fund}:${g.code}`;
+      if (!n.kids.has(id)) n.kids.set(id, node());
+      n = n.kids.get(id);
+    }
+    n.items.push(it);
+  }
+  const mx = n => (n.max = Math.max(0, ...n.items.map(i => Math.abs(diffAp(i))), ...[...n.kids.values()].map(mx)));
+  mx(root);
+  const out = [];
+  const walk = n => {
+    const parts = [...n.items.map(it => ({ m: Math.abs(diffAp(it)), it })), ...[...n.kids.values()].map(k => ({ m: k.max, k }))];
+    parts.sort((a, b) => b.m - a.m);
+    parts.forEach(p => (p.it ? out.push(p.it) : walk(p.k)));
+  };
+  walk(root);
+  return out;
 }
 
 function renderAdjust() {
   if (!adj) return;
   const ap = adj.data.has_approved;
   const mk = adjMeasureKeys();
-  const cols = (ap ? 13 : 12) + mk.length;
+  const cols = (ap ? 15 : 12) + mk.length;
   let html = '';
   adj.groups = {};
   // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng; trong đó các mã xếp và lồng theo nhóm của form 2027
@@ -1550,6 +1612,7 @@ function renderAdjust() {
     const group = adj.items.map((it, i) => [it, i]).filter(([it]) => it.section === sec && visible(it))
       .sort(([a, i], [b, j]) => ((FUND_RANK[a.fund] ?? 9) - (FUND_RANK[b.fund] ?? 9)) || ((a.order ?? 0) - (b.order ?? 0)) || (i - j))
       .map(([it]) => it);
+    if (adj.order === 'diff') { const byFund = {}; group.forEach(it => (byFund[it.fund] = byFund[it.fund] || []).push(it)); group.length = 0; Object.keys(byFund).sort((a, b) => (FUND_RANK[a] ?? 9) - (FUND_RANK[b] ?? 9)).forEach(f => group.push(...sortByDiff(byFund[f]))); }
     if (!group.length) continue;
     adj.groups[sec] = { label: `${sec === 'R' ? 'THU' : 'CHI'} · ${group.length} mã`, depth: 0, members: group };
     html += groupHead(sec);
@@ -1573,10 +1636,10 @@ function renderAdjust() {
       const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
       html += `<tr class="${cls}" data-k="${esc(it.key)}"><td class="pin p1"><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
         `<td class="pin p2"><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
-        `<td class="pin p3"><b>${esc(it.code)}</b><br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
+        `<td class="pin p3"><b>${esc(it.code)}</b>${topKeys().has(it.key) ? '<span class="top10" title="Nằm trong 10 dòng lệch lớn nhất của lượt review">Top 10</span>' : ''}<br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
         unitCell(it) +
         mk.map(k => `<td class="num adj-mc">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
-        (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>` : '') +
+        (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>${diffCells(it)}` : '') +
         `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
         `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
         `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
@@ -1637,7 +1700,7 @@ function groupHead(id) {
   const pad = sub ? `padding-left:${6 + 14 * (g.depth - 1)}px;` : '';
   return `<tr class="grp${sub ? ' sg' : ''}" data-grp="${esc(id)}"><td class="pin p1" colspan="4" style="width:auto;max-width:none;${pad}"${g.full ? ` title="${esc(g.full)}"` : ''}>${btn}${esc(g.label)}${sub ? ` <small style="font-weight:400">(${group.length} mã)</small>` : ''}</td><td></td>` +
     adjMeasureKeys().map(k => `<td class="num adj-mc">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
-    (ap ? `<td class="num">${vnd(a)}</td>` : '') + `<td colspan="2"></td>` +
+    (ap ? `<td class="num">${vnd(a)}</td>${diffSumCells(group)}` : '') + `<td colspan="2"></td>` +
     `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td class="adj-rm"></td></tr>`;
 }
 function refreshGroups() {
@@ -1738,6 +1801,7 @@ adjTbody.addEventListener('click', e => {
   renderAdjust();
 });
 ['adj-q', 'adj-fund', 'adj-sec', 'adj-only'].forEach(id => document.getElementById(id).addEventListener('input', renderAdjust));
+document.getElementById('adj-order').addEventListener('change', e => { if (!adj) return; adj.order = e.target.value; localStorage.setItem('budget-adj-order', adj.order); renderAdjust(); });
 document.getElementById('adj-selall').addEventListener('click', () => { adj.items.filter(visible).forEach(i => adj.sel.add(i.key)); renderAdjust(); });
 document.getElementById('adj-selnone').addEventListener('click', () => { adj.sel.clear(); renderAdjust(); });
 document.getElementById('adj-gopen').addEventListener('click', () => { if (adj) { adj.closed.clear(); renderAdjust(); } });

@@ -113,10 +113,16 @@ dòng Chi tiết bên dưới, công thức của template) và chỉ ghi lại 
 tính (`webapp/adjust.py`).
 
 - **Bảng:** mỗi mã một dòng (mã, quỹ, hạng mục, loại điều chỉnh, trượt giá %, thành tiền gốc, mới, chênh lệch, %);
-  lượt review thêm cột *Duyệt NS <năm cũ>* (số đã quy đổi, đọc từ sheet Review). Nút +/− mở hoặc thu gọn dòng chi tiết
+  lượt review thêm cột *Duyệt NS <năm cũ>* (số đã quy đổi, đọc từ sheet Review) và hai cột *Chênh so với duyệt* / *% so với
+  duyệt* (thành tiền gốc trừ số duyệt; cố định khi sửa). Ô chọn *Thứ tự*: Theo form 2027 (mặc định) hoặc Lệch lớn nhất (trong
+  mỗi nhóm xếp theo |chênh| giảm dần, nhóm theo mã lớn nhất của nó; dòng Cộng vẫn đúng). Mã nằm trong "10 dòng lệch lớn nhất"
+  của Review có nhãn *Top 10*. Lượt review còn thêm vào bảng một dòng cho mỗi mã có số duyệt mà công cụ ra 0 (lấy từ
+  `review_summary.json` và sheet 4 do `review.add_zero_rows` ghi). Nút +/− mở hoặc thu gọn dòng chi tiết
   ngay dưới mã (nội dung, ĐVT, SL gốc, đơn giá gốc, thành tiền gốc, SL mới, đơn giá mới, thành tiền mới, chênh lệch,
   %). Chọn Số lượng hoặc Đơn giá thì dòng chi tiết tự mở. Lọc theo mã / hạng mục, quỹ, thu / chi, "chỉ mã đã điều chỉnh".
-- **Ô sửa được** theo loại: Số lượng → SL mới; Đơn giá → đơn giá mới; Trượt giá → % trên dòng mã. Dòng gộp ("khoản",
+- **Ô sửa được** theo loại: Số lượng → SL mới; Đơn giá → đơn giá mới; Trượt giá → % trên dòng mã; **Nhập số** → gõ số cả năm
+  của từng dòng chi tiết vào ô *Số nhập (VND/năm)* (không âm; dành cho mã công cụ ra 0, nhưng chọn được ở mọi mã có dòng
+  chi tiết; chưa chỉnh thì dòng đó vẫn bằng 0). Dòng gộp ("khoản",
   cột J là công thức) khoá SL. Mã không có dòng chi tiết chỉ có trượt giá. SL và đơn giá không âm; trượt giá > −100%.
 - **Công thức** (đúng công thức của template): SL mới × đơn giá gốc; SL gốc × đơn giá mới; thành tiền gốc × (1 + %);
   thành tiền mới của mã = tổng các dòng chi tiết; chênh lệch % = "N/A" khi gốc bằng 0.
@@ -132,6 +138,8 @@ tính (`webapp/adjust.py`).
   `adjust_result.json`, lịch sử lưu `adjust_state.json`, log `adjust.log` (không đè `run.log` và `web_meta.json` của
   lượt gốc).
 - Lượt review: sheet Review của bản phân tích vẫn so số công cụ **trước** điều chỉnh; trang ghi rõ.
+- **Thu gọn kết quả:** hai mục "Ngân sách đã duyệt so với ngân sách năm mới…" và "Đối chiếu tổng" có nút ▾/▸ ở tiêu đề;
+  trạng thái nhớ trên máy (`localStorage` `rv-fold-sum`, `rv-fold-ties`), mặc định mở.
 
 Kiểm tra 20/10/2026 trên một lượt review mẫu: ESS1 SL cổng chính ca sáng 3 → 4 (+77 tr), EMA7 và EMA15 trượt giá 3%
 hàng loạt; Excel đo chi quỹ vận hành +82,4 tr (80,8 tr ba mã + dự phòng theo), quỹ khu vực chung +0,57 tr đúng bằng RI1;

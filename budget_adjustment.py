@@ -28,8 +28,8 @@ from openpyxl.worksheet.properties import Outline
 
 SHEET_NAME = '4. Điều chỉnh'
 AFTER_SHEET = '3.1 Report-Sinking Fund'
-ADJUSTMENT_TYPES = ('Số lượng', 'Đơn giá', 'Số lượng + Đơn giá', 'Trượt giá')
-TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION = ADJUSTMENT_TYPES
+ADJUSTMENT_TYPES = ('Số lượng', 'Đơn giá', 'Số lượng + Đơn giá', 'Trượt giá', 'Nhập số')
+TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION, TYPE_ENTER = ADJUSTMENT_TYPES
 ROW_KIND_TOTAL, ROW_KIND_DETAIL = 'Tổng', 'Chi tiết'
 
 TITLE_ROW, GUIDE_ROW, HEADER_ROW, FIRST_DATA_ROW = 1, 2, 4, 5
@@ -47,14 +47,15 @@ HIDDEN_COLS = range(COL['fund_sheet'], MONTH_FIRST_COL + 12)   # P .. AD
 LAST_COL = MONTH_FIRST_COL + 11            # AD
 
 FUND_CODE_COL = 25                         # Y on both fund sheets
+FUND_FREQ_COL = 3                          # C: Monthly / Schedule / ...
 FUND_MONTHLY_COL = 6                       # F
 FUND_MONTH_FIRST_COL = 8                   # H .. S
 
 TITLE = 'ĐIỀU CHỈNH NGÂN SÁCH'
 GUIDE = ('Cách dùng: trên dòng Tổng của một mã, chọn Loại điều chỉnh ở cột D (Số lượng / Đơn giá / Số lượng + Đơn giá '
-         '/ Trượt giá). Bấm dấu + ở lề trái để mở các dòng Chi tiết rồi sửa ô vàng: SL mới (J) khi chọn Số lượng, Đơn giá '
+         '/ Trượt giá / Nhập số). Bấm dấu + ở lề trái để mở các dòng Chi tiết rồi sửa ô vàng: SL mới (J) khi chọn Số lượng, Đơn giá '
          'mới (K) khi chọn Đơn giá, cả J và K khi chọn Số lượng + Đơn giá, Trượt giá % (L, trên dòng Tổng) khi chọn '
-         'Trượt giá. Các ô khác đã khoá. '
+         'Trượt giá, hoặc Đơn giá mới (K) = số cả năm của dòng khi chọn Nhập số (dùng cho mã công cụ ra 0). Các ô khác đã khoá. '
          "Thành tiền mới (M), Chênh lệch (N, O) và các sheet 1. Summary, 2. Budget-Management Fund, "
          "2.2 Common area Fund tự cập nhật. Để trống cột D = giữ nguyên số gốc.")
 
@@ -109,7 +110,7 @@ def detail_formula(parent_row, row):
     g, h, i = (_ref(COL[k], row) for k in ('qty', 'unit_price', 'amount'))
     j, k = _ref(COL['new_qty'], row), _ref(COL['new_price'], row)
     return (f'=IF({d}="{TYPE_QTY}",{j}*{h},IF({d}="{TYPE_PRICE}",{g}*{k},IF({d}="{TYPE_QTY_PRICE}",{j}*{k},'
-            f'IF({d}="{TYPE_INFLATION}",{i}*(1+{l}),{i}))))')
+            f'IF({d}="{TYPE_INFLATION}",{i}*(1+{l}),IF({d}="{TYPE_ENTER}",{k},{i})))))')
 
 
 def ratio_formula(parent_row):
@@ -121,9 +122,13 @@ def ratio_formula(parent_row):
 
 
 def month_formula(parent_row, month_index):
-    """The fund sheet's month cell: original month figure (column S..AD of the parent row) x the ratio."""
+    """The fund sheet's month cell: original month figure (column S..AD of the parent row) x the ratio. When the
+    original annual is zero the ratio is undefined, so the cell takes the new annual amount / 12 (type "Nhập số"
+    on a line the tool priced at 0)."""
+    s = _q(SHEET_NAME)
     month = _ref(MONTH_FIRST_COL + month_index, parent_row, absolute=True)
-    return f'={_q(SHEET_NAME)}!{month}*{ratio_formula(parent_row)}'
+    i, m = _ref(COL['amount'], parent_row, absolute=True), _ref(COL['new_amount'], parent_row, absolute=True)
+    return f'=IF({s}!{i}=0,{s}!{m}/12,{s}!{month}*{ratio_formula(parent_row)})'
 
 
 def wrapped_formula(existing, parent_row):
@@ -161,7 +166,7 @@ def _write_header(ws):
     c.font = Font(name=FONT_NAME, size=10)
     c.alignment = Alignment(wrap_text=True, vertical='top')
     ws.merge_cells(start_row=GUIDE_ROW, start_column=1, end_row=GUIDE_ROW, end_column=COL['diff_pct'])
-    ws.row_dimensions[GUIDE_ROW].height = 58
+    ws.row_dimensions[GUIDE_ROW].height = 70
     for i, name in enumerate(HEADERS, start=1):
         c = ws.cell(row=HEADER_ROW, column=i, value=name)
         _style(c, fill=FILL_HEADER, align='wrap')
@@ -267,6 +272,20 @@ def type_validation():
                           error='Chọn một trong: ' + ' / '.join(ADJUSTMENT_TYPES) + ', hoặc để trống.')
 
 
+def _write_item(ws, dv, parent_row, item):
+    """One code's total row and its detail rows from `parent_row`; the next free row."""
+    subs = list(item.get('subs') or [])
+    first_sub = parent_row + 1 if subs else None
+    last_sub = parent_row + len(subs) if subs else None
+    _write_parent(ws, parent_row, item, first_sub, last_sub)
+    dv.add(ws.cell(row=parent_row, column=COL['adj_type']))
+    for n, sub in enumerate(subs):
+        _write_sub(ws, parent_row + 1 + n, parent_row, sub, band=(n % 2 == 1))
+    if subs:
+        ws.row_dimensions.group(first_sub, last_sub, outline_level=1, hidden=True)
+    return parent_row + 1 + len(subs)
+
+
 def build_sheet(wb, items):
     """The sheet alone (no fund-sheet links): {code: parent_row}. Rebuilt from scratch when it already exists."""
     if SHEET_NAME in wb.sheetnames:
@@ -282,18 +301,8 @@ def build_sheet(wb, items):
     parent_rows = {}
     row = FIRST_DATA_ROW
     for item in items:
-        parent_row = row
-        subs = list(item.get('subs') or [])
-        first_sub = parent_row + 1 if subs else None
-        last_sub = parent_row + len(subs) if subs else None
-        _write_parent(ws, parent_row, item, first_sub, last_sub)
-        dv.add(ws.cell(row=parent_row, column=COL['adj_type']))
-        for n, sub in enumerate(subs):
-            _write_sub(ws, parent_row + 1 + n, parent_row, sub, band=(n % 2 == 1))
-        if subs:
-            ws.row_dimensions.group(first_sub, last_sub, outline_level=1, hidden=True)
-        parent_rows[item['code']] = parent_row
-        row = parent_row + 1 + len(subs)
+        parent_rows[item['code']] = row
+        row = _write_item(ws, dv, row, item)
 
     ws.protection.sheet = True
     ws.protection.formatRows = False      # outline +/- must keep working on the protected sheet
@@ -310,5 +319,35 @@ def apply(wb, items):
     items = [dict(item, row=find_fund_row(wb[item['sheet']], item['code'], item.get('row'))) for item in items]
     parent_rows = build_sheet(wb, items)
     for item in items:
+        _link_fund_row(wb, item, parent_rows[item['code']])
+    return parent_rows
+
+
+def listed_codes(ws):
+    """{(code, fund sheet)} of the total rows already on '4. Điều chỉnh'."""
+    return {(str(ws.cell(row=r, column=COL['code']).value or '').strip(),
+             str(ws.cell(row=r, column=COL['fund_sheet']).value or '').strip())
+            for r in range(FIRST_DATA_ROW, ws.max_row + 1)
+            if ws.cell(row=r, column=COL['kind']).value == ROW_KIND_TOTAL}
+
+
+def append_items(wb, items):
+    """Add `items` (the same dicts as apply()) after the last row of the existing '4. Điều chỉnh' and link their fund
+    rows: the Review adds a line for every code the approved budget carries and the tool priced at 0. The earlier
+    rows, the protection and the outline settings are untouched. Returns {code: parent_row}; a code already on the
+    sheet for the same fund sheet is skipped."""
+    ws = wb[SHEET_NAME]
+    existing = listed_codes(ws)
+    todo = [dict(item, row=find_fund_row(wb[item['sheet']], item['code'], item.get('row')))
+            for item in items if (item['code'], item['sheet']) not in existing]
+    dv = next((d for d in ws.data_validations.dataValidation if d.type == 'list' and TYPE_INFLATION in str(d.formula1 or '')),
+              None)
+    if dv is None:
+        dv = type_validation()
+        ws.add_data_validation(dv)
+    parent_rows, row = {}, ws.max_row + 1
+    for item in todo:
+        parent_rows[item['code']] = row
+        row = _write_item(ws, dv, row, item)
         _link_fund_row(wb, item, parent_rows[item['code']])
     return parent_rows

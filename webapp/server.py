@@ -575,6 +575,7 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
         cols = adjust.review_columns(analysis)
         years = adjust.review_years(analysis)
     approved = cols.get('approved') or {}
+    top_keys = adjust.top_keys(run['workdir']) if approved else []            # 10 dòng lệch lớn nhất của lượt review
     measures = {k: cols.get(k) or {} for k in ('n1', 'actual', 'expected')}   # cột năm trước có trong file (nếu có)
     for it in items:
         it['approved'] = approved.get(it['key'])
@@ -582,7 +583,7 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
             if by_key:
                 it[k] = by_key.get(it['key'])
     return JSONResponse(dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'),
-                             deliverable=os.path.basename(path), items=items, has_approved=bool(approved),
+                             deliverable=os.path.basename(path), items=items, has_approved=bool(approved), top_keys=top_keys,
                              measure_labels={k: v for k, v in (cols.get('labels') or {}).items() if measures.get(k)},
                              prior_year=years[0], budget_year=years[1],
                              last=results.adjust_result(run['workdir']) or None,

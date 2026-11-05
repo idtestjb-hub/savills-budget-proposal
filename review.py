@@ -182,6 +182,73 @@ def tool_lines(deliverable, recalced):
 
 
 # ------------------------------------------------------------------------------------------------
+# Rows for the codes the tool prices at 0 (change adjust-rows-for-zero-tool-codes, design D1)
+# ------------------------------------------------------------------------------------------------
+def zero_tool_rows(data):
+    """[(fund, row)] of the Review rows with an approved figure and a tool figure of 0, on the form: the codes that
+    have no line on '4. Điều chỉnh' because the generator wrote nothing for them."""
+    out = []
+    for (fund, _sec), block in data['rows_by'].items():
+        for r in block['rows']:
+            if r.get('on_form') and abs(r['approved']) >= 0.5 and abs(r['tool_num']) < 0.5:
+                out.append((fund, r))
+    return out
+
+
+def add_zero_rows(deliverable, rows):
+    """Add a line of type "Nhập số" to '4. Điều chỉnh' of `deliverable` for every (fund, row) of zero_tool_rows(), and
+    link its fund row, so the PM can type the annual figure and the fund sheet, the Summary and the totals follow.
+    Untouched, every added line is 0 and the workbook recalculates to the same figures as before. A code that is not
+    a plain leaf line of its fund sheet (no unique row with the form's =SUM(first month) annual) is skipped.
+    Returns (added codes as 'FUND|code', skipped as [('FUND|code', reason)])."""
+    import budget_adjustment as ba
+    from generate_project_output import _fix_fake_formula_strings, _strip_onedrive_zip_artifacts
+    wb = openpyxl.load_workbook(deliverable)
+    added, skipped = [], []
+    if ba.SHEET_NAME not in wb.sheetnames or not rows:
+        wb.close()
+        return added, skipped
+    items, listed = [], ba.listed_codes(wb[ba.SHEET_NAME])
+    for fund, r in rows:
+        lay, key = DELIVERABLE_LAYOUT[fund], f"{fund}|{r['code']}"
+        if lay['sheet'] not in wb.sheetnames:
+            skipped.append((key, 'không có sheet quỹ'))
+            continue
+        if (r['code'], lay['sheet']) in listed:
+            skipped.append((key, 'đã có dòng trên sheet 4'))
+            continue
+        ws = wb[lay['sheet']]
+        try:
+            row = ba.find_fund_row(ws, r['code'])
+        except ValueError as exc:
+            skipped.append((key, str(exc)))
+            continue
+        annual = str(ws[f"{lay['value']}{row}"].value or '').replace(' ', '').upper()
+        if not annual.startswith(f"=SUM({lay['first_month']}"):
+            skipped.append((key, 'không phải dòng chi tiết của form (không có công thức năm =SUM tháng)'))
+            continue
+        freq = str(ws.cell(row=row, column=ba.FUND_FREQ_COL).value or '').strip()
+        if freq.lower() not in ('monthly', 'schedule'):
+            freq = 'Monthly'                                  # an empty line: any default frequency is replaced
+            ws.cell(row=row, column=ba.FUND_FREQ_COL).value = freq
+        name = r.get('item') or r['code']
+        items.append(dict(code=r['code'], sheet=lay['sheet'], row=row, name_vi=name, freq=freq.capitalize(),
+                          months=[0.0] * 12, annual=0.0,
+                          subs=[dict(desc_vi=name, unit_vi='khoản', qty=1.0, unit_price=0.0, amount=0.0,
+                                     qty_editable=False)]))
+        added.append(key)
+    if items:
+        ba.append_items(wb, items)
+        _fix_fake_formula_strings(wb)
+        wb.save(deliverable)
+        wb.close()
+        _strip_onedrive_zip_artifacts(deliverable)
+    else:
+        wb.close()
+    return added, skipped
+
+
+# ------------------------------------------------------------------------------------------------
 # The Review sheet (design D9)
 # ------------------------------------------------------------------------------------------------
 def label_of(code, fund, approved, tool_amount, ctx):
@@ -732,6 +799,12 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
     if m_meta:
         meta['measures'] = m_meta
     data = assemble(prior_lines, anchors, tool, meta, ctx, measures=measures)
+    zero_added, zero_skipped = add_zero_rows(deliverable, zero_tool_rows(data))
+    if zero_added:
+        say(f"    thêm {len(zero_added)} dòng Nhập số trên sheet '4. Điều chỉnh' (mã có số duyệt, công cụ ra 0): "
+            f"{', '.join(zero_added)}")
+    for key, why in zero_skipped:
+        say(f"    không thêm dòng Nhập số cho {key}: {why}")
     awb = openpyxl.load_workbook(analysis)
     build_review_sheet(awb, data, meta)
     awb.save(analysis)
@@ -750,7 +823,8 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
             f"(lệch {t['diff']:,.0f})")
     say(f"Sheet '{REVIEW_SHEET}' đã ghi vào {analysis}")
     return (1 if bad else 0), dict(prior=prior, info=info, form=form, notes=notes, filled=filled, tool=tool,
-                                   data=data, meta=meta, analysis=analysis, deliverable=deliverable, log=log)
+                                   data=data, meta=meta, analysis=analysis, deliverable=deliverable, log=log,
+                                   zero_rows=dict(added=zero_added, skipped=zero_skipped))
 
 
 def main(argv=None):

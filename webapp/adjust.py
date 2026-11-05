@@ -12,10 +12,11 @@ Excel làm khoá (dòng chỉ được tìm lại khi đọc file).
 
 Quy tắc (người dùng duyệt 20/10/2026):
 - Mỗi mã một loại điều chỉnh: '' (giữ số gốc), 'Số lượng', 'Đơn giá', 'Số lượng + Đơn giá' (thêm 27/10/2026, change
-  add-qty-and-price-adjustment), 'Trượt giá'.
+  add-qty-and-price-adjustment), 'Trượt giá', 'Nhập số' (thêm 05/11/2026, change adjust-rows-for-zero-tool-codes).
 - Số lượng: chỉ SL mới sửa được; dòng có SL khoá (cột J là công thức, dòng gộp "khoản") giữ nguyên.
   Đơn giá: chỉ đơn giá mới. Số lượng + Đơn giá: SL mới × đơn giá mới (dòng SL khoá giữ SL gốc). Trượt giá: chỉ % trên
-  dòng Tổng (cho phép âm). Mã không có dòng Chi tiết: chỉ trượt giá.
+  dòng Tổng (cho phép âm). Nhập số: số cả năm của từng dòng Chi tiết gõ ở ô đơn giá mới (K), không âm; dùng cho mã công
+  cụ ra 0 (dòng do lượt Review thêm vào) nhưng chọn được ở mọi mã có dòng Chi tiết. Mã không có dòng Chi tiết: chỉ trượt giá.
 - Sheet của bản giao cũ (trước loại Số lượng + Đơn giá) được nâng cấp khi lưu: công thức M của dòng Chi tiết và danh
   sách chọn cột D viết lại theo bản hiện tại; ba loại cũ cho đúng số như trước.
 - SL mới và đơn giá mới không được âm.
@@ -29,8 +30,9 @@ import budget_adjustment as ba
 
 SHEET = ba.SHEET_NAME
 TYPES = ('',) + tuple(ba.ADJUSTMENT_TYPES)
-TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION = ba.TYPE_QTY, ba.TYPE_PRICE, ba.TYPE_QTY_PRICE, ba.TYPE_INFLATION
-DETAIL_TYPES = (TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE)          # cần dòng Chi tiết
+TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION, TYPE_ENTER = (ba.TYPE_QTY, ba.TYPE_PRICE, ba.TYPE_QTY_PRICE,
+                                                                    ba.TYPE_INFLATION, ba.TYPE_ENTER)
+DETAIL_TYPES = (TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_ENTER)          # cần dòng Chi tiết
 C = ba.COL
 FUND_SHORT = {'2. Budget-Management Fund': 'MF', '2.2 Common area Fund': 'CA'}
 FUND_VI = {'MF': 'Quỹ quản lý vận hành', 'CA': 'Quỹ khai thác khu vực chung'}
@@ -86,7 +88,7 @@ def read_items(path):
     """Các mã trên sheet '4. Điều chỉnh' của bản giao `path`, cùng giá trị nhập hiện tại (D, L, J, K).
 
     Trả về list dict: key, code, name, fund, fund_sheet, section, adj_type, inflation, amount (thành tiền gốc),
-    has_subs, subs [{idx, desc, unit, qty, unit_price, amount, new_qty, new_price, qty_editable}], remark (năm mới)."""
+    has_subs, zero_row (có dòng Chi tiết mà thành tiền gốc bằng 0: dòng công cụ ra 0), subs [{idx, desc, unit, qty, unit_price, amount, new_qty, new_price, qty_editable}], remark (năm mới)."""
     wb = openpyxl.load_workbook(path)
     try:
         if SHEET not in wb.sheetnames:
@@ -111,7 +113,7 @@ def read_items(path):
             items.append(dict(key=key_of(code, fund_sheet), code=code, name=_text(g('name')),
                               fund=FUND_SHORT.get(fund_sheet, fund_sheet), fund_sheet=fund_sheet, section=_section(code),
                               adj_type=adj_type if adj_type in TYPES else '', inflation=_num(g('inflation')) or 0.0,
-                              amount=amount, has_subs=bool(subs), subs=subs,
+                              amount=amount, has_subs=bool(subs), zero_row=bool(subs) and abs(amount) < 0.5, subs=subs,
                               remark=_fund_remark(wb, fund_sheet, g('fund_row'))))
         return items
     finally:
@@ -159,6 +161,8 @@ def new_amount(item, adj_type=None, inflation=None, subs=None):
             total += (s['new_qty'] if s['qty_editable'] else s['qty']) * s['new_price']
         elif adj_type == TYPE_INFLATION:
             total += s['amount'] * (1 + inflation)
+        elif adj_type == TYPE_ENTER:
+            total += s['new_price']
         else:
             total += s['amount']
     return total
@@ -356,3 +360,16 @@ def review_years(analysis_path):
         return (int(years[0]), int(years[1])) if len(years) >= 2 else (None, None)
     finally:
         wb.close()
+
+
+def top_keys(workdir):
+    """['MF|ESS1', ...]: khoá của 10 dòng lệch lớn nhất trong review_summary.json của lượt review (bảng điều chỉnh đánh dấu
+    "Top 10"); [] khi không có file hoặc file hỏng."""
+    import json
+    import os
+    try:
+        with open(os.path.join(workdir, 'review_summary.json'), encoding='utf-8') as fh:
+            top = json.load(fh).get('top') or []
+    except (OSError, ValueError):
+        return []
+    return [f"{x['fund']}|{x['code']}" for x in top if isinstance(x, dict) and x.get('code') and x.get('fund')]

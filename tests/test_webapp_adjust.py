@@ -180,7 +180,7 @@ def test_apply_edits_upgrades_an_older_sheet_with_the_same_figures(deliv, tmp_pa
     aws = after[ba.SHEET_NAME]
     assert 'Số lượng + Đơn giá' in aws['M6'].value and aws['M6'].value == ba.detail_formula(5, 6)
     dvs = [dv for dv in aws.data_validations.dataValidation if dv.type == 'list']
-    assert len(dvs) == 1 and dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá"'
+    assert len(dvs) == 1 and dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá,Nhập số"'
     assert {str(r) for r in dvs[0].sqref.ranges} == {'D5', 'D8', 'D10', 'D12'}
     eb, ea = _Eval(before), _Eval(after)
     for ref in ('M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12'):
@@ -358,3 +358,66 @@ def test_add_groups_on_the_real_template():
     items = adjust.add_groups([dict(fund='MF', code='ESS1'), dict(fund='MF', code='RM.AP')])
     assert items[0]['groups'] and items[0]['groups'][0]['code'] == 'ES'
     assert items[1]['groups'][0]['code'] == 'RM'
+
+
+# ---- type "Nhập số" and the zero rows the Review adds (change adjust-rows-for-zero-tool-codes) ----
+
+ZERO = dict(code='ESS38', sheet=MF, row=40, name_vi='Chia sẻ doanh thu', freq='Monthly', months=[0.0] * 12, annual=0.0,
+            subs=[dict(desc_vi='Chia sẻ doanh thu', unit_vi='khoản', qty=1.0, unit_price=0.0, amount=0.0, qty_editable=False)])
+
+
+@pytest.fixture
+def deliv_zero(tmp_path):
+    p = _deliverable(str(tmp_path / DELIV))
+    wb = openpyxl.load_workbook(p)
+    ws = wb[MF]
+    ws.cell(row=40, column=25, value='ESS38')
+    ws.cell(row=40, column=3, value='Monthly')
+    ba.append_items(wb, [ZERO])
+    wb.save(p)
+    return p
+
+
+def test_read_items_flags_the_zero_row(deliv_zero):
+    items = {i['key']: i for i in adjust.read_items(deliv_zero)}
+    z = items['MF|ESS38']
+    assert z['zero_row'] and z['has_subs'] and z['amount'] == 0.0 and z['section'] == 'E'
+    assert not items['MF|ESS1']['zero_row'] and not items['CA|ESS4']['zero_row']     # no sub-rows: not a zero row
+
+
+def test_enter_type_preview_validation_and_save(deliv_zero, tmp_path):
+    items = {i['key']: i for i in adjust.read_items(deliv_zero)}
+    z = items['MF|ESS38']
+    z['subs'][0]['new_price'] = 240_000_000.0
+    assert adjust.new_amount(z, adj_type='Nhập số') == 240_000_000.0
+    assert adjust.new_amount(z, adj_type='') == 0.0
+    wb = openpyxl.load_workbook(deliv_zero)
+    with pytest.raises(adjust.AdjustError, match='không được âm'):
+        adjust.apply_edits(wb, [dict(key='MF|ESS38', adj_type='Nhập số', subs=[dict(idx=0, new_price=-1)])])
+    assert wb[ba.SHEET_NAME].cell(row=ba.FIRST_DATA_ROW + 11, column=ba.COL['adj_type']).value is None
+    assert adjust.apply_edits(wb, [dict(key='MF|ESS38', adj_type='Nhập số', inflation=0,
+                                        subs=[dict(idx=0, new_qty=7, new_price=240_000_000)])]) == ['ESS38']
+    out = str(tmp_path / 'out.xlsx')
+    wb.save(out)
+    saved = {i['key']: i for i in adjust.read_items(out)}['MF|ESS38']
+    assert saved['adj_type'] == 'Nhập số' and saved['subs'][0]['new_price'] == 240_000_000
+    assert saved['subs'][0]['new_qty'] == 1.0 and saved['subs'][0]['qty_editable'] is False   # J untouched (formula)
+    ws = openpyxl.load_workbook(out)[ba.SHEET_NAME]
+    prow = [r for r in range(5, ws.max_row + 1) if ws.cell(r, 1).value == 'ESS38'][0]
+    assert 'Nhập số' in ws.cell(row=prow + 1, column=ba.COL['new_amount']).value
+
+
+def test_enter_type_needs_detail_rows(deliv):
+    wb = openpyxl.load_workbook(deliv)
+    with pytest.raises(adjust.AdjustError, match='chỉ điều chỉnh được bằng trượt giá'):
+        adjust.apply_edits(wb, [dict(key='CA|ESS4', adj_type='Nhập số')])
+
+
+def test_top_keys_from_the_review_summary(tmp_path):
+    (tmp_path / 'review_summary.json').write_text(json.dumps({'top': [
+        {'fund': 'MF', 'code': 'ESS1', 'diff': -3.4}, {'fund': 'CA', 'code': 'RA2', 'diff': 1.0}, {'code': 'X'}]}),
+        encoding='utf-8')
+    assert adjust.top_keys(str(tmp_path)) == ['MF|ESS1', 'CA|RA2']
+    assert adjust.top_keys(str(tmp_path / 'none')) == []
+    (tmp_path / 'review_summary.json').write_text('{broken', encoding='utf-8')
+    assert adjust.top_keys(str(tmp_path)) == []
