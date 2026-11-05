@@ -49,6 +49,32 @@ HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
 PREFIX = ('/' + (os.environ.get('BUDGET_WEB_PREFIX', '/budget') or '').strip('/')).rstrip('/')
 RUNS_DIR = os.path.abspath(os.environ.get('BUDGET_WEB_RUNS') or os.path.join(BUDGET_AGENT, 'reports', 'web_runs'))
+# Chế độ site (change site-standalone-package): BUDGET_WEB_SITE trỏ tới thư mục site\ của gói đóng cho một dự án
+# (site.json + file ngân sách đã duyệt). Trang chỉ còn ba tab, nguồn Review mặc định là file trong gói, không có kho.
+SITE_DIR = os.path.abspath(os.environ['BUDGET_WEB_SITE']) if os.environ.get('BUDGET_WEB_SITE') else None
+SITE_FILE = 'site.json'
+
+
+def site_info():
+    """Nội dung site.json của gói (project, prior_file, facts, store_id, built_at, code) kèm `prior_exists`; None khi
+    không ở chế độ site hoặc file thiếu / hỏng."""
+    if not SITE_DIR:
+        return None
+    try:
+        with open(os.path.join(SITE_DIR, SITE_FILE), encoding='utf-8') as fh:
+            info = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(info, dict):
+        return None
+    prior = os.path.join(SITE_DIR, str(info.get('prior_file') or ''))
+    info['prior_exists'] = bool(info.get('prior_file')) and os.path.isfile(prior)
+    return info
+
+
+def site_prior_path():
+    info = site_info()
+    return os.path.join(SITE_DIR, info['prior_file']) if info and info['prior_exists'] else None
 
 _lock = threading.Lock()
 _runs = {}          # run_id -> dict(kind, status, log, rc, started, finished, workdir, outputs, summary, ...)
@@ -259,7 +285,7 @@ def index(request: Request):
         return _page('login.html', MESSAGE=_escape(message))
     who = '' if not auth.enabled() else (
         f'{_escape(user["name"])} · <a href="{PREFIX}/auth/logout">Đăng xuất</a>')
-    return _page('index.html', USER=who)
+    return _page('index.html', USER=who, SITE='1' if SITE_DIR else '')
 
 
 @router.get('/auth/login')
@@ -396,10 +422,12 @@ def _facts_from_form(raw):
 
 @router.post('/api/reviews')
 async def start_review(request: Request, prior: UploadFile | None = File(None), source_run: str = Form(''),
-                       library_id: str = Form(''), facts: str = Form('{}'), user=Depends(require_user)):
-    """Lượt review, ngân sách năm ngoái lấy từ một trong ba nguồn: `library_id` (dự án có sẵn trong kho, file sống
-    trên SharePoint, chép một bản vào thư mục prior của lượt), `source_run` (bản giao của lượt cũ, Excel tính lại trước khi
-    đọc), hoặc `prior` (file .xlsx tải lên). `facts` là JSON các ô dữ kiện của trang."""
+                       library_id: str = Form(''), facts: str = Form('{}'), site: str = Form(''),
+                       user=Depends(require_user)):
+    """Lượt review, ngân sách năm ngoái lấy từ một trong bốn nguồn: `site=1` (file đóng trong gói site, chép một bản vào
+    thư mục prior của lượt), `library_id` (dự án có sẵn trong kho, file sống trên SharePoint, chép một bản vào thư mục
+    prior của lượt), `source_run` (bản giao của lượt cũ, Excel tính lại trước khi đọc), hoặc `prior` (file .xlsx tải
+    lên). `facts` là JSON các ô dữ kiện của trang."""
     try:
         raw = json.loads(facts or '{}')
         if not isinstance(raw, dict):
@@ -409,7 +437,19 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
     fact_map = _facts_from_form(raw)
     source_run, library_id = (source_run or '').strip(), (library_id or '').strip()
     upload, copy_from = None, None
-    if library_id:
+    if (site or '').strip() in ('1', 'true', 'yes'):
+        info = site_info()
+        if not SITE_DIR or info is None:
+            raise HTTPException(400, 'Trang này không chạy ở chế độ gói site.')
+        if not info['prior_exists']:
+            raise HTTPException(400, f"Gói không có file ngân sách đã duyệt {info.get('prior_file') or ''!r} trong thư mục site.")
+        copy_from, recalc = site_prior_path(), False
+        stem = os.path.splitext(info['prior_file'])[0]
+        project = str(info.get('project') or stem)
+        tag = 'review-' + _safe(project, 'du-an')
+        source, what = f"ngân sách đã duyệt của dự án {project} ({info['prior_file']})", 'from site package'
+        prior_src = None
+    elif library_id:
         entry = library.find(library_id)
         if entry is None:
             raise HTTPException(404, 'Không có dự án này trong danh sách có sẵn.')
@@ -449,7 +489,7 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         started = _now()
         facts_path = os.path.join(workdir, 'facts.json')
         try:
-            if copy_from is not None:      # bản chụp của file sống: lượt chạy lại sau vẫn ra cùng số
+            if copy_from is not None:      # bản chụp của file sống (kho) hoặc file trong gói: lượt chạy lại sau vẫn ra cùng số
                 prior_src = os.path.join(workdir, 'prior', _safe(stem, 'approved') + '.xlsx')
                 shutil.copy2(library.long_path(copy_from), prior_src)
             if upload is not None:
@@ -592,9 +632,22 @@ def start_adjust(request: Request, run_id: str, body: dict, user=Depends(require
     return _public(job_id, role=role_of(request))
 
 
+@router.get('/api/site')
+def get_site(user=Depends(require_user)):
+    """Chế độ gói site: dự án, tên file ngân sách đã duyệt, dữ kiện điền sẵn (không có đường dẫn). 404 ngoài chế độ site."""
+    info = site_info()
+    if info is None:
+        raise HTTPException(404, 'Trang này không chạy ở chế độ gói site.')
+    return JSONResponse({k: v for k, v in info.items() if k in ('project', 'prior_file', 'facts', 'store_id',
+                                                                 'built_at', 'code', 'prior_exists')})
+
+
 @router.get('/api/library')
 def get_library(user=Depends(require_user)):
-    """Ngân sách đã duyệt có sẵn (kho quét) cho tab Review; không trả đường dẫn."""
+    """Ngân sách đã duyệt có sẵn (kho quét) cho tab Review; không trả đường dẫn. Chế độ gói site: danh sách rỗng, kể
+    cả khi máy dựng gói có kho ở đường dẫn mặc định."""
+    if SITE_DIR:
+        return JSONResponse(dict(entries=[], total=0, selectable=0, root='', store=''))
     rows = [{k: v for k, v in e.items() if k != 'path'} for e in library.entries()]
     return JSONResponse(dict(entries=rows, total=len(rows), selectable=sum(e['selectable'] for e in rows),
                              root=library.root_dir(), store=library.store_dir()))
@@ -604,6 +657,8 @@ def get_library(user=Depends(require_user)):
 def get_library_facts(file_id: str, user=Depends(require_user)):
     """Dữ kiện điền sẵn cho mục 2 của tab Review khi chọn một dòng kho (change prefill-review-facts): lượt trước cùng
     dự án > sheet 0. Info > danh sách master, mỗi ô kèm nguồn và số khác của nguồn sau."""
+    if SITE_DIR:
+        raise HTTPException(404, 'Gói site không có kho.')
     entry = library.find(file_id)
     if entry is None:
         raise HTTPException(404, 'Không thấy dòng này trong kho.')
@@ -614,6 +669,8 @@ def get_library_facts(file_id: str, user=Depends(require_user)):
 @router.get('/api/library/overview')
 def get_library_overview(user=Depends(require_user)):
     """Số tổng hợp của kho (tab Kho ngân sách): theo năm, nhóm, lý do, loại file. Chỉ có số đếm, không có tên hay đường dẫn."""
+    if SITE_DIR:
+        raise HTTPException(404, 'Gói site không có kho.')
     return JSONResponse(library.overview())
 
 

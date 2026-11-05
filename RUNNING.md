@@ -407,6 +407,25 @@ Both workbooks now price the same nine product types and report the same revenue
 the deliverable priced Apartment alone and understated revenue against the analysis by 14.8%; that
 was `docs/05-decisions.md` D2, and it is fixed.
 
+## Site packages: one click-to-run folder per managed site
+
+For sites with no office network and no Python (change `site-standalone-package`). Build on the office PC, outside
+SharePoint, then send the zip; the site extracts it to `C:\BudgetAgent\` and double-clicks a launcher. Excel is
+needed at the site.
+
+```bash
+python build_site_runtime.py --out C:\ZWork\site-runtime
+python build_site_package.py --site "Project name" --prior "<approved budget .xlsx>" --library-id <store id> --city "Hồ Chí Minh" --runtime C:\ZWork\site-runtime --out C:\ZWork\site-packages --check --zip
+```
+
+The runtime is a pruned copy of this PC's Python 3.14 plus only the packages the generators and the web import
+(pinned versions checked, nothing downloaded). The package holds `python\`, `app\` (this folder without tests, legacy,
+OpenSpec, docs and the two build scripts; `data\`; the input form; the 2027 template), `site\` (`site.json` + the
+approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tabs, see `webapp/README.md`),
+`Chay mot lan.cmd` (one Review, static `ket-qua.html`, adjustments on sheet 4 in Excel) and `HUONG-DAN.txt`.
+`--check` imports the modules with the packaged Python, reads the approved budget, and scans the package for the build
+PC's user name, machine name, paths and AI-tool names. The scan store and `input\budget_planning` never go into a package.
+
 ## Verifying a run
 
 ```bash

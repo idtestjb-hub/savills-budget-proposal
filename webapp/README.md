@@ -188,6 +188,38 @@ Luồng: `GET /` chưa đăng nhập trả 200 trang đăng nhập (heartbeat v�
 sang Microsoft (authorization code + PKCE, thư viện MSAL); `/auth/callback` nhận id_token, đối chiếu
 `preferred_username` / `email` với danh sách; `/auth/logout` xoá phiên và đăng xuất Microsoft.
 
+## Gói chạy riêng cho một site (change `site-standalone-package`)
+
+Cho các dự án không có mạng nội bộ, không chắc có Python hay quyền cài đặt: mỗi dự án một gói zip, giải nén rồi bấm
+đúp là chạy, chỉ chứa dữ liệu của dự án đó. Máy site cần Excel (sheet Review và Excel tính lại).
+
+- **Dựng ở máy văn phòng** (một lần cho runtime, rồi mỗi site một gói; đặt gói ngoài SharePoint, ví dụ `C:\ZWork`):
+  ```
+  python build_site_runtime.py --out C:\ZWork\site-runtime
+  python build_site_package.py --site "Tên dự án" --prior "<file .xlsx đã duyệt>" --library-id <id kho> --city "Hồ Chí Minh" --runtime C:\ZWork\site-runtime --out C:\ZWork\site-packages --check --zip
+  ```
+  `build_site_runtime.py` chép Python 3.14 của máy dựng (bỏ test, idlelib, tkinter) và đúng các gói mà generator và
+  trang web import (bao đóng Requires-Dist của fastapi, uvicorn, python-multipart, itsdangerous, msal, openpyxl,
+  pywin32; phiên bản phải khớp requirements, khác là dừng; không tải mạng). `python314._pth` trỏ tới
+  `..\app\Budget_Agent\source_code` và bỏ qua site-packages của người dùng. `build_site_package.py` chép runtime,
+  `source_code` (không tests, legacy, openspec, .md, hai script dựng), `data`, form nhập liệu, mẫu 2027, file đã duyệt
+  và `site\site.json` (tên dự án, tên file, dữ kiện điền sẵn từ kho qua `facts_prefill`, thời điểm, hash mã); ghi hai
+  launcher `.cmd` và `HUONG-DAN.txt`. `--check`: Python trong gói import đủ module, `site_once.py --dry-run` đọc được
+  file đã duyệt, quét gói không chứa tên người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI, in kích thước.
+  `--check-only <gói>` chỉ kiểm. Kiểm tra 05/11/2026 trên một dự án mẫu: 80 MB (runtime 72, app 7, site 2), import OK,
+  quét sạch.
+- **Ở site:** `Chay Budget Agent.cmd` chạy `webapp\start_site.py`: đặt `BUDGET_WEB_AUTH=off`, `BUDGET_WEB_SITE=<gói>\site`,
+  runs và tmp trong gói, chọn cổng trống từ 8090 (ghi `tmp\port.txt`), chạy uvicorn ngay trong tiến trình và mở trình
+  duyệt khi trang trả lời; bấm lần nữa khi đang chạy thì chỉ mở trình duyệt; đóng cửa sổ console là tắt.
+  `Chay mot lan.cmd` chạy `webapp\site_once.py`: một lượt review vào `runs\<lượt>\` (web_meta.json như server, nên tab
+  Dự án đã tạo đọc được), rồi `static_report.render` ghi `ket-qua.html` (cùng các mục của tab Review: duyệt vs công cụ,
+  đối chiếu, 10 dòng lệch, ghi chú nhập, link file) và mở nó; điều chỉnh làm trên sheet 4 trong Excel.
+- **Chế độ site của trang** (`BUDGET_WEB_SITE` đặt): chỉ ba tab Review / Dự án đã tạo / Hướng dẫn (`body.site .site-hide`),
+  tiêu đề mang tên dự án, nguồn Review mặc định "Ngân sách đã duyệt của dự án" (`POST api/reviews` với `site=1`: chép
+  file trong gói vào `prior\` như file kho), vẫn có "Tải file lên" và "Bản giao của lượt cũ"; mục 2 điền sẵn từ
+  `api/site` (ghi nguồn, PM sửa được); `api/library` trả rỗng và `api/library/*` 404 dù máy dựng có kho ở đường dẫn mặc
+  định; Hướng dẫn ẩn phần dự án mới, kho và kiến trúc. Không đặt biến thì trang như cũ. Test: `tests/test_webapp_site.py`.
+
 ## Cách hoạt động
 
 | File | Việc |

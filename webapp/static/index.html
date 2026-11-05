@@ -132,6 +132,8 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
 .file span { color: var(--sav-muted); font-size: 13px; word-break: break-all; }
 .file a { display: inline-block; margin-top: 8px; color: var(--sav-link); font-weight: 700; }
 .hidden { display: none; }
+/* Chế độ gói site (change site-standalone-package): phần không thuộc dự án của gói bị ẩn. */
+body.site .site-hide { display: none; }
 /* Chọn chế độ: hai nút liền nhau, nút đang chọn nền vàng. */
 .modes { display: flex; gap: 0; margin: 0 0 18px; border: 1px solid var(--sav-rule); width: max-content; max-width: 100%; }
 .modes button { font: 700 14px var(--sav-font); background: var(--sav-surface); color: var(--sav-muted); border: 0;
@@ -271,11 +273,11 @@ body.adj-full-on { overflow: hidden; }
   <p class="lead">Dự án mới: tab Nhập liệu, sửa các ô (giá trị đang hiện là mẫu) rồi bấm nút. Dự án đang vận hành: tab Review, chọn ngân sách đã duyệt năm ngoái của dự án, công cụ lập ngân sách năm mới, so từng dòng và cho điều chỉnh ngay trên cùng màn. Mỗi lượt khoảng một đến hai phút.</p>
 
   <nav class="tabs" role="tablist">
-    <button type="button" class="on" data-tab="nhap">Nhập liệu dự án mới</button>
+    <button type="button" class="on site-hide" data-tab="nhap">Nhập liệu dự án mới</button>
     <button type="button" data-tab="review" id="tab-review">Review dự án đang vận hành</button>
-    <button type="button" data-tab="ketqua" id="tab-ketqua">Kết quả dự án mới</button>
+    <button type="button" class="site-hide" data-tab="ketqua" id="tab-ketqua">Kết quả dự án mới</button>
     <button type="button" data-tab="lichsu">Dự án đã tạo</button>
-    <button type="button" data-tab="kho" id="tab-kho">Kho ngân sách</button>
+    <button type="button" class="site-hide" data-tab="kho" id="tab-kho">Kho ngân sách</button>
     <button type="button" data-tab="huongdan">Hướng dẫn</button>
   </nav>
 
@@ -327,8 +329,8 @@ body.adj-full-on { overflow: hidden; }
   </div>
 
   <div class="panel guide" id="panel-huongdan">
-    <p class="jump">Đi tới: <a href="#hd-new">Dự án mới</a><a href="#hd-review">Review dự án đang vận hành</a><a href="#hd-arch">Hệ thống chạy thế nào</a><a href="#hd-fields">Ý nghĩa từng thông số</a></p>
-    <section id="hd-new">
+    <p class="jump">Đi tới: <a href="#hd-new" class="site-hide">Dự án mới</a><a href="#hd-review">Review dự án đang vận hành</a><a href="#hd-arch" class="site-hide">Hệ thống chạy thế nào</a><a href="#hd-fields">Ý nghĩa từng thông số</a></p>
+    <section id="hd-new" class="site-hide">
       <h2>Cách sử dụng</h2>
       <ol>
         <li>Ở tab <b>Nhập liệu</b>, sửa các ô theo dự án của bạn. Giá trị đang hiện là mẫu, dùng để chạy thử.</li>
@@ -403,7 +405,7 @@ body.adj-full-on { overflow: hidden; }
       <ol>
         <li><b>Chọn ngân sách đã duyệt năm ngoái</b> (mục 1 của tab Review), một trong ba cách:
           <ul>
-            <li><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không dùng được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ, ngân sách năm 2027 trở đi vì công cụ đang lập ngân sách 2027); tick "Hiện cả file không đọc được" để xem lý do. Cột "Sheet quỹ": <b>Khớp tổng</b> là các dòng cộng lại bằng dòng tổng của file; <b>Khớp tổng (đã giải thích)</b> là các dòng chỉ khớp sau khi tính lại dòng tổng như Excel: ô tổng bị bộ lọc che bớt dòng, hoặc file tự cộng trùng một dòng (ghi chú nói rõ dòng nào); số các dòng vẫn đúng và dùng được như file khớp tổng; <b>Tổng không khớp</b> là cộng các dòng khác dòng tổng của file (số lệch ghi trong ngoặc đỏ; có thể do công thức trong file gốc hoặc do kho quét đọc trùng dòng gộp); <b>Form cũ, chưa đối soát</b> là form các năm trước thiếu dòng mốc nên danh sách chưa đối soát. Hai loại sau vẫn chạy được, Review tự đối soát lại khi chạy; nên xem kỹ sheet Review.</li>
+            <li class="site-hide"><b>Dự án có sẵn:</b> bấm một dòng trong danh sách ngân sách thật lưu trên SharePoint. Lọc theo tên dự án hoặc tên file, theo năm, hoặc tick "Chỉ file khớp tổng". Dòng xám là file không dùng được (PDF ảnh quét, xlsb, zip, file không có sheet quỹ, ngân sách năm 2027 trở đi vì công cụ đang lập ngân sách 2027); tick "Hiện cả file không đọc được" để xem lý do. Cột "Sheet quỹ": <b>Khớp tổng</b> là các dòng cộng lại bằng dòng tổng của file; <b>Khớp tổng (đã giải thích)</b> là các dòng chỉ khớp sau khi tính lại dòng tổng như Excel: ô tổng bị bộ lọc che bớt dòng, hoặc file tự cộng trùng một dòng (ghi chú nói rõ dòng nào); số các dòng vẫn đúng và dùng được như file khớp tổng; <b>Tổng không khớp</b> là cộng các dòng khác dòng tổng của file (số lệch ghi trong ngoặc đỏ; có thể do công thức trong file gốc hoặc do kho quét đọc trùng dòng gộp); <b>Form cũ, chưa đối soát</b> là form các năm trước thiếu dòng mốc nên danh sách chưa đối soát. Hai loại sau vẫn chạy được, Review tự đối soát lại khi chạy; nên xem kỹ sheet Review.</li>
             <li><b>Tải file lên:</b> file .xlsx theo form Savills 2026/2027 (hai sheet quỹ, cột năm, 12 tháng, sheet 0. Info).</li>
             <li><b>Bản giao của lượt cũ:</b> tự hiện khi bấm <b>Gen budget for new year</b> ở tab Dự án đã tạo. Công cụ hiện lập ngân sách năm 2027, nên bản giao năm 2027 chưa lập tiếp được năm 2028: nút xám kèm lý do.</li>
           </ul></li>
@@ -456,7 +458,7 @@ body.adj-full-on { overflow: hidden; }
       </table>
     </section>
 
-    <section id="hd-arch">
+    <section id="hd-arch" class="site-hide">
       <h2>Hệ thống chạy thế nào</h2>
       <div class="dg-wrap">
       <svg class="dg" viewBox="0 0 1000 300" role="img" aria-labelledby="dg-arch-t">
@@ -600,7 +602,8 @@ body.adj-full-on { overflow: hidden; }
       <h2>1. Ngân sách đã duyệt năm ngoái</h2>
       <p class="src" style="margin:-4px 0 12px">Lần đầu dùng: xem <a href="#hd-review" id="rv-guide" style="color:var(--sav-link);font-weight:700">hướng dẫn và sơ đồ các bước</a>.</p>
       <div class="modes" role="radiogroup" aria-label="Nguồn ngân sách đã duyệt">
-        <button type="button" class="on" data-src="lib" role="radio" aria-checked="true">Dự án có sẵn</button>
+        <button type="button" data-src="site" role="radio" aria-checked="false" class="hidden" id="src-site-btn">Ngân sách đã duyệt của dự án</button>
+        <button type="button" class="on site-hide" data-src="lib" role="radio" aria-checked="true">Dự án có sẵn</button>
         <button type="button" data-src="upload" role="radio" aria-checked="false">Tải file lên</button>
         <button type="button" data-src="run" role="radio" aria-checked="false" class="hidden" id="src-run-btn">Bản giao của lượt cũ</button>
       </div>
@@ -621,6 +624,10 @@ body.adj-full-on { overflow: hidden; }
       </div>
       <div id="rv-run" class="hidden">
         <p>Nguồn: bản giao của lượt <b id="rv-run-name"></b> <span class="status" id="rv-run-id"></span></p>
+      </div>
+      <div id="rv-site" class="hidden">
+        <p>Nguồn: ngân sách đã duyệt của dự án <b id="rv-site-name"></b> <span class="status" id="rv-site-file"></span></p>
+        <p class="src" id="rv-site-note">File được đóng sẵn trong gói; khi chạy, một bản chụp được chép vào thư mục của lượt. Có file duyệt mới hơn thì chọn "Tải file lên".</p>
       </div>
       <p class="src">Công cụ đọc số đã duyệt theo mã dòng trên hai sheet quỹ (cột năm, đối chiếu 12 tháng). Đơn giá phí quản lý, doanh thu xe, thu hộ chi hộ, lương và điện nước đã duyệt được lấy từ file; các dòng khác được ước lượng lại theo phương pháp của năm mới. Dòng có số duyệt mà công cụ chưa có phương pháp sẽ ra 0 và được ghi "Chưa có phương pháp", không chép số cũ.</p>
     </section>
@@ -742,10 +749,10 @@ body.adj-full-on { overflow: hidden; }
   <div class="panel" id="panel-lichsu">
     <section>
       <h2>Dự án đã tạo</h2>
-      <p style="margin:0 0 6px">Các lượt đã chạy trên trang này (Tạo ngân sách, Tạo ngân sách năm mới), mới nhất trước. Ngân sách thật đã duyệt của các dự án nằm ở tab <b>Review dự án đang vận hành</b>, mục <b>Dự án có sẵn</b>.</p>
+      <p style="margin:0 0 6px">Các lượt đã chạy trên trang này (Tạo ngân sách, Tạo ngân sách năm mới), mới nhất trước. <span class="site-hide">Ngân sách thật đã duyệt của các dự án nằm ở tab <b>Review dự án đang vận hành</b>, mục <b>Dự án có sẵn</b>.</span></p>
       <p class="src" id="his-info">Đang tải…</p>
       <table class="his" id="his"><thead><tr><th>Dự án</th><th>Năm NS</th><th>Chế độ</th><th>Thời điểm</th><th>Người chạy</th><th>Trạng thái</th><th>File</th><th>Thao tác</th></tr></thead><tbody></tbody></table>
-      <p class="src"><b>Clone</b>: điền sẵn tab Nhập liệu từ form của lượt đó (đổi tên dự án, năm rồi bấm Tạo ngân sách). <b>Gen budget for new year</b>: mở tab Review với bản giao của lượt đó làm ngân sách năm ngoái, dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới. <b>Điều chỉnh</b>: mở kết quả của lượt kèm bảng điều chỉnh.</p>
+      <p class="src"><span class="site-hide"><b>Clone</b>: điền sẵn tab Nhập liệu từ form của lượt đó (đổi tên dự án, năm rồi bấm Tạo ngân sách). </span><b>Gen budget for new year</b>: mở tab Review với bản giao của lượt đó làm ngân sách năm ngoái, dữ kiện điền sẵn từ form của lượt; kiểm tra rồi bấm Tạo ngân sách năm mới. <b>Điều chỉnh</b>: mở kết quả của lượt kèm bảng điều chỉnh.</p>
     </section>
   </div>
   <div class="panel kho" id="panel-kho">
@@ -903,6 +910,45 @@ function setSrc(m) {
   document.getElementById('rv-lib').classList.toggle('hidden', m !== 'lib');
   document.getElementById('rv-upload').classList.toggle('hidden', m !== 'upload');
   document.getElementById('rv-run').classList.toggle('hidden', m !== 'run');
+  document.getElementById('rv-site').classList.toggle('hidden', m !== 'site');
+}
+
+// ---- Chế độ gói site (change site-standalone-package): một dự án, ba tab, nguồn Review = file trong gói ----
+const SITE = '__SITE__' === '1';
+let siteInfo = null;
+async function loadSite() {
+  const st = document.getElementById('status-review');
+  try { siteInfo = await getJSON(`${PREFIX}/api/site`); }
+  catch (e) { st.classList.add('err'); st.textContent = 'Không đọc được thông tin gói site: ' + e.message; return; }
+  const name = siteInfo.project || siteInfo.prior_file || '';
+  document.getElementById('rv-site-name').textContent = name;
+  document.getElementById('rv-site-file').textContent = siteInfo.prior_file ? `(${siteInfo.prior_file})` : '';
+  document.querySelector('h1').innerHTML = `Ngân sách năm mới cho dự án <b>${esc(name)}</b>`;
+  document.title = `Budget Agent · ${name}`;
+  document.querySelector('.lead').textContent = 'Gói chạy riêng cho dự án này. Kiểm tra dữ kiện ở mục 2 rồi bấm Tạo ngân sách năm mới; kết quả và bảng điều chỉnh hiện ngay bên dưới. Lượt đã chạy nằm ở tab Dự án đã tạo.' + (siteInfo.code ? ` Bản mã ${siteInfo.code}.` : '');
+  if (!siteInfo.prior_exists) {
+    st.classList.add('err'); st.textContent = `Gói thiếu file ngân sách đã duyệt (${siteInfo.prior_file || 'chưa đặt tên'}): dùng "Tải file lên".`;
+    setSrc('upload');
+  }
+  const facts = siteInfo.facts || {};
+  for (const [k, v] of Object.entries(facts)) {
+    const el = formReview.elements[k];
+    if (!el || v == null || v === '') continue;
+    if (k === 'city') {
+      const opt = cityOption(el, String(v));
+      if (!opt) { factNote(k, `gói ghi "${v}", không phải tên tỉnh trong danh sách: chọn tay`); continue; }
+      el.value = opt;
+    } else el.value = v;
+    factNote(k, 'Nguồn: dữ kiện đóng trong gói (sửa được)');
+  }
+}
+function initSite() {
+  document.body.classList.add('site');
+  document.querySelector('.eyebrow').textContent = 'Budget Agent · gói dự án';
+  document.getElementById('src-site-btn').classList.remove('hidden');
+  setSrc('site');
+  showTab('review');
+  loadSite();
 }
 document.querySelectorAll('#panel-review .modes button').forEach(b => b.addEventListener('click', () => setSrc(b.dataset.src)));
 
@@ -1172,7 +1218,7 @@ function showTab(id) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === id));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + id));
   if (id === 'lichsu' && !historyLoaded) loadHistory();
-  if (id === 'review' && !libEntries.length) loadLibrary();
+  if (id === 'review' && !libEntries.length && !SITE) loadLibrary();
   if (id === 'kho' && !khoLoaded) loadKho();
 }
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -1388,7 +1434,10 @@ document.querySelectorAll('#panel-review input, #panel-review select').forEach(e
 goReview.addEventListener('click', async () => {
   const facts = collectFacts();
   const fd = new FormData();
-  if (srcMode === 'lib') {
+  if (srcMode === 'site') {
+    if (!siteInfo || !siteInfo.prior_exists) { setStatus('Gói không có file ngân sách đã duyệt: dùng "Tải file lên".', true, 'review'); return; }
+    fd.append('site', '1');
+  } else if (srcMode === 'lib') {
     if (!libPick) { setStatus('Chưa chọn dự án trong danh sách có sẵn (bấm vào một dòng).', true, 'review'); return; }
     fd.append('library_id', libPick.id);
   } else if (srcMode === 'run') {
@@ -1401,7 +1450,7 @@ goReview.addEventListener('click', async () => {
   }
   if (!facts.city || !facts.city.trim()) { setStatus('Tỉnh / thành phố không được để trống (biểu giá nước lấy theo đó).', true, 'review'); formReview.elements.city.focus(); return; }
   fd.append('facts', JSON.stringify(facts));
-  setStatus(srcMode === 'run' ? 'Đang chuẩn bị lượt review từ bản giao của lượt cũ…' : (srcMode === 'lib' ? `Đang chép ${libPick.file_name}…` : 'Đang tải file lên…'), false, 'review');
+  setStatus(srcMode === 'run' ? 'Đang chuẩn bị lượt review từ bản giao của lượt cũ…' : (srcMode === 'lib' ? `Đang chép ${libPick.file_name}…` : (srcMode === 'site' ? `Đang chép ${siteInfo.prior_file}…` : 'Đang tải file lên…')), false, 'review');
   await startRun(`${PREFIX}/api/reviews`, fd, null, 'review');
 });
 
@@ -1791,7 +1840,7 @@ async function loadHistory() {
     return `<tr data-id="${esc(x.id)}"><td><b>${esc(x.project)}</b><br><small style="color:var(--sav-muted)">${esc(x.id)}</small></td><td>${esc(year)}</td><td>${KIND_VI[x.kind] || x.kind}</td>` +
       `<td>${esc((x.started || '').replace('T', ' '))}</td><td>${esc(x.user || '—')}</td><td class="st-${esc(x.status)}">${STATUS_VI[x.status] || x.status}${x.error ? `<div class="his-err">${esc(x.error)}</div>` : ''}</td><td class="files">${files || '—'}</td>` +
       `<td><button type="button" class="sm" data-act="view" ${dis}>Xem</button>` +
-      `<button type="button" class="sm" data-act="clone" ${x.can_clone ? '' : 'disabled'}>Clone</button>` +
+      `<button type="button" class="sm site-hide" data-act="clone" ${x.can_clone ? '' : 'disabled'}>Clone</button>` +
       `<button type="button" class="sm" data-act="adjust" ${x.can_gen && x.status === 'done' ? '' : 'disabled'}>Điều chỉnh</button>` +
       `<button type="button" class="sm pri" data-act="gen" ${x.can_gen && x.status !== 'running' && !x.gen_block ? '' : 'disabled'}${x.gen_block ? ` title="${esc(x.gen_block)}"` : ''}>Gen budget for new year</button>` +
       (x.gen_block ? `<br><small style="color:var(--sav-muted)">${esc(x.gen_block)}</small>` : '') + `</td></tr>`;
@@ -1859,6 +1908,7 @@ go.addEventListener('click', async () => {
 });
 
 loadDefaults().catch(e => setStatus('Không tải được giá trị mặc định: ' + e, true, 'nhap'));
+if (SITE) initSite();
 </script>
 <!-- Ô tên người đang đăng nhập, do cổng đăng nhập của Hub phục vụ qua Caddy (/_auth/*, đường dẫn tuyệt đối, không mang prefix). Mở trực tiếp không qua Caddy thì 404, vô hại. -->
 <script src="/_auth/badge.js" defer></script>
