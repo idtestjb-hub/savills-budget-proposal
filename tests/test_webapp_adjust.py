@@ -421,3 +421,66 @@ def test_top_keys_from_the_review_summary(tmp_path):
     assert adjust.top_keys(str(tmp_path / 'none')) == []
     (tmp_path / 'review_summary.json').write_text('{broken', encoding='utf-8')
     assert adjust.top_keys(str(tmp_path)) == []
+
+
+# ---- abnormal differences and the zero-row button (change flag-abnormal-review-diffs) ----------
+
+def test_abnormal_keys_from_the_review_summary(tmp_path):
+    f = tmp_path / 'review_summary.json'
+    f.write_text(json.dumps({'top': [], 'abnormal': [{'fund': 'MF', 'code': 'ESS38'}, {'code': 'X'}]}), encoding='utf-8')
+    assert adjust.abnormal_keys(str(tmp_path)) == ['MF|ESS38']
+    f.write_text(json.dumps({'top': [], 'abnormal': []}), encoding='utf-8')
+    assert adjust.abnormal_keys(str(tmp_path)) == []
+    f.write_text(json.dumps({'top': []}), encoding='utf-8')
+    assert adjust.abnormal_keys(str(tmp_path)) is None                 # a run before the rule: the server computes
+    assert adjust.abnormal_keys(str(tmp_path / 'none')) is None
+    assert adjust.abnormal_rule() == {'pct': 0.2, 'vnd': 50_000_000.0}
+
+
+def test_flag_abnormal_falls_back_on_the_table_figures():
+    items = [dict(key='MF|ESS38', amount=0.0, approved=100_000_000.0),
+             dict(key='MF|RM.AP', amount=2_400_000_000.0, approved=2_592_000_000.0),
+             dict(key='MF|RP2', amount=50_000_000.0, approved=None),            # no Review line: never flagged
+             dict(key='MF|ESS1', amount=1_300_000_000.0, approved=1_000_000_000.0),
+             dict(key='MF|ESM4', amount=40_000_000.0, approved=10_000_000.0)]
+    assert adjust.flag_abnormal(items) == ['MF|ESS38', 'MF|ESS1']
+
+
+@pytest.fixture
+def review_run_id(tmp_path, monkeypatch):
+    runs = tmp_path / 'web_runs'
+    wd = runs / '20261105-090000_Khu-Thu-Nghiem'
+    wd.mkdir(parents=True)
+    _deliverable(str(wd / DELIV))
+    prior_lines, anchors, tool, meta = _data()
+    data = review.assemble(prior_lines, anchors, tool, meta, _ctx(), template={'MF': {}})
+    wb = openpyxl.Workbook()
+    review.build_review_sheet(wb, data, meta)
+    wb.save(str(wd / 'Project_Budget_Output.xlsx'))
+    (wd / 'Roster_Demand_Model.xlsx').write_bytes(b'PK')
+    (wd / 'review_summary.json').write_text(json.dumps(review.summary_json(data, meta), default=str), encoding='utf-8')
+    history.write_meta(str(wd), kind='review', project='Khu Thu Nghiem', status='done', rc=0, user='pm.test')
+    monkeypatch.setattr(server, 'RUNS_DIR', str(runs))
+    server._runs.clear()
+    server._active['id'] = None
+    yield wd.name, wd
+    server._runs.clear()
+    server._active['id'] = None
+
+
+def test_get_adjust_carries_the_abnormal_keys_of_a_review_run(client, review_run_id):
+    rid, wd = review_run_id
+    body = client.get(f'/api/runs/{rid}/adjust').json()
+    assert body['has_approved'] and body['abnormal_rule'] == {'pct': 0.2, 'vnd': 50_000_000.0}
+    assert body['abnormal_keys'] == ['MF|RP2', 'MF|ESS38']               # from review_summary.json, sheet order (R then E)
+    # A run recorded before the rule: no list in the summary file, the server applies the rule to the table's figures.
+    js = json.loads((wd / 'review_summary.json').read_text(encoding='utf-8'))
+    del js['abnormal']
+    (wd / 'review_summary.json').write_text(json.dumps(js, default=str), encoding='utf-8')
+    body = client.get(f'/api/runs/{rid}/adjust').json()
+    assert sorted(body['abnormal_keys']) == ['MF|ESS1', 'MF|RM.AP']       # table amounts 1,200 and 600 against 1.08 bn / 2.59 bn
+
+
+def test_get_adjust_of_a_new_run_has_no_abnormal_keys(client, run_id):
+    body = client.get(f'/api/runs/{run_id}/adjust').json()
+    assert body['abnormal_keys'] == [] and body['abnormal_rule']['pct'] == 0.2

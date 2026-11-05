@@ -55,12 +55,21 @@ LABEL_NO_METHOD = 'Chưa có phương pháp'
 LABEL_ZERO = 'Công cụ ra 0'
 LABEL_TOOL_ONLY = 'Chỉ công cụ'
 LABEL_NOT_ON_FORM = 'Không có trên form 2027'
+# An abnormal difference (change flag-abnormal-review-diffs, user's thresholds 2026-11-05): tool minus converted approved
+# at least ABNORMAL_VND in absolute value AND at least ABNORMAL_PCT of the approved figure; with no approved figure the
+# amount alone decides. Lines only, never group rows or totals.
+ABNORMAL_PCT = 0.20
+ABNORMAL_VND = 50_000_000.0
+LABEL_ABNORMAL = 'BẤT THƯỜNG'
+ABNORMAL_RULE_VI = f'≥{ABNORMAL_PCT:.0%} và ≥{ABNORMAL_VND / 1e6:.0f} triệu/năm'
 LAW_CODES = set(ri.es.STAFF_LINES)
 TARIFF_CODES = set(ri.eu.LINES)
 
 HEADER_FILL = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
 SECTION_FILL = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
 TOTAL_FILL = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
+ABNORMAL_FILL = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
+ABNORMAL_COLS = (10, 11)                    # "Chênh" and "%" of a line
 HEADER_FONT = Font(color='FFFFFF', bold=True)
 THIN = Side(style='thin', color='BFBFBF')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -282,6 +291,14 @@ def _pct(diff, base):
     return (diff / base) if abs(base) >= 0.5 else None
 
 
+def is_abnormal(diff, pct):
+    """The abnormal-difference rule on one line: |diff| ≥ ABNORMAL_VND and, when a % exists (approved figure not 0),
+    |pct| ≥ ABNORMAL_PCT. `pct` None = no approved figure: the amount alone decides."""
+    if diff is None or abs(diff) < ABNORMAL_VND:
+        return False
+    return pct is None or abs(pct) >= ABNORMAL_PCT
+
+
 def prior_anchors(prior):
     """{fund: {'R', 'E', 'explained', 'notes'}} of the source file for assemble(): the sheet's own R and E figures,
     and, when the leaf sums tie only after explanation (budget_rows.explain_tie), that state and its notes."""
@@ -369,6 +386,7 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None, measures=None
                 rows.append(dict(code=code, item=item_vi or e['item'], approved=e['approved'], factor=factor,
                                  converted=conv, tool=t_show, tool_num=t_num, diff=t_num - conv,
                                  pct=_pct(t_num - conv, conv), label=label, remark=remark, on_form=e['on_form'],
+                                 abnormal=is_abnormal(t_num - conv, _pct(t_num - conv, conv)),
                                  order=(0 if e['on_form'] else 1, tcodes.get(fund, {}).get(code, 10 ** 6), code),
                                  n1=mv.get('n1'), actual=mv.get('actual'), expected=mv.get('expected'),
                                  **_measure_pcts(conv, mv)))
@@ -430,9 +448,12 @@ def assemble(prior_lines, anchors, tool, meta, ctx, template=None, measures=None
                   only_tool=sum(abs(x['approved']) < 0.5 and abs(x['tool_num']) >= 0.5 for x in all_rows),
                   not_on_form=sum(not x['on_form'] for x in all_rows),
                   no_method=sum(x['label'] == LABEL_NO_METHOD for x in all_rows),
-                  tool_zero=sum(x['label'] == LABEL_ZERO for x in all_rows))
+                  tool_zero=sum(x['label'] == LABEL_ZERO for x in all_rows),
+                  abnormal=sum(bool(x['abnormal']) for x in all_rows))
     top = sorted(all_rows, key=lambda x: -abs(x['diff']))[:TOP]
-    return dict(rows_by=rows_by, ties=ties, summary=summary, counts=counts, top=top, measure_ties=measure_ties)
+    abnormal = [dict(fund=x['fund'], code=x['code'], diff=x['diff'], pct=x['pct']) for x in all_rows if x['abnormal']]
+    return dict(rows_by=rows_by, ties=ties, summary=summary, counts=counts, top=top, measure_ties=measure_ties,
+                abnormal=abnormal)
 
 
 def measure_headers(meta, fund):
@@ -506,7 +527,9 @@ def build_review_sheet(wb, data, meta, groups=None):
                 f"{'gồm' if meta.get('deliverable_incl', True) else 'chưa gồm'} VAT. Số duyệt quy về cơ sở bản giao theo "
                 f"từng dòng (lương, thuế phí, phí và lãi ngân hàng không VAT; 8% kỳ giảm, 10% còn lại). "
                 f"Công cụ = dòng lá bản giao sau khi Excel tính lại. Ba cột năm {py - 1} (duyệt, thực tế, dự kiến) đọc từ "
-                f"chính file, quy đổi cùng quy tắc; thực tế giữ nguyên số tháng, không quy ra năm.")
+                f"chính file, quy đổi cùng quy tắc; thực tế giữ nguyên số tháng, không quy ra năm. "
+                f"Dòng {LABEL_ABNORMAL}: chênh so với duyệt {ABNORMAL_RULE_VI} (ô Chênh và % tô đỏ nhạt, ghi ở cột Ghi chú; "
+                f"mã không có số duyệt chỉ xét số tiền).")
     ws['A2'].font = Font(italic=True, size=9, color='7F7F7F')
     ws['A2'].alignment = Alignment(wrap_text=True, vertical='top')
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=NCOLS)
@@ -514,7 +537,8 @@ def build_review_sheet(wb, data, meta, groups=None):
     c = data['counts']
     ws['A3'] = (f"Dòng so sánh: {c['lines']} (cả hai có số {c['both']}, chỉ file duyệt {c['only_approved']}, chỉ công cụ "
                 f"{c['only_tool']}); mã không có trên form 2027: {c['not_on_form']}; chưa có phương pháp: {c['no_method']}; "
-                f"công cụ ra 0: {c['tool_zero']}. Phần D (VAT, CIT) không so.")
+                f"công cụ ra 0: {c['tool_zero']}; bất thường ({ABNORMAL_RULE_VI}): {c.get('abnormal', 0)}. "
+                f"Phần D (VAT, CIT) không so.")
     ws['A3'].font = Font(size=9)
     ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=NCOLS)
 
@@ -606,10 +630,15 @@ def build_review_sheet(wb, data, meta, groups=None):
                             else ((groups.get(fund) or {}).get('groups', {}).get(g, {}).get('name', '')))
                     stack.append((g, name, r, len(stack)))
                     r += 1
+                remark = f"{LABEL_ABNORMAL}; {x['remark']}" if x.get('abnormal') and x['remark'] else (
+                    LABEL_ABNORMAL if x.get('abnormal') else x['remark'])
                 vals = [x['code'], x['item'], x.get('n1'), x.get('actual'), x.get('expected'), x['approved'], x['factor'],
                         x['converted'], x['tool'], x['diff'], x['pct'], x.get('p_n_n1'), x.get('p_exp_n1'),
-                        x.get('p_n_exp'), x['label'], x['remark']]
+                        x.get('p_n_exp'), x['label'], remark]
                 _put(ws, r, vals)
+                if x.get('abnormal'):
+                    for col in ABNORMAL_COLS:
+                        ws.cell(row=r, column=col).fill = ABNORMAL_FILL
                 for col in (2, 15, 16):
                     ws.cell(row=r, column=col).alignment = Alignment(wrap_text=False, vertical='top')
                 if chain:
@@ -673,7 +702,7 @@ def summary_md(data, meta):
     c = data['counts']
     md.append(f"\nDòng so sánh: {c['lines']} (cả hai có số {c['both']}, chỉ file duyệt {c['only_approved']}, chỉ công cụ "
               f"{c['only_tool']}); mã không có trên form 2027: {c['not_on_form']}; chưa có phương pháp: {c['no_method']}; "
-              f"công cụ ra 0: {c['tool_zero']}.\n")
+              f"công cụ ra 0: {c['tool_zero']}; bất thường ({ABNORMAL_RULE_VI}): {c.get('abnormal', 0)}.\n")
     md.append('Đối chiếu tổng:')
     for t in data['ties']:
         md.append(f"- {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} / {t['right']:,.0f}, lệch "
@@ -684,16 +713,18 @@ def summary_md(data, meta):
             md.append(f"- {t['kind']}, {ri.FUND_VI[t['fund']]} {t['section']}: {t['left']:,.0f} / {t['right']:,.0f}, lệch "
                       f"{t['diff']:,.0f} → {_tie_text(t)}")
     md.append(f'\nTop {TOP} theo |chênh lệch|:\n')
-    md.append('| # | Quỹ | Mã | Hạng mục | Duyệt (quy đổi) | Công cụ | Chênh | % | Cách ra số |\n|---:|---|---|---|---:|---:|---:|---:|---|')
+    md.append('| # | Quỹ | Mã | Hạng mục | Duyệt (quy đổi) | Công cụ | Chênh | % | Cách ra số | Bất thường |\n'
+              '|---:|---|---|---|---:|---:|---:|---:|---|---|')
     for i, x in enumerate(data['top'], 1):
         md.append(f"| {i} | {x['fund']} | {x['code']} | {x['item'][:44].replace('|', '/')} | {_m(x['converted'])} | "
-                  f"{_m(x['tool_num'])} | {_m(x['diff'])} | {_p(x['pct'])} | {x['label']} |")
+                  f"{_m(x['tool_num'])} | {_m(x['diff'])} | {_p(x['pct'])} | {x['label']} | {'x' if x.get('abnormal') else ''} |")
     return '\n'.join(md) + '\n'
 
 
 def summary_json(data, meta):
     out = dict(meta=meta, summary=data['summary'], counts=data['counts'], ties=data['ties'],
-               top=[{k: v for k, v in x.items() if k != 'order'} for x in data['top']])
+               top=[{k: v for k, v in x.items() if k != 'order'} for x in data['top']],
+               abnormal=data.get('abnormal', []), abnormal_rule=dict(pct=ABNORMAL_PCT, vnd=ABNORMAL_VND))
     if data.get('measure_ties'):
         out['measure_ties'] = data['measure_ties']
     return out

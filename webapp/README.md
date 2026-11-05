@@ -119,7 +119,18 @@ tính (`webapp/adjust.py`).
   của Review có nhãn *Top 10*. Lượt review còn thêm vào bảng một dòng cho mỗi mã có số duyệt mà công cụ ra 0 (lấy từ
   `review_summary.json` và sheet 4 do `review.add_zero_rows` ghi). Nút +/− mở hoặc thu gọn dòng chi tiết
   ngay dưới mã (nội dung, ĐVT, SL gốc, đơn giá gốc, thành tiền gốc, SL mới, đơn giá mới, thành tiền mới, chênh lệch,
-  %). Chọn Số lượng hoặc Đơn giá thì dòng chi tiết tự mở. Lọc theo mã / hạng mục, quỹ, thu / chi, "chỉ mã đã điều chỉnh".
+  %). Chọn Số lượng hoặc Đơn giá thì dòng chi tiết tự mở. Lọc theo mã / hạng mục, quỹ, thu / chi, "chỉ mã đã điều chỉnh",
+  "chỉ dòng bất thường".
+- **Dòng bất thường** (change `flag-abnormal-review-diffs`, ngưỡng người dùng chốt 05/11/2026): mã có chênh so với duyệt
+  từ 20% **và** từ 50 triệu VND/năm (mã không có số duyệt: chỉ xét số tiền; hằng số `review.ABNORMAL_PCT` /
+  `ABNORMAL_VND`). Review gắn cờ khi lập (`review.is_abnormal`, danh sách `abnormal` + `abnormal_rule` trong
+  `review_summary.json`, sheet Review tô đỏ nhạt hai ô Chênh / % và ghi "BẤT THƯỜNG" ở Ghi chú, dòng 3 ghi số dòng); trang
+  đọc danh sách (`adjust.abnormal_keys`), lượt cũ không có danh sách thì server tính lại từ thành tiền gốc trừ số duyệt
+  (`adjust.flag_abnormal`). Trên bảng: nhãn *Bất thường* cạnh mã, hai ô chênh tô đỏ nhạt, số dòng bất thường trên dòng
+  THU / CHI; bảng "10 dòng lệch lớn nhất" và dòng đếm của Review cũng ghi.
+- **Nút "Mã công cụ ra 0":** các dòng Nhập số (thành tiền gốc 0, `zero_row`) mặc định ẩn để bảng gọn, **trừ dòng bất
+  thường** (luôn hiện). Nút hiện đủ / ẩn lại, ghi số mã đang ẩn; dòng THU / CHI ghi "n mã công cụ ra 0 đang ẩn". Không nhớ
+  trạng thái giữa các lần mở (mặc định luôn ẩn). Dòng Cộng vẫn cộng các mã đang hiện. Sheet 4 trong Excel giữ đủ dòng.
 - **Ô sửa được** theo loại: Số lượng → SL mới; Đơn giá → đơn giá mới; Trượt giá → % trên dòng mã; **Nhập số** → gõ số cả năm
   của từng dòng chi tiết vào ô *Số nhập (VND/năm)* (không âm; dành cho mã công cụ ra 0, nhưng chọn được ở mọi mã có dòng
   chi tiết; chưa chỉnh thì dòng đó vẫn bằng 0). Dòng gộp ("khoản",

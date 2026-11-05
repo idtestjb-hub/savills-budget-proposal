@@ -582,8 +582,14 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
         for k, by_key in measures.items():
             if by_key:
                 it[k] = by_key.get(it['key'])
+    abnormal_keys = []                                                        # dòng bất thường (change flag-abnormal-review-diffs)
+    if approved:
+        abnormal_keys = adjust.abnormal_keys(run['workdir'])
+        if abnormal_keys is None:                                             # lượt cũ, file tóm tắt chưa có danh sách
+            abnormal_keys = adjust.flag_abnormal(items)
     return JSONResponse(dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'),
                              deliverable=os.path.basename(path), items=items, has_approved=bool(approved), top_keys=top_keys,
+                             abnormal_keys=abnormal_keys, abnormal_rule=adjust.abnormal_rule(),
                              measure_labels={k: v for k, v in (cols.get('labels') or {}).items() if measures.get(k)},
                              prior_year=years[0], budget_year=years[1],
                              last=results.adjust_result(run['workdir']) or None,

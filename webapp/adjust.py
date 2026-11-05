@@ -362,14 +362,52 @@ def review_years(analysis_path):
         wb.close()
 
 
-def top_keys(workdir):
-    """['MF|ESS1', ...]: khoá của 10 dòng lệch lớn nhất trong review_summary.json của lượt review (bảng điều chỉnh đánh dấu
-    "Top 10"); [] khi không có file hoặc file hỏng."""
+def _summary_json(workdir):
     import json
     import os
     try:
         with open(os.path.join(workdir, 'review_summary.json'), encoding='utf-8') as fh:
-            top = json.load(fh).get('top') or []
+            data = json.load(fh)
     except (OSError, ValueError):
-        return []
-    return [f"{x['fund']}|{x['code']}" for x in top if isinstance(x, dict) and x.get('code') and x.get('fund')]
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _keys_of(rows):
+    return [f"{x['fund']}|{x['code']}" for x in rows if isinstance(x, dict) and x.get('code') and x.get('fund')]
+
+
+def top_keys(workdir):
+    """['MF|ESS1', ...]: khoá của 10 dòng lệch lớn nhất trong review_summary.json của lượt review (bảng điều chỉnh đánh dấu
+    "Top 10"); [] khi không có file hoặc file hỏng."""
+    return _keys_of(_summary_json(workdir).get('top') or [])
+
+
+def abnormal_keys(workdir):
+    """Khoá các dòng Review gắn cờ bất thường (change flag-abnormal-review-diffs) trong review_summary.json của lượt;
+    None khi file không có danh sách (lượt chạy trước quy tắc, hoặc không có file): server tính lại bằng flag_abnormal."""
+    data = _summary_json(workdir)
+    if 'abnormal' not in data:
+        return None
+    return _keys_of(data.get('abnormal') or [])
+
+
+def flag_abnormal(items):
+    """Khoá các mã bất thường tính từ chính bảng (thành tiền gốc trừ số duyệt, cùng quy tắc review.is_abnormal), cho lượt
+    cũ không có danh sách trong file tóm tắt. Chỉ xét mã có số duyệt trên sheet Review (it['approved'] không None)."""
+    import review
+    out = []
+    for it in items:
+        ap = it.get('approved')
+        if ap is None:
+            continue
+        diff = (it.get('amount') or 0.0) - ap
+        if review.is_abnormal(diff, (diff / ap) if abs(ap) >= 0.5 else None):
+            out.append(it['key'])
+    return out
+
+
+def abnormal_rule():
+    """{'pct': 0.2, 'vnd': 50000000.0}: ngưỡng hiện hành, để trang in ra."""
+    import review
+    return dict(pct=review.ABNORMAL_PCT, vnd=review.ABNORMAL_VND)

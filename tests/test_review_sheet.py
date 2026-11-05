@@ -218,3 +218,49 @@ def test_end_to_end_on_an_invented_budget(tmp_path):
     e = {x['code']: x for x in result['data']['rows_by'][('MF', 'E')]['rows']}
     assert e['EMH2']['label'] == review.LABEL_LAW and e['EEE.C']['label'] == review.LABEL_TARIFF
     assert e['EMH2']['tool'] > 0
+
+
+# ---- abnormal differences (change flag-abnormal-review-diffs) -----------------------------------
+
+def test_abnormal_rule_cases():
+    assert review.is_abnormal(300_000_000.0, 0.30)                    # both thresholds reached
+    assert not review.is_abnormal(30_000_000.0, 3.0)                  # large %, small amount
+    assert not review.is_abnormal(-192_000_000.0, -0.074)             # large amount, small %
+    assert review.is_abnormal(50_000_000.0, None)                     # no approved figure: the amount alone
+    assert review.is_abnormal(-100_000_000.0, -1.0)                   # zero-tool code
+    assert not review.is_abnormal(None, None) and not review.is_abnormal(49_999_999.0, None)
+    assert not review.is_abnormal(60_000_000.0, 0.1999) and review.is_abnormal(-60_000_000.0, -0.2)
+    assert review.ABNORMAL_RULE_VI == '≥20% và ≥50 triệu/năm'
+
+
+def test_assemble_flags_abnormal_lines_and_counts_them():
+    prior_lines, anchors, tool, meta = _data()
+    data = review.assemble(prior_lines, anchors, tool, meta, _ctx(), template={'MF': {}})
+    rows = {x['code']: x for b in data['rows_by'].values() for x in b['rows']}
+    assert rows['ESS38']['abnormal'] and rows['RP2']['abnormal']          # −100% of 108M; 50M with no approved figure
+    assert not any(rows[c]['abnormal'] for c in ('RM.AP', 'RP1', 'EMH2', 'EEE.C', 'ESS1', 'ESM4', 'RO2a'))
+    assert data['counts']['abnormal'] == 2
+    assert sorted((x['fund'], x['code']) for x in data['abnormal']) == [('MF', 'ESS38'), ('MF', 'RP2')]
+    js = review.summary_json(data, meta)
+    assert js['abnormal_rule'] == {'pct': 0.2, 'vnd': 50_000_000.0} and len(js['abnormal']) == 2
+    assert any(x['code'] == 'ESS38' and x['abnormal'] for x in js['top'])
+    assert any(x['code'] == 'RM.AP' and not x['abnormal'] for x in js['top'])
+    md = review.summary_md(data, meta)
+    assert 'bất thường (≥20% và ≥50 triệu/năm): 2' in md and '| Bất thường |' in md
+
+
+def test_review_sheet_marks_abnormal_lines(tmp_path):
+    prior_lines, anchors, tool, meta = _data()
+    data = review.assemble(prior_lines, anchors, tool, meta, _ctx(), template={'MF': {}})
+    wb = openpyxl.Workbook()
+    review.build_review_sheet(wb, data, meta)
+    ws = wb[review.REVIEW_SHEET]
+    by_code = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    r_ab, r_ok = by_code['ESS38'], by_code['RM.AP']
+    for col in review.ABNORMAL_COLS:
+        assert str(ws.cell(row=r_ab, column=col).fill.start_color.rgb).endswith('FCE4D6')
+        assert ws.cell(row=r_ok, column=col).fill.fill_type is None
+    assert ws.cell(row=r_ab, column=16).value.startswith(review.LABEL_ABNORMAL)
+    assert ws.cell(row=by_code['ESS1'], column=16).value == ri.FLAG_MONTHS      # not flagged: remark unchanged
+    assert 'bất thường (≥20% và ≥50 triệu/năm): 2' in ws['A3'].value and review.LABEL_ABNORMAL in ws['A2'].value
+    wb.save(os.path.join(tmp_path, 'out.xlsx'))
