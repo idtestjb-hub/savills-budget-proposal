@@ -51,7 +51,7 @@ which basis was used.
 
 The remark of each new-prospect energy line SHALL state the usage per m², the number of projects behind it, and the
 price used with its month and source. The internal analysis SHALL list the projects that entered the median with their
-usage per m², by display name on the office data and by pseudonym inside a site package.
+usage per m², by store project id (no project name), and the projects the outlier fence dropped.
 
 #### Scenario: Electricity remark
 

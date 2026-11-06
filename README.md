@@ -14,9 +14,10 @@ This map was checked on 2026-10-05 against the `import` statements of every `*.p
 | `generate_project_budget.py` | Reads the input workbook and fills Savills' 2027 Resi budget form: the client deliverable (`sample_output/`) with its `Comparison` sheet, and the shift roster (`reports/Roster_Demand_Model.xlsx`) |
 | `generate_project_output.py` | Reads the same input and writes the internal analysis workbook `reports/Project_Budget_Output.xlsx`, showing the reasoning behind each figure |
 | `master_comparables.py` | The comparable projects, their areas and management-fee rates, and the ranking and rate-derivation functions both generators use |
-| `reference_projects.py` | The reference-project registry (`data/master_list_verified/Dim_ReferenceProject.csv`): one key per real budget the tool prices from (R01..R08), display names, aliases, NFA and roles; every fact file joins on `RefKey` and no runtime module spells a project name |
-| `estimate_capex_qty.py` | Estimates Capex quantities for a new project by scaling the nearest real project's item list by total NFA; used by both generators |
-| `estimate_opex.py` | Estimates electricity, water, diesel, pool salt and repairs from `data/generation_A_star_schema/Fact_OPEX.csv` |
+| `reference_projects.py` | The reference-project registry (`data/master_list_verified/Dim_ReferenceProject.csv`): one key per real budget the tool prices from (R01..R08, plus R09..R12: store projects in the capex pool), display names, aliases, NFA and roles; every fact file joins on `RefKey` and no runtime module spells a project name |
+| `estimate_capex_qty.py` | Estimates Capex quantities for a new project by scaling the nearest of the 11 capex-pool projects' item list by total NFA; the category cross-check ratios are medians computed from the same pool; used by both generators |
+| `estimate_opex.py` | Estimates electricity, water, diesel, pool salt and repairs: energy = usage per m² (median of the hand-checked projects, `utility_usage.py`) × NFA × the dated public tariff; the rest from `data/generation_A_star_schema/Fact_OPEX.csv` |
+| `utility_usage.py` | The usage benchmark: median usage per m² of the accepted rows of `data/generation_B_verified/Ref_UtilityUsage.csv` after a 1.5 × IQR fence, at least 5 projects, else the utilities base (n=1) |
 | `estimate_new_project.py` | Staffing-headcount estimate (`estimate_staff_headcount`), used by the analysis workbook's cross-check; also a standalone four-part estimation model |
 | `fill_curve.py` | The single monthly occupancy fill-up curve both generators share |
 | `vn_holidays.py` | Vietnamese statutory public holidays, computed (including the lunar ones) rather than typed in |
@@ -39,7 +40,9 @@ Their output files are the data the live pipeline reads. They are not re-run per
 | `transform_master_list.py` | `data/master_list_verified/Dim_Property_Residential.csv` and `Dim_Property_Commercial.csv`, parsed from `input/project/2026_Master List.xlsx` |
 | `derive_position_staffing_ratios.py` | `data/master_list_verified/Fact_StaffingRatio_ByPosition.csv` (per-position staff per 1,000 m² NFA) |
 | `derive_staffing_benchmarks.py` | `Fact_StaffingBenchmark_Derived.csv` and `Staffing_Benchmark_Analysis.xlsx`, in the same folder |
-| `rescan_capex_from_source.py` † | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` and `reports/Project_Detail_Lists.xlsx` |
+| `rescan_capex_from_source.py` † | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` (rows of the original reference budgets; other keys' rows kept) and `reports/Project_Detail_Lists.xlsx` |
+| `rescan_capex_store_projects.py` † | The R09..R12 rows of `Fact_Capex_Rescanned.csv`, from the real-budget store |
+| `build_utility_usage.py` † | `data/generation_B_verified/Ref_UtilityUsage.csv` from the hand-checked worksheet |
 | `rescan_capex_reserve.py` † | `Fact_CapexReserve.csv` (the Years 2+ reserve rate), same folder as the Capex file |
 | `rescan_opex_from_source.py` † | `Fact_OPEX.csv`, same folder |
 | `build_master_rate_card.py` | `output/simple_reports/Master_Rate_Card.xlsx` and the `Fact_MasterRateCard.csv` the pipeline reads for unit prices |

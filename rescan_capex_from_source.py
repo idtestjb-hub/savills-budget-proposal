@@ -228,11 +228,19 @@ MONEY_FMT = '#,##0'
 def write_csv(rows):
     import csv
     os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
+    # Rows of other keys (the store projects written by rescan_capex_store_projects.py, change
+    # widen-utility-and-capex-sources) are kept: this script only replaces the rows of the files it scans.
+    own = {r.get('RefKey') or '' for r in rows}
+    kept = []
+    if os.path.isfile(OUT_CSV):
+        with open(OUT_CSV, newline='', encoding='utf-8-sig') as f:
+            kept = [r for r in csv.DictReader(f) if (r.get('RefKey') or '') not in own]
     with open(OUT_CSV, 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.DictWriter(f, fieldnames=['Project', 'Category', 'Item', 'Unit', 'Qty', 'UnitPrice',
                                            'Total', 'SourceSheet', 'SourceRow', 'RefKey'])
         w.writeheader()
         w.writerows(rows)
+        w.writerows(kept)
 
 
 def append_to_detail_lists(rows):

@@ -1452,7 +1452,11 @@ def build_capex_sheet(wb, project):
                      f"line items (Fact_Capex_Rescanned.csv) by the ratio of this project's Total NFA to "
                      f"{source_info['source_project']}'s ({source_info['target_nfa']:,.0f} ÷ {source_info['source_nfa']:,.0f} "
                      f"= {source_info['scale_factor']}×). Real item names and prices, estimated quantity — "
-                     f"still a PM-editable starting point, not a guess from nothing."), 'A1:F1')
+                     f"still a PM-editable starting point, not a guess from nothing."
+                     + ''.join(f" {cat}: {source_info['source_project']} has no separate list, so these items come "
+                               f"from {bw['source_project']}, the nearest project that lists them "
+                               f"({source_info['target_nfa']:,.0f} ÷ {bw['source_nfa']:,.0f} = {bw['scale_factor']}×)."
+                               for cat, bw in (source_info.get('borrowed') or {}).items())), 'A1:F1')
     else:
         title_block(ws, 'Capex — Equipment Price List',
                     'Fact_MasterRateCard.csv, Domain=Capex — real per-unit reference prices. Quantity is blank for the PM '
@@ -1461,7 +1465,7 @@ def build_capex_sheet(wb, project):
     r = 4
     section(ws, r, 'CATEGORY CROSS-CHECK — independent NFA-ratio estimate (estimate_capex_qty.py)', ncols=6); r += 1
     ws.cell(row=r, column=1,
-            value=('A second, independent method: real Qty ÷ verified NFA across 5-6 real projects (not just the one nearest '
+            value=('A second, independent method: real Qty ÷ verified NFA across the capex-pool projects, one building counted once (N per category in the table; not just the one nearest '
                    'match used for the item list below), applied to this project\'s Total NFA. Compare against the category '
                    'subtotals below — a big gap between the two methods is worth investigating before trusting either.')).font = Font(italic=True, size=9, color='7F7F7F')
     ws.cell(row=r, column=1).alignment = LEFT
@@ -2349,15 +2353,17 @@ def build_data_flow_sheet(wb):
     r = _flow_step(ws, r, '7 · build_capex_sheet(wb, project)  →  capex',
                     'estimate_capex_items() scales a real nearest project\'s own Capex line items by NFA ratio; falls '
                     'back to the blank-Qty catalog only if no comparable has real Capex data.',
-                    source=[('live', 'data/generation_A_star_schema/Fact_Capex_Rescanned.csv — 1,328 real line items, '
+                    source=[('live', 'data/generation_A_star_schema/Fact_Capex_Rescanned.csv — the real line items of every '
+                                     'registry project with the capex_items role, '
                                      'loaded fresh every run (estimate_capex_qty.py\'s estimate_capex_items(), for the '
-                                     'item list). Raw origin: input/budget_planning/*.xlsx (the 8 real files\' own 4 '
-                                     'Capex sheets each), rescanned by rescan_capex_from_source.py, which filters out '
-                                     'the __repaired/MasterData/Budget_Workbook/SAMPLE copies also sitting in that '
-                                     'folder — rerun that script to pick up a changed source file.'),
-                            ('constant', 'STUDY1_RATIO_PER_1000_NFA / STUDY2_RATIO_PER_HEADCOUNT in estimate_capex_qty.py '
-                                         '— category-level ratios derived once from the same CSV above (see '
-                                         'study_capex_qty_estimation.py), used only for the CATEGORY CROSS-CHECK block.'),
+                                     'item list). Raw origin: the original reference budgets\' Capex sheets '
+                                     '(rescan_capex_from_source.py) and the store projects\' item sheets '
+                                     '(rescan_capex_store_projects.py) — rerun those scripts to pick up a changed '
+                                     'source file.'),
+                            ('live', 'study1_ratios() in estimate_capex_qty.py — category medians per 1,000 m² computed '
+                                     'each run from the same CSV above (one building counted once); '
+                                     'STUDY2_RATIO_PER_HEADCOUNT stays a constant (n=1). Used only for the '
+                                     'CATEGORY CROSS-CHECK block.'),
                             ('conditional', 'data/generation_B_verified/Fact_MasterRateCard.csv (Domain=Capex) — the '
                                             'blank-Qty item catalog, read only if no real comparable has Capex data to '
                                             'scale from. Built by build_master_rate_card.py + add_shift_differentials.py '

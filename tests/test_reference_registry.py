@@ -25,7 +25,7 @@ FACT_FILES = (
 OFFICE_ONLY = ('build_site_', 'build_reference_registry', 'build_master_rate_card', 'build_project_plan_v2',
                'build_real_budget_ranges', 'build_service_levels', 'build_prior_coverage', 'build_roster_input_form',
                'rescan_', 'migrate_', 'study_', 'etl_', 'derive_', 'transform_', 'extract_info_sheets',
-               'generate_from_real_project', 'method_coverage')
+               'generate_from_real_project', 'method_coverage', 'build_utility_usage')
 
 
 def runtime_modules():
@@ -36,11 +36,13 @@ def runtime_modules():
 
 # ---------------------------------------------------------------- real registry
 
-def test_registry_has_keys_r01_to_r08_and_the_roles_resolve():
+def test_registry_has_keys_r01_to_r12_and_the_roles_resolve():
+    # R09..R12: store projects added to the capex pool by change widen-utility-and-capex-sources.
     rows = rp.load(force=True)
-    assert [r['key'] for r in rows] == [f'R{i:02d}' for i in range(1, 9)]
+    assert [r['key'] for r in rows] == [f'R{i:02d}' for i in range(1, 13)]
     assert len(rp.by_role(rp.ROLE_UTILITIES_BASE)) == 1 and len(rp.by_role(rp.ROLE_PARKING_BASE)) == 1
-    assert len(rp.by_role(rp.ROLE_CAPEX_ITEMS)) == 7
+    assert len(rp.by_role(rp.ROLE_CAPEX_ITEMS)) == 11
+    assert not any(r['comparable'] for r in rows[8:])
     base = rp.one_by_role(rp.ROLE_UTILITIES_BASE)
     assert base['nfa'] and base['nfa'] > 0 and rp.ROLE_CAPEX_ITEMS in base['roles']
     assert all(r['capex_nfa'] for r in rp.by_role(rp.ROLE_CAPEX_ITEMS))

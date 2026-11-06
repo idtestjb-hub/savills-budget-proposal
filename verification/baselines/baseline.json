@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-10-28T18:56:40+07:00",
-  "reason": "2026-10-28 change budget-year-by-most-months: the 01/10/2026 diesel listed price 29,710 VND/l carries no VAT (fuel outside output VAT to 31/12/2026, Nghi quyet 43/2026/NQ-CP), not 8% as recorded; 2027 diesel = 29,710 x 1.10 = 32,681 VND/l instead of 30,260, so opex_diesel_annual +7,666,512 VND (+8.0%) and opex, profit, margin, markup move by that amount only.",
+  "recorded_at": "2026-11-06T15:31:32+07:00",
+  "reason": "2026-11-06 change widen-utility-and-capex-sources (signed off by the user): energy usage per m2 is the median of hand-checked real projects (Ref_UtilityUsage.csv: electricity 1.818 kWh, water 0.0231 m3, diesel 0.0049 l per m2/month vs the single reference 1.837 / 0.0237 / 0.0049), electricity priced at the dated EVN rate (2,226 VND/kWh, unchanged); capex item lists from 11 projects, the standard sample's nearest is now a 53,826 m2 store project (was the 64,124 m2 reference), with the amenity list taken from the nearest project that has one. Standard sample: capex 309.9M -> 202.2M, electricity -1.0%, water -2.3%, profit +149.7M.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -37,12 +37,12 @@
       "where": "Summary!R37C2"
     },
     "capex_selected": {
-      "value": 309940810.0,
+      "value": 202168000.0,
       "unit": "VND",
       "where": "Summary!R38C2"
     },
     "opex_annual": {
-      "value": 3579707076.0,
+      "value": 3538590660.0,
       "unit": "VND",
       "where": "Summary!R39C2"
     },
@@ -52,17 +52,17 @@
       "where": "Summary!R40C2"
     },
     "total_profit_value": {
-      "value": 987712435.3782415,
+      "value": 1137423989.3782415,
       "unit": "VND",
       "where": "Summary!R19C2"
     },
     "margin": {
-      "value": 0.07977001870152048,
+      "value": 0.09186108188413633,
       "unit": "ratio",
       "where": "Summary!R20C2"
     },
     "markup": {
-      "value": 0.08668487261082491,
+      "value": 0.10115311661207363,
       "unit": "ratio",
       "where": "Summary!R21C2"
     },
@@ -82,17 +82,17 @@
       "where": "Service!'Landscape' row 7, col 8"
     },
     "capex_mo_equipment": {
-      "value": 181667810.0,
+      "value": 121185000.0,
       "unit": "VND",
       "where": "Cost Priority!'MO Equipment' row 32, col 2"
     },
     "capex_public_area": {
-      "value": 172735000.0,
+      "value": 63616000.0,
       "unit": "VND",
       "where": "Cost Priority!'Public Area' row 33, col 2"
     },
     "capex_me_equipment": {
-      "value": 128273000.0,
+      "value": 80983000.0,
       "unit": "VND",
       "where": "Cost Priority!'M&E Equipment' row 34, col 2"
     },
@@ -102,17 +102,17 @@
       "where": "Cost Priority!'Amenity Area' row 35, col 2"
     },
     "opex_electricity_annual": {
-      "value": 2936308692.0,
+      "value": 2905780056.0,
       "unit": "VND",
       "where": "OPEX!'Electricity' row 6, col 3"
     },
     "opex_water_annual": {
-      "value": 454598004.0,
+      "value": 444011340.0,
       "unit": "VND",
       "where": "OPEX!'Water' row 7, col 3"
     },
     "opex_diesel_annual": {
-      "value": 103497924.0,
+      "value": 103496808.0,
       "unit": "VND",
       "where": "OPEX!'Diesel (Generator Fuel)' row 8, col 3"
     },

@@ -1357,6 +1357,21 @@ def _vi_unit(unit):
     return _UNIT_VI.get(unit) or (unit or '').replace('/month', '/tháng').replace('litre', 'lít')
 
 
+def _usage_basis_vi(e, nfa):
+    """One Vietnamese sentence on where a new prospect's energy usage per m² comes from (change
+    widen-utility-and-capex-sources): the median of the hand-checked real projects, or the single reference
+    project when too few were checked. Names no project (client deliverable, D13)."""
+    per_m2 = e.get('usage_per_m2')
+    if not per_m2:
+        return ''
+    unit = _vi_unit(e.get('usage_unit', ''))
+    if e.get('usage_basis') == 'benchmark':
+        return (f" Lượng dùng {per_m2:,.4f} {unit} trên mỗi m² là trung vị của {e.get('n')} dự án thực tế đã "
+                f"kiểm (bỏ giá trị ngoại lệ), nhân diện tích NFA {nfa:,.0f} m².")
+    return (f" Lượng dùng {per_m2:,.4f} {unit} trên mỗi m² lấy theo một dự án tham chiếu vì "
+            f"{e.get('usage_fallback_reason') or 'chưa đủ dự án đã kiểm'}, nhân diện tích NFA {nfa:,.0f} m².")
+
+
 def _opex_kwargs(project):
     """estimate_opex arguments shared by every call: the pool, and (group 2) the budget period and water group
     that price water and diesel from the dated tariff file."""
@@ -1486,6 +1501,7 @@ def _energy_narrative_vi(category, project, yr):
     tariff = e.get('tariff', 0)
     tunit = _vi_unit(e.get('tariff_unit', ''))
     as_of = e.get('tariff_as_of', '')
+    usage_vi = _usage_basis_vi(e, project['total_nfa'])
     if category == 'Water':
         d = e.get('dated') or {}
         # The price source follows the tariff row's category, never a substring of the date text (design D3).
@@ -1502,7 +1518,7 @@ def _energy_narrative_vi(category, project, yr):
         basis = (operating_inputs.water_stable_vi(yr) if project.get('stable_operation') else
                  f"Chi phí hạng mục này dự ước tại năm {yr} dựa trên tỷ lệ "
                  f"lấp đầy cư dân tại trang 'Tỷ lệ lấp đầy cư dân'.")
-        return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}, đơn giá bao gồm thuế VAT {d.get('vat_water', 5):g}%, "
+        return (f"Khối lượng nước tiêu thụ tính: {qty:,.0f} {unit}.{usage_vi} Đơn giá bao gồm thuế VAT {d.get('vat_water', 5):g}%, "
                 f"PBVMT {d.get('wastewater_pct', 30):g}%, VAT bvmt {bvmt} ({tariff:,.0f} {tunit}"
                 + (" tháng đầu" if len(set(e.get('tariff_by_month', []))) > 1 else "") + f"). {price_source} " + basis)
     if category == 'Electricity':
@@ -1515,9 +1531,14 @@ def _energy_narrative_vi(category, project, yr):
         bp = project.get('budget_period') or budget_period.default()
         vat_clause = (f", cộng VAT {_rate_phrase(bp.months, _general_vat_months(project))} theo từng tháng"
                       if _ACTIVE_VAT_SENTENCE else "")
-        return (f"Tổng lượng điện tiêu thụ 1 tháng {qty:,.0f} {unit}. Đơn giá điện đang áp dụng "
+        d = e.get('dated') or {}
+        legal = d.get('provenance') or 'Quyết định 1279/QĐ-BCT ngày 09/05/2025'
+        since = d['as_of'].strftime('%d/%m/%Y') if d.get('as_of') else ''
+        return (f"Tổng lượng điện tiêu thụ 1 tháng {qty:,.0f} {unit}.{usage_vi} Đơn giá điện đang áp dụng "
                 f"theo mức đơn giá điện dưới 6KV — đơn vị hành chính sự nghiệp ({tariff:,.0f} "
-                f"{tunit} trước VAT{vat_clause}), theo Quyết định 1279/QĐ-BCT ngày 09/05/2025. " + basis)
+                f"{tunit} trước VAT{vat_clause}"
+                + (", tháng đầu" if len(set(e.get('tariff_by_month', []))) > 1 else "")
+                + (f", áp dụng từ {since}" if since else "") + f"), theo {legal}. " + basis)
     d = e.get('dated') or {}
     if d:
         bp = project.get('budget_period') or budget_period.default()
@@ -1529,7 +1550,7 @@ def _energy_narrative_vi(category, project, yr):
                  + (" tháng đầu" if len(set(e.get('tariff_by_month', []))) > 1 else "") + ".")
     else:
         price = f"Giá dầu DO 0.005S Vùng 1 niêm yết {as_of} là {tariff:,.0f} {tunit}."
-    return (f"Dự ước tiêu thụ {qty:,.0f} {unit}. Mỗi năm chạy test không tải khoảng 12 giờ; "
+    return (f"Dự ước tiêu thụ {qty:,.0f} {unit}.{usage_vi} Mỗi năm chạy test không tải khoảng 12 giờ; "
             f"chạy backup điện có tải do sự cố điện lưới và bảo trì máy biến thế + tủ điện hạ "
             f"thế chính khoảng 8 giờ/năm. " + price)
 
@@ -3405,11 +3426,12 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         # remark aloud for change localize-line-level-remarks task 7.1) to just add the year-1 total,
         # not repeat the mechanism a second time.
         _vf = _vat_factors(project)
-        _elec_months = [elec_full_monthly * f * v for f, v in zip(_elec_fills, _vf)]
+        _elec_full = (opex.get('Electricity', {}).get('monthly_vnd_by_month') or [elec_full_monthly] * 12)
+        _elec_months = [e * f * v for e, f, v in zip(_elec_full, _elec_fills, _vf)]
         _write_ramped_row(ws, MGMT_FUND_ROWS['electricity'], _elec_months, (
             _opex_remark('Electricity')
             + f" Tổng năm 1: {sum(_elec_months):,.0f} VND"
-            + ("." if stable else f" (nếu lấp đầy 100%: {sum(elec_full_monthly * v for v in _vf):,.0f} VND/năm).")))
+            + ("." if stable else f" (nếu lấp đầy 100%: {sum(e * v for e, v in zip(_elec_full, _vf)):,.0f} VND/năm).")))
     _diesel_months = opex.get('Diesel (Generator Fuel)', {}).get('monthly_vnd_by_month')
     if _diesel_months and len(set(_diesel_months)) > 1:    # VAT steps inside the period: one value per month
         _write_ramped_row(ws, MGMT_FUND_ROWS['diesel'], _diesel_months,

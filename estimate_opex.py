@@ -8,12 +8,12 @@ funds those from a separate one-time fund, not the ongoing management fee this m
 
 Methodology, and its real limits stated plainly, same standard as estimate_capex_qty.py:
   Electricity/Water/Diesel: **consumption × tariff** (change cost-energy-from-consumption-and-tariff,
-  the method Savills' costing spec states). The utilities base project's real monthly cost gives a per-m² USAGE
-  ratio (kWh / m³ / litre per m² NFA per month, n=1); the TARIFF is a separate, dated input read
-  from Fact_OPEX.csv's UnitPrice column. figure = usage_ratio × this project's NFA × tariff × 12.
-  The tariff no longer sits frozen inside a cost-per-m² number, so updating it moves the budget;
-  a stale tariff is visible on the output instead of silent. Usage stays n=1 and stays labelled —
-  this change fixed the price half, not the sample size.
+  the method Savills' costing spec states). USAGE per m² NFA per month (kWh / m³ / litre) is the median of
+  the hand-checked real projects in Ref_UtilityUsage.csv after an IQR fence (utility_usage.py, change
+  widen-utility-and-capex-sources); with fewer than utility_usage.MIN_PROJECTS projects it falls back to the
+  utilities base project (n=1) and says so. The TARIFF is the dated public price of each budget month
+  (Ref_UtilityTariffs.csv: EVN for electricity, before VAT; SAWACO water and the listed diesel price, with
+  VAT). figure = usage_ratio × this project's NFA × tariff.
   Repairs & Maintenance / Administrative Expense: still a plain per-m² TotalNFA cost ratio, derived
   from the utilities base project ALONE (n=1) — no consumption/tariff split applies to them.
   In every case the parking reference is real too but a different building type — a parking structure's
@@ -32,6 +32,7 @@ import os
 import csv
 
 import reference_projects
+import utility_usage
 import utility_tariffs as ut
 
 BUDGET_AGENT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -128,8 +129,17 @@ def _tariff_year(price_as_of):
 
 
 def _dated_price(category, period_months, water_group, rows):
-    """Water and diesel prices for each budget month, from Ref_UtilityTariffs.csv (change
-    apply-head-of-pm-decisions-2026-10, group 2). Returns dict(prices, as_of, unit, provenance, ...)."""
+    """Electricity, water and diesel prices for each budget month, from Ref_UtilityTariffs.csv (change
+    apply-head-of-pm-decisions-2026-10, group 2; electricity added by change widen-utility-and-capex-sources).
+    Electricity is the EVN rate before VAT (the callers add each month's VAT, as before); water and diesel
+    include VAT. Returns dict(prices, as_of, unit, provenance, ...)."""
+    if category == 'Electricity':
+        line = ut.LineTariff(ut.ELECTRICITY, category=ut.CAT_E_LT6, rows=rows)
+        month_prices = [line.month(y, m) for y, m in period_months]
+        base_rows = [mp.rows['base'] for mp in month_prices]
+        return dict(prices=[mp.net() for mp in month_prices], unit='VND/kWh', as_of=base_rows[0]['effective_from'],
+                    provenance=base_rows[0]['legal_basis'], group=ut.CAT_E_LT6,
+                    provenance_by_month=[r['legal_basis'] for r in base_rows])
     if category == 'Water':
         cat, is_default = ut.water_group_category(water_group)
         line = ut.LineTariff(ut.WATER, category=cat, region=ut.HCMC, rows=rows)
@@ -189,9 +199,12 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
             base_unit = q_unit.split('/')[0]                          # 'kWh'
             # The base's stored monthly quantity (fixed — NOT recomputed from cost each run, so changing
             # the tariff below actually moves the figure). Divided by the base's NFA for the per-m² ratio.
-            usage_per_m2 = ak_row['quantity'] / base_nfa              # base_unit per m² per month
+            base_usage_per_m2 = ak_row['quantity'] / base_nfa         # base_unit per m² per month
+            bench = utility_usage.benchmark(category)
+            usage_per_m2 = bench['median'] if bench['enough'] else base_usage_per_m2
+            usage_n = bench['n'] if bench['enough'] else 1
             dated = (_dated_price(category, period_months, water_group, tariff_rows)
-                     if period_months and category in ('Water', 'Diesel (Generator Fuel)') else None)
+                     if period_months else None)
             ak_tariff = tariff                                        # the base's own price, behind its stored quantity
             if dated:
                 tariff = dated['prices'][0]                           # shown price: the first budget month's
@@ -204,10 +217,27 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
             cost_prov, _, tariff_prov = (ak_row.get('source') or '').partition('  TARIFF: ')
             if dated:
                 tariff_prov = dated['provenance']
+            if bench['enough']:
+                usage_text = (f"USAGE (median of {usage_n} hand-checked projects, Ref_UtilityUsage.csv, IQR fence "
+                              f"{utility_usage.IQR_FENCE:g}; dropped as outliers: "
+                              f"{', '.join(p for p, _ in bench['dropped']) or 'none'}): {usage_per_m2:,.4f} {q_unit} "
+                              f"per m²; × this project's {total_nfa_m2:,.0f} m² = {project_qty_month:,.0f} {q_unit}. "
+                              f"Projects in the median (store project id: {q_unit} per m²): "
+                              f"{', '.join(f'{p} {v:,.4f}' for p, v in bench['kept'])}.")
+            else:
+                usage_text = (f"USAGE (n=1, fallback: {bench['reason']}): {base_name}'s {ak_row['quantity']:,.0f} "
+                              f"{q_unit} (= its real {ak_monthly:,.0f} VND/month ÷ {ak_tariff:,.0f} VND/{base_unit}, "
+                              f"stored fixed) ÷ {base_nfa:,.0f} m² NFA = {usage_per_m2:,.4f} {q_unit} per m²; "
+                              f"× this project's {total_nfa_m2:,.0f} m² = {project_qty_month:,.0f} {q_unit}. "
+                              f"USAGE SOURCE: {cost_prov}")
             entry = dict(
                 monthly_vnd=round(estimated),
                 ratio_per_m2=round(cost_ratio_per_m2, 2),             # kept for existing readers
-                n=1,
+                n=usage_n,
+                usage_basis='benchmark' if bench['enough'] else 'fallback',
+                usage_projects=bench['kept'] if bench['enough'] else [],
+                usage_dropped=bench['dropped'],
+                usage_fallback_reason=None if bench['enough'] else bench['reason'],
                 usage_per_m2=round(usage_per_m2, 6),
                 usage_unit=q_unit,
                 project_quantity_month=round(project_qty_month, 1),
@@ -219,12 +249,7 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
                 usage_provenance=cost_prov or None,
                 source=(
                     f"CONSUMPTION × TARIFF — the method Savills' costing spec states for {category}. "
-                    f"USAGE (n=1): {base_name}'s {ak_row['quantity']:,.0f} {q_unit} "
-                    f"(= its real {ak_monthly:,.0f} VND/month ÷ {ak_tariff:,.0f} VND/{base_unit}, stored fixed) "
-                    f"÷ {base_nfa:,.0f} m² NFA = {usage_per_m2:,.4f} {q_unit} per m²; "
-                    f"× this project's {total_nfa_m2:,.0f} m² = {project_qty_month:,.0f} {q_unit}. "
-                    f"This change split the price out; it did not widen the single-property usage basis. "
-                    f"USAGE SOURCE: {cost_prov}  TARIFF: {tariff_prov}"),
+                    f"{usage_text}  TARIFF: {tariff_prov}"),
                 reference_only=None,
             )
             if dated:

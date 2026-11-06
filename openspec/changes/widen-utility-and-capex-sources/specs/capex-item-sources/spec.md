@@ -35,6 +35,19 @@ NFA and the scale factor.
 - **WHEN** the admitted NFAs are 18,000, 36,500 and 61,000 m² and the prospect has 40,000 m²
 - **THEN** the 36,500 m² project SHALL supply the list with scale 40,000 / 36,500
 
+### Requirement: A category the nearest project does not list comes from the nearest project that does
+
+When the project that supplies the list has no item list for one of the four categories (it lumps that category into
+another sheet, or has none), that category's items SHALL come from the nearest admitted project by capex NFA that lists
+it, scaled by that project's own NFA ratio, and the internal analysis SHALL name the project the category came from.
+
+#### Scenario: No separate amenity list
+
+- **WHEN** the nearest project lists MO, M&E and public-area items but no amenity-area items, and the nearest project
+  with an amenity list has 64,124 m²
+- **THEN** the amenity-area items SHALL come from that project, scaled by the prospect's NFA ÷ 64,124, and the other
+  three categories SHALL stay with the nearest project
+
 ### Requirement: Category ratios come from the same pool
 
 The per-1,000 m² quantity ratio of each capex category used as a cross-check SHALL be the median over the admitted

@@ -31,7 +31,7 @@ from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
     nearest_comparables, derive_mgmt_rate,
 )
-from estimate_capex_qty import estimate_capex_qty, STUDY1_RATIO_PER_1000_NFA
+from estimate_capex_qty import estimate_capex_qty
 
 # ---- Staff: real headcount-per-1,000m² GFA, median by size bucket (n=67 real properties total) ----
 # Source: derive_staffing_benchmarks.py, data/master_list_verified/Staffing_Benchmark_Analysis.xlsx.

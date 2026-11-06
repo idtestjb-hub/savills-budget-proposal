@@ -20,6 +20,7 @@ import pytest
 
 import estimate_opex as eo
 import reference_projects as rp
+import utility_usage as uu
 
 HEADER = ['Project', 'Category', 'MonthlyVND', 'Source', 'Quantity', 'Unit', 'UnitPrice', 'PriceAsOf', 'RefKey']
 BASE, PARKING = 'Tháp Thử Nghiệm', 'Bãi Xe Thử'
@@ -80,6 +81,12 @@ def opex(tmp_path, monkeypatch):
     # The utilities base has 1,000 m² in the invented registry; the real registry is never read.
     monkeypatch.setattr(rp, 'REGISTRY_CSV', write_registry(tmp_path / 'Dim_ReferenceProject_invented.csv'))
     rp.clear_cache()
+    # An invented usage table with no accepted rows: every energy line falls back to the utilities base (n=1),
+    # which is what the tests below were written for (change widen-utility-and-capex-sources).
+    usage = tmp_path / 'Ref_UtilityUsage_invented.csv'
+    usage.write_text(','.join(uu.COLUMNS) + '\n', encoding='utf-8')
+    monkeypatch.setattr(uu, 'USAGE_CSV', str(usage))
+    uu.clear_cache()
 
     def load(rows=ROWS):
         monkeypatch.setattr(eo, 'OPEX_CSV', write_csv(tmp_path / 'Fact_OPEX_invented.csv', rows))
@@ -316,6 +323,7 @@ _TARIFF_ROWS = [
     'vat,general,vat_pct,10,%,2027-01-01,,,Law D,,2026-10-18,',
     'diesel,DO test,listed_price,10800,VND/l,2026-10-01,,,Listing X,,2026-10-18,',
     'diesel,DO test,listed_vat_pct,8,%,2026-10-01,,,Resolution C,,2026-10-18,',
+    f'electricity,"{ut.CAT_E_LT6}",base,2000,VND/kWh,2025-05-10,,,Decision E,,2026-10-18,',
 ]
 _DIESEL_ROWS = replace_row(ROWS, BASE, 'Diesel (Generator Fuel)',
                            Quantity=100, Unit='litre/month', UnitPrice=5000, PriceAsOf='2020')

@@ -14,7 +14,7 @@ THE LOGIC, and why it's two numbers, not one:
 
   median_ratio comes from the OLD 8 real project files' actual observed Capex quantities,
   divided by each of those projects' own VERIFIED TotalNFA — n=5 or 6 real projects per category
-  (see STUDY1_RATIO_PER_1000_NFA below for the exact n). Small sample, but every number in it is
+  (study1_ratios() below computes them with n). Small sample, but every number in it is
   a real observed quantity divided by a real verified area — nothing in Study 1 is guessed.
 
   Study 2 (headcount-based, a cross-check only) — computed the SAME way but divided by headcount
@@ -51,20 +51,51 @@ THE LOGIC, and why it's two numbers, not one:
 """
 import csv
 import os
+import statistics
 
 import reference_projects
 
-# Study 1 — median Qty per 1,000 m² verified TotalNFA, from the old 8 real project files,
-# rescanned directly from source (see rescan_capex_from_source.py). n = how many of those
-# projects have BOTH a real Capex line item in that category AND a clean, hand-verified NFA
-# (Generation A's own Dim_Project.NFA_m2 is broken for several projects — see
-# study_capex_qty_estimation.py's VERIFIED_NFA dict and its docstring for why).
-STUDY1_RATIO_PER_1000_NFA = {
-    'M&E Equipment': dict(median=2.054, n=6, range=(1.234, 9.235)),
-    'MO Equipment':  dict(median=1.007, n=6, range=(0.589, 5.482)),
-    'Public Area':   dict(median=2.272, n=6, range=(0.661, 7.865)),
-    'Amenity Area':  dict(median=0.091, n=5, range=(0.046, 0.251)),
-}
+# Study 1 — median Qty per 1,000 m² capex NFA, per category, over the registry rows with the capex_items role
+# (change widen-utility-and-capex-sources: computed from Fact_Capex_Rescanned.csv instead of constants). One building
+# counts once: a row whose capex NFA, district and city repeat an earlier row's (a second budget-phase file of the same
+# building, e.g. the pre-opening and operation files of one project) is skipped, which is what the original study did.
+# On the original seven this reproduces the old constants (M&E 2.054 n=6, MO 1.007 n=6, Public 2.272 n=6, Amenity
+# 0.091 n=5).
+STUDY1_CATEGORIES = ('M&E Equipment', 'MO Equipment', 'Public Area', 'Amenity Area')
+_STUDY1_CACHE = {}
+
+
+def study1_ratios():
+    """{category: dict(median, n, range=(min, max), keys)} from the admitted capex projects' own item quantities."""
+    path = os.path.abspath(RESCANNED_CSV)
+    if path in _STUDY1_CACHE:
+        return _STUDY1_CACHE[path]
+    seen, nfa_by_key = set(), {}
+    for r in reference_projects.by_role(reference_projects.ROLE_CAPEX_ITEMS):
+        if not r['capex_nfa']:
+            continue
+        building = (round(r['capex_nfa'], 2), r['district'], r['city'])
+        if r['district'] and building in seen:
+            continue
+        seen.add(building)
+        nfa_by_key[r['key']] = r['capex_nfa']
+    qty = {}
+    for key, rows in _load_rescanned_items().items():
+        if key not in nfa_by_key:
+            continue
+        for row in rows:
+            qty.setdefault(row['Category'], {}).setdefault(key, 0.0)
+            qty[row['Category']][key] += float(row['Qty'])
+    out = {}
+    for category in STUDY1_CATEGORIES:
+        per = {k: q / (nfa_by_key[k] / 1000) for k, q in qty.get(category, {}).items() if q > 0}
+        if not per:
+            continue
+        vals = sorted(per.values())
+        out[category] = dict(median=round(statistics.median(vals), 3), n=len(vals),
+                             range=(round(vals[0], 3), round(vals[-1], 3)), keys=sorted(per))
+    _STUDY1_CACHE[path] = out
+    return out
 
 # Study 2 — Qty per Headcount, anchored on registry row R05 only. n=1 everywhere in this dict —
 # stated explicitly on every returned row rather than left implicit.
@@ -92,7 +123,7 @@ def estimate_capex_qty(total_nfa_m2, headcount=None):
         raise ValueError("total_nfa_m2 must be a positive number — Study 1 has no fallback for a missing scale.")
 
     result = {}
-    for category, s1 in STUDY1_RATIO_PER_1000_NFA.items():
+    for category, s1 in study1_ratios().items():
         entry = dict(
             study1_qty=round(total_nfa_m2 / 1000 * s1['median'], 1),
             study1_n=s1['n'], study1_range=s1['range'],
@@ -167,17 +198,38 @@ def estimate_capex_items(total_nfa_m2, exclude_name=None):
     nearest_name = reference_projects.display_name(nearest_key)
     scale = total_nfa_m2 / nearest_nfa
 
-    items = []
-    for row in by_key[nearest_key]:
-        source_qty = float(row['Qty'])
-        scaled_qty = max(1, round(source_qty * scale)) if source_qty > 0 else 0
-        items.append(dict(
-            category=row['Category'], item=row['Item'], unit=row['Unit'],
-            unit_price=float(row['UnitPrice']), qty=scaled_qty,
-            source_project=nearest_name, source_qty=source_qty,
-        ))
+    def scaled(rows, name, factor):
+        out = []
+        for row in rows:
+            source_qty = float(row['Qty'])
+            out.append(dict(
+                category=row['Category'], item=row['Item'], unit=row['Unit'],
+                unit_price=float(row['UnitPrice']), qty=max(1, round(source_qty * factor)) if source_qty > 0 else 0,
+                source_project=name, source_qty=source_qty,
+            ))
+        return out
+
+    items = scaled(by_key[nearest_key], nearest_name, scale)
+    # A category the nearest project has no list for (it lumps it into another sheet, or has none) is taken from the
+    # nearest project that does list it, scaled by that project's own NFA ratio — the project rule "when one reference
+    # lumps lines together, take the detailed rows from another reference" (change widen-utility-and-capex-sources,
+    # user decision 2026-11-06 for the amenity area).
+    borrowed = {}
+    have = {row['Category'] for row in by_key[nearest_key]}
+    for category in STUDY1_CATEGORIES:
+        if category in have:
+            continue
+        donors = [(k, n) for k, n in candidates if any(r['Category'] == category for r in by_key[k])]
+        if not donors:
+            continue
+        d_key, d_nfa = min(donors, key=lambda c: abs(c[1] - total_nfa_m2))
+        d_name = reference_projects.display_name(d_key)
+        d_scale = total_nfa_m2 / d_nfa
+        items += scaled([r for r in by_key[d_key] if r['Category'] == category], d_name, d_scale)
+        borrowed[category] = dict(source_project=d_name, source_key=d_key, source_nfa=d_nfa,
+                                  scale_factor=round(d_scale, 4))
     source_info = dict(source_project=nearest_name, source_key=nearest_key, source_nfa=nearest_nfa,
-                        target_nfa=total_nfa_m2, scale_factor=round(scale, 4))
+                        target_nfa=total_nfa_m2, scale_factor=round(scale, 4), borrowed=borrowed)
     return items, source_info
 
 

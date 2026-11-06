@@ -3,8 +3,8 @@
 ### Requirement: A new prospect's electricity is priced from the dated tariff
 
 A new prospect's electricity SHALL be priced month by month from the dated EVN tariff in force on the 1st of each
-budget month, in the administrative category below 6 kV (the common-area rate) unless the input names another
-category, plus each month's VAT. The price inside a reference budget SHALL no longer be read for electricity.
+budget month, in the administrative category below 6 kV (the common-area rate), before VAT, with each month's VAT
+added as for the existing electricity line. The price inside a reference budget SHALL no longer be read for electricity.
 
 #### Scenario: A 2027 budget
 

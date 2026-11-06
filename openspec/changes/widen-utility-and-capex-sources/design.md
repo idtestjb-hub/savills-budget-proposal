@@ -47,16 +47,23 @@ Today (source_code `27e2ea3`):
    (`statistics.quantiles(..., method='inclusive')`). Minimum five projects after removal; below that the utility falls
    back to the utilities base (n=1) with a remark. The thresholds are module constants, named in the remark text.
 5. **Electricity price:** `utility_tariffs.LineTariff(ELECTRICITY, category=CAT_E_LT6, region=...)`, month by month,
-   gross of each month's VAT, the same path Existing mode uses. Category default below 6 kV administrative (common
-   areas, Thông tư 60/2025/TT-BCT Điều 8.2.b, already cited in the tariff file); an input-named category overrides.
+   the rate before VAT (each month's VAT is added downstream, as for the existing electricity line), from the same
+   tariff rows Existing mode uses. Category below 6 kV administrative (common areas, Thông tư 60/2025/TT-BCT Điều
+   8.2.b, already cited in the tariff file); the input form has no electricity-category cell, so there is no override.
 6. **Capex registry rows `R09`..`R12`**: display name from the store, `StoreFileId`, `StoreProjectId`, `CapexNFA_m2`
    (fee NFA of the map unless the budget states a grand total), role `capex_items`, `ExcludedFromRanking=1`, blank fee
-   rate/units. Items extracted by extending `rescan_capex_from_source.py` (same Unit-Price column detector; the scan
-   confirmed all four layouts keep qty > price > total adjacent), writing `RefKey`. Repeated block sheets (one file has
+   rate/units. Items extracted by a new office-only `rescan_capex_store_projects.py` that reuses the Unit-Price
+   column detector of `rescan_capex_from_source.py` (the scan confirmed all four layouts keep qty > price > total
+   adjacent), writing `RefKey`; `rescan_capex_from_source.py` now keeps the rows of keys it does not scan. Repeated block sheets (one file has
    "3. Chi phí Trang thiết bị MO" and "3. Capex MO B13") keep the copy the hand check names; the other is logged.
 7. **Study 1 ratios** move from constants to a computation over the admitted items (median per category per 1,000 m²
-   CapexNFA, with n), cached per process.
-8. **Site package:** `Ref_UtilityUsage.csv` joins `site_data.KEEP` with `file_id`/`project_id` kept and source sheet
+   CapexNFA, with n), cached per process. A row whose capex NFA, district and city repeat an earlier row (R07, the
+   second budget-phase file of R06's building) is skipped, which reproduces the old constants exactly on the seven.
+8. **Borrowed category** (user decision 2026-11-06, after the measurement showed the standard sample losing its
+   amenity line when R10 became its source): a category the source project does not list is taken from the nearest
+   project that lists it, scaled by that project's own NFA ratio (`source_info['borrowed']`), following the project
+   rule for lumped rows. A few amenity items already inside R10/R12's public-area sheet may then appear twice; accepted.
+9. **Site package:** `Ref_UtilityUsage.csv` joins `site_data.KEEP` with `file_id`/`project_id` kept and source sheet
    names masked; registry names R09..R12 are pseudonymised like R01..R08.
 
 ## Risks / Trade-offs

@@ -32,6 +32,7 @@ KEEP = (
     'generation_B_verified/Ref_CPI_VN.csv',
     'generation_B_verified/Ref_LaborLawParams.csv',
     'generation_B_verified/Ref_UtilityTariffs.csv',
+    'generation_B_verified/Ref_UtilityUsage.csv',
     'master_list_verified/Costing_Method_Catalogue.csv',
     'master_list_verified/Dim_Property_Residential.csv',
     'master_list_verified/Dim_ReferenceProject.csv',
@@ -54,6 +55,9 @@ MASK = {
     'generation_A_star_schema/Fact_OPEX.csv': dict(name='Project', blank=('Source',), subst=('PriceAsOf',)),
     'generation_A_star_schema/Fact_Capex_Rescanned.csv': dict(name='Project', blank=()),
     'master_list_verified/Ref_ComparableVATBasis.csv': dict(name='project_key', blank=()),
+    # Bảng lượng dùng điện/nước/dầu (change widen-utility-and-capex-sources): chỉ có mã kho (file_id, project_id) và số;
+    # tên sheet nguồn, ô nguồn và lý do kiểm có thể nhắc tên dự án nên xoá trắng.
+    'generation_B_verified/Ref_UtilityUsage.csv': dict(name=None, blank=('source_sheet', 'source_cell', 'reason', 'nfa_source')),
 }
 PSEUDONYM = 'Dự án tham chiếu {n:02d}'
 REGISTRY_REL = 'master_list_verified/Dim_ReferenceProject.csv'

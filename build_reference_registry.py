@@ -5,8 +5,8 @@ reference projects' names, because its job is to move them into data.
 
     python build_reference_registry.py [--out <csv>] [--check]
 
---check reads the file back and verifies: 8 rows, every name variant used by the four fact files resolves to exactly
-one key, the keys are R01..R08. The script never touches the fact files.
+--check reads the file back and verifies: every name variant used by the four fact files resolves to exactly one key,
+the keys are R01..R12 (R09..R12 added by change widen-utility-and-capex-sources), 11 rows carry the capex role. The script never touches the fact files.
 """
 import argparse
 import csv
@@ -136,6 +136,27 @@ ROWS = [
          LocationSource='', VerifiedOn='2026-09-17'),
 ]
 
+# Change widen-utility-and-capex-sources (2026-11-06): four projects of the real-budget store whose budgets carry priced
+# capex item lists join the capex pool. CapexNFA = the fee NFA of the store's real_budget_ranges_map.csv; they are not
+# comparables (no checked units, rate or location), so Comparable = 0 and ExcludedFromRanking says why.
+_STORE_NOTE = 'Store project with capex item lists only; units, rate and location not checked for the comparables.'
+STORE_ROWS = [
+    ('R09', 'Habitat Phase 3', '254fb1cef1c3', 'P007', 60582.9, 2025),
+    ('R10', 'Sycamore NS', '67b7d566b159', 'P022', 53826.0, 2026),
+    ('R11', 'Masteri West Heights', '86160f50e3b4', 'P029', 97237.5, 2024),
+    ('R12', 'Sycamore B13', '962c7429ec69', 'P032', 20959.2, 2027),
+]
+for _key, _name, _file_id, _pid, _nfa, _year in STORE_ROWS:
+    ROWS.append(dict(
+        RefKey=_key, DisplayName=_name, Aliases=[], TotalNFA_m2=None, CapexNFA_m2=_nfa, ApartmentUnits=None,
+        TotalUnits=None, MgmtRate_VND_m2_month=None, MgmtRateVAT=None, District=None, City=None, Comparable=0,
+        ExcludedFromRanking=_STORE_NOTE, Roles=[rp.ROLE_CAPEX_ITEMS],
+        Source=f'Real-budget store file {_file_id}, project {_pid}, budget year {_year}; CapexNFA = fee NFA of '
+               f'real_budget_ranges_map.csv; items extracted by rescan_capex_store_projects.py.',
+        LocationSource='', VerifiedOn='2026-11-06'))
+EXPECTED_KEYS = [f'R{i:02d}' for i in range(1, 13)]
+EXPECTED_CAPEX_ITEMS = 11
+
 
 def _cell(v):
     if v is None:
@@ -162,8 +183,8 @@ def write(out):
 def check(out):
     rows = rp.load(out, force=True)
     ok = True
-    if [r['key'] for r in rows] != [f'R{i:02d}' for i in range(1, 9)]:
-        print('FAIL: keys are not R01..R08'); ok = False
+    if [r['key'] for r in rows] != EXPECTED_KEYS:
+        print(f'FAIL: keys are not {EXPECTED_KEYS[0]}..{EXPECTED_KEYS[-1]}'); ok = False
     for rel, col in FACT_FILES:
         p = os.path.join(DATA, *rel.split('/'))
         with open(p, encoding='utf-8-sig', newline='') as fh:
@@ -177,8 +198,10 @@ def check(out):
         n = len(rp.by_role(role, out))
         print(f'{"OK " if n == 1 else "FAIL"} role {role}: {n} row(s)')
         ok = ok and n == 1
-    print(f'{"OK " if len(rp.by_role(rp.ROLE_CAPEX_ITEMS, out)) == 7 else "FAIL"} role capex_items: '
-          f'{len(rp.by_role(rp.ROLE_CAPEX_ITEMS, out))} rows (expected 7)')
+    n_capex = len(rp.by_role(rp.ROLE_CAPEX_ITEMS, out))
+    print(f'{"OK " if n_capex == EXPECTED_CAPEX_ITEMS else "FAIL"} role capex_items: {n_capex} rows '
+          f'(expected {EXPECTED_CAPEX_ITEMS})')
+    ok = ok and n_capex == EXPECTED_CAPEX_ITEMS
     return ok
 
 
