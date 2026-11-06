@@ -56,6 +56,6 @@
 
 - [x] 5.1 `RUNNING.md`, `README.md` module table and `webapp/README.md`: the registry, the migration script and the
       package rule; `docs/05-decisions.md`: entry "Reference projects by key"; `docs/project-status.md` updated.
-- [ ] 5.2 Release note `Savills-Automation-Hub-Setup\releases\<date>-budget-web-tham-chieu-theo-ma.txt` naming the
+- [x] 5.2 Release note `Savills-Automation-Hub-Setup\releases\<date>-budget-web-tham-chieu-theo-ma.txt` naming the
       `source_code` commit and the outer commit that carries the data; the site package is rebuilt from the same
       commit (user's rule).
