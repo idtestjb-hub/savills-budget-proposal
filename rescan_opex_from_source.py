@@ -67,6 +67,10 @@ data ties pool-salt cost to pool area/volume across more than one property.
 """
 import os
 import csv
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import reference_projects  # noqa: E402
 
 BUDGET_AGENT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OUT_CSV = os.path.join(BUDGET_AGENT, 'data', 'generation_A_star_schema', 'Fact_OPEX.csv')
@@ -240,7 +244,7 @@ def _source_with_tariff(row):
 
 def main():
     os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
-    fields = ['Project', 'Category', 'MonthlyVND', 'Quantity', 'Unit', 'UnitPrice', 'PriceAsOf', 'Source']
+    fields = ['Project', 'Category', 'MonthlyVND', 'Quantity', 'Unit', 'UnitPrice', 'PriceAsOf', 'Source', 'RefKey']
     with open(OUT_CSV, 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
@@ -249,7 +253,8 @@ def main():
             w.writerow(dict(Project=row['project'], Category=row['category'],
                              MonthlyVND=round(row['monthly_vnd']),
                              Quantity=quantity, Unit=unit, UnitPrice=unit_price, PriceAsOf=price_as_of,
-                             Source=_source_with_tariff(row)))
+                             Source=_source_with_tariff(row),
+                             RefKey=reference_projects.key_for_name(row['project']) or ''))
     _safe_print(f'Wrote {len(OPEX_FACTS)} real OPEX facts to {OUT_CSV}')
     _safe_print('Energy tariffs (the price half — edit ENERGY_TARIFFS to update):')
     for cat, t in ENERGY_TARIFFS.items():

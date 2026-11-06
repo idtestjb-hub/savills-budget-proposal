@@ -8,15 +8,15 @@ funds those from a separate one-time fund, not the ongoing management fee this m
 
 Methodology, and its real limits stated plainly, same standard as estimate_capex_qty.py:
   Electricity/Water/Diesel: **consumption × tariff** (change cost-energy-from-consumption-and-tariff,
-  the method Savills' costing spec states). A&K Tower's real monthly cost gives a per-m² USAGE
+  the method Savills' costing spec states). The utilities base project's real monthly cost gives a per-m² USAGE
   ratio (kWh / m³ / litre per m² NFA per month, n=1); the TARIFF is a separate, dated input read
   from Fact_OPEX.csv's UnitPrice column. figure = usage_ratio × this project's NFA × tariff × 12.
   The tariff no longer sits frozen inside a cost-per-m² number, so updating it moves the budget;
   a stale tariff is visible on the output instead of silent. Usage stays n=1 and stays labelled —
   this change fixed the price half, not the sample size.
   Repairs & Maintenance / Administrative Expense: still a plain per-m² TotalNFA cost ratio, derived
-  from A&K Tower ALONE (n=1) — no consumption/tariff split applies to them.
-  In every case Parking Building is real too but a different building type — a parking structure's
+  from the utilities base project ALONE (n=1) — no consumption/tariff split applies to them.
+  In every case the parking reference is real too but a different building type — a parking structure's
   utility profile doesn't scale with residential floor area the same way, so it's shown for
   reference, never blended into the ratio. Repairs & Maintenance here is deliberately narrow —
   materials/spare-parts only, NOT maintenance contracts (elevator, MSB electrical panel, etc.),
@@ -25,18 +25,31 @@ Methodology, and its real limits stated plainly, same standard as estimate_capex
 
   Pool Salt: NOT a ratio at all — computed by the method Savills' own costing spec states for it
   (EXENSIVE LOGIC.xlsx, code ESM4), from the project's total pool water VOLUME. See POOL_SALT_*
-  below. When the project's volume is unknown the A&K flat figure is used as an explicit,
+  below. When the project's volume is unknown the base project's flat figure is used as an explicit,
   labelled fallback, exactly as it was before this method was implemented.
 """
 import os
 import csv
 
+import reference_projects
 import utility_tariffs as ut
 
 BUDGET_AGENT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OPEX_CSV = os.path.join(BUDGET_AGENT, 'data', 'generation_A_star_schema', 'Fact_OPEX.csv')
 
-AK_TOWER_NFA_M2 = 64_124.0  # same figure as master_comparables.py's HAND_VERIFIED_COMPARABLES
+# The utilities base (the one residential project whose real monthly costs and quantities give the per-m² usage
+# ratios, n=1) and the parking reference (shown beside it, never blended) are the registry rows carrying the roles
+# utilities_base and parking_base; their NFA comes from the registry too (change reference-projects-by-key).
+_SKIPPED_REPORTED = set()
+
+
+def _base():
+    return reference_projects.one_by_role(reference_projects.ROLE_UTILITIES_BASE)
+
+
+def _parking():
+    rows = reference_projects.by_role(reference_projects.ROLE_PARKING_BASE)
+    return rows[0] if rows else None
 
 RATIO_CATEGORIES = ['Electricity', 'Water', 'Diesel (Generator Fuel)', 'Repairs & Maintenance (materials only)',
                      'Administrative Expense (office overhead)']
@@ -59,9 +72,9 @@ _TARIFF_STALE_BEFORE_YEAR = 2027
 # the range is reported on every figure so nobody mistakes it for a precise number.
 #
 # Why this replaced a flat figure: 440 m3 x 2.5 kg x 6,000 x 12 = 79,200,000, against the
-# 79,884,000 that A&K Tower actually budgeted — 0.9% apart. The flat "real reference" was itself
+# 79,884,000 that the utilities base project actually budgeted — 0.9% apart. The flat "real reference" was itself
 # this formula, evaluated once, for somebody else's pool. Reusing it for a project with a
-# different pool was reusing A&K's volume, not A&K's evidence.
+# different pool was reusing the base project's volume, not its evidence.
 POOL_SALT_KG_PER_M3_MONTH = 2.5           # midpoint of the spec's stated 1-4 kg/m3/month
 POOL_SALT_KG_RANGE = (1, 4)               # the stated range, reported alongside every figure
 POOL_SALT_PRICE_PER_KG = 6_000            # stated unit price, VND/kg
@@ -69,9 +82,20 @@ POOL_SALT_PPM = 4_000                     # stated salinity the consumption figu
 
 
 def _load_opex_facts():
+    """{RefKey: {category: entry}}. Rows whose RefKey is blank or unknown are skipped and counted once in the run log
+    (the file is keyed by RefKey since change reference-projects-by-key; the Project column is a label)."""
     facts = {}
+    known = set(reference_projects.keys())
+    skipped = 0
     with open(OPEX_CSV, encoding='utf-8-sig') as f:
-        for row in csv.DictReader(f):
+        reader = csv.DictReader(f)
+        if 'RefKey' not in (reader.fieldnames or []):
+            raise RuntimeError(f'{os.path.basename(OPEX_CSV)} has no RefKey column; run migrate_reference_keys.py.')
+        for row in reader:
+            key = (row.get('RefKey') or '').strip()
+            if key not in known:
+                skipped += 1
+                continue
             entry = dict(monthly_vnd=float(row['MonthlyVND']), source=row['Source'])
             # Consumption/tariff columns — present only for the energy rows (added by the change
             # cost-energy-from-consumption-and-tariff). Absent or blank means "no split for this row".
@@ -81,7 +105,10 @@ def _load_opex_facts():
                              quantity=float(row['Quantity']) if (row.get('Quantity') or '').strip() else None,
                              quantity_unit=(row.get('Unit') or '').strip() or None,
                              price_as_of=(row.get('PriceAsOf') or '').strip() or None)
-            facts.setdefault(row['Project'], {})[row['Category']] = entry
+            facts.setdefault(key, {})[row['Category']] = entry
+    if skipped and OPEX_CSV not in _SKIPPED_REPORTED:
+        _SKIPPED_REPORTED.add(OPEX_CSV)
+        print(f'Utilities: bỏ qua {skipped} dòng không có RefKey trong {os.path.basename(OPEX_CSV)}.')
     return facts
 
 
@@ -128,38 +155,44 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
     carries the twelve full-occupancy amounts and `monthly_vnd` their average. When None (older callers and
     tests) the Fact_OPEX.csv tariff is used as before.
 
-    Electricity / Water / Diesel are priced as USAGE × TARIFF: a per-m² usage ratio from A&K Tower
+    Electricity / Water / Diesel are priced as USAGE × TARIFF: a per-m² usage ratio from the utilities base project
     (n=1) times this project's NFA times the tariff (Fact_OPEX.csv's UnitPrice, a dated input). The
     entry carries `usage_per_m2`, `usage_unit`, `tariff`, `tariff_unit`, `tariff_as_of`,
-    `tariff_stale`. The tariff cancels for any project run at A&K's own NFA and unchanged rate, so
+    `tariff_stale`. The tariff cancels for any project run at the base project's own NFA and unchanged rate, so
     every current figure reproduces exactly; change a tariff and the figure moves with it.
 
-    Repairs & Maintenance / Administrative Expense stay a plain A&K per-m² cost ratio (n=1).
+    Repairs & Maintenance / Administrative Expense stay a plain base-project per-m² cost ratio (n=1).
 
     Pool Salt is included only if has_pool is True and is computed from pool_volume_m3 by the spec's
-    ESM4 method; when the volume is unknown it falls back to A&K's flat figure and says so. Callers
+    ESM4 method; when the volume is unknown it falls back to the base project's flat figure and says so. Callers
     rendering Pool Salt should prefer its `method` key — it is not a ratio category."""
     facts = _load_opex_facts()
-    ak = facts['A&K Tower']
-    parking = facts.get('Parking Building', {})
+    base = _base()
+    base_name, base_nfa = base['name'], base['nfa']
+    if base['key'] not in facts:
+        raise RuntimeError(f"{os.path.basename(OPEX_CSV)} has no rows for the utilities base {base['key']}.")
+    ak = facts[base['key']]
+    parking_row = _parking()
+    parking = facts.get(parking_row['key'], {}) if parking_row else {}
+    parking_name = parking_row['name'] if parking_row else 'the parking reference'
 
     result = {}
     for category in RATIO_CATEGORIES:
         ak_row = ak[category]
         ak_monthly = ak_row['monthly_vnd']
-        cost_ratio_per_m2 = ak_monthly / AK_TOWER_NFA_M2      # VND/m²/month — the pre-split ratio
+        cost_ratio_per_m2 = ak_monthly / base_nfa             # VND/m²/month — the pre-split ratio
 
         split = category in ENERGY_CATEGORIES and ak_row.get('unit_price') and ak_row.get('quantity')
         if split:
             tariff = ak_row['unit_price']
             q_unit = ak_row.get('quantity_unit') or 'unit/month'     # e.g. 'kWh/month'
             base_unit = q_unit.split('/')[0]                          # 'kWh'
-            # A&K's stored monthly quantity (fixed — NOT recomputed from cost each run, so changing
-            # the tariff below actually moves the figure). Divided by A&K's NFA for the per-m² ratio.
-            usage_per_m2 = ak_row['quantity'] / AK_TOWER_NFA_M2       # base_unit per m² per month
+            # The base's stored monthly quantity (fixed — NOT recomputed from cost each run, so changing
+            # the tariff below actually moves the figure). Divided by the base's NFA for the per-m² ratio.
+            usage_per_m2 = ak_row['quantity'] / base_nfa              # base_unit per m² per month
             dated = (_dated_price(category, period_months, water_group, tariff_rows)
                      if period_months and category in ('Water', 'Diesel (Generator Fuel)') else None)
-            ak_tariff = tariff                                        # A&K's own price, behind its stored quantity
+            ak_tariff = tariff                                        # the base's own price, behind its stored quantity
             if dated:
                 tariff = dated['prices'][0]                           # shown price: the first budget month's
             estimated = usage_per_m2 * total_nfa_m2 * (sum(dated['prices']) / 12 if dated else tariff)
@@ -186,9 +219,9 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
                 usage_provenance=cost_prov or None,
                 source=(
                     f"CONSUMPTION × TARIFF — the method Savills' costing spec states for {category}. "
-                    f"USAGE (n=1): A&K Tower's {ak_row['quantity']:,.0f} {q_unit} "
+                    f"USAGE (n=1): {base_name}'s {ak_row['quantity']:,.0f} {q_unit} "
                     f"(= its real {ak_monthly:,.0f} VND/month ÷ {ak_tariff:,.0f} VND/{base_unit}, stored fixed) "
-                    f"÷ {AK_TOWER_NFA_M2:,.0f} m² NFA = {usage_per_m2:,.4f} {q_unit} per m²; "
+                    f"÷ {base_nfa:,.0f} m² NFA = {usage_per_m2:,.4f} {q_unit} per m²; "
                     f"× this project's {total_nfa_m2:,.0f} m² = {project_qty_month:,.0f} {q_unit}. "
                     f"This change split the price out; it did not widen the single-property usage basis. "
                     f"USAGE SOURCE: {cost_prov}  TARIFF: {tariff_prov}"),
@@ -203,7 +236,7 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
                 monthly_vnd=round(cost_ratio_per_m2 * total_nfa_m2),
                 ratio_per_m2=round(cost_ratio_per_m2, 2),
                 n=1,
-                source=(f"A&K Tower real: {ak_monthly:,.0f} VND/month ÷ {AK_TOWER_NFA_M2:,.0f} m² NFA = "
+                source=(f"{base_name} real: {ak_monthly:,.0f} VND/month ÷ {base_nfa:,.0f} m² NFA = "
                         f"{cost_ratio_per_m2:,.2f} VND/m²/month (n=1 — the only residential property with "
                         f"real, independently-verified data for this category)."),
                 reference_only=None,
@@ -211,7 +244,7 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
 
         if category in parking:
             pk = parking[category]
-            ref = (f"Parking Building real (different building type, not blended into the ratio above): "
+            ref = (f"{parking_name} real (different building type, not blended into the ratio above): "
                    f"{pk['monthly_vnd']:,.0f} VND/month")
             if pk.get('unit_price') and pk.get('quantity'):
                 pu = (pk.get('quantity_unit') or '').split('/')[0]
@@ -223,7 +256,7 @@ def estimate_opex(total_nfa_m2, has_pool=False, pool_volume_m3=None, period_mont
         result[category] = entry
 
     if has_pool and 'Pool Salt' in ak:
-        result['Pool Salt'] = _pool_salt(pool_volume_m3, ak['Pool Salt']['monthly_vnd'])
+        result['Pool Salt'] = _pool_salt(pool_volume_m3, ak['Pool Salt']['monthly_vnd'], base_name)
     return result
 
 
@@ -238,7 +271,7 @@ def _coerce_volume(value):
     return volume if volume > 0 else None
 
 
-def _pool_salt(pool_volume_m3, ak_flat_monthly):
+def _pool_salt(pool_volume_m3, ak_flat_monthly, base_name='dự án tham chiếu'):
     volume = _coerce_volume(pool_volume_m3)
     if volume is None:
         return dict(
@@ -247,11 +280,11 @@ def _pool_salt(pool_volume_m3, ak_flat_monthly):
             # file citation ("the costing spec") dropped from client-facing text per the same
             # change's principle, kept only as this comment for engineering reference.
             method=(f"DỰ PHÒNG — chưa biết thể tích hồ bơi của dự án này, nên đây là số liệu cố định "
-                    f"thực tế của A&K Tower và KHÔNG thay đổi theo quy mô hồ bơi. Có phương pháp tính "
+                    f"thực tế của {base_name} và KHÔNG thay đổi theo quy mô hồ bơi. Có phương pháp tính "
                     f"theo thể tích: nhập Thể tích hồ bơi (m³) tại Project Info để áp dụng. Số liệu cố "
                     f"định này tương ứng với một hồ bơi có thể tích khoảng "
                     f"{ak_flat_monthly / (POOL_SALT_KG_PER_M3_MONTH * POOL_SALT_PRICE_PER_KG):,.0f} m³."),
-            source=(f"Số liệu thực tế của A&K Tower (tham chiếu cố định, KHÔNG tính theo NFA): "
+            source=(f"Số liệu thực tế của {base_name} (tham chiếu cố định, KHÔNG tính theo NFA): "
                     f"{ak_flat_monthly:,.0f} VND/tháng."),
             # The client deliverable's wording names no project (change apply-head-of-pm-decisions-2026-10, D13);
             # the analysis keeps `method` / `source`.
@@ -280,9 +313,9 @@ def _pool_salt(pool_volume_m3, ak_flat_monthly):
                 f"{high * 12:,.0f} VND/năm — mức tiêu thụ thực tế phụ thuộc vào lượng người sử dụng, "
                 f"tần suất xả rửa lọc và độ pha loãng do mưa, không có yếu tố nào trong số này được "
                 f"thu thập làm đầu vào. Axit KHÔNG được tính vào đây: tiêu chuẩn nêu khoảng 60 "
-                f"lít/năm cho hồ 440 m³ nhưng không có đơn giá. Để so sánh, số liệu cố định của A&K "
-                f"Tower mà phương pháp này thay thế là {ak_flat_monthly:,.0f} VND/tháng, theo hồ bơi "
-                f"thực tế của A&K."),
+                f"lít/năm cho hồ 440 m³ nhưng không có đơn giá. Để so sánh, số liệu cố định của {base_name} "
+                f"mà phương pháp này thay thế là {ak_flat_monthly:,.0f} VND/tháng, theo hồ bơi "
+                f"thực tế của dự án đó."),
         source_client=(f"Phương pháp và đơn giá theo đúng tiêu chuẩn định giá riêng của Savills cho hạng mục "
                        f"này: hồ bơi điện phân muối duy trì ở mức {POOL_SALT_PPM:,} ppm tiêu thụ "
                        f"{POOL_SALT_KG_RANGE[0]}-{POOL_SALT_KG_RANGE[1]} kg/m³/tháng với đơn giá "

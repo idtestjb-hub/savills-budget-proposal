@@ -43,7 +43,10 @@ SOURCE_IGNORE = shutil.ignore_patterns('tests', 'legacy', 'openspec', 'docs', '_
                                        'build_master_rate_card.py', 'build_project_plan_v2.py', 'build_real_budget_ranges.py',
                                        'build_service_levels.py', 'build_prior_coverage.py', 'build_roster_input_form.py',
                                        'rescan_*.py', 'etl_*.py', 'derive_*.py', 'study_*.py', 'transform_*.py',
-                                       'extract_info_sheets.py', 'method_coverage.py')
+                                       'extract_info_sheets.py', 'method_coverage.py',
+                                       # Change reference-projects-by-key: the registry builder and the one-off
+                                       # migration spell the names on purpose; the end-to-end demo is office-only.
+                                       'migrate_*.py', 'build_reference_registry.py', 'generate_from_real_project.py')
 DATA_IGNORE = shutil.ignore_patterns('__pycache__', '*.backup-*', '*.bak')
 IMPORT_CHECK = 'import openpyxl, fastapi, uvicorn, msal, win32com.client, pythoncom, pydantic_core, itsdangerous'
 TEXT_EXT = {'.py', '.txt', '.md', '.json', '.html', '.cmd', '.csv', '.pth', '._pth'}

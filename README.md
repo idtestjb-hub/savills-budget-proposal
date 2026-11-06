@@ -14,6 +14,7 @@ This map was checked on 2026-10-05 against the `import` statements of every `*.p
 | `generate_project_budget.py` | Reads the input workbook and fills Savills' 2027 Resi budget form: the client deliverable (`sample_output/`) with its `Comparison` sheet, and the shift roster (`reports/Roster_Demand_Model.xlsx`) |
 | `generate_project_output.py` | Reads the same input and writes the internal analysis workbook `reports/Project_Budget_Output.xlsx`, showing the reasoning behind each figure |
 | `master_comparables.py` | The comparable projects, their areas and management-fee rates, and the ranking and rate-derivation functions both generators use |
+| `reference_projects.py` | The reference-project registry (`data/master_list_verified/Dim_ReferenceProject.csv`): one key per real budget the tool prices from (R01..R08), display names, aliases, NFA and roles; every fact file joins on `RefKey` and no runtime module spells a project name |
 | `estimate_capex_qty.py` | Estimates Capex quantities for a new project by scaling the nearest real project's item list by total NFA; used by both generators |
 | `estimate_opex.py` | Estimates electricity, water, diesel, pool salt and repairs from `data/generation_A_star_schema/Fact_OPEX.csv` |
 | `estimate_new_project.py` | Staffing-headcount estimate (`estimate_staff_headcount`), used by the analysis workbook's cross-check; also a standalone four-part estimation model |

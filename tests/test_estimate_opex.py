@@ -5,10 +5,10 @@ energy lines, plain per-m2 ratio for the others, stale-tariff flag, parking refe
 pool-salt method and fallback).
 Not covered: the wording of the long Vietnamese/English source strings beyond the key figures.
 
-Invented data only. estimate_opex looks up two project labels by name ('A&K Tower' as the usage
-reference and 'Parking Building' as the reference-only building); the temporary CSV therefore uses
-those two labels, with invented numbers. OPEX_CSV and AK_TOWER_NFA_M2 are patched, so the real
-Fact_OPEX.csv is never read.
+Invented data only. estimate_opex finds the usage reference and the reference-only parking building through the
+reference-project registry (roles utilities_base and parking_base) and selects Fact_OPEX rows by RefKey; the fixture
+writes an invented registry (two rows, R02 = 'Tháp Thử Nghiệm' with 1,000 m², R08 = 'Bãi Xe Thử') and an invented
+Fact_OPEX with those keys. OPEX_CSV and the registry path are patched, so no real data file is read.
 
 Rule sources: docs/05-decisions.md D9 (energy = usage x tariff, usage stored fixed, tariff a
 separate dated input) and the pool-salt section (blank, 0 and non-numeric mean "unknown", 2.5 kg x
@@ -19,20 +19,22 @@ import csv
 import pytest
 
 import estimate_opex as eo
+import reference_projects as rp
 
-HEADER = ['Project', 'Category', 'MonthlyVND', 'Source', 'Quantity', 'Unit', 'UnitPrice', 'PriceAsOf']
+HEADER = ['Project', 'Category', 'MonthlyVND', 'Source', 'Quantity', 'Unit', 'UnitPrice', 'PriceAsOf', 'RefKey']
+BASE, PARKING = 'Tháp Thử Nghiệm', 'Bãi Xe Thử'
 
 # Reference building: 1,000 m2. Electricity monthly cost (900,000) is deliberately NOT quantity x
 # price (400 x 2,000 = 800,000): only the stored quantity may drive the estimate.
 ROWS = [
-    ('A&K Tower', 'Electricity', 900000, 'usage src  TARIFF: tariff src', 400, 'kWh/month', 2000, '2026-05-09'),
-    ('A&K Tower', 'Water', 5000000, 'water src', 1000, 'm3/month', 10000, '2027-01-01'),
-    ('A&K Tower', 'Diesel (Generator Fuel)', 500000, 'diesel src', '', '', '', ''),
-    ('A&K Tower', 'Repairs & Maintenance (materials only)', 640000, 'rm src', '', '', '', ''),
-    ('A&K Tower', 'Administrative Expense (office overhead)', 320000, 'admin src', '', '', '', ''),
-    ('A&K Tower', 'Pool Salt', 3000000, 'pool src', '', '', '', ''),
-    ('Parking Building', 'Electricity', 100000, 'p src', 50, 'kWh/month', 2000, '2026-01-01'),
-    ('Parking Building', 'Diesel (Generator Fuel)', 70000, 'p src', '', '', '', ''),
+    (BASE, 'Electricity', 900000, 'usage src  TARIFF: tariff src', 400, 'kWh/month', 2000, '2026-05-09', 'R02'),
+    (BASE, 'Water', 5000000, 'water src', 1000, 'm3/month', 10000, '2027-01-01', 'R02'),
+    (BASE, 'Diesel (Generator Fuel)', 500000, 'diesel src', '', '', '', '', 'R02'),
+    (BASE, 'Repairs & Maintenance (materials only)', 640000, 'rm src', '', '', '', '', 'R02'),
+    (BASE, 'Administrative Expense (office overhead)', 320000, 'admin src', '', '', '', '', 'R02'),
+    (BASE, 'Pool Salt', 3000000, 'pool src', '', '', '', '', 'R02'),
+    (PARKING, 'Electricity', 100000, 'p src', 50, 'kWh/month', 2000, '2026-01-01', 'R08'),
+    (PARKING, 'Diesel (Generator Fuel)', 70000, 'p src', '', '', '', '', 'R08'),
 ]
 
 
@@ -55,9 +57,29 @@ def replace_row(rows, project, category, **changes):
     return out
 
 
+REGISTRY_ROWS = [
+    dict(RefKey='R02', DisplayName=BASE, Aliases='', TotalNFA_m2='1000', CapexNFA_m2='1000', ApartmentUnits='10',
+         TotalUnits='10', MgmtRate_VND_m2_month='', MgmtRateVAT='', District='Quận 1', City='Hồ Chí Minh', Comparable='1',
+         ExcludedFromRanking='', Roles='utilities_base|capex_items', Source='test', LocationSource='test', VerifiedOn='2026-11-06'),
+    dict(RefKey='R08', DisplayName=PARKING, Aliases='', TotalNFA_m2='', CapexNFA_m2='', ApartmentUnits='0', TotalUnits='0',
+         MgmtRate_VND_m2_month='', MgmtRateVAT='', District='', City='', Comparable='0', ExcludedFromRanking='no apartments',
+         Roles='parking_base', Source='test', LocationSource='', VerifiedOn='2026-11-06'),
+]
+
+
+def write_registry(path, rows=REGISTRY_ROWS):
+    with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.DictWriter(f, fieldnames=rp.COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    return str(path)
+
+
 @pytest.fixture
 def opex(tmp_path, monkeypatch):
-    monkeypatch.setattr(eo, 'AK_TOWER_NFA_M2', 1000.0)
+    # The utilities base has 1,000 m² in the invented registry; the real registry is never read.
+    monkeypatch.setattr(rp, 'REGISTRY_CSV', write_registry(tmp_path / 'Dim_ReferenceProject_invented.csv'))
+    rp.clear_cache()
 
     def load(rows=ROWS):
         monkeypatch.setattr(eo, 'OPEX_CSV', write_csv(tmp_path / 'Fact_OPEX_invented.csv', rows))
@@ -163,7 +185,7 @@ def test_energy_estimate_does_not_use_the_stored_monthly_cost(opex):
 
 def test_changing_the_tariff_moves_the_figure_in_proportion(opex):
     base = opex().estimate_opex(2000)['Electricity']['monthly_vnd']
-    moved = opex(replace_row(ROWS, 'A&K Tower', 'Electricity', UnitPrice=3000)).estimate_opex(2000)['Electricity']
+    moved = opex(replace_row(ROWS, BASE, 'Electricity', UnitPrice=3000)).estimate_opex(2000)['Electricity']
     assert base == 1_600_000
     assert moved['monthly_vnd'] == 2_400_000      # same stored quantity, 50% higher tariff
     assert moved['tariff'] == 3000
@@ -190,12 +212,12 @@ def test_water_uses_its_own_unit_and_tariff(opex):
 ])
 def test_tariff_stale_flag_is_before_2027(opex, as_of, stale):
     # rule source: code comment only (_TARIFF_STALE_BEFORE_YEAR = 2027)
-    rows = replace_row(ROWS, 'A&K Tower', 'Electricity', PriceAsOf=as_of)
+    rows = replace_row(ROWS, BASE, 'Electricity', PriceAsOf=as_of)
     assert opex(rows).estimate_opex(1000)['Electricity']['tariff_stale'] is stale
 
 
 def test_energy_row_without_a_tariff_is_a_plain_cost_ratio(opex):
-    rows = replace_row(ROWS, 'A&K Tower', 'Electricity', UnitPrice='')
+    rows = replace_row(ROWS, BASE, 'Electricity', UnitPrice='')
     got = opex(rows).estimate_opex(2000)['Electricity']
     assert got['monthly_vnd'] == 1_800_000        # 900,000 / 1,000 m2 x 2,000 m2
     assert 'tariff' not in got
@@ -203,7 +225,7 @@ def test_energy_row_without_a_tariff_is_a_plain_cost_ratio(opex):
 
 @pytest.mark.parametrize('quantity', ['', 0])
 def test_energy_row_without_a_usable_quantity_is_a_plain_cost_ratio(opex, quantity):
-    rows = replace_row(ROWS, 'A&K Tower', 'Electricity', Quantity=quantity)
+    rows = replace_row(ROWS, BASE, 'Electricity', Quantity=quantity)
     got = opex(rows).estimate_opex(2000)['Electricity']
     assert got['monthly_vnd'] == 1_800_000 and 'tariff' not in got
 
@@ -224,7 +246,7 @@ def test_every_ratio_category_is_returned(opex):
 
 
 def test_ratio_line_rounds_to_whole_vnd(opex):
-    rows = replace_row(ROWS, 'A&K Tower', 'Administrative Expense (office overhead)', MonthlyVND=1000)
+    rows = replace_row(ROWS, BASE, 'Administrative Expense (office overhead)', MonthlyVND=1000)
     # 1,000 / 1,000 m2 x 1,234 m2 = 1,234 exactly; 1,235.4 m2 -> 1,235 (round, not floor)
     assert opex(rows).estimate_opex(1235.4)['Administrative Expense (office overhead)']['monthly_vnd'] == 1235
 
@@ -235,14 +257,14 @@ def test_parking_reference_appears_only_for_categories_the_parking_building_has(
     # rule source: code comment only (parking is shown for reference, never blended into the ratio)
     res = opex().estimate_opex(2000)
     elec, water, diesel = res['Electricity'], res['Water'], res['Diesel (Generator Fuel)']
-    assert 'Parking Building' in elec['reference_only'] and '50 kWh/month' in elec['reference_only']
+    assert PARKING in elec['reference_only'] and '50 kWh/month' in elec['reference_only']
     assert diesel['reference_only'].endswith('flat.')
     assert water['reference_only'] is None
 
 
 def test_parking_building_does_not_change_the_estimate(opex):
     with_parking = opex().estimate_opex(2000)
-    without = opex([r for r in ROWS if r[0] != 'Parking Building']).estimate_opex(2000)
+    without = opex([r for r in ROWS if r[0] != PARKING]).estimate_opex(2000)
     for cat in eo.RATIO_CATEGORIES:
         assert with_parking[cat]['monthly_vnd'] == without[cat]['monthly_vnd']
         assert without[cat]['reference_only'] is None
@@ -295,7 +317,7 @@ _TARIFF_ROWS = [
     'diesel,DO test,listed_price,10800,VND/l,2026-10-01,,,Listing X,,2026-10-18,',
     'diesel,DO test,listed_vat_pct,8,%,2026-10-01,,,Resolution C,,2026-10-18,',
 ]
-_DIESEL_ROWS = replace_row(ROWS, 'A&K Tower', 'Diesel (Generator Fuel)',
+_DIESEL_ROWS = replace_row(ROWS, BASE, 'Diesel (Generator Fuel)',
                            Quantity=100, Unit='litre/month', UnitPrice=5000, PriceAsOf='2020')
 
 

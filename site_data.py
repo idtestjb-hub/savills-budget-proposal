@@ -7,11 +7,12 @@ pipeline đọc đúng 14 file trong `data\\` (KEEP). Những file đó được
   đúng); địa chỉ, tên file nguồn và các cột ghi chú thô bị xoá; số (diện tích, đơn giá, toạ độ) giữ nguyên để công cụ ra
   cùng số như trên Hub;
 - tên của chính dự án (tên site, tên trong file đã duyệt) giữ nguyên, để quy tắc "bỏ chính dự án ra khỏi so sánh" vẫn chạy;
-- tên các dự án nằm sẵn trong code (`master_comparables.HAND_VERIFIED_COMPARABLES`, `estimate_opex` dùng 'A&K Tower' và
-  'Parking Building') giữ nguyên vì code tra theo đúng tên đó: đây là bộ tham chiếu của phương pháp, có trên Hub và trên
-  sheet Comparison của mọi bản giao.
-`find_leaks()` quét gói đã dựng: mọi tên toà nhà trong danh sách master (căn hộ + thương mại) và tên file của kho quét,
-trừ tên của chính dự án và tên trong code, không được xuất hiện trong bất kỳ file văn bản hay ô chữ Excel nào của gói.
+- các dự án tham chiếu của phương pháp (file đăng ký `Dim_ReferenceProject.csv`, mã R01...) cũng được ẩn danh: code tra
+  theo mã `RefKey`, không theo tên (change reference-projects-by-key), nên tên hiển thị và mọi biến thể tên của cùng một
+  mã đổi thành cùng một mã "Dự án tham chiếu NN" ở mọi file.
+`find_leaks()` quét gói đã dựng: mọi tên toà nhà trong danh sách master (căn hộ + thương mại), tên và biến thể tên trong
+file đăng ký, và tên file của kho quét, trừ tên của chính dự án, không được xuất hiện trong bất kỳ file văn bản hay ô
+chữ Excel nào của gói.
 """
 import csv
 import os
@@ -33,6 +34,7 @@ KEEP = (
     'generation_B_verified/Ref_UtilityTariffs.csv',
     'master_list_verified/Costing_Method_Catalogue.csv',
     'master_list_verified/Dim_Property_Residential.csv',
+    'master_list_verified/Dim_ReferenceProject.csv',
     'master_list_verified/Fact_ProjectLocation.csv',
     'master_list_verified/Fact_StaffingRatio_ByPosition.csv',
     'master_list_verified/Ref_ComparableVATBasis.csv',
@@ -46,14 +48,15 @@ MASK = {
     'master_list_verified/Dim_Property_Residential.csv': dict(
         name='Name', blank=('SourceRow', 'No', 'Address_Raw', 'Street', 'Ward', 'District_Raw', 'AddressParseStatus')),
     'master_list_verified/Fact_ProjectLocation.csv': dict(name='asset_name', blank=()),
+    # File đăng ký: tên hiển thị ẩn danh; biến thể tên, nguồn và chứng cứ vị trí (có nhắc tên) xoá trắng; mã và số giữ.
+    'master_list_verified/Dim_ReferenceProject.csv': dict(name='DisplayName', blank=('Aliases', 'Source', 'LocationSource')),
     'generation_A_star_schema/Fact_CapexReserve.csv': dict(name='Project', blank=('SourceFile', 'Year1Sheet', 'LaterSheet')),
-    'generation_A_star_schema/Fact_OPEX.csv': dict(name='Project', blank=('Source',)),
+    'generation_A_star_schema/Fact_OPEX.csv': dict(name='Project', blank=('Source',), subst=('PriceAsOf',)),
     'generation_A_star_schema/Fact_Capex_Rescanned.csv': dict(name='Project', blank=()),
     'master_list_verified/Ref_ComparableVATBasis.csv': dict(name='project_key', blank=()),
 }
 PSEUDONYM = 'Dự án tham chiếu {n:02d}'
-# estimate_opex / estimate_capex_qty tra theo đúng tên này ('11D Thi Sach' không dấu là khoá của Fact_Capex_Rescanned).
-CODE_NAMES_EXTRA = ('A&K Tower', 'Parking Building', '11D Thi Sach')
+REGISTRY_REL = 'master_list_verified/Dim_ReferenceProject.csv'
 MIN_WORD = 4
 TEXT_EXT = {'.py', '.txt', '.md', '.json', '.html', '.cmd', '.csv', '.pth', '._pth', '.yaml', '.yml'}
 XLSX_EXT = {'.xlsx', '.xlsm'}
@@ -67,13 +70,41 @@ def norm(name):
 
 
 def code_names():
-    """Tên dự án nằm trong code (giữ nguyên trong gói)."""
-    try:
-        from master_comparables import HAND_VERIFIED_COMPARABLES
-        names = [c['name'] for c in HAND_VERIFIED_COMPARABLES]
-    except Exception:  # noqa: BLE001
-        names = []
-    return set(names) | set(CODE_NAMES_EXTRA)
+    """Tên dự án nằm trong code: không còn (change reference-projects-by-key). Giữ hàm cho các lời gọi cũ."""
+    return set()
+
+
+def registry_raw_names(src_data):
+    """Tên hiển thị và biến thể tên trong file đăng ký, nguyên văn (để thay trong chuỗi)."""
+    p = os.path.join(src_data, *REGISTRY_REL.split('/'))
+    if not os.path.isfile(p):
+        return set()
+    _, header, rows = _read_csv(p)
+    out = set()
+    for col in ('DisplayName', 'Aliases'):
+        if col in header:
+            i = header.index(col)
+            out |= {a.strip() for r in rows if i < len(r) for a in r[i].split('|') if a.strip()}
+    return out
+
+
+def registry_names(src_data):
+    """{khoá tên chuẩn hoá: RefKey} cho tên hiển thị và mọi biến thể tên trong file đăng ký của `src_data`
+    (rỗng khi không có file)."""
+    p = os.path.join(src_data, *REGISTRY_REL.split('/'))
+    if not os.path.isfile(p):
+        return {}
+    _, header, rows = _read_csv(p)
+    if 'RefKey' not in header or 'DisplayName' not in header:
+        return {}
+    ki, ni, ai = header.index('RefKey'), header.index('DisplayName'), header.index('Aliases') if 'Aliases' in header else None
+    out = {}
+    for r in rows:
+        names = [r[ni]] + ([a for a in r[ai].split('|')] if ai is not None and ai < len(r) else [])
+        for n in names:
+            if norm(n):
+                out[norm(n)] = r[ki]
+    return out
 
 
 def _read_csv(path):
@@ -100,19 +131,33 @@ def _write_csv(path, comments, header, rows):
 
 
 class Pseudonyms:
-    """Một mã cho một tên, cấp theo thứ tự gặp; tên được giữ (chính dự án, tên trong code) trả về nguyên văn."""
+    """Một mã cho một tên, cấp theo thứ tự gặp; tên được giữ (chính dự án) trả về nguyên văn. `grouped` ({khoá tên:
+    nhóm}) gom nhiều biến thể tên của một dự án tham chiếu vào cùng một mã, cấp trước theo thứ tự nhóm."""
 
-    def __init__(self, keep):
+    def __init__(self, keep, grouped=None, raw_names=None):
         self.keep = {norm(k) for k in keep if norm(k)}
         self.map = {}
+        self.known = set(raw_names or ())
+        for group in sorted(set((grouped or {}).values())):
+            code = PSEUDONYM.format(n=len(set(self.map.values())) + 1)
+            for k, g in (grouped or {}).items():
+                if g == group and k not in self.keep:
+                    self.map[k] = code
 
     def __call__(self, name):
         key = norm(name)
         if not key or key in self.keep:
             return name
         if key not in self.map:
-            self.map[key] = PSEUDONYM.format(n=len(self.map) + 1)
+            self.map[key] = PSEUDONYM.format(n=len(set(self.map.values())) + 1)
         return self.map[key]
+
+    def substitute(self, text):
+        """Thay mọi tên đã có mã (các biến thể tên của file đăng ký, dài trước ngắn sau) nằm trong một chuỗi."""
+        for raw_name in sorted(self.known, key=len, reverse=True):
+            if raw_name and raw_name in text:
+                text = text.replace(raw_name, self(raw_name))
+        return text
 
 
 def _mask_file(src, dst, rule, pseud):
@@ -124,6 +169,7 @@ def _mask_file(src, dst, rule, pseud):
     name_i = idx.get(rule['name'])
     blank_i = {idx[h] for h in rule['blank'] if h in idx} | {i for i, h in enumerate(header) if h.lower().endswith('_raw')}
     changed = 0
+    subst_i = {idx[h] for h in rule.get('subst', ()) if h in idx}
     for r in rows:
         if name_i is not None and name_i < len(r):
             new = pseud(r[name_i])
@@ -133,6 +179,13 @@ def _mask_file(src, dst, rule, pseud):
         for i in blank_i:
             if i < len(r):
                 r[i] = ''
+        # Cột chữ phải giữ nội dung khác (ví dụ PriceAsOf mang ngày): chỉ thay tên dự án nằm trong chuỗi.
+        for i in subst_i:
+            if i < len(r) and r[i]:
+                new = pseud.substitute(r[i])
+                if new != r[i]:
+                    r[i] = new
+                    changed += 1
     # Dòng chú thích đầu file có thể nhắc tên file nguồn của máy văn phòng: thay bằng một dòng ghi nguồn chung.
     if comments:
         comments = ['# Bản rút gọn cho gói site: tên dự án khác đã ẩn danh, cột văn bản thô đã xoá.\n']
@@ -142,9 +195,11 @@ def _mask_file(src, dst, rule, pseud):
 
 def build(src_data, dst_data, own_names=(), keep_names=None):
     """Chép đúng các file KEEP từ `src_data` sang `dst_data`, ẩn danh theo MASK. Trả về dict(copied, masked, pseudonyms).
-    `own_names`: tên của chính dự án (giữ nguyên). `keep_names`: tên trong code (mặc định code_names())."""
+    `own_names`: tên của chính dự án (giữ nguyên). `keep_names`: tên khác cần giữ (mặc định không có). Các biến thể
+    tên của một dự án tham chiếu (file đăng ký) nhận cùng một mã."""
     keep = set(own_names) | (code_names() if keep_names is None else set(keep_names))
-    pseud = Pseudonyms(keep)
+    grouped = registry_names(src_data)
+    pseud = Pseudonyms(keep, grouped=grouped, raw_names=registry_raw_names(src_data))
     copied, masked = [], {}
     for rel in KEEP:
         src = os.path.join(src_data, *rel.split('/'))
@@ -175,10 +230,18 @@ def _names_something(stem):
 
 def leak_words(src_data, own_names=(), store_dir=None, keep_names=None):
     """Những tên không được xuất hiện trong gói: tên toà nhà trong hai danh sách master và tên file của kho quét (nếu có
-    `store_dir`), trừ tên của chính dự án và tên trong code; bỏ tên ngắn dưới MIN_WORD ký tự."""
+    `store_dir`), và tên hiển thị + biến thể tên trong file đăng ký, trừ tên của chính dự án; bỏ tên ngắn dưới MIN_WORD
+    ký tự."""
     own = {norm(n) for n in own_names if norm(n)}
     keep = own | {norm(n) for n in (code_names() if keep_names is None else set(keep_names))}
     words = set()
+    reg = os.path.join(src_data, *REGISTRY_REL.split('/'))
+    if os.path.isfile(reg):
+        _, header, rows = _read_csv(reg)
+        for col in ('DisplayName', 'Aliases'):
+            if col in header:
+                i = header.index(col)
+                words |= {a.strip() for r in rows if i < len(r) for a in r[i].split('|') if a.strip()}
     for rel in ('master_list_verified/Dim_Property_Residential.csv', 'master_list_verified/Dim_Property_Commercial.csv'):
         p = os.path.join(src_data, *rel.split('/'))
         if os.path.isfile(p):

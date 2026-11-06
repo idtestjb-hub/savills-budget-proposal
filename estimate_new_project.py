@@ -17,7 +17,7 @@ number, not blended into one confidence:
                        same for every project (n=1 each, a citywide reference card, not a sample).
   4. CAPEX               estimate_capex_qty.py — old-8-files' real Qty ÷ verified NFA (n=3-4 per
                        category), cross-checked against Qty ÷ the STAFF estimate's headcount
-                       (n=1, Green Skyline only).
+                       (n=1, registry row R05 only).
 
 Note the dependency: Capex's headcount cross-check (Study 2) now uses THIS module's own Staff
 estimate when the new project has no real headcount yet — the four numbers aren't independent,
@@ -100,7 +100,7 @@ def estimate_new_project(total_gfa_m2, apartment_nfa_m2, project_name, real_head
 
 
 if __name__ == '__main__':
-    # A genuinely novel scale -- not Green Skyline's or any other real project's own numbers, so
+    # A genuinely novel scale -- not registry row R05's or any other real project's own numbers, so
     # nearest_comparables() demonstrates matching against OTHER real projects, not matching itself.
     result = estimate_new_project(total_gfa_m2=70000, apartment_nfa_m2=55000,
                                    project_name='Example New Prospect')

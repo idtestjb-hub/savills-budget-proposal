@@ -17,7 +17,7 @@ Comparable matching is real, not fictional: nearest 2 by |Total building NFA del
 basis generate_project_output.py uses, so the two workbooks pick the same comparables (change
 `unify-revenue-basis-across-outputs`) — excluding the
 input project itself by name if it happens to match one already in the master table (so
-re-running this against a real project's own numbers, e.g. Green Skyline, doesn't compare it
+re-running this against a real project's own numbers, e.g. registry row R05, doesn't compare it
 to itself). The "reality check" row on the Comparison sheet only appears when the input
 project's OWN real rate is independently known from the master table — for a genuinely new,
 unlisted prospect, it correctly reports "not applicable — new prospect."
@@ -201,7 +201,7 @@ def _benchmark_fee_clause(derived_rate, comp_apt_rates, entered=False):
 # fine in Nghị định 46/2019 Điều 20) sits in the sport-BUSINESS regime. For a residents-only chung cư
 # pool the ratio is a defensible benchmark; it is not established as a binding obligation.
 POOL_LIFEGUARD_M2_PER_STAFF = 200
-# Used when the project has a pool but no water-surface area was supplied — A&K Tower's own real
+# Used when the project has a pool but no water-surface area was supplied — the utilities base project's own real
 # staffing pattern (one attendant per shift). Same fallback shape ESM4 uses when Pool Volume is
 # unknown: keep a real reference figure and say on the row that the stated method could not run.
 POOL_ATTENDANT_FALLBACK_PER_SHIFT = 1
@@ -220,7 +220,7 @@ def _pool_lifeguards_per_shift(p, r):
     if area <= 0:
         return POOL_ATTENDANT_FALLBACK_PER_SHIFT, (
             "Pool Area (m2) not supplied, so the statutory water-surface calculation could not be "
-            "run. Falls back to A&K Tower's own real pattern of one attendant per shift. Enter the "
+            "run. Falls back to the utilities base project's own real pattern of one attendant per shift. Enter the "
             "pool water-surface area on Project Info to cost this line to the stated standard "
             "instead")
     return area / POOL_LIFEGUARD_M2_PER_STAFF, (
@@ -466,8 +466,8 @@ def _resolve_operating_years(raw):
 
 
 # Change derive-capex-reserve-rate, D3 — evidenced default: 3 of the 4 real reference projects
-# (Parking Building, Lumi Prestige & Elite, Lumi Signature) drop to the reserve at Year 2; only
-# Green Skyline repeats a full Year-2 purchase and drops at Year 3. See Fact_CapexReserve.csv.
+# (registry rows R08, R03, R04) drop to the reserve at Year 2; only
+# registry row R05 repeats a full Year-2 purchase and drops at Year 3. See Fact_CapexReserve.csv.
 CAPEX_DROP_YEAR_DEFAULT = 2
 
 
@@ -2861,7 +2861,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # a number of posts at a post price. That is exactly what the Service sheet computes in its
     # column H, so the deliverable and the analysis now agree by construction.
     #
-    # TRADE-OFF, stated because it is real: the post rates are citywide and n=1 (A&K Tower), so
+    # TRADE-OFF, stated because it is real: the post rates are citywide and n=1 (the utilities base project), so
     # this is less project-specific than the roster basis it replaces — the roster differentiated a
     # cleaning supervisor from a line cleaner, this does not. It is more faithful to the written
     # method and less granular. Widening those rates is R-D02, separate work.
@@ -3054,7 +3054,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # of which is meant to pay for the real staff/OPEX/Capex costs already itemized elsewhere on
     # this sheet. Before 2026-08-28 this wrongly set EMH1 = mgmt_fee_annual (the entire collected
     # fee), which double-counted against every other cost line and produced a large fake "deficit"
-    # (confirmed on Blue Skyline: 6.3bn of a ~7.5bn gap against the real Green Skyline back-test was
+    # (confirmed on Blue Skyline: 6.3bn of a ~7.5bn gap against the real R05 back-test was
     # this one bug). The correct value is a real, negotiated, per-project contract term this
     # pipeline cannot derive — see the Project Info fields savills_fee.FIXED_LABEL / PCT_LABEL.
     # Left BLANK, not defaulted to 0 or to the old wrong assumption, until the PM enters one.
@@ -3337,7 +3337,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         entry = opex.get(category, {})
         annual = entry.get('monthly_vnd', 0) * 12
         if entry.get('method'):
-            # Pool Salt — a stated formula, not an A&K ratio. estimate_opex() owns both the
+            # Pool Salt — a stated formula, not a base-project ratio. estimate_opex() owns both the
             # calculation and its caveats so this workbook and the analysis one cannot disagree.
             # The client wording (no project name, decision D3) where estimate_opex gives one.
             return (f"{entry.get('method_client', entry['method'])} "
@@ -3666,9 +3666,9 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
                         "which roster positions work night shifts — every count on that sheet is "
                         "zero. Needs its own investigation, not guessed here."),
         115: ('EMB1',  "Benchmark-by-comparable, but the only comparable OPEX source in this repo "
-                        "(Fact_OPEX.csv, A&K Tower) has no bank-fee line at all."),
+                        "(Fact_OPEX.csv, the utilities base project) has no bank-fee line at all."),
         118: ('EMB4',  "Benchmark-by-comparable, but the only comparable OPEX source in this repo "
-                        "(Fact_OPEX.csv, A&K Tower) has no audit-fee line at all."),
+                        "(Fact_OPEX.csv, the utilities base project) has no audit-fee line at all."),
         122: ('EMO2',  "Conditional on EMO1 (owners-board salary subsidy), which is itself usually "
                         "zero in year 1 per the guideline — legitimately zero for a year-1 budget, "
                         "not a pricing gap."),

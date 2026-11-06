@@ -38,6 +38,15 @@ import existing_utilities
 import existing_staffing
 import operating_inputs
 import parking_prices
+import reference_projects
+
+
+def _utilities_base_name():
+    """Display name of the registry row with the utilities_base role (the one real project the utility ratios
+    come from); on the office data the real name, in a site package its pseudonym."""
+    return reference_projects.one_by_role(reference_projects.ROLE_UTILITIES_BASE)['name']
+
+
 from master_comparables import (
     MASTER_COMPARABLES, SECURITY_RATE_CITYWIDE, CLEANING_RATE_CITYWIDE, LANDSCAPE_RATE_CITYWIDE,
     RATE_CARD_SOURCE, resolve_product_rates,
@@ -126,7 +135,7 @@ SERVICE_CATEGORY_KEYWORDS = {
 }
 
 # Checked directly against Fact_MasterRateCard.csv: all 3 Service rows are "24/24 position (all
-# roles)" or "8/24 position (all roles)" — line-staff rates, sourced from ONE real project (A&K
+# roles)" or "8/24 position (all roles)" — line-staff rates, sourced from ONE real project (the utilities base project
 # Tower, SampleSize=1), with no supervisory rate anywhere in the Service domain. A supervisor
 # earns a real, documented premium in Staffing Demand (Cleaning - Supervisor: 480,000/day vs
 # Cleaning - Common Area's 340,000/day) that this flat citywide reference has no way to reflect —
@@ -1560,15 +1569,16 @@ def _write_capex_subtotal(ws, r, category, start, end, subtotal_cells):
 
 
 # ============================================================================================
-# Real, from A&K Tower's own "B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B ("ĐỀ XUẤT ĐƠN GIÁ
-# GỬI XE TẠI DỰ ÁN" — proposed parking price at the project) — A&K's own ACTUAL decision, not just
-# a market survey, informed by 6 real comparable projects shown in Section A of the same sheet
+# Real, from the utilities base project's own "B2.8 Đơn giá gửi xe-Parking pr" sheet,
+# Section B ("ĐỀ XUẤT ĐƠN GIÁ GỬI XE TẠI DỰ ÁN" — proposed parking price at the project) — its own
+# ACTUAL decision, not just a market survey, informed by 6 real comparable projects shown in Section A of the same sheet
 # (names kept out of the code: change site-data-isolation).
 PARKING_FEE_CAR_MONTHLY = 1_100_000
 PARKING_FEE_MOTO_MONTHLY = 110_000
-PARKING_FEE_SOURCE = ('A&K Tower\'s own proposed parking price ("B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B) — '
+PARKING_FEE_SOURCE = ('The utilities base project\'s own proposed parking price '
+                       '("B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B) — '
                        'informed by the rates of 6 real comparable projects shown in that sheet\'s Section A, not just '
-                       'A&K\'s own guess.')
+                       'its own guess.')
 
 # Real, from "Cho thuê bãi xe ô tô" sheet — a DIFFERENT revenue model than per-vehicle fees above:
 # leasing the WHOLE parking area to a third-party operator for one fixed monthly rent, instead of
@@ -1742,11 +1752,11 @@ def _portfolio_parking_prices_block(ws, r, pp):
 
 def build_additional_revenue_sheet(wb, project):
     """Extra Revenue beyond the management fee — Parking Fee and Elevator Advertising. New
-    category: A&K Tower's own real budget structure ("A1. Tổng hợp" sheet) explicitly separates
+    category: the utilities base project's own real budget structure ("A1. Tổng hợp" sheet) explicitly separates
     "A.I Revenue of Management fee" from "A.II Extra Revenue" (Parking fee/Advertising/Rentals/
     Others) as two distinct lines — this workbook only ever had the first one built.
 
-    Parking Fee uses A&K's own real PROPOSED rate (not a market survey number) × this project's
+    Parking Fee uses that project's own real PROPOSED rate (not a market survey number) × this project's
     own real car/moto slot counts from Project Info, shown at 100% occupancy — real slot counts,
     but no real occupancy-rate data exists anywhere in the source files, so this is stated as a
     maximum/ceiling, not a realistic average; PM should apply their own occupancy assumption.
@@ -1971,16 +1981,16 @@ def build_opex_sheet(wb, project):
     """OPEX/Utilities — Electricity, Water, Diesel (Generator Fuel), Repairs & Maintenance
     (materials only), Pool Salt. New category, no prior extraction anywhere in this codebase
     (unlike Staff/Service/Capex). Real data is thin: only 2 of the 8 real files have
-    independently-verified OPEX data (A&K Tower, Parking Building — the latter a different
+    independently-verified OPEX data (the utilities base project and the parking reference — the latter a different
     building type, shown for reference only, not blended into the ratio). See
     rescan_opex_from_source.py's module docstring for the full trail — including a broken-formula
     false alarm (turned out fine, verified by reading formulas not just cached values), a real
-    cross-file duplication caught (Fiato G2/MF's numbers are identical to A&K's to the decimal, not
-    independent data), and why elevator/lighting/system MAINTENANCE CONTRACTS never appear here at
-    all — a real cell note in A&K's own file cites Vietnamese Housing Law 2023 Article 150 and
+    cross-file duplication caught (the two airport-zone rows' numbers are identical to the base project's to the
+    decimal, not independent data), and why elevator/lighting/system MAINTENANCE CONTRACTS never appear here at
+    all — a real cell note in the base project's own file cites Vietnamese Housing Law 2023 Article 150 and
     Construction Law Article 3: those are legally funded from a separate one-time maintenance fund,
     not the ongoing management fee this sheet estimates. Electricity/Water/Diesel/Repairs &
-    Maintenance scale by A&K's real per-m² TotalNFA ratio (n=1, stated as exactly that). Pool Salt
+    Maintenance scale by the base project's real per-m² TotalNFA ratio (n=1, stated as exactly that). Pool Salt
     is a flat real reference, not scaled, shown only if this project has a pool.
 
     INCLUDED in Total Project Value (Net) on the Summary sheet, same as Staff Cost — on the basis
@@ -1989,7 +1999,8 @@ def build_opex_sheet(wb, project):
     ws = wb.create_sheet('OPEX')
     title_block(ws, 'OPEX — Utilities & Repairs (Electricity, Water, Diesel, Maintenance, Pool Salt)',
                 'Real data is thin here — only 2 of the 8 real files have independently-verified OPEX data. Most '
-                'categories scale by A&K Tower\'s real per-m² NFA ratio (n=1); Pool Salt is a flat real reference. '
+                'categories scale by the utilities base project\'s real per-m² NFA '
+                'ratio (n=1); Pool Salt is a flat real reference. '
                 'Elevator/system MAINTENANCE CONTRACTS are deliberately excluded — Vietnamese law funds those from a '
                 'separate one-time fund, not the ongoing management fee (see notes below). Included in Total Project '
                 'Value (Net).', 'A1:F1')
@@ -2056,7 +2067,7 @@ def build_opex_sheet(wb, project):
         c5 = ws.cell(row=r, column=5, value=entry['n'])
         c5.border = BORDER
         c5.alignment = CENTER
-        # Pool Salt carries a `method` (a formula the costing spec states) rather than an A&K
+        # Pool Salt carries a `method` (a formula the costing spec states) rather than a base-project
         # ratio; show it ahead of the sourcing note so the calculation is what's read first.
         c6 = ws.cell(row=r, column=6,
                      value=f"{entry['method']} {entry['source']}".strip() if entry.get('method')
@@ -2109,7 +2120,8 @@ def build_opex_sheet(wb, project):
     ws.cell(row=r, column=1,
             value=('Elevator/lighting/system MAINTENANCE CONTRACTS (not just Repairs & Maintenance\'s narrow '
                    'materials-only line) deliberately do NOT appear anywhere on this sheet, or anywhere else in this '
-                   'workbook. A real cell note in A&K Tower\'s own source file explains why, citing Housing Law 2023 '
+                   'workbook. A real cell note in the utilities base project\'s own source file '
+                   'explains why, citing Housing Law 2023 '
                    'Article 150 and Construction Law Article 3: those contract costs are legally funded from a '
                    'separate one-time maintenance fund (quỹ bảo trì, the 2% fund collected at handover), not the '
                    'ongoing management fee this workbook estimates. Adding them here would misrepresent how Vietnamese '
@@ -2293,11 +2305,12 @@ def build_data_flow_sheet(wb):
                                       'Raw origin: input/project/2026_Master List.xlsx, transformed by '
                                       'transform_master_list.py (address/fee-column parsing) — rerun that script to '
                                       'refresh this CSV after a newer Master List upload; this pipeline won\'t do it automatically.'),
-                            ('constant', '7 hand-verified real projects\' own numbers (Green Skyline, Lumi Prestige & '
-                                         'Elite, etc.) — hand-transcribed once from their "0. Info" sheets (in '
-                                         'input/budget_planning/, the 8 real project files) into HAND_VERIFIED_COMPARABLES. '
-                                         'No script reproduces this; refreshing means reopening the source files and '
-                                         're-reading cells by hand.')],
+                            ('live', f'{len(reference_projects.hand_verified_comparables())} hand-verified real projects\' own numbers '
+                                     f'({", ".join(c["name"] for c in reference_projects.hand_verified_comparables())}) — hand-transcribed '
+                                     'once from their "0. Info" sheets (the original real project files) into the '
+                                     'reference-project registry data/master_list_verified/Dim_ReferenceProject.csv, '
+                                     'loaded every run. No script reproduces the transcription; refreshing means '
+                                     'reopening the source files and re-reading cells by hand.')],
                     note='↳ mgmt is passed straight into build_comparison_sheet(wb, project, mgmt) next — same comparables, no new lookup.')
     r = _flow_arrow(ws, r)
 
@@ -2327,7 +2340,7 @@ def build_data_flow_sheet(wb):
                                          '(Domain=Service), NOT re-read from that CSV each run. Root source is thinner '
                                          'than it looks: input/service_cost/Detail form...xlsx has NO real unit price '
                                          'for these 3 roles (structure only) — build_master_rate_card.py falls back to '
-                                         'A&K Tower\'s real project rate (input/budget_planning/) instead, "clearly '
+                                         f'the utilities base\'s ({_utilities_base_name()}) real project rate instead, "clearly '
                                          'labeled as such" per that script\'s own docstring. So this is really ONE real '
                                          'project\'s rate standing in for "citywide," not a citywide average.'),
                             ('live', 'demand headcount (from step 1/4), multiplied against the rates above.')])

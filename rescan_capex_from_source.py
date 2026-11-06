@@ -33,12 +33,16 @@ rather than double-counted.
 import os
 import re
 import glob
+import sys
 import zipfile
 import tempfile
 import unicodedata
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import reference_projects  # noqa: E402
 
 BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 BUDGET_AGENT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -185,24 +189,26 @@ def scan_all():
         repaired = repair_workbook(f)
         wb = openpyxl.load_workbook(repaired, data_only=True)
         proj_name = friendly_name(os.path.basename(f))
+        ref_key = reference_projects.key_for_name(proj_name) or ''
         for keywords, category in CAPEX_SHEET_CATEGORIES:
             sheet_name = next((sn for sn in wb.sheetnames if any(k in nfc(sn).lower() for k in keywords)), None)
             if not sheet_name:
                 all_rows.append(dict(Project=proj_name, Category=category, Item='(sheet not found)',
                                       Unit=None, Qty=None, UnitPrice=None, Total=None,
-                                      SourceSheet=None, SourceRow=None))
+                                      SourceSheet=None, SourceRow=None, RefKey=ref_key))
                 continue
             ws = wb[sheet_name]
             cols = find_columns(ws)
             if not cols:
                 all_rows.append(dict(Project=proj_name, Category=category, Item='(columns not detected)',
                                       Unit=None, Qty=None, UnitPrice=None, Total=None,
-                                      SourceSheet=sheet_name, SourceRow=None))
+                                      SourceSheet=sheet_name, SourceRow=None, RefKey=ref_key))
                 continue
             for it in extract_items(ws, cols):
                 all_rows.append(dict(Project=proj_name, Category=category, Item=it['item'],
                                       Unit=it['unit'], Qty=it['qty'], UnitPrice=it['unit_price'],
-                                      Total=it['total'], SourceSheet=sheet_name, SourceRow=it['source_row']))
+                                      Total=it['total'], SourceSheet=sheet_name, SourceRow=it['source_row'],
+                                      RefKey=ref_key))
     return all_rows
 
 
@@ -224,7 +230,7 @@ def write_csv(rows):
     os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
     with open(OUT_CSV, 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.DictWriter(f, fieldnames=['Project', 'Category', 'Item', 'Unit', 'Qty', 'UnitPrice',
-                                           'Total', 'SourceSheet', 'SourceRow'])
+                                           'Total', 'SourceSheet', 'SourceRow', 'RefKey'])
         w.writeheader()
         w.writerows(rows)
 

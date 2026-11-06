@@ -10,7 +10,7 @@ this session has verified. TWO real sources, merged into one ranking pool:
 
 Used by generate_project_output.py to find the nearest comparable(s) to a NEW prospect and derive
 a management-fee rate — nearest_comparables() + derive_mgmt_rate() for the whole-property/Apartment
-rate (unchanged since the Green Skyline demonstration earlier this session), PLUS (new)
+rate (unchanged since the first demonstration earlier this session), PLUS (new)
 derive_product_rate() for a per-product-type rate (Officetel/Shophouse/Shopping Mall), so revenue
 is no longer Apartment-NFA-only — see PRODUCT_RATE_COLUMNS and each comparable's 'rates' dict.
 
@@ -31,18 +31,18 @@ for any product with zero qualifying comparables, and labels that fallback expli
 silently drops a product's NFA from revenue, and never silently substitutes without saying so.
 
 A REAL BUG, caught and fixed, worth recording: "TotalNFA" for the 7 hand-verified projects was
-first set to each project's grand-total row (INCLUDING parking) — e.g. Green Skyline 99,252.45 —
+first set to each project's grand-total row (INCLUDING parking) — e.g. one project at 99,252.45 —
 while Project_Budget_Input.xlsx's own `total_nfa` only sums the 5 Product Mix rows (Apartment/
 Officetel/Shophouse/Shopping Mall/Nursery), which never asks for parking at all. Result: a
 prospect built by copying a real project's OWN numbers exactly still wouldn't match that project
-in nearest_comparables() — a real, sizeable gap (Green Skyline's case: 99,252 vs 92,100, a
+in nearest_comparables() — a real, sizeable gap (that project's case: 99,252 vs 92,100, a
 7,152 m² mismatch from parking alone), which silently picked different, worse comparables. Fixed
 by re-reading each project's own "Các loại hình sản phẩm" (product-types) subtotal row directly
 — the one figure that's defined the same way the input template collects it. Verified directly
-against source for all 7: 11D Thi Sách and A&K Tower's existing figures already WERE product-only
+against source for all 7: two of them (R01, R02) already had figures that already WERE product-only
 (no fix needed — confirmed by re-opening their real Info sheets, where the parking section is a
-separate row entirely); Lumi Prestige & Elite, Lumi Signature, and Green Skyline were fixed
-(134,117/195,269/99,252 → 124,955/184,707/92,100). Fiato G2/605 are deliberately left at
+separate row entirely); three others (R03, R04, R05) were fixed
+(134,117/195,269/99,252 → 124,955/184,707/92,100). the two airport-zone rows (R06, R07) are deliberately left at
 Apartment+Shophouse only (35,836.27) — their real "product subtotal" row also folds in a garden-
 floor line item and CĐT-private parking the input template has no field for, so matching what the
 template can actually collect is more consistent than matching that project's own subtotal label.
@@ -50,7 +50,7 @@ template can actually collect is more consistent than matching that project's ow
 The ~78 Master-List-sourced comparables below (auto-parsed, not hand-verified) use whatever their
 own "NFA" column represents in that source — likely whole-building, but not independently checked
 project-by-project the way the 7 above now are. Worth knowing if a Master-List comparable's match
-looks off in the same way Green Skyline's did.
+looks off in the same way R05's did.
 
 VAT note (real, not glossed over): the "Đơn giá phí PQL áp dụng" rate is quoted INCL. VAT on some
 project files and EXCL. VAT on others — the source files are not consistent about this. Rates
@@ -60,14 +60,15 @@ normalized, since normalizing would require assuming which is correct without a 
 The Master List's own Residential sheet is uniformly quoted INCL. VAT (see transform_master_list.py).
 
 mgmt_rate = None means no verified per-m² rate was found (either the file uses a different Info
-sheet layout not yet parsed — A&K Tower, Fiato F-Zone G2 — or the project doesn't sell apartments
-at all — Parking Building, excluded entirely below).
+sheet layout not yet parsed — R02 and R06 — or the project doesn't sell apartments
+at all — R08, excluded entirely below).
 """
 import os
 import csv
 import math
 import unicodedata
 
+import reference_projects
 import budget_period
 import utility_tariffs
 
@@ -103,106 +104,26 @@ PRODUCT_RATE_COLUMNS = {
     'Retail': 'Fee_Retail', 'Villas': 'Fee_Villa',
 }
 
-# The 7 hand-verified projects — nfa switched to TotalNFA (whole-building), same verified figures
-# used in estimate_capex_qty.py's VERIFIED_NFA dict. mgmt_rate/mgmt_rate_vat are unchanged: those
-# were always read from the "Apartment" row specifically, real per-project rates either way.
-# 'rates' (new) always has just {'Apartment': mgmt_rate} — the source Info sheets were read for
-# their Apartment row only; whether they also had Officetel/Shophouse-specific rows was never
-# checked, so those stay unpopulated here rather than guessed.
-HAND_VERIFIED_COMPARABLES = [
-    dict(name='11D Thi Sách', nfa=16783.14, units=157, total_units=162,
-         mgmt_rate=None, mgmt_rate_vat=None,
-         source='TotalNFA: Dim_Property_v2_verified.csv. Info sheet layout not yet parsed for a per-m² rate.',
-         district='District 1', city='Hồ Chí Minh',
-         location_source='Address is the project\'s own street number (Bến Nghé Ward) — confirmed, not inferred '
-                          'from the street name, via a contractor financial disclosure (Vietstock, re: Hòa Bình '
-                          'Corp/HBC) and real-estate press, both independently naming "11D Thi Sách, Q.1, TP.HCM." '
-                          'Verified by web research 2026-09-17.'),
-    dict(name='A&K Tower', nfa=64124.00, units=1155, total_units=1162,
-         mgmt_rate=None, mgmt_rate_vat=None,
-         source='TotalNFA: Dim_Property_v2_verified.csv. Uses "Info "/"Master Info" sheet layout, not "0. Info"; '
-                'no per-m² rate parsed yet.',
-         district='Thuận An', city='Hồ Chí Minh',
-         location_source='An Phú 17 Street, An Phú Ward, Thuận An (pre-2025-merger Bình Dương province, now part '
-                          'of Hồ Chí Minh City) — developer OBC Holdings. Corroborated by an exact match on unit '
-                          'count (1,155 apartments) and by the project\'s own materials naming Savills as '
-                          'development/operating partner. District kept at the old Thuận An granularity to match '
-                          'this column\'s convention elsewhere (e.g. "Nhơn Trạch"); city set to the current '
-                          'post-merger name, consistent with Green Skyline\'s city below. Verified by web research '
-                          '2026-09-17.'),
-    dict(name='Lumi Prestige & Elite', nfa=124954.90, units=1575, total_units=1600,
-         mgmt_rate=21000, mgmt_rate_vat='excl. VAT',
-         source='NFA: "0. Info" sheet, "Các loại hình sản phẩm" (product-types) subtotal row — Apartment+Shophouse, '
-                'NOT the 134,117 grand total (that included parking; fixed 2026-08-13). Rate: same sheet, row "Apartment".',
-         district='Nam Từ Liêm', city='Hà Nội',
-         location_source='Matches CapitaLand\'s "Lumi Hanoi" megaproject, Tây Mỗ Ward, Nam Từ Liêm, Hà Nội — its '
-                          'phase 2 ("Lumi Prestige", 4 towers) is reported at exactly 1,600 units, matching '
-                          'total_units here exactly. This is genuinely Hà Nội, not Hồ Chí Minh City like every '
-                          'other entry in this file — a real, confirmed exception, not a data-entry slip. "& Elite" '
-                          'is not independently confirmed (may be an internal sub-phase label); the "Lumi Prestige" '
-                          'identification itself is high-confidence. Verified by web research 2026-09-17.',
-         excluded_from_ranking='Hà Nội is a different city from Hồ Chí Minh and its neighboring provinces — '
-                                'every other property in this pool is HCMC-metro (HCMC, Bình Dương/Dĩ An/Thuận An, '
-                                'Đồng Nai, Bà Rịa-Vũng Tàu). A Hà Nội management-fee rate has no bearing on an '
-                                'HCMC-area property (your instruction, 2026-09-17: "they are 2 separated city"). '
-                                'Kept in this list (not deleted) because the NFA/rate/source data above is real '
-                                'and may be useful if this pipeline ever prices a genuine Hà Nội project — see '
-                                '_merge_comparables(), which is what actually keeps it out of MASTER_COMPARABLES.'),
-    dict(name='Lumi Signature', nfa=184707.00, units=2375, total_units=2410,
-         mgmt_rate=17000, mgmt_rate_vat='excl. VAT',
-         source='NFA: "0. Info" sheet, "Các loại hình sản phẩm" (product-types) subtotal row — Apartment+Shophouse, '
-                'NOT the 195,269 grand total (that included parking; fixed 2026-08-13). Rate: same sheet, row "Apartment".',
-         district='Nam Từ Liêm', city='Hà Nội',
-         location_source='Same CapitaLand "Lumi Hanoi" megaproject as Lumi Prestige above — its phase 1 ("Lumi '
-                          'Signature", 5 towers). No official total-unit figure found; ~2,400 units estimated '
-                          '(4,000 project total minus Prestige\'s 1,600) is within 0.4% of total_units here (2,410), '
-                          'supporting the match. Also genuinely Hà Nội, not HCMC. Verified by web research '
-                          '2026-09-17.',
-         excluded_from_ranking='Same reason as Lumi Prestige & Elite above — see that entry.'),
-    dict(name='Green Skyline', nfa=92100.09, units=1251, total_units=1297,
-         mgmt_rate=15000, mgmt_rate_vat='incl. VAT',
-         source='NFA: "0. Info" sheet, "Các loại hình sản phẩm" (product-types) subtotal row — Apartment+Shophouse+'
-                'Nursery, NOT the 99,252 grand total (that included parking; fixed 2026-08-13). Rate: same sheet, row "Apartment".',
-         district='Dĩ An', city='Hồ Chí Minh',
-         location_source='Full address (Dim_Property_Residential.csv) plus multiple independent developer/listing '
-                          'sites confirm Đông Hòa Ward, Dĩ An City, pre-2025-merger Bình Dương province, now part '
-                          'of Hồ Chí Minh City. District hardcoded here at the old Dĩ An granularity (this column\'s '
-                          'convention); city hardcodes the same post-merger value _merge_comparables() already '
-                          'derived at runtime from Fact_ProjectLocation.csv (there spelled "Ho Chi Minh City" in '
-                          'English; normalized to "Hồ Chí Minh" here to match this column\'s Vietnamese convention '
-                          'elsewhere). Verified by web research 2026-09-17.'),
-    dict(name='Fiato Airport - F Zone G2', nfa=35836.27, units=393, total_units=432,
-         mgmt_rate=None, mgmt_rate_vat=None,
-         source='TotalNFA: Dim_Property_v2_verified.csv. Uses "Master Info (Fiato)" sheet layout, not "0. Info"; '
-                'no per-m² rate parsed yet.',
-         district='Nhơn Trạch', city='Đồng Nai',
-         location_source='"Fiato Airport City," Tôn Đức Thắng St., Nhơn Trạch, Đồng Nai (near the new Long Thành '
-                          'airport, not Tân Sơn Nhất) — multiple listings describe it as "Chung cư G2, F," matching '
-                          'both this entry\'s and the MF Pre/Y1/Y2 entry\'s "F Zone" naming. Verified by web '
-                          'research 2026-09-17.'),
-    dict(name='Fiato Airport - F Zone MF Pre/Y1/Y2', nfa=35836.27, units=393, total_units=469,
-         mgmt_rate=18000, mgmt_rate_vat='excl. VAT',
-         source='TotalNFA reused from F Zone G2 (same physical apartment building, different budget-phase file — '
-                'not independently re-verified for this file). Rate: "0. Info" sheet, row "Apartment", read 2026-08-12.',
-         district='Nhơn Trạch', city='Đồng Nai',
-         location_source='Same physical building as F Zone G2 above — see that entry for the location evidence. '
-                          'Verified by web research 2026-09-17.'),
-    # Parking Building excluded: no apartment product (its own Info sheet shows 0 for every
-    # apartment field), so it can never be a meaningful comparable.
-]
+# The hand-verified comparables come from the reference-project registry
+# (data/master_list_verified/Dim_ReferenceProject.csv, change reference-projects-by-key): one row per real budget the
+# tool prices from, identified by a stable key (R01, R02, ...). The registry's TotalNFA is whole-building NFA on the
+# product-types subtotal where the source "0. Info" sheet gave one; mgmt_rate/mgmt_rate_vat were read from the
+# "Apartment" row of that sheet. 'rates' always has just {'Apartment': mgmt_rate}: the Info sheets were read for their
+# Apartment row only; whether they also had Officetel/Shophouse rows was never checked, so those stay unpopulated.
+# The registry is the only place the code learns these projects' names; on the office data they are the real names,
+# in a site package they are pseudonyms, and nothing here depends on which.
+HAND_VERIFIED_COMPARABLES = reference_projects.hand_verified_comparables()
 for _c in HAND_VERIFIED_COMPARABLES:
     _c['rates'] = {'Apartment': _c['mgmt_rate']}
-    # These are the only 8 properties with a real detailed budget workbook behind them
-    # (Dim_Property_v2_verified.csv — 7 here + Parking Building, excluded above) — everything
-    # else in MASTER_COMPARABLES is Master-List: auto-scraped, filtered to "parses cleanly", never
-    # individually checked against a source document. Marked here so nearest_comparables() can
-    # prefer these 8 within a tier (task 8.1, rank-comparables-by-location, 2026-09-17 — your rule).
+    # The only properties with a real detailed budget workbook behind them; everything else in MASTER_COMPARABLES is
+    # Master-List: auto-scraped, filtered to "parses cleanly", never individually checked against a source document.
+    # Marked so nearest_comparables() can prefer them within a tier (task 8.1, rank-comparables-by-location,
+    # 2026-09-17, the user's rule).
     _c['hand_verified'] = True
-# All 7 now carry a real, sourced district/city (see each entry's location_source) — backfilled
-# 2026-09-17 per task 6.1 of rank-comparables-by-location, by web research against each named
-# building, never inferred from the project name alone. Two entries (Lumi Prestige & Elite, Lumi
-# Signature) are genuinely in Hà Nội, not HCMC — real, confirmed exceptions in this otherwise
-# HCMC-metro comparable pool.
+# Every row carries a real, sourced district/city (the registry's LocationSource column), backfilled 2026-09-17 per
+# task 6.1 of rank-comparables-by-location by web research against each building, never inferred from the project
+# name alone. Two rows are genuinely in Hà Nội, not HCMC: real, confirmed exceptions in this otherwise HCMC-metro pool,
+# kept out of the ranking by their ExcludedFromRanking reason (see _merge_comparables()).
 
 
 def _load_master_list_comparables():
@@ -283,14 +204,14 @@ def _merge_comparables():
     a city yet — never overwrites an existing value, and never touches `district` (see
     _load_project_locations()'s own docstring on why ward can't just become district). Verified
     2026-09-16: raises "has a real district or city" coverage on the live ranking pool from 63/85
-    (74%) to 79/85 (93%); the 7 hand-verified comparables get exactly one hit (Green Skyline) — the
+    (74%) to 79/85 (93%); the 7 hand-verified comparables get exactly one hit (R05) — the
     other 6 still need task 6.1's human backfill, unchanged by this. `ward`/`lat`/`lon` are stored on
     every matched candidate regardless of whether city was already known, so a future ward-level tier
     decision has the data already loaded rather than needing a second file read.
 
     Drops any `HAND_VERIFIED_COMPARABLES` entry carrying `excluded_from_ranking` (task 8.5,
-    2026-09-17 — your instruction: Hà Nội and Hồ Chí Minh "are 2 separated city") — Lumi Prestige &
-    Elite and Lumi Signature stay in HAND_VERIFIED_COMPARABLES itself (real, sourced data, kept for
+    2026-09-17 — your instruction: Hà Nội and Hồ Chí Minh "are 2 separated city") — registry rows R03
+    and R04 stay in HAND_VERIFIED_COMPARABLES itself (real, sourced data, kept for
     the record) but never reach MASTER_COMPARABLES, so nearest_comparables() can never select them
     for any project, verified-priority or not."""
     hand_verified_names = {c['name'].strip().lower() for c in HAND_VERIFIED_COMPARABLES}
@@ -316,7 +237,7 @@ def _merge_comparables():
 MASTER_COMPARABLES = _merge_comparables()
 
 # Flat citywide rates — Fact_MasterRateCard.csv has exactly ONE row each for these, not
-# project-keyed. Earlier framing in this session called these "A&K Tower's rate", which
+# project-keyed. Earlier framing in this session called these "the utilities base project's rate", which
 # overstated precision — they're the same number for every project, real but not comparable-specific.
 SECURITY_RATE_CITYWIDE = 17_500_000   # VND/position/month — Service/Security "24/24 position (all roles)"
 CLEANING_RATE_CITYWIDE = 8_000_000    # VND/position/month — Service/Cleaning "8/24 position (all roles)"
@@ -488,7 +409,7 @@ def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, 
     verified projects when both are in range"). Verified-status is checked AFTER the coordinate
     precision bucket, not before it: a first draft of this put it before, which let a hand-verified
     candidate with NO coordinates outrank a real, close, non-verified one purely on verified-status —
-    concretely, it let two coordinate-less Hà Nội projects (Lumi Prestige & Elite, Lumi Signature) beat
+    concretely, it let two coordinate-less Hà Nội projects (registry rows R03, R04) beat
     a master-list HCMC project sitting 0.08km from a real HCMC query with a real Apartment rate. That
     would have reversed task 2.4's "prefer the more precise measure" principle rather than refining it,
     and since both of derive_product_rate_capped()'s two branches would have agreed on the same
@@ -509,8 +430,10 @@ def nearest_comparables(input_nfa, exclude_name=None, n=2, input_district=None, 
     if no project ever had coordinates. This is the one switch: DISTANCE_TIER_KM, MAX_DISTANCE_RATE_SWING,
     _haversine_km(), and derive_product_rate_capped()'s cap logic are all untouched and resume exactly
     where they left off the moment this flag goes back to True."""
+    exclude_key = reference_projects.key_for_name(exclude_name) if exclude_name else None
     candidates = [c for c in MASTER_COMPARABLES
-                  if not (exclude_name and c['name'].strip().lower() in exclude_name.strip().lower())]
+                  if not (exclude_key and c.get('key') == exclude_key)
+                  and not (exclude_name and c['name'].strip().lower() in exclude_name.strip().lower())]
     input_has_coords = DISTANCE_COMPARISON_ENABLED and input_lat is not None and input_lon is not None
 
     def sort_key(c):
@@ -540,7 +463,7 @@ class VatBasisError(ValueError):
 
 
 def load_vat_basis(path=None):
-    """{(project name casefolded, product): 'incl' | 'excl'} from the hand-checked table (change
+    """{(RefKey or project name casefolded, product): 'incl' | 'excl'} from the hand-checked table (change
     apply-head-of-pm-decisions-2026-10, group 4, decision D8/M2-a). A missing file gives an empty table, so every
     comparable is then treated as including VAT and flagged. A row with an unknown basis or no source stops."""
     path = path or COMPARABLE_VAT_BASIS_CSV
@@ -563,13 +486,19 @@ def load_vat_basis(path=None):
             if not (r['source_text'] or '').strip():
                 raise VatBasisError(f'Ref_ComparableVATBasis.csv row {row_no} ({key}, {product}): source_text is blank. '
                                     f'Every entry needs its source.')
+            ref_key = (r.get('RefKey') or '').strip()
+            if ref_key:
+                table[(ref_key, product)] = basis
             table[(key.casefold(), product)] = basis
     return table
 
 
 def vat_basis_of(vat, comparable, product):
     """'incl', 'excl' or None (not in the table) for a comparable and product. `vat` is dict(pct=..., table=...)."""
-    return (vat or {}).get('table', {}).get((comparable['name'].strip().casefold(), product))
+    table = (vat or {}).get('table', {})
+    if comparable.get('key') and (comparable['key'], product) in table:
+        return table[(comparable['key'], product)]
+    return table.get((comparable['name'].strip().casefold(), product))
 
 
 def _on_incl_vat(vat, comparable, product, rate):

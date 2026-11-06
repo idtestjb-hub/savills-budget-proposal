@@ -152,9 +152,9 @@ _RATIO_NOTE = ('Formula-driven from Roster Setup!Staffing Ratios — an editable
                'benchmark (no dataset joins staff headcount to property scale for the same properties; see '
                'Fact_Dim_Master_Mapping.md). Adjust the ratio in Roster Setup, not this cell, to change the suggestion.')
 
-# Added after scanning A&K Tower's real file directly: its own staffing plan (sheet "A2.2 Staff
+# Added after scanning the utilities base project's real file directly: its own staffing plan (sheet "A2.2 Staff
 # cost") has Property Manager, Technician (shift-based, Morning/Afternoon/Night), and Pool/Amenities
-# Attendant (2 shifts, pool closed Mondays per A&K's own ops note) — none of which this template had
+# Attendant (2 shifts, pool closed Mondays per its own ops note) — none of which this template had
 # before, even though real portfolio-wide rates for all three already exist in Fact_MasterRateCard.csv's
 # Staff domain (built by build_master_rate_card.py, just never wired into this template). Rates below
 # use the Staff domain's own English-labeled rows for Property Manager/Pool Attendant, and the
@@ -183,7 +183,7 @@ _POOL_ATTENDANT_MONTHLY = 7_166_250  # Fact_MasterRateCard.csv, Staff domain, "G
 _POOL_ATTENDANT_DAILY = round(_POOL_ATTENDANT_MONTHLY / _WORKDAYS_PER_MONTH, -3)
 _POOL_ATTENDANT_NOTE = (
     f'Source: Fact_MasterRateCard.csv, Staff domain, "Gym - Pool Attendant" row — {_POOL_ATTENDANT_MONTHLY:,} VND/month '
-    f'(real, n=1) ÷ {_WORKDAYS_TEXT} ≈ {_POOL_ATTENDANT_DAILY:,.0f}/day. A&K Tower\'s own real staffing plan runs this '
+    f'(real, n=1) ÷ {_WORKDAYS_TEXT} ≈ {_POOL_ATTENDANT_DAILY:,.0f}/day. The utilities base project\'s own real staffing plan runs this '
     f'role 2 shifts (Morning/Afternoon), pool closed Mondays — modeled here as 6-day coverage, but this template\'s '
     f'day-off convention is always Sunday (same as every other <7-day role) — it does NOT reproduce the real Monday '
     f'closure; edit by hand if that specific fidelity matters. Delete both rows if Project Info!B29 = No.'
@@ -191,7 +191,7 @@ _POOL_ATTENDANT_NOTE = (
 
 # Added after re-scanning ALL 8 real project files' own staffing sheets AND the portfolio-wide
 # reports/Project_Detail_Lists.xlsx ("Staff Positions by Project", 88 distinct real properties) —
-# not just A&K this time. Ranked every distinct position by how many of the 88 properties actually
+# not just the utilities base project this time. Ranked every distinct position by how many of the 88 properties actually
 # have it (breadth of real adoption, not just headcount), then picked the 5 clearly-operational,
 # building-level roles that rank highest and were still missing: Chief Engineer (62/88 — more
 # common than Property Manager itself), Shift Leader (48/88), Customer Service (40/88 — a distinct,
@@ -282,7 +282,7 @@ EXAMPLE_DEMAND = [
     ('Shift Leader (Afternoon)', 'C', 0, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
     ('Shift Leader (Night)', 'D', 0, 7, _SHIFT_LEADER_DAILY, _SHIFT_LEADER_NOTE),
     # Per-shift lifeguard count from pool water-surface area (statutory ratio, see _POOL_M2_PER_LIFEGUARD).
-    # Falls back to 1 — A&K Tower's own real pattern — when Pool Area is not supplied, matching how
+    # Falls back to 1 — the utilities base project's own real pattern — when Pool Area is not supplied, matching how
     # ESM4 falls back when Pool Volume is unknown. Two rows = two shifts, so the ratio applies per shift.
     ('Pool Attendant (Morning)', 'S',
      f'=IF({_POOL_AREA}>0,ROUNDUP({_POOL_AREA}/{_POOL_M2_PER_LIFEGUARD},0),1)', 6,
@@ -850,7 +850,7 @@ def main(force=False):
     c_address = labeled_input(ws1, 16, 'Street Address — leave blank if unknown', None)
     c_address.alignment = LEFT
     c_address.comment = Comment(
-        "Free text (e.g. \"11D Thi Sách, Bến Nghé, District 1\"). Printed on the deliverable as a "
+        "Free text (e.g. \"12 Đường Lớn, Bến Nghé, District 1\"). Printed on the deliverable as a "
         "citation only — does NOT feed District/City/Latitude/Longitude above or comparable "
         "matching; this pipeline has no address lookup or mapping capability. Fill in District/City "
         "(and Latitude/Longitude if known) separately for those to take effect.",
@@ -957,7 +957,7 @@ def main(force=False):
         "used before 2026-08-28 (Savills keeping 100% of the collected management fee, which "
         "double-counts against the real staff/OPEX/Capex costs the fee is meant to cover). Fill in "
         "ONE of these two fields once the real contract is known — a fixed VND/month amount EXCLUDING "
-        "VAT (the generator adds each budget month's VAT; e.g. Green Skyline's real 88,000,000/month), "
+        "VAT (the generator adds each budget month's VAT; e.g. one reference project's real 88,000,000/month), "
         "or a % of the full management fee (residents plus the developer's top-up, already incl. VAT, "
         "so no VAT is added) — never both at once.")
     # Two separate Comment instances, not one shared object — openpyxl comments track their own
@@ -1035,7 +1035,7 @@ def main(force=False):
         "value also carry a full lump sum (equipment bought again); this year and every year after "
         "it carry the derived ongoing reserve contribution instead. Default (blank): Year 2 — what "
         "3 of the 4 real reference projects behind the derived rate actually do. Enter 3 or 4 if "
-        "this project's own replacement cycle is known to be longer (Green Skyline, one of those "
+        "this project's own replacement cycle is known to be longer (registry row R05, one of those "
         "four, repeats a full purchase in Year 2 and drops in Year 3 — costs ~290M VND differently "
         "from the default on that shape of project). Year 1 cannot be entered here — it always "
         "carries the full lump sum.",

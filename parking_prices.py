@@ -34,8 +34,8 @@ MASTER_CSV = os.path.join(os.path.dirname(SOURCE_DIR), 'data', 'master_list_veri
 MIN_PROJECTS = rbr.MIN_PROJECTS
 IQR_K = rbr.IQR_K
 
-# Real, from A&K Tower's own "B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B (its proposed price, informed by six
-# comparables in Section A). The last resort when the range cannot be formed.
+# Real, from the utilities base project's own "B2.8 Đơn giá gửi xe-Parking pr" sheet, Section B (its proposed price,
+# informed by six comparables in Section A). The last resort when the range cannot be formed.
 DEFAULTS = {'car': 1_100_000, 'moto': 110_000}
 VEHICLES = {
     'car': dict(column='CarParkingFee_raw', lo=300_000, hi=5_000_000, vi='ô tô', code='RP2'),
@@ -223,5 +223,5 @@ def source_label_en(entry):
                 f'(master list, incl. VAT, as quoted; P25–P75 {pr.p25:,.0f}–{pr.p75:,.0f}; {pr.n_price} rows with a '
                 f'price, {len(pr.left_out)} left out).')
     pr = entry['range']
-    return (f'Former constant (A&K Tower\'s proposed price): the portfolio range could not be formed '
+    return (f'Former constant (the utilities base project\'s proposed price): the portfolio range could not be formed '
             f'({pr.n_used} usable price(s), floor {MIN_PROJECTS}).')

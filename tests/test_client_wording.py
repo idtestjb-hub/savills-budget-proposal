@@ -76,11 +76,12 @@ def test_name_list_filters_short_and_generic_names(tmp_path):
 
 
 def test_pool_client_wording_names_no_project():
+    # The base's name comes from the registry at run time (change reference-projects-by-key); an invented one here.
     for volume in (None, 440):
-        entry = estimate_opex._pool_salt(volume, 3_000_000)
+        entry = estimate_opex._pool_salt(volume, 3_000_000, base_name='Tháp Thử Nghiệm')
         client = entry['method_client' if volume is None else 'method'] + entry['source_client']
-        assert 'A&K' not in client and 'dự án tham chiếu' in client
-        assert 'A&K' in entry['source']                 # the analysis keeps the named source
+        assert 'Tháp Thử Nghiệm' not in client and 'dự án tham chiếu' in client
+        assert 'Tháp Thử Nghiệm' in entry['source']     # the analysis keeps the named source
 
 # ---- task 9.2: the client Comparison sheet carries nothing past column B (D14) ----
 def _comparison(**cells):

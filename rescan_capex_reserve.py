@@ -27,6 +27,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import reference_projects  # noqa: E402
+
 BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))          # Budget_Agent/
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SOURCE_DIR = os.path.join(PROJECT_ROOT, 'input', 'budget_planning')
@@ -119,6 +122,7 @@ def scan():
                 'ImpliedRateAnnualised': round((later / y1_h) * (12.0 / months), 6),
                 'SourceFile': name,
                 'ExtractedOn': today,
+                'RefKey': reference_projects.key_for_name(name.replace('__repaired.xlsx', '').replace('.xlsx', '')) or '',
             })
         wb.close()
     return rows

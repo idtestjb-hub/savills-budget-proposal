@@ -137,7 +137,7 @@ def lunar_to_solar(lunarD, lunarM, lunarY, lunarLeap, timeZone=7):
 # --- Statutory holidays, Labour Code 2019 Article 112 ---------------------------------------
 # 11 days: New Year 1, Tet 5, Hung Kings 1, Reunification 1, Labour 1, National Day 2.
 # The 2027 Resi template's own Allowance sheet assumes 12 (H6=353=365-12, L6=12, P6=12) while
-# Green Skyline's assumes 11. Article 112 says 11, and that is what this returns.
+# one project's assumes 11. Article 112 says 11, and that is what this returns.
 TET_DAYS = 5          # Article 112: "Tet Am lich: 05 ngay"
 TET_LEAD_DAYS = 1     # the block conventionally opens on New Year's Eve (30 Tet); the exact
                       # split of the 5 days across the year boundary is set by the annual

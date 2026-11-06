@@ -226,12 +226,14 @@ Cho các dự án không có mạng nội bộ, không chắc có Python hay quy
   launcher `.cmd` và `HUONG-DAN.txt`. `--check`: Python trong gói import đủ module, đọc được file đã duyệt bằng
   `review_import`, quét gói không chứa tên người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI, in kích thước.
   `--check-only <gói>` chỉ kiểm.
-  **Dữ liệu trong gói** (change `site-data-isolation`, 05/11/2026): không chép cả `data\`, mà `site_data.build` chỉ chép 14
+  **Dữ liệu trong gói** (change `site-data-isolation`, 05/11/2026): không chép cả `data\`, mà `site_data.build` chỉ chép 15
   file một lượt Review thực sự đọc (`site_data.KEEP`, đo bằng vết mở file) và ẩn danh 5 file có tên dự án khác: tên thành
   "Dự án tham chiếu NN" (cùng mã ở mọi file), địa chỉ / tên file nguồn / cột `_raw` xoá trắng, số giữ nguyên để công cụ ra
-  cùng số như trên Hub. Giữ nguyên tên của chính dự án và các tên nằm trong code (`master_comparables.HAND_VERIFIED_COMPARABLES`,
-  A&K Tower, Parking Building). `--check` còn quét gói (file văn bản và ô chữ Excel, trừ `python\`) theo mọi tên trong hai
-  danh sách master và tên file kho quét (`--store`, mặc định kho `final_v4` trong `Savills-local`); có tên là gói không đạt. Kiểm tra 05/11/2026 trên một dự án mẫu: 80 MB (runtime 72, app 7, site 2), import OK,
+  cùng số như trên Hub. Chỉ giữ nguyên tên của chính dự án; 8 dự án tham chiếu của phương pháp cũng đổi mã (change
+  `reference-projects-by-key`, 06/11/2026: code tra theo `RefKey` trong file đăng ký `Dim_ReferenceProject.csv`, mọi biến
+  thể tên của một mã nhận cùng một "Dự án tham chiếu NN"). `--check` còn quét gói (file văn bản và ô chữ Excel, trừ `python\`) theo mọi tên trong hai
+  danh sách master tên và biến thể tên trong file đăng ký, và tên file kho quét (`--store`, mặc định kho `final_v4` trong
+  `Savills-local`); có tên là gói không đạt. Kiểm tra 05/11/2026 trên một dự án mẫu: 80 MB (runtime 72, app 7, site 2), import OK,
   quét sạch.
 - **Ở site:** `Chay Budget Agent.cmd` chạy `webapp\start_site.py`: đặt `BUDGET_WEB_AUTH=off`, `BUDGET_WEB_SITE=<gói>\site`,
   runs và tmp trong gói, chọn cổng trống từ 8090 (ghi `tmp\port.txt`), chạy uvicorn ngay trong tiến trình và mở trình

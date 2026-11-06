@@ -43,13 +43,24 @@ def data(tmp_path):
          ['ObservationType', 'Project', 'Year1Sheet', 'ImpliedRateAnnualised', 'SourceFile'],
          [['reserve', '202602 - Budget Tháp Mây Xanh', '2a.Budget-MF', '0.11', '202602 - Budget Tháp Mây Xanh.xlsx']])
     _csv(str(src / 'generation_A_star_schema' / 'Fact_OPEX.csv'),
-         ['Project', 'Category', 'MonthlyVND', 'Source'],
-         [['A&K Tower', 'Electricity', '262210141', 'D3a sheet'], ['Parking Building', 'Water', '100', 'D2 sheet']])
+         ['Project', 'Category', 'MonthlyVND', 'Source', 'PriceAsOf', 'RefKey'],
+         [['A&K Tower', 'Electricity', '262210141', 'D3a sheet', '~2020 (AK Tower budget)', 'R02'],
+          ['Bãi Xe Thử', 'Water', '100', 'D2 sheet', '2026-01-01', 'R08']])
     _csv(str(src / 'master_list_verified' / 'Ref_ComparableVATBasis.csv'),
-         ['project_key', 'product', 'basis', 'source_text', 'checked_on'],
-         [['A&K Tower', 'Apartment', 'excl', 'Hand-verified', '2026-10-18']])
+         ['project_key', 'product', 'basis', 'source_text', 'checked_on', 'RefKey'],
+         [['A&K Tower', 'Apartment', 'excl', 'Hand-verified', '2026-10-18', 'R02']])
     _csv(str(src / 'master_list_verified' / 'Dim_Property_Commercial.csv'), ['PropertyType', 'Name'],
          [['Commercial', 'Văn Phòng Đỏ'], ['Commercial', 'AIG']])
+    # Reference-project registry: the utilities base is spelled two ways across the files ('A&K Tower' in the master
+    # list, OPEX and VAT files; 'AK Tower' as an alias) and must get ONE pseudonym (change reference-projects-by-key).
+    _csv(str(src / 'master_list_verified' / 'Dim_ReferenceProject.csv'),
+         ['RefKey', 'DisplayName', 'Aliases', 'TotalNFA_m2', 'CapexNFA_m2', 'ApartmentUnits', 'TotalUnits',
+          'MgmtRate_VND_m2_month', 'MgmtRateVAT', 'District', 'City', 'Comparable', 'ExcludedFromRanking', 'Roles',
+          'Source', 'LocationSource', 'VerifiedOn'],
+         [['R02', 'A&K Tower', 'AK Tower', '64124', '64124', '1155', '1162', '', '', 'Quận 1', 'Hồ Chí Minh', '1', '',
+           'utilities_base|capex_items', 'Info sheet of A&K Tower', 'Street of A&K Tower, verified', '2026-09-17'],
+          ['R08', 'Bãi Xe Thử', '', '', '', '0', '0', '', '', '', '', '0', 'no apartments', 'parking_base', 'src', '', '2026-09-17']],
+         comments=['# Reference-project registry (test)\n'])
     for rel in sd.KEEP:
         p = src.joinpath(*rel.split('/'))
         if not p.exists():
@@ -65,7 +76,7 @@ def test_keep_files_exist_in_the_real_data_folder():
 
 def test_build_copies_only_keep_files_and_masks_names_consistently(data, tmp_path):
     dst = tmp_path / 'pkg_data'
-    out = sd.build(str(data), str(dst), own_names=['Khu Thu Nghiem'], keep_names=['A&K Tower', 'Parking Building'])
+    out = sd.build(str(data), str(dst), own_names=['Khu Thu Nghiem'])
     assert sorted(out['copied']) == sorted(sd.KEEP)
     walked = sorted(os.path.relpath(os.path.join(d, f), dst).replace(os.sep, '/') for d, _, fs in os.walk(dst) for f in fs)
     assert walked == sorted(sd.KEEP)                                     # Dim_Property_Commercial.csv is not in the package
@@ -73,11 +84,20 @@ def test_build_copies_only_keep_files_and_masks_names_consistently(data, tmp_pat
     head, rows = res[0], res[1:]
     by = {r[head.index('Name')]: r for r in rows}
     assert 'Tháp Mây Xanh' not in by and 'Biệt Thự Sông' not in by
-    assert 'KHU THU NGHIEM' in by and 'A&K Tower' in by                   # own project and code names kept
-    p1 = next(n for n in by if n.startswith('Dự án tham chiếu'))
+    assert 'KHU THU NGHIEM' in by and 'A&K Tower' not in by               # own project kept, the reference budget masked
+    ak = out['pseudonyms'][sd.norm('A&K Tower')]
+    assert ak == out['pseudonyms'][sd.norm('AK Tower')] == 'Dự án tham chiếu 01'   # one code for both spellings, assigned first
+    assert by[ak][head.index('NFA_m2')] == '64124' and by[ak][head.index('Address_Raw')] == ''
+    p1 = next(n for n in by if n.startswith('Dự án tham chiếu') and n != ak)
     r = by[p1]
     assert r[head.index('Address_Raw')] == '' and r[head.index('Street')] == '' and r[head.index('NFA_raw')] == ''
     assert r[head.index('NFA_m2')] in ('50000', '20000') and r[head.index('District')] in ('Quận 1', 'Thủ Đức')
+    reg = _read(str(dst / 'master_list_verified' / 'Dim_ReferenceProject.csv'))
+    rh, rrows = reg[0], {r[0]: r for r in reg[1:]}
+    assert rrows['R02'][rh.index('DisplayName')] == ak and rrows['R02'][rh.index('Aliases')] == ''
+    assert rrows['R02'][rh.index('Source')] == '' and rrows['R02'][rh.index('LocationSource')] == ''
+    assert rrows['R02'][rh.index('TotalNFA_m2')] == '64124' and rrows['R02'][rh.index('Roles')] == 'utilities_base|capex_items'
+    assert rrows['R08'][rh.index('DisplayName')].startswith('Dự án tham chiếu')
     loc = _read(str(dst / 'master_list_verified' / 'Fact_ProjectLocation.csv'))
     names = {r[0] for r in loc[1:]}
     assert out['pseudonyms'][sd.norm('Tháp Mây Xanh')] in names        # same code in both files
@@ -88,18 +108,20 @@ def test_build_copies_only_keep_files_and_masks_names_consistently(data, tmp_pat
     capex = _read(str(dst / 'generation_A_star_schema' / 'Fact_CapexReserve.csv'))
     assert capex[1][1].startswith('Dự án tham chiếu') and capex[1][4] == '' and capex[1][3] == '0.11'
     opex = _read(str(dst / 'generation_A_star_schema' / 'Fact_OPEX.csv'))
-    assert [r[0] for r in opex[1:]] == ['A&K Tower', 'Parking Building'] and opex[1][3] == ''
+    assert opex[1][0] == ak and opex[2][0] == rrows['R08'][rh.index('DisplayName')] and opex[1][3] == ''
+    assert opex[1][4] == f'~2020 ({ak} budget)' and opex[2][4] == '2026-01-01'   # name inside a text column replaced
     vat = _read(str(dst / 'master_list_verified' / 'Ref_ComparableVATBasis.csv'))
-    assert vat[1][0] == 'A&K Tower' and vat[1][3] == 'Hand-verified'      # the validator needs source_text
+    assert vat[1][0] == ak and vat[1][3] == 'Hand-verified'               # the validator needs source_text
 
 
 def test_leak_words_and_find_leaks(data, tmp_path):
     store = tmp_path / 'store'
     _csv(str(store / 'dim_file.csv'), ['file_id', 'file_name'], [['abc', 'Budget 2026 Sao Mai_rv1.xlsx'], ['def', 'Budget 2026 Khu Thu Nghiem.xlsx'], ['ghi', 'NGÂN SÁCH NĂM 2026 (final).xlsx']])
-    words = sd.leak_words(str(data), own_names=['Khu Thu Nghiem'], store_dir=str(store), keep_names=['A&K Tower', 'Parking Building'])
+    words = sd.leak_words(str(data), own_names=['Khu Thu Nghiem'], store_dir=str(store))
     assert 'Tháp Mây Xanh' in words and 'Văn Phòng Đỏ' in words and 'Biệt Thự Sông' in words
     assert 'Budget 2026 Sao Mai_rv1' in words
-    assert 'KHU THU NGHIEM' not in words and 'A&K Tower' not in words and 'AIG' not in words   # own, code, too short
+    assert 'A&K Tower' in words and 'AK Tower' in words and 'Bãi Xe Thử' in words      # registry names and aliases
+    assert 'KHU THU NGHIEM' not in words and 'AIG' not in words                        # own, too short
     assert 'Budget 2026 Khu Thu Nghiem' not in words                                        # own file name in the store
     assert 'NGÂN SÁCH NĂM 2026 (final)' not in words                                        # generic title, no project name
     pkg = tmp_path / 'pkg'
@@ -120,3 +142,14 @@ def test_pseudonyms_are_stable_per_name():
     p = sd.Pseudonyms(keep=['Khu Thu Nghiem'])
     assert p('Tháp A') == 'Dự án tham chiếu 01' and p(' tháp a ') == 'Dự án tham chiếu 01'
     assert p('Tháp B') == 'Dự án tham chiếu 02' and p('KHU THU NGHIEM') == 'KHU THU NGHIEM' and p('') == ''
+
+
+def test_pseudonyms_group_the_name_variants_of_one_reference_project():
+    # rule source: spec budget-site-package, scenario "Own project and coded names" (one code per key, registry first)
+    grouped = {sd.norm('A&K Tower'): 'R02', sd.norm('AK Tower'): 'R02', sd.norm('Bãi Xe Thử'): 'R08',
+               sd.norm('Khu Thu Nghiem'): 'R09'}
+    p = sd.Pseudonyms(keep=['Khu Thu Nghiem'], grouped=grouped)
+    assert p('A&K Tower') == p('ak tower') == 'Dự án tham chiếu 01'
+    assert p('Bãi Xe Thử') == 'Dự án tham chiếu 02'
+    assert p('Khu Thu Nghiem') == 'Khu Thu Nghiem'                     # own project wins over its registry group
+    assert p('Tháp Mới') == 'Dự án tham chiếu 03'                      # other names continue the numbering

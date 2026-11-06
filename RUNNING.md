@@ -424,7 +424,11 @@ OpenSpec, docs and the two build scripts; `data\`; the input form; the 2027 temp
 approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tabs, see `webapp/README.md`) and
 `HUONG-DAN.txt`.
 `--check` imports the modules with the packaged Python, reads the approved budget, and scans the package for the build
-PC's user name, machine name, paths and AI-tool names. The scan store and `input\budget_planning` never go into a package.
+PC's user name, machine name, paths and AI-tool names, and for every other project's name (the two master lists, the
+reference-project registry's names and aliases, the scan store's file names). Inside a package every project other
+than the site's own reads "Dự án tham chiếu NN", the eight reference budgets included (change
+`reference-projects-by-key`): the code joins on `RefKey`, so a pseudonym changes no figure. The scan store and
+`input\budget_planning` never go into a package.
 
 ## Verifying a run
 
@@ -443,6 +447,7 @@ Six reference files, plus the template and your input. This list comes from trac
 |---|---|
 | `data/master_list_verified/Costing_Method_Catalogue.csv` | The costing method and the remark rules for each budget code |
 | `data/master_list_verified/Dim_Property_Residential.csv` | Comparable matching, management-fee rate |
+| `data/master_list_verified/Dim_ReferenceProject.csv` | The reference-project registry: key, display name, aliases, NFA and roles of the eight real budgets the tool prices from (change `reference-projects-by-key`, 2026-11-06). A missing registry stops the run |
 | `data/master_list_verified/Fact_ProjectLocation.csv` | Project locations for ranking comparables |
 | `data/generation_A_star_schema/Fact_OPEX.csv` | Electricity, water, diesel |
 | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` | Capex line items |
@@ -463,6 +468,11 @@ note on that sheet and the run still completes.
 One more file is read only on a fallback path: `data/generation_B_verified/Fact_MasterRateCard.csv`
 supplies a flat Capex price list when no nearest-project item list can be built
 (`load_capex_items()` in `generate_project_output.py`). A normal run does not open it.
+
+`Fact_OPEX.csv`, `Fact_Capex_Rescanned.csv`, `Fact_CapexReserve.csv` and `Ref_ComparableVATBasis.csv` carry a `RefKey`
+column (added once by `migrate_reference_keys.py`, written by the `rescan_*` scripts since); the estimators select rows
+by that key and treat the name columns as labels. `build_reference_registry.py` rebuilds the registry from its
+literal rows and checks that every name in those files resolves to one key; both scripts are office-only.
 
 Everything else in the repository — including the real project budgets under `input/budget_planning/`
 — is not read at runtime. See `docs/06-unread-datasets.md`.

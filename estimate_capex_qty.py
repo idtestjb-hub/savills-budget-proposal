@@ -18,7 +18,7 @@ THE LOGIC, and why it's two numbers, not one:
   a real observed quantity divided by a real verified area — nothing in Study 1 is guessed.
 
   Study 2 (headcount-based, a cross-check only) — computed the SAME way but divided by headcount
-  instead of NFA, anchored on Green Skyline: the ONLY one of the old 8 projects that also has a
+  instead of NFA, anchored on registry row R05: the ONLY one of the old 8 projects that also has a
   real headcount in the new ~150-project Master List (21 staff). n=1. This is returned ALONGSIDE
   Study 1, never blended into it — averaging a 1-data-point ratio into a 5-6-data-point ratio
   would make the result look more confident than either study actually is. Use it as "does Study
@@ -29,7 +29,7 @@ THE LOGIC, and why it's two numbers, not one:
   sub-quantity columns (Required/Standard/Optional) before the TRUE total Quantity column, and
   that ETL read the wrong one; it also double-counted section-header rows as line items, and
   never extracted a 4th sheet category at all ("Capex khu tiện ích" / Amenity Area — every project
-  has one except 11D Thi Sách). rescan_capex_from_source.py re-extracts directly from the source
+  has one except registry row R01). rescan_capex_from_source.py re-extracts directly from the source
   files with a column-detector that finds "Unit Price" by text and takes Quantity/Total as the
   columns immediately left/right of it — true in every layout seen, regardless of how many
   sub-quantity columns precede it. The ratios below come from that corrected extraction
@@ -52,6 +52,8 @@ THE LOGIC, and why it's two numbers, not one:
 import csv
 import os
 
+import reference_projects
+
 # Study 1 — median Qty per 1,000 m² verified TotalNFA, from the old 8 real project files,
 # rescanned directly from source (see rescan_capex_from_source.py). n = how many of those
 # projects have BOTH a real Capex line item in that category AND a clean, hand-verified NFA
@@ -64,7 +66,7 @@ STUDY1_RATIO_PER_1000_NFA = {
     'Amenity Area':  dict(median=0.091, n=5, range=(0.046, 0.251)),
 }
 
-# Study 2 — Qty per Headcount, anchored on Green Skyline only. n=1 everywhere in this dict —
+# Study 2 — Qty per Headcount, anchored on registry row R05 only. n=1 everywhere in this dict —
 # stated explicitly on every returned row rather than left implicit.
 STUDY2_RATIO_PER_HEADCOUNT = {
     'M&E Equipment': dict(ratio=7.286, n=1),
@@ -108,45 +110,65 @@ def estimate_capex_qty(total_nfa_m2, headcount=None):
 RESCANNED_CSV = os.path.join(os.path.dirname(__file__), '..', 'data', 'generation_A_star_schema',
                               'Fact_Capex_Rescanned.csv')
 
-# Verified TotalNFA for the projects that have real Capex line items — same figures as
-# study_capex_qty_estimation.py's VERIFIED_NFA and master_comparables.py's HAND_VERIFIED_COMPARABLES.
-# Fiato 605 reuses Fiato G2's TotalNFA (same physical apartment building, different budget-phase
-# file — not independently re-verified for 605). Parking Building excluded: no apartment product,
-# not a meaningful NFA comparable for a residential prospect.
-VERIFIED_NFA_FOR_ITEMS = {
-    '11d thi sach': 16783.14, 'a&k tower': 64124.00, 'lumi prestige & elite': 134117.40,
-    'lumi signature': 195269.50, 'green skyline': 99252.45,
-    'fiato airport - f zone g2': 35836.27, 'fiato airport - f zone mf pre/y1/y2': 35836.27,
-}
+# The projects whose real Capex line items may be scaled, and the NFA each was measured against, come from the
+# reference-project registry (role capex_items, column CapexNFA_m2). That NFA is the source file's grand total where
+# that is what the study measured, so it can differ from the comparables' product-only TotalNFA for the same project.
+# The parking reference has line items too but no residential NFA, so it carries no capex_items role.
+def _capex_nfa_by_key():
+    return {r['key']: r['capex_nfa'] for r in reference_projects.by_role(reference_projects.ROLE_CAPEX_ITEMS)
+            if r['capex_nfa']}
+
+
+_SKIPPED_REPORTED = set()
 
 
 def _load_rescanned_items():
-    by_project = {}
+    """{RefKey: [rows]} of the priced line items. Rows without a known RefKey are skipped and counted once in the run
+    log (the file is keyed by RefKey since change reference-projects-by-key; the Project column is a label)."""
+    by_key = {}
+    known = set(reference_projects.keys())
+    skipped = 0
     with open(RESCANNED_CSV, encoding='utf-8-sig') as f:
-        for row in csv.DictReader(f):
+        reader = csv.DictReader(f)
+        if 'RefKey' not in (reader.fieldnames or []):
+            raise RuntimeError(f'{os.path.basename(RESCANNED_CSV)} has no RefKey column; run migrate_reference_keys.py.')
+        for row in reader:
             if not row['Qty'] or not row['UnitPrice']:
                 continue
-            by_project.setdefault(row['Project'], []).append(row)
-    return by_project
+            key = (row.get('RefKey') or '').strip()
+            if key not in known:
+                skipped += 1
+                continue
+            by_key.setdefault(key, []).append(row)
+    if skipped and RESCANNED_CSV not in _SKIPPED_REPORTED:
+        _SKIPPED_REPORTED.add(RESCANNED_CSV)
+        print(f'Capex: bỏ qua {skipped} dòng hạng mục không có RefKey trong {os.path.basename(RESCANNED_CSV)}.')
+    return by_key
 
 
 def estimate_capex_items(total_nfa_m2, exclude_name=None):
-    """Real per-item Qty estimate: finds the nearest real project by TotalNFA (among those with
-    real Capex line items) and scales its own real item quantities by the NFA ratio. Returns
-    (items, source_info) — items is a list of dicts (category, item, unit, unit_price, qty,
-    source_project, source_qty, scale_factor); source_info describes which real project was used
-    and why. Returns ([], None) if no candidate is available (e.g. exclude_name matches all of them)."""
-    by_project = _load_rescanned_items()
-    candidates = [(name, VERIFIED_NFA_FOR_ITEMS[name.strip().lower()]) for name in by_project
-                  if name.strip().lower() in VERIFIED_NFA_FOR_ITEMS
-                  and not (exclude_name and name.strip().lower() in exclude_name.strip().lower())]
+    """Real per-item Qty estimate: finds the nearest real project by NFA (among the registry rows with the capex_items
+    role that have line items) and scales its own real item quantities by the NFA ratio. Returns (items, source_info):
+    items is a list of dicts (category, item, unit, unit_price, qty, source_project, source_qty, scale_factor);
+    source_info describes which real project was used (its registry display name and key) and why. Returns ([], None)
+    if no candidate is available (e.g. the project being budgeted is the only candidate). The project being budgeted
+    is excluded by its registry key when `exclude_name` names a reference project, and by display-name substring as
+    before otherwise."""
+    by_key = _load_rescanned_items()
+    nfa_by_key = _capex_nfa_by_key()
+    exclude_key = reference_projects.key_for_name(exclude_name) if exclude_name else None
+    ex = exclude_name.strip().lower() if exclude_name else ''
+    candidates = [(key, nfa_by_key[key]) for key in by_key
+                  if key in nfa_by_key and key != exclude_key
+                  and not (ex and reference_projects.display_name(key).strip().lower() in ex)]
     if not candidates:
         return [], None
-    nearest_name, nearest_nfa = min(candidates, key=lambda c: abs(c[1] - total_nfa_m2))
+    nearest_key, nearest_nfa = min(candidates, key=lambda c: abs(c[1] - total_nfa_m2))
+    nearest_name = reference_projects.display_name(nearest_key)
     scale = total_nfa_m2 / nearest_nfa
 
     items = []
-    for row in by_project[nearest_name]:
+    for row in by_key[nearest_key]:
         source_qty = float(row['Qty'])
         scaled_qty = max(1, round(source_qty * scale)) if source_qty > 0 else 0
         items.append(dict(
@@ -154,7 +176,7 @@ def estimate_capex_items(total_nfa_m2, exclude_name=None):
             unit_price=float(row['UnitPrice']), qty=scaled_qty,
             source_project=nearest_name, source_qty=source_qty,
         ))
-    source_info = dict(source_project=nearest_name, source_nfa=nearest_nfa,
+    source_info = dict(source_project=nearest_name, source_key=nearest_key, source_nfa=nearest_nfa,
                         target_nfa=total_nfa_m2, scale_factor=round(scale, 4))
     return items, source_info
 

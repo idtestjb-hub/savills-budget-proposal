@@ -936,6 +936,8 @@ _PROJECT_NAME_SOURCES = (
     ('generation_A_star_schema/Fact_Capex_Rescanned.csv', 'Project'),
     ('generation_A_star_schema/Fact_CapexReserve.csv', 'Project'),
     ('generation_B_verified/Dim_Property_v2_verified.csv', 'ProjectName'),
+    ('master_list_verified/Dim_ReferenceProject.csv', 'DisplayName'),
+    ('master_list_verified/Dim_ReferenceProject.csv', 'Aliases'),   # '|'-separated name variants
 )
 _GENERIC_NAME_WORDS = {'parking', 'building', 'tower', 'towers', 'block', 'residence', 'residences', 'apartment',
                        'apartments', 'project', 'office', 'area', 'lot', 'house', 'the', 'and'}
@@ -947,8 +949,9 @@ def _norm_name_text(s):
 
 
 def project_names_from_data(data_dir=None):
-    """Every project name the reference data carries (the comparables' master list, the hand-verified comparables,
-    locations, VAT bases, the cost and capital-expenditure tables), normalised (NFC, case-folded, single spaces).
+    """Every project name the reference data carries (the comparables' master list, the reference-project registry's
+    display names and aliases, locations, VAT bases, the cost and capital-expenditure tables), normalised (NFC,
+    case-folded, single spaces).
     Names shorter than four characters, and names made only of generic words, are left out."""
     import csv
     data_dir = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -959,14 +962,9 @@ def project_names_from_data(data_dir=None):
             with open(os.path.join(data_dir, *rel.split('/')), encoding='utf-8-sig') as fh:
                 for rec in csv.DictReader(ln for ln in fh if not ln.startswith('#')):
                     if rec.get(col):
-                        raw.add(rec[col])
+                        raw.update(part for part in rec[col].split('|') if part.strip())
         except OSError:
             continue
-    try:
-        import master_comparables
-        raw.update(c['name'] for c in master_comparables.HAND_VERIFIED_COMPARABLES if c.get('name'))
-    except Exception:
-        pass
     names = set()
     for n in raw:
         n = _norm_name_text(n)
