@@ -30,6 +30,7 @@
 
 ## 4. Close
 
-- [ ] 4.1 Figures: none move (no generator change); state it in the report with the before/after totals of 2.2 and
-  3.3. Sign-off by the user.
+- [x] 4.1 Figures: none move (no generator change); state it in the report with the before/after totals of 2.2 and
+  3.3. Sign-off by the user. (2026-11-09, P28: fund totals before/after the button equal to the VND on both funds;
+  the user asked to archive after that report)
 - [x] 4.2 `python verification/verify.py` from `Budget_Agent/source_code/` passes (2026-11-09, P28: PASS)
