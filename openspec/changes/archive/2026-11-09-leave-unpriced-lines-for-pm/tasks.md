@@ -42,4 +42,4 @@
   remarks that changed; summary in `Savills-local\backups\budget-agent\<date>-pm-filled-lines-measure`
 - [x] 6.2 Re-record baselines only where cells changed from 0 to blank; tests + verify.py PASS
 - [x] 6.3 docs/32 (sheet 4 PM rows), webapp README, RUNNING.md note; project-status
-- [ ] 6.4 PM sign-off on the before/after and on ESR (no sheet-4 row, design risk)
+- [x] 6.4 PM sign-off on the before/after (signed off by the user on behalf of the PM, 2026-11-09; ESR has its sheet-4 row)
