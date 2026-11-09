@@ -12,7 +12,8 @@ và trang sơ đồ hệ thống (docs\\so-do-he-thong-budget-agent.html của r
 Dữ kiện mục 2: --facts (JSON {city, district, tower_count, ...}) hoặc điền sẵn từ kho khi có --library-id (lượt trước
 cùng dự án, sheet 0. Info, danh sách master); --city ghi đè / bổ sung Tỉnh / thành phố (bắt buộc để chạy).
 --check: python trong gói import đủ module, đọc được file đã duyệt bằng review_import, quét gói không chứa tên
-người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI. --zip: nén gói thành <out>\\BudgetAgent-<site>.zip.
+người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI. --zip: nén gói thành <out>\\BudgetAgent-<site>.zip;
+--zip luôn chạy bước kiểm của --check và không nén khi kiểm không đạt.
 """
 import argparse
 import datetime
@@ -313,9 +314,16 @@ def main(argv=None):
         print('Chú ý: chưa có Tỉnh / thành phố; PM phải chọn trên trang trước khi chạy.')
     pkg = build(a.site, os.path.abspath(a.prior), os.path.abspath(a.runtime), os.path.abspath(a.out), facts,
                 library_id=a.library_id)
-    ok = check(pkg, _leak_words(a.site, a.store)) if a.check else True
+    # --zip luôn kiểm trước (kể cả khi quên --check); kiểm không đạt thì không nén, để gói rò rỉ không ra được file gửi đi.
+    ok = check(pkg, _leak_words(a.site, a.store)) if (a.check or a.zip) else True
     if a.zip:
-        make_zip(pkg)
+        if ok:
+            make_zip(pkg)
+        else:
+            zpath = pkg + '.zip'
+            print('KHÔNG nén: bước kiểm không đạt (xem các dòng LỖI / CÓ ở trên). Sửa rồi dựng lại.')
+            if os.path.exists(zpath):
+                print(f'Chú ý: {zpath} là file zip của lần dựng trước, không phải gói vừa dựng.')
     return 0 if ok else 1
 
 
