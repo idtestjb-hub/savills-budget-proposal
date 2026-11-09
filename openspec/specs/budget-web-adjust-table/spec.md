@@ -89,3 +89,63 @@ deliverable's sheet `4. Điều chỉnh`, which keeps every row.
 #### Scenario: Show them
 - **WHEN** the PM presses the button
 - **THEN** all 102 zero-tool codes are listed in their groups and the button offers to hide them again
+
+### Requirement: The adjust table shows the difference against the approved figure and can sort by it
+On a Review run the adjust table SHALL show, beside "Duyệt", the column "Chênh so với duyệt" = the tool's original
+amount minus the approved figure (VND) and its % of the approved figure ("N/A" when the approved figure is 0),
+both before any edit, and SHALL keep them fixed while the PM edits. A control "Thứ tự" SHALL switch between the form
+order (default) and "lệch lớn nhất": codes within a group sorted by the absolute difference, largest first, and
+groups by their largest member; subtotal rows SHALL stay correct in both orders. The codes of the Review's "10
+dòng lệch lớn nhất" SHALL carry a mark "Top 10" beside the code. A new-project run SHALL show neither the column
+nor the control.
+
+#### Scenario: Largest first
+- **WHEN** the PM picks "lệch lớn nhất" on the CITY GARDEN review
+- **THEN** ESS1 (−3,406.6 triệu VND against approved) and ESS38 (−3,175.2 triệu VND) are the first two codes under
+  Chi, each marked "Top 10", and the "Cộng ESS" row still equals the sum of its codes
+
+#### Scenario: Zero row on the table
+- **WHEN** the table lists ESS38 (tool 0, approved 3,175.2 triệu VND)
+- **THEN** the row shows "Thành tiền gốc" 0, "Duyệt" 3,175.2 triệu VND, "Chênh so với duyệt" −3,175.2 triệu VND and
+  −100%, and offers the type "Nhập số"
+
+### Requirement: The web applies "Nhập số" like Excel does
+The adjust table SHALL offer "Nhập số" on every code with detail rows. Under that type the detail row's "Đơn giá
+mới" cell SHALL be labelled "Số nhập (VND/năm)", the preview's new amount SHALL be that figure per row, a negative
+figure SHALL be refused, and saving SHALL write the type to column D and the figure to column K, nothing else.
+
+#### Scenario: Preview and save
+- **WHEN** the PM picks "Nhập số" on a zero row, types 240,000,000 and saves
+- **THEN** the preview showed +240,000,000 for the code, the deliverable's column D reads "Nhập số", column K of
+  the detail row 240,000,000, and after Excel recalculates the fund's E grows by 240,000,000 plus the contingency
+  that follows
+
+### Requirement: The adjust table edits a code's frequency and its months
+
+The web adjust table SHALL show on each code row, after Hạng mục and ĐVT, a column Tần suất with the code's current
+frequency in Vietnamese and in the form's word ("Hàng tháng (Monthly)", "Hàng quý (Quarterly)", "6 tháng/lần (Half a
+Year)", "Hàng năm (Yearly)", "Không theo chu kỳ (Optional)", "Theo lịch từng tháng (Schedule)") and the number of times
+a year. The PM SHALL be able to change it on the code row:
+- Quarterly, Half a Year, Yearly: a Tháng đầu list of the allowed T-months, each labelled with its month and year in
+  the budget period (for example "T3 · 03/2027"), and the resulting months shown under the row;
+- Optional: 12 month boxes to tick, the count shown as the number of times (1 to 11);
+- Schedule: 12 amount cells in VND, pre-filled with the code's current month spread.
+
+The preview of Thành tiền mới and Chênh lệch SHALL apply the rule of requirement "The frequency of a budget code is set
+on its total row" and SHALL equal the Excel figures after recalculation. The web SHALL refuse, writing nothing, an
+Optional with no month or with 12 months ("chọn Hàng tháng khi chi đủ 12 tháng"), a first month out of range, and a
+negative Schedule amount. Saving SHALL write the cells to sheet 4; reopening the run SHALL show the saved frequency.
+
+#### Scenario: Picking Quarterly
+- **WHEN** the PM changes a Monthly code to "Hàng quý (Quarterly)" and picks "T3 · 03/2027"
+- **THEN** the row SHALL show "chi vào T3, T6, T9, T12" and the new amount at 4 ÷ 12 of the adjusted annual amount
+- **AND** after saving and reopening, the row SHALL show Quarterly and T3
+
+#### Scenario: Optional with every month ticked
+- **WHEN** the PM ticks all 12 months under Optional and saves
+- **THEN** the web SHALL refuse with "chọn Hàng tháng khi chi đủ 12 tháng" and write nothing
+
+#### Scenario: Switching to Schedule
+- **WHEN** the PM picks Schedule on a code whose adjustment type is "Đơn giá"
+- **THEN** the 12 amount cells SHALL open pre-filled with the current spread, the row SHALL say the adjustment type
+  has no effect under Schedule, and the new amount SHALL be the sum of the 12 cells

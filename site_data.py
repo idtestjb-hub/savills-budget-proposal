@@ -33,6 +33,7 @@ KEEP = (
     'generation_B_verified/Ref_LaborLawParams.csv',
     'generation_B_verified/Ref_UtilityTariffs.csv',
     'generation_B_verified/Ref_UtilityUsage.csv',
+    'generation_B_verified/Ref_LineFrequency.csv',
     'master_list_verified/Costing_Method_Catalogue.csv',
     'master_list_verified/Dim_Property_Residential.csv',
     'master_list_verified/Dim_ReferenceProject.csv',

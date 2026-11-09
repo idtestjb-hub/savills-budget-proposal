@@ -430,6 +430,10 @@ def main(argv=None):
                               # details and its fund line, the fund months link back to it, nothing moved.
                               ('4. Điều chỉnh ties to its fund lines and leaves every figure unchanged',
                                lambda: checks.check_adjustment_sheet(paths)),
+                              # Change add-line-frequency: the form's U/V checks on every line with a frequency, and
+                              # five frequency edits through sheet 4 recalculate to the expected figures.
+                              ("every line passes the form's times and total checks; five frequency edits tie",
+                               lambda: checks.check_line_frequency(paths)),
                               # Change use-real-budget-ranges: the lines priced from real Savills budgets.
                               ('Real-Budget Ranges ties to the deliverable, 10+ projects, project left out',
                                lambda: checks.check_real_budget_ranges(paths))]):

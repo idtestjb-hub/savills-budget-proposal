@@ -29,6 +29,7 @@ import math
 import shutil
 import tempfile
 import unicodedata
+import weakref
 import calendar as cal
 import datetime
 
@@ -57,6 +58,7 @@ import savills_fee
 import breakeven_cells
 import real_budget_ranges
 import parking_prices
+import line_frequency
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
 
@@ -1293,9 +1295,21 @@ def _collect_written(wb):
             freq = ws.cell(row=r, column=3).value
             if not isinstance(freq, str) or not freq.strip():
                 continue
-            if freq.strip().lower() == 'monthly':
+            try:
+                kind = line_frequency.normalise(freq)
+            except ValueError:
+                kind = None
+            if kind == line_frequency.MONTHLY:
                 f_val = _as_number(ws.cell(row=r, column=6).value)
                 value = None if f_val is None else f_val * 12   # None = formula, value unknown here
+            elif kind in line_frequency.CYCLIC or kind == line_frequency.OPTIONAL:
+                # change add-line-frequency: F is the price per time, H:S hold the months of payment
+                f_val = _as_number(ws.cell(row=r, column=6).value)
+                try:
+                    n = line_frequency.times(kind, ws.cell(row=r, column=4).value)
+                except (TypeError, ValueError):
+                    n = None
+                value = None if f_val is None or n is None else f_val * n
             else:                                        # Schedule / Year-1 lump
                 cell_vals = [_as_number(ws.cell(row=r, column=c).value) for c in range(8, 20)]
                 value = None if any(v is None for v in cell_vals) else sum(cell_vals)
@@ -1799,10 +1813,15 @@ def _compose_summary_narratives(wb, project, demand, year, written):
     return filled
 
 
+# Exact annual amount of each line _write_even_monthly_row wrote, per worksheet (F holds it rounded / 12).
+_EVEN_ANNUAL = weakref.WeakKeyDictionary()
+
+
 def _write_even_monthly_row(ws, row, annual_amount, remark=None):
     """Even 1/12 split — the right default for a flat run-rate cost/revenue that doesn't depend on
     occupancy fill (management fee, staff, utilities, service contracts)."""
     monthly = round(annual_amount / 12)
+    _EVEN_ANNUAL.setdefault(ws, {})[row] = annual_amount   # the exact annual, for _apply_line_frequencies
     ws.cell(row=row, column=3, value='Monthly')  # C: Frequency
     for col in (6, *range(8, 20)):  # F: Unit Price (monthly, drives G=F*12); H:S shown for transparency
         cell = ws.cell(row=row, column=col, value=monthly)
@@ -1818,6 +1837,62 @@ def _write_year1_lump_row(ws, row, annual_amount, remark=None):
         cell = ws.cell(row=row, column=col, value=value)
         cell.number_format = _NUM_FMT
     _write_remark(ws, row, remark)
+
+
+def _apply_line_frequencies(ws, table=None):
+    """Write each listed code's default frequency on '2. Budget-Management Fund' the way a PM fills the form by hand
+    (change add-line-frequency, spec line-frequency, design D5): C = the frequency, F = the price per time, H:S =
+    references to the row-8 month headers of the months of payment. The price per time is the line's exact annual
+    amount / times, rounded to the VND (user's choice 2026-11-07), so a Monthly line priced at 15,400,000 a year
+    becomes 3,850,000 x 4 rather than 1,283,333 x 12 / 4; the annual G moves only by the old monthly rounding (a few
+    VND). Without a recorded annual, F x 12 / times. Only two shapes are changed:
+    - a Monthly line with a plain-number F (a formula F, for example a link to another sheet, is left alone);
+    - a line already at the table's frequency with no price (the template's own row, for example RO2a at 0), which
+      gains its months of payment so the form's times check (U) is 0.
+    Schedule lines (ramped, VAT varying by month, one-time amounts) and unlisted codes are left as written. The
+    remark of a priced line gains the frequency sentence on its own last line. '2.2 Common area Fund' is not touched:
+    its shares read the fund line's monthly average (column AL), so they stay Monthly as the template has them.
+    Returns [(code, frequency, per_time)] of the lines changed."""
+    table = line_frequency.load_table() if table is None else table
+    changed = []
+    for row in range(1, ws.max_row + 1):
+        code = ws.cell(row=row, column=_CODE_COL).value
+        code = code.strip() if isinstance(code, str) else code
+        default = table.get(code)
+        if default is None or default.frequency == line_frequency.MONTHLY:
+            continue
+        try:
+            current = line_frequency.normalise(ws.cell(row=row, column=3).value)
+        except ValueError:
+            continue
+        f_val = ws.cell(row=row, column=6).value
+        if current == line_frequency.MONTHLY and isinstance(f_val, (int, float)) and not isinstance(f_val, bool):
+            annual = _EVEN_ANNUAL.get(ws, {}).get(row)
+            if annual is not None and round(annual / 12) != f_val:
+                annual = None                               # F was rewritten after: the record is stale
+            per_time = round((annual if annual is not None else f_val * 12) / default.times)
+        elif current == default.frequency and f_val in (None, 0):
+            per_time = f_val
+        else:
+            continue
+        ws.cell(row=row, column=3, value=default.frequency)
+        if per_time is not None:
+            ws.cell(row=row, column=6, value=per_time).number_format = _NUM_FMT
+        for k in range(12):
+            col = 8 + k
+            if k + 1 in default.months:
+                cell = ws.cell(row=row, column=col, value=f'={get_column_letter(col)}8')
+                cell.number_format = ws.cell(row=8, column=col).number_format
+            else:
+                ws.cell(row=row, column=col).value = None   # ws.cell(value=None) would leave the old value
+        if per_time:
+            text = line_frequency.sentence(default.frequency, per_time, default.months)
+            remark_cell = ws.cell(row=row, column=_REMARKS_COL)
+            old = remark_cell.value if isinstance(remark_cell.value, str) else ''
+            remark_cell.value = f'{old.rstrip()}\n{text}' if old.strip() else text
+            remark_cell.alignment = Alignment(wrap_text=True, vertical='top')
+        changed.append((code, default.frequency, per_time))
+    return changed
 
 
 def _populate_fillup_sheets(wb, apt_units, shop_units, car_bays, moto_bays,
@@ -5047,6 +5122,10 @@ def build_budget(project, demand, year):
 
     # ---- '4. Điều chỉnh' (docs/32): the parent rows and sub-rows of every fund line written above, read while the
     # figures are still numbers; budget_adjustment.apply() builds the sheet right before the save. ----
+    # ---- Default frequency per code (change add-line-frequency): before '4. Điều chỉnh' collects the lines, so a
+    # defaulted line is listed with its frequency, months and price per time; _collect_written (the narratives,
+    # below) reads a cyclic line as price x times; the remark sizing further down sees the added sentence. ----
+    _apply_line_frequencies(wb['2. Budget-Management Fund'])
     import adjustment_detail
     _adjust_items = adjustment_detail.collect(wb, project, demand)
 

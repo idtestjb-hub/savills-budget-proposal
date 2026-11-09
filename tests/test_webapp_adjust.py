@@ -139,7 +139,7 @@ def test_apply_edits_writes_input_cells_by_key(deliv, tmp_path):
     assert items['CA|ESS4']['adj_type'] == 'Trượt giá' and items['CA|ESS4']['inflation'] == 0.03
     assert items['MF|RM.AP']['adj_type'] == ''                          # mã không gửi giữ nguyên
     ws = openpyxl.load_workbook(out)[ba.SHEET_NAME]
-    assert str(ws.cell(row=5, column=ba.COL['new_amount']).value).startswith('=SUM(')   # công thức template còn nguyên
+    assert ws.cell(row=5, column=ba.COL['new_amount']).value == ba.frequency_amount('SUM(M6:M7)', 5)   # công thức còn nguyên
     wb2 = openpyxl.load_workbook(out)                                   # để trống = bỏ điều chỉnh
     adjust.apply_edits(wb2, [dict(key='MF|ESS1', adj_type='', inflation=0, subs=[])])
     assert wb2[ba.SHEET_NAME].cell(row=5, column=ba.COL['adj_type']).value is None
@@ -179,7 +179,7 @@ def test_apply_edits_upgrades_an_older_sheet_with_the_same_figures(deliv, tmp_pa
     adjust.apply_edits(after, edits)
     aws = after[ba.SHEET_NAME]
     assert 'Số lượng + Đơn giá' in aws['M6'].value and aws['M6'].value == ba.detail_formula(5, 6)
-    dvs = [dv for dv in aws.data_validations.dataValidation if dv.type == 'list']
+    dvs = [dv for dv in aws.data_validations.dataValidation if 'Số lượng' in str(dv.formula1 or '')]
     assert len(dvs) == 1 and dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá,Nhập số"'
     assert {str(r) for r in dvs[0].sqref.ranges} == {'D5', 'D8', 'D10', 'D12'}
     eb, ea = _Eval(before), _Eval(after)
@@ -189,7 +189,8 @@ def test_apply_edits_upgrades_an_older_sheet_with_the_same_figures(deliv, tmp_pa
     adjust.apply_edits(after, [dict(key='MF|ESS1', adj_type='Số lượng + Đơn giá', inflation=0,
                                     subs=[dict(idx=0, new_qty=4, new_price=220)])])
     assert ea.cell(ba.SHEET_NAME, 'M5') == 4 * 220 + 2 * 300
-    assert len([dv for dv in aws.data_validations.dataValidation if dv.type == 'list']) == 1   # upgrade twice = once
+    assert len([dv for dv in aws.data_validations.dataValidation
+                if 'Số lượng' in str(dv.formula1 or '')]) == 1                        # upgrade twice = once
     out = str(tmp_path / 'upgraded.xlsx')
     after.save(out)
     assert {i['key']: i for i in adjust.read_items(out)}['MF|ESS1']['adj_type'] == 'Số lượng + Đơn giá'

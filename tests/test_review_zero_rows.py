@@ -57,13 +57,45 @@ def test_add_zero_rows_appends_linked_lines_and_logs_the_skipped(monkeypatch, tm
     assert ev.cell(MGMT, 'AK32') == 600_000.0 and ev.cell(MGMT, 'H32') == 50_000.0
 
 
-def test_a_blank_frequency_becomes_monthly(monkeypatch, tmp_path):
+def test_a_frequency_the_fund_row_carries_is_kept(monkeypatch, tmp_path):
+    # change add-line-frequency: the template's own Yearly is no longer replaced by Monthly
     monkeypatch.setattr('generate_project_output._strip_onedrive_zip_artifacts', lambda *a, **k: None)
+    monkeypatch.setattr('line_frequency.load_table', lambda path=None: {})
     p = _deliverable(tmp_path, extra=[('ESS97', 34, 'Yearly')])
     added, _ = review.add_zero_rows(p, [('MF', _row('ESS97', 10.0, 0.0))])
     assert added == ['MF|ESS97']
     wb = openpyxl.load_workbook(p)
-    assert wb[MGMT]['C34'].value == 'Monthly' and wb[ba.SHEET_NAME]['R14'].value == 'Monthly'
+    assert wb[ba.SHEET_NAME]['R14'].value == 'Yearly' and wb[MGMT]['C34'].value == "='4. Điều chỉnh'!$AV$14"
+    assert _Eval(wb).cell(MGMT, 'C34') == 'Yearly'
+
+
+def test_a_blank_frequency_takes_the_code_default_yearly(monkeypatch, tmp_path):
+    # spec scenario "A zero-tool code listed as Yearly": Nhập số 12,000,000 -> Yearly, 12,000,000 per time, in T1
+    import line_frequency as lf
+    monkeypatch.setattr('generate_project_output._strip_onedrive_zip_artifacts', lambda *a, **k: None)
+    table = {'ESS97': lf.Default('ESS97', 'Yearly', 1, 1, [1], 'TEST DATA', '')}
+    monkeypatch.setattr('line_frequency.load_table', lambda path=None: table)
+    p = _deliverable(tmp_path, extra=[('ESS97', 34, None)])
+    added, _ = review.add_zero_rows(p, [('MF', _row('ESS97', 10.0, 0.0))])
+    assert added == ['MF|ESS97']
+    wb = openpyxl.load_workbook(p)
+    ws = wb[ba.SHEET_NAME]
+    assert ws['R14'].value == 'Yearly' and ws['AT14'].value == 1 and ws['AU14'].value == 1
+    ws['D14'], ws['K15'] = 'Nhập số', 12_000_000.0
+    wb[MGMT]['H8'] = '01/2027'                                             # the period's first month header
+    ev = _Eval(wb)
+    assert ev.cell(MGMT, 'C34') == 'Yearly' and ev.cell(MGMT, 'F34') == 12_000_000.0
+    assert ev.cell(MGMT, 'H34') == '01/2027'                               # paid in T1
+    assert all(ev.cell(MGMT, f'{c}34') == '' for c in 'IJKLMNOPQRS')
+
+
+def test_a_blank_frequency_of_an_unlisted_code_is_monthly(monkeypatch, tmp_path):
+    monkeypatch.setattr('generate_project_output._strip_onedrive_zip_artifacts', lambda *a, **k: None)
+    monkeypatch.setattr('line_frequency.load_table', lambda path=None: {})
+    p = _deliverable(tmp_path, extra=[('ESS97', 34, None)])
+    review.add_zero_rows(p, [('MF', _row('ESS97', 10.0, 0.0))])
+    wb = openpyxl.load_workbook(p)
+    assert wb[ba.SHEET_NAME]['R14'].value == 'Monthly'
 
 
 def test_nothing_to_add_leaves_the_file_alone(tmp_path):

@@ -26,6 +26,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.properties import Outline
 
+import line_frequency
+
 SHEET_NAME = '4. Điều chỉnh'
 AFTER_SHEET = '3.1 Report-Sinking Fund'
 ADJUSTMENT_TYPES = ('Số lượng', 'Đơn giá', 'Số lượng + Đơn giá', 'Trượt giá', 'Nhập số')
@@ -48,8 +50,25 @@ LAST_COL = MONTH_FIRST_COL + 11            # AD
 
 FUND_CODE_COL = 25                         # Y on both fund sheets
 FUND_FREQ_COL = 3                          # C: Monthly / Schedule / ...
+FUND_TIMES_COL = 4                         # D: number of times for Optional
 FUND_MONTHLY_COL = 6                       # F
 FUND_MONTH_FIRST_COL = 8                   # H .. S
+FUND_CHECK_TIMES_COL = 21                  # U: the form's times check
+
+# Frequency cells (change add-line-frequency, design D2): appended after AD so no earlier column moves.
+# AE new frequency, AF first month, AG new times (formula), AH..AS the 12 month inputs (a tick "x" for Optional, VND
+# for Schedule); hidden helpers AT original times, AU original first month, AV frequency in use, AW first month in
+# use, AX month step.
+FREQ_HEADERS = (('new_freq', 'Tần suất mới'), ('first_month', 'Tháng đầu'), ('new_times', 'Số lần mới')) + tuple(
+    (f'month_in_{m}', f'Tháng {m} (x / VND)') for m in range(1, 13)) + (
+    ('orig_times', 'Số lần gốc'), ('orig_first', 'Tháng đầu gốc'), ('eff_freq', 'Tần suất dùng'),
+    ('eff_first', 'Tháng đầu dùng'), ('step', 'Bước tháng'))
+COL.update({key: LAST_COL + 1 + i for i, (key, _) in enumerate(FREQ_HEADERS)})
+MONTH_IN_FIRST_COL = COL['month_in_1']     # AH
+FREQ_HIDDEN_COLS = range(COL['orig_times'], COL['step'] + 1)   # AT .. AX
+FREQ_LAST_COL = COL['step']                # AX
+FREQUENCIES = ('Monthly', 'Quarterly', 'Half a Year', 'Yearly', 'Optional', 'Schedule')
+SCHEDULE_NOTE = 'Tần suất Schedule: loại điều chỉnh không có tác dụng, số mới = tổng 12 tháng nhập'
 
 TITLE = 'ĐIỀU CHỈNH NGÂN SÁCH'
 GUIDE = ('Cách dùng: trên dòng Tổng của một mã, chọn Loại điều chỉnh ở cột D (Số lượng / Đơn giá / Số lượng + Đơn giá '
@@ -57,7 +76,11 @@ GUIDE = ('Cách dùng: trên dòng Tổng của một mã, chọn Loại điều
          'mới (K) khi chọn Đơn giá, cả J và K khi chọn Số lượng + Đơn giá, Trượt giá % (L, trên dòng Tổng) khi chọn '
          'Trượt giá, hoặc Đơn giá mới (K) = số cả năm của dòng khi chọn Nhập số (dùng cho mã công cụ ra 0). Các ô khác đã khoá. '
          "Thành tiền mới (M), Chênh lệch (N, O) và các sheet 1. Summary, 2. Budget-Management Fund, "
-         "2.2 Common area Fund tự cập nhật. Để trống cột D = giữ nguyên số gốc.")
+         "2.2 Common area Fund tự cập nhật. Để trống cột D = giữ nguyên số gốc. Tần suất: chọn Tần suất mới (cột AE) "
+         "trên dòng Tổng; Tháng đầu (AF) cho Quarterly (T1-T3), Half a Year (T1-T6), Yearly (T1-T12); đánh dấu x ở "
+         "các ô tháng AH:AS cho Optional, hoặc nhập số tiền từng tháng cho Schedule. Đổi tần suất giữ đơn giá mỗi lần: "
+         "số mới = số theo loại điều chỉnh × số lần mới / số lần gốc. Để trống AE = giữ tần suất gốc. Không gõ đè các "
+         "ô C, D, F, H:S của sheet quỹ.")
 
 # SAVILLS_BRAND_GUIDE.md: Arial; header yellow FFDF00 with black regular text; banding white / warm grey EEE8E3;
 # total row E4E6E8; no borders. Input cells use the light yellow the pipeline's other editable cells already use.
@@ -138,6 +161,167 @@ def wrapped_formula(existing, parent_row):
     return f'=({existing[1:]})*{ratio_formula(parent_row)}'
 
 
+# ------------------------------------------------------------------------------------------------
+# Frequency (change add-line-frequency, spec budget-adjustment-sheet, design D2-D4)
+# ------------------------------------------------------------------------------------------------
+def original_frequency(item):
+    """(frequency, times, first month) of a line as written: Monthly / Schedule count 12 times; a cyclic line its
+    form count, first month = its first month of payment; Optional = the months carrying an amount."""
+    try:
+        freq = line_frequency.normalise(item.get('freq')) or line_frequency.MONTHLY
+    except ValueError:
+        freq = line_frequency.MONTHLY
+    months = (list(item.get('months') or []) + [0.0] * 12)[:12]
+    paid = [k + 1 for k, v in enumerate(months) if abs(_num(v)) >= 1e-9]
+    if freq == line_frequency.OPTIONAL:
+        return freq, max(len(paid), 1), (paid[0] if paid else 1)
+    if freq in line_frequency.CYCLIC:
+        first = item.get('first_month') or (paid[0] if paid else 1)
+        return freq, line_frequency.TIMES[freq], int(first)
+    return freq, 12, 1
+
+
+def _month_inputs(row):
+    return f"{_ref(MONTH_IN_FIRST_COL, row)}:{_ref(MONTH_IN_FIRST_COL + 11, row)}"
+
+
+def frequency_amount(base, row):
+    """Total-row M with the frequency applied: Schedule = the sum of the 12 month inputs; any other new frequency =
+    the amount of the adjustment type x new times / original times; a blank AE leaves `base` unchanged."""
+    ae, ag, at = (_ref(COL[k], row) for k in ('new_freq', 'new_times', 'orig_times'))
+    return f'=IF({ae}="Schedule",SUM({_month_inputs(row)}),({base})*IF({ae}="",1,IF({at}=0,1,{ag}/{at})))'
+
+
+def new_times_formula(row):
+    ae, at = _ref(COL['new_freq'], row), _ref(COL['orig_times'], row)
+    return (f'=IF({ae}="",{at},IF({ae}="Optional",COUNTA({_month_inputs(row)}),IF(OR({ae}="Monthly",{ae}="Schedule"),'
+            f'12,IF({ae}="Quarterly",4,IF({ae}="Half a Year",2,IF({ae}="Yearly",1,{at}))))))')
+
+
+def _sheet4(key, row, col=None):
+    """An absolute reference into '4. Điều chỉnh' for a fund-sheet formula."""
+    return f"{_q(SHEET_NAME)}!{_ref(col or COL[key], row, absolute=True)}"
+
+
+def fund_month_formula(parent_row, month_index, fund_col):
+    """The fund sheet's month cell H..S of a linked line (design D4, one test per month instead of a running count):
+    Schedule = the original month x ratio, or the month input when AE is Schedule; Monthly = the original month x
+    ratio, or blank when AE is Monthly; Optional = the month header when that month is ticked; a cyclic frequency =
+    the month header when (month - first month) is a multiple of the step."""
+    m = month_index + 1
+    today = month_formula(parent_row, month_index)[1:]
+    eff, ae = _sheet4('eff_freq', parent_row), _sheet4('new_freq', parent_row)
+    first, step = _sheet4('eff_first', parent_row), _sheet4('step', parent_row)
+    month_in = _sheet4(None, parent_row, MONTH_IN_FIRST_COL + month_index)
+    header = f'${get_column_letter(fund_col)}$8'
+    return (f'=IF({eff}="Schedule",IF({ae}="",{today},N({month_in})),IF({eff}="Monthly",IF({ae}="",{today},""),'
+            f'IF({eff}="Optional",IF({month_in}<>"",{header},""),'
+            f'IF(AND({m}>={first},MOD({m}-{first},{step})=0),{header},""))))')
+
+
+def fund_price_formula(parent_row, keep=None):
+    """F of a linked line: blank under Schedule (or `keep`, the formula the cell held, such as a Schedule line's rate
+    link into '0. Info', which the form ignores under Schedule), else the new amount / the times in use."""
+    eff, ag, m = (_sheet4(k, parent_row) for k in ('eff_freq', 'new_times', 'new_amount'))
+    under_schedule = f'({keep[1:]})' if isinstance(keep, str) and keep.startswith('=') else '""'
+    return f'=IF({eff}="Schedule",{under_schedule},IF({ag}=0,0,{m}/{ag}))'
+
+
+def times_check_formula(r):
+    """The form's U on a linked line: COUNTA would count a formula that returns "" as filled, so the filled month
+    cells are counted with SUMPRODUCT (design D4, the trap)."""
+    return f'=E{r}-IF(C{r}<>"Monthly",SUMPRODUCT(--(H{r}:S{r}<>"")),12)'
+
+
+def frequency_validations():
+    """List validation of AE (the form's six frequencies, blank allowed) and whole-number 1..12 of AF."""
+    freq = DataValidation(type='list', formula1='"' + ','.join(FREQUENCIES) + '"', allow_blank=True,
+                          showDropDown=False, showErrorMessage=True, errorTitle='Tần suất',
+                          error='Chọn một trong: ' + ' / '.join(FREQUENCIES) + ', hoặc để trống.')
+    first = DataValidation(type='whole', operator='between', formula1='1', formula2='12', allow_blank=True,
+                           showErrorMessage=True, errorTitle='Tháng đầu',
+                           error='Tháng đầu là số từ 1 đến 12 (Quarterly T1-T3, Half a Year T1-T6, Yearly T1-T12).')
+    return freq, first
+
+
+def _freq_validations_of(ws):
+    """The two frequency validations of the sheet, added when missing."""
+    freq = next((d for d in ws.data_validations.dataValidation
+                 if d.type == 'list' and 'Half a Year' in str(d.formula1 or '')), None)
+    first = next((d for d in ws.data_validations.dataValidation if d.type == 'whole'), None)
+    if freq is None or first is None:
+        new_freq, new_first = frequency_validations()
+        if freq is None:
+            freq = new_freq
+            ws.add_data_validation(freq)
+        if first is None:
+            first = new_first
+            ws.add_data_validation(first)
+    return freq, first
+
+
+def _write_freq_header(ws):
+    for key, name in FREQ_HEADERS:
+        c = ws.cell(row=HEADER_ROW, column=COL[key], value=name)
+        _style(c, fill=FILL_HEADER, align='wrap')
+        c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    ws.column_dimensions[get_column_letter(COL['new_freq'])].width = 13
+    for key in ('first_month', 'new_times'):
+        ws.column_dimensions[get_column_letter(COL[key])].width = 9
+    for k in range(12):
+        ws.column_dimensions[get_column_letter(MONTH_IN_FIRST_COL + k)].width = 11
+    for col in FREQ_HIDDEN_COLS:
+        ws.column_dimensions[get_column_letter(col)].hidden = True
+
+
+def _write_freq_cells(ws, row, item, validations, editable=True):
+    """The frequency block of one total row. A line whose fund cells are formulas of their own (EMH2) is not
+    editable: its inputs stay locked and grey, and the block only reports the original frequency."""
+    freq, times, first = original_frequency(item)
+    put = lambda key, value: ws.cell(row=row, column=COL[key], value=value)
+    put('orig_times', times)
+    put('orig_first', first)
+    ae, af, au, r = (_ref(COL[k], row) for k in ('new_freq', 'first_month', 'orig_first', 'freq'))
+    put('new_times', new_times_formula(row))
+    put('eff_freq', f'=IF({ae}="",{r},{ae})')
+    eff, step = _ref(COL['eff_freq'], row), _ref(COL['step'], row)
+    put('step', f'=IF({eff}="Quarterly",3,IF({eff}="Half a Year",6,IF({eff}="Yearly",12,1)))')
+    # a blank AF keeps the original first month while it is allowed for the frequency in use, else T1
+    put('eff_first', f'=IF({af}="",IF({au}<={step},{au},1),{af})')
+    if editable:   # spec budget-adjustment-sheet: under Schedule the adjustment type has no effect; the row says so
+        d = _ref(COL['adj_type'], row)
+        note = ws.cell(row=row, column=COL['desc'],
+                       value=f'=IF(AND({ae}="Schedule",{d}<>""),"{SCHEDULE_NOTE}","")')
+        _style(note, fill=FILL_TOTAL, align='wrap', color='C00000')
+    inputs = [COL['new_freq'], COL['first_month']] + [MONTH_IN_FIRST_COL + k for k in range(12)]
+    for col in range(COL['new_freq'], FREQ_LAST_COL + 1):
+        _style(ws.cell(row=row, column=col), fill=FILL_TOTAL)
+    for col in inputs:
+        _style(ws.cell(row=row, column=col), fill=FILL_INPUT if editable else FILL_TOTAL, unlocked=editable,
+               align='center', fmt=FMT_MONEY if col >= MONTH_IN_FIRST_COL else None)
+    _style(ws.cell(row=row, column=COL['new_times']), fill=FILL_TOTAL, align='center')
+    if editable:
+        validations[0].add(ws.cell(row=row, column=COL['new_freq']))
+        validations[1].add(ws.cell(row=row, column=COL['first_month']))
+
+
+def _own_formula(value):
+    """True for a fund cell formula that is not the tool's own month-header reference ('=K8')."""
+    return (isinstance(value, str) and value.startswith('=')
+            and not (len(value) <= 6 and value.endswith('8') and value[1:-1].replace('$', '').isalpha()))
+
+
+def freq_editable(wb, item):
+    """A line can change frequency unless its F or H:S cells are formulas of their own (EMH2's link into A1). Under
+    Schedule the form ignores F, so a Schedule line's F link (a rate into '0. Info') does not lock it."""
+    ws = wb[item['sheet']]
+    r = item['row']
+    cols = [FUND_MONTH_FIRST_COL + k for k in range(12)]
+    if original_frequency(item)[0] != line_frequency.SCHEDULE:
+        cols.append(FUND_MONTHLY_COL)
+    return not any(_own_formula(ws.cell(row=r, column=c).value) for c in cols)
+
+
 def _style(cell, *, fill=None, bold=False, fmt=None, align=None, unlocked=False, indent=0, color=None):
     cell.font = Font(name=FONT_NAME, size=10, bold=bold, color=color)
     if fill is not None:
@@ -177,9 +361,11 @@ def _write_header(ws):
     for col in HIDDEN_COLS:
         ws.column_dimensions[get_column_letter(col)].hidden = True
     ws.freeze_panes = ws.cell(row=FIRST_DATA_ROW, column=COL['desc'])
+    _write_freq_header(ws)
+    ws.row_dimensions[GUIDE_ROW].height = 100
 
 
-def _write_parent(ws, row, item, first_sub, last_sub):
+def _write_parent(ws, row, item, first_sub, last_sub, validations=None, editable=False):
     put = lambda key, value: ws.cell(row=row, column=COL[key], value=value)
     put('code', item['code'])
     put('name', item.get('name_vi') or item['code'])
@@ -189,10 +375,11 @@ def _write_parent(ws, row, item, first_sub, last_sub):
     put('amount', f'=SUM({sub_range})' if first_sub else _num(item.get('annual')))
     put('inflation', 0)
     if first_sub:
-        put('new_amount', f"=SUM({_ref(COL['new_amount'], first_sub)}:{_ref(COL['new_amount'], last_sub)})")
+        base = f"SUM({_ref(COL['new_amount'], first_sub)}:{_ref(COL['new_amount'], last_sub)})"
     else:   # no detail row at all: inflation is the only adjustment that can apply
         i, d, l = (_ref(COL[k], row) for k in ('amount', 'adj_type', 'inflation'))
-        put('new_amount', f'=IF({d}="{TYPE_INFLATION}",{i}*(1+{l}),{i})')
+        base = f'IF({d}="{TYPE_INFLATION}",{i}*(1+{l}),{i})'
+    put('new_amount', frequency_amount(base, row) if editable else f'={base}')
     i, m, n = (_ref(COL[k], row) for k in ('amount', 'new_amount', 'diff'))
     put('diff', f'={m}-{i}')
     put('diff_pct', f'=IF({i}=0,"N/A",{n}/{i})')
@@ -215,6 +402,8 @@ def _write_parent(ws, row, item, first_sub, last_sub):
     _style(ws.cell(row=row, column=COL['name']), fill=FILL_TOTAL, bold=True, align='wrap')
     for k in range(12):
         ws.cell(row=row, column=MONTH_FIRST_COL + k).number_format = FMT_MONEY
+    if validations is not None:
+        _write_freq_cells(ws, row, item, validations, editable)
 
 
 def _write_sub(ws, row, parent_row, sub, band):
@@ -246,10 +435,26 @@ def _write_sub(ws, row, parent_row, sub, band):
     _style(ws.cell(row=row, column=COL['new_price']), fill=FILL_INPUT, fmt=FMT_MONEY, unlocked=True)
 
 
-def _link_fund_row(wb, item, parent_row):
-    """H:S (and F for a Monthly line) of the fund row become formulas into the parent row of this sheet."""
+def _link_fund_row(wb, item, parent_row, editable=None):
+    """The fund row becomes formulas into the parent row of this sheet. A line that can change frequency gets C, D,
+    F, H:S and U (design D4); with AE blank every figure equals the earlier link (original month x ratio). A line
+    with formulas of its own (EMH2) keeps the earlier link: H:S (and F for a Monthly line) wrapped x the ratio."""
     ws = wb[item['sheet']]
     r = item['row']
+    if editable is None:
+        editable = freq_editable(wb, item)
+    if editable:
+        ws.cell(row=r, column=FUND_FREQ_COL, value=f'={_sheet4("eff_freq", parent_row)}')
+        ws.cell(row=r, column=FUND_TIMES_COL,
+                value=f'=IF({_sheet4("eff_freq", parent_row)}="Optional",{_sheet4("new_times", parent_row)},"")')
+        f_cell = ws.cell(row=r, column=FUND_MONTHLY_COL)
+        keep = f_cell.value if _own_formula(f_cell.value) else None      # a Schedule line's rate link, kept
+        f_cell.value = fund_price_formula(parent_row, keep)
+        for k in range(12):
+            col = FUND_MONTH_FIRST_COL + k
+            ws.cell(row=r, column=col, value=fund_month_formula(parent_row, k, col))
+        ws.cell(row=r, column=FUND_CHECK_TIMES_COL, value=times_check_formula(r))
+        return r
 
     def link(col, month_index):
         cell = ws.cell(row=r, column=col)
@@ -272,12 +477,12 @@ def type_validation():
                           error='Chọn một trong: ' + ' / '.join(ADJUSTMENT_TYPES) + ', hoặc để trống.')
 
 
-def _write_item(ws, dv, parent_row, item):
+def _write_item(ws, dv, parent_row, item, validations=None):
     """One code's total row and its detail rows from `parent_row`; the next free row."""
     subs = list(item.get('subs') or [])
     first_sub = parent_row + 1 if subs else None
     last_sub = parent_row + len(subs) if subs else None
-    _write_parent(ws, parent_row, item, first_sub, last_sub)
+    _write_parent(ws, parent_row, item, first_sub, last_sub, validations, item.get('freq_editable', True))
     dv.add(ws.cell(row=parent_row, column=COL['adj_type']))
     for n, sub in enumerate(subs):
         _write_sub(ws, parent_row + 1 + n, parent_row, sub, band=(n % 2 == 1))
@@ -297,12 +502,13 @@ def build_sheet(wb, items):
 
     dv = type_validation()
     ws.add_data_validation(dv)
+    validations = _freq_validations_of(ws)
 
     parent_rows = {}
     row = FIRST_DATA_ROW
     for item in items:
         parent_rows[item['code']] = row
-        row = _write_item(ws, dv, row, item)
+        row = _write_item(ws, dv, row, item, validations)
 
     ws.protection.sheet = True
     ws.protection.formatRows = False      # outline +/- must keep working on the protected sheet
@@ -317,10 +523,52 @@ def apply(wb, items):
     """Build '4. Điều chỉnh' from `items` and point every covered fund row's month cells at it.
     Returns {code: parent_row}. With no items the sheet is still built (empty) and nothing is linked."""
     items = [dict(item, row=find_fund_row(wb[item['sheet']], item['code'], item.get('row'))) for item in items]
+    items = [dict(item, freq_editable=freq_editable(wb, item)) for item in items]
     parent_rows = build_sheet(wb, items)
     for item in items:
-        _link_fund_row(wb, item, parent_rows[item['code']])
+        _link_fund_row(wb, item, parent_rows[item['code']], item['freq_editable'])
     return parent_rows
+
+
+def upgrade(wb):
+    """An older '4. Điều chỉnh' (built before change add-line-frequency) gains the frequency cells; no figure moves.
+    Each total row without the original-times cell gets the block, its M the frequency factor (1 while AE is blank)
+    and its fund row the new link. A fund row whose cells were wrapped (a formula of its own x the ratio, EMH2) keeps
+    its link and gets a locked block. Returns the number of rows upgraded; 0 when there is no sheet."""
+    if SHEET_NAME not in wb.sheetnames:
+        return 0
+    ws = wb[SHEET_NAME]
+    validations = None
+    if ws.cell(row=HEADER_ROW, column=COL['new_freq']).value in (None, ''):
+        _write_freq_header(ws)
+        ws.cell(row=GUIDE_ROW, column=1, value=GUIDE)
+        ws.row_dimensions[GUIDE_ROW].height = 100
+    upgraded = 0
+    for r in range(FIRST_DATA_ROW, ws.max_row + 1):
+        if ws.cell(row=r, column=COL['kind']).value != ROW_KIND_TOTAL:
+            continue
+        if ws.cell(row=r, column=COL['orig_times']).value not in (None, ''):
+            continue
+        sheet = str(ws.cell(row=r, column=COL['fund_sheet']).value or '').strip()
+        fund_row = ws.cell(row=r, column=COL['fund_row']).value
+        if sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)):
+            continue
+        item = {'code': ws.cell(row=r, column=COL['code']).value, 'sheet': sheet, 'row': int(fund_row),
+                'freq': ws.cell(row=r, column=COL['freq']).value,
+                'months': [_num(ws.cell(row=r, column=MONTH_FIRST_COL + k).value) for k in range(12)]}
+        fws = wb[sheet]
+        cols = [FUND_MONTHLY_COL] + [FUND_MONTH_FIRST_COL + k for k in range(12)]
+        editable = not any(isinstance(fws.cell(row=item['row'], column=c).value, str)
+                           and fws.cell(row=item['row'], column=c).value.startswith('=(') for c in cols)
+        validations = validations or _freq_validations_of(ws)
+        _write_freq_cells(ws, r, item, validations, editable)
+        if editable:
+            m = ws.cell(row=r, column=COL['new_amount']).value
+            if isinstance(m, str) and m.startswith('='):
+                ws.cell(row=r, column=COL['new_amount'], value=frequency_amount(m[1:], r))
+            _link_fund_row(wb, item, r, True)
+        upgraded += 1
+    return upgraded
 
 
 def listed_codes(ws):
@@ -340,6 +588,9 @@ def append_items(wb, items):
     existing = listed_codes(ws)
     todo = [dict(item, row=find_fund_row(wb[item['sheet']], item['code'], item.get('row')))
             for item in items if (item['code'], item['sheet']) not in existing]
+    todo = [dict(item, freq_editable=freq_editable(wb, item)) for item in todo]
+    upgrade(wb)
+    validations = _freq_validations_of(ws)
     dv = next((d for d in ws.data_validations.dataValidation if d.type == 'list' and TYPE_INFLATION in str(d.formula1 or '')),
               None)
     if dv is None:
@@ -348,6 +599,7 @@ def append_items(wb, items):
     parent_rows, row = {}, ws.max_row + 1
     for item in todo:
         parent_rows[item['code']] = row
-        row = _write_item(ws, dv, row, item)
-        _link_fund_row(wb, item, parent_rows[item['code']])
+        row = _write_item(ws, dv, row, item, validations)
+        _link_fund_row(wb, item, parent_rows[item['code']], item['freq_editable'])
     return parent_rows
+

@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+import line_frequency as lf                      # noqa: E402
 import review_import as ri                       # noqa: E402
 import review_measures as rm                     # noqa: E402
 import utility_tariffs as ut                     # noqa: E402
@@ -218,6 +219,7 @@ def add_zero_rows(deliverable, rows):
         wb.close()
         return added, skipped
     items, listed = [], ba.listed_codes(wb[ba.SHEET_NAME])
+    defaults = lf.load_table()
     for fund, r in rows:
         lay, key = DELIVERABLE_LAYOUT[fund], f"{fund}|{r['code']}"
         if lay['sheet'] not in wb.sheetnames:
@@ -236,12 +238,24 @@ def add_zero_rows(deliverable, rows):
         if not annual.startswith(f"=SUM({lay['first_month']}"):
             skipped.append((key, 'không phải dòng chi tiết của form (không có công thức năm =SUM tháng)'))
             continue
-        freq = str(ws.cell(row=row, column=ba.FUND_FREQ_COL).value or '').strip()
-        if freq.lower() not in ('monthly', 'schedule'):
-            freq = 'Monthly'                                  # an empty line: any default frequency is replaced
-            ws.cell(row=row, column=ba.FUND_FREQ_COL).value = freq
+        # change add-line-frequency (spec budget-review-workflow): a frequency the fund row carries is kept; a blank
+        # (or a value off the form's list) takes the code's default from Ref_LineFrequency.csv, else Monthly.
+        try:
+            freq = lf.normalise(ws.cell(row=row, column=ba.FUND_FREQ_COL).value)
+        except ValueError:
+            freq = None
+        default = defaults.get(r['code'])
+        first = None
+        if freq in (None, lf.OPTIONAL):
+            freq = default.frequency if default else lf.MONTHLY
+            first = default.first_month if default else None
+        elif freq in lf.CYCLIC:
+            paid = lf.payment_months(ws, row)
+            first = (min(paid) if paid else
+                     default.first_month if default and default.frequency == freq else 1)
+        ws.cell(row=row, column=ba.FUND_FREQ_COL).value = freq
         name = r.get('item') or r['code']
-        items.append(dict(code=r['code'], sheet=lay['sheet'], row=row, name_vi=name, freq=freq.capitalize(),
+        items.append(dict(code=r['code'], sheet=lay['sheet'], row=row, name_vi=name, freq=freq, first_month=first,
                           months=[0.0] * 12, annual=0.0,
                           subs=[dict(desc_vi=name, unit_vi='khoản', qty=1.0, unit_price=0.0, amount=0.0,
                                      qty_editable=False)]))

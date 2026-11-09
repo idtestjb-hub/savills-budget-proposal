@@ -24,4 +24,6 @@
 ## 5. Docs and verify
 
 - [x] 5.1 `webapp/README.md` (bảng điều chỉnh: cột lệch, thứ tự, Nhập số, dòng công cụ ra 0), guide tab text, `docs/32` section 3, `docs/project-status.md`
-- [ ] 5.2 `python verification/verify.py` from `Budget_Agent/source_code/` passes; full test run passes; sign-off by the user on the measured run (2.3)
+- [x] 5.2 `python verification/verify.py` from `Budget_Agent/source_code/` passes; full test run passes; sign-off by the user on the measured run (2.3)
+  (2026-11-07: verify.py PASS, 24 figures matched; full suite 1380 passed, 1 xfailed; the user signed off the measured
+  run of 2026-11-05)

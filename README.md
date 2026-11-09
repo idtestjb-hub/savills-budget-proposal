@@ -18,6 +18,7 @@ This map was checked on 2026-10-05 against the `import` statements of every `*.p
 | `estimate_capex_qty.py` | Estimates Capex quantities for a new project by scaling the nearest of the 11 capex-pool projects' item list by total NFA; the category cross-check ratios are medians computed from the same pool; used by both generators |
 | `estimate_opex.py` | Estimates electricity, water, diesel, pool salt and repairs: energy = usage per m² (median of the hand-checked projects, `utility_usage.py`) × NFA × the dated public tariff; the rest from `data/generation_A_star_schema/Fact_OPEX.csv` |
 | `utility_usage.py` | The usage benchmark: median usage per m² of the accepted rows of `data/generation_B_verified/Ref_UtilityUsage.csv` after a 1.5 × IQR fence, at least 5 projects, else the utilities base (n=1) |
+| `line_frequency.py` | How often a line is paid: the form's six frequencies, times a year, months of payment from a first month, the default per code from `data/generation_B_verified/Ref_LineFrequency.csv`, the Vietnamese remark sentence. Used by the generator, sheet 4 and the web |
 | `estimate_new_project.py` | Staffing-headcount estimate (`estimate_staff_headcount`), used by the analysis workbook's cross-check; also a standalone four-part estimation model |
 | `fill_curve.py` | The single monthly occupancy fill-up curve both generators share |
 | `vn_holidays.py` | Vietnamese statutory public holidays, computed (including the lunar ones) rather than typed in |
@@ -43,6 +44,7 @@ Their output files are the data the live pipeline reads. They are not re-run per
 | `rescan_capex_from_source.py` † | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` (rows of the original reference budgets; other keys' rows kept) and `reports/Project_Detail_Lists.xlsx` |
 | `rescan_capex_store_projects.py` † | The R09..R12 rows of `Fact_Capex_Rescanned.csv`, from the real-budget store |
 | `build_utility_usage.py` † | `data/generation_B_verified/Ref_UtilityUsage.csv` from the hand-checked worksheet |
+| `build_line_frequency.py` † | `data/generation_B_verified/Ref_LineFrequency.csv` from the template's column C and the counts the costing code prices with; the user reviews it |
 | `rescan_capex_reserve.py` † | `Fact_CapexReserve.csv` (the Years 2+ reserve rate), same folder as the Capex file |
 | `rescan_opex_from_source.py` † | `Fact_OPEX.csv`, same folder |
 | `build_master_rate_card.py` | `output/simple_reports/Master_Rate_Card.xlsx` and the `Fact_MasterRateCard.csv` the pipeline reads for unit prices |

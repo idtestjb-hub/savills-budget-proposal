@@ -22,11 +22,13 @@ Quy tắc (người dùng duyệt 20/10/2026):
 - SL mới và đơn giá mới không được âm.
 - Các ô không thuộc loại đã chọn vẫn được ghi đúng giá trị gửi lên, nhưng công thức của template bỏ qua chúng.
 """
+import os
 import re
 
 import openpyxl
 
 import budget_adjustment as ba
+import line_frequency as lf
 
 SHEET = ba.SHEET_NAME
 TYPES = ('',) + tuple(ba.ADJUSTMENT_TYPES)
@@ -91,33 +93,99 @@ def read_items(path):
     has_subs, zero_row (có dòng Chi tiết mà thành tiền gốc bằng 0: dòng công cụ ra 0), subs [{idx, desc, unit, qty, unit_price, amount, new_qty, new_price, qty_editable}], remark (năm mới)."""
     wb = openpyxl.load_workbook(path)
     try:
-        if SHEET not in wb.sheetnames:
-            raise AdjustError(f"Bản giao không có sheet '{SHEET}' (bản giao cũ hơn chức năng điều chỉnh).")
-        ws = wb[SHEET]
-        items = []
-        for prow, srows in _scan(ws):
-            g = lambda col, r=prow: ws.cell(row=r, column=C[col]).value
-            code, fund_sheet = _text(g('code')), _text(g('fund_sheet'))
-            subs = []
-            for i, r in enumerate(srows):
-                qty_cell = ws.cell(row=r, column=C['new_qty']).value
-                editable = not (isinstance(qty_cell, str) and qty_cell.startswith('='))
-                qty, price, amount = (_num(ws.cell(row=r, column=C[k]).value) or 0.0 for k in ('qty', 'unit_price', 'amount'))
-                new_price = _num(ws.cell(row=r, column=C['new_price']).value)
-                subs.append(dict(idx=i, desc=_text(ws.cell(row=r, column=C['desc']).value),
-                                 unit=_text(ws.cell(row=r, column=C['unit']).value), qty=qty, unit_price=price,
-                                 amount=amount, new_qty=(_num(qty_cell) if editable else qty),
-                                 new_price=price if new_price is None else new_price, qty_editable=editable))
-            amount = sum(s['amount'] for s in subs) if subs else (_num(g('amount')) or 0.0)
-            adj_type = _text(g('adj_type'))
-            items.append(dict(key=key_of(code, fund_sheet), code=code, name=_text(g('name')),
-                              fund=FUND_SHORT.get(fund_sheet, fund_sheet), fund_sheet=fund_sheet, section=_section(code),
-                              adj_type=adj_type if adj_type in TYPES else '', inflation=_num(g('inflation')) or 0.0,
-                              amount=amount, has_subs=bool(subs), zero_row=bool(subs) and abs(amount) < 0.5, subs=subs,
-                              remark=_fund_remark(wb, fund_sheet, g('fund_row'))))
-        return items
+        return _read_wb(wb)
     finally:
         wb.close()
+
+
+def _freq_of(wb, ws, prow, fund_sheet, fund_row):
+    """Tần suất của một mã (change add-line-frequency): tần suất gốc, số lần gốc, tháng đầu gốc, 12 số tháng gốc; tần
+    suất mới (AE), tháng đầu (AF), 12 ô tháng (AH:AS: dấu x của Optional hoặc số tiền của Schedule) và mã có đổi được
+    tần suất không. Sheet của bản giao cũ (chưa có các ô này) đọc ra tần suất gốc, ô mới để trống."""
+    g = lambda col: ws.cell(row=prow, column=col).value
+    months = [_num(g(ba.MONTH_FIRST_COL + k)) or 0.0 for k in range(12)]
+    freq, times, first = ba.original_frequency({'freq': g(C['freq']), 'months': months})
+    if _num(g(C['orig_times'])):
+        times, first = int(_num(g(C['orig_times']))), int(_num(g(C['orig_first'])) or 1)
+        editable = ws.cell(row=prow, column=C['new_freq']).protection.locked is False
+    else:                        # sheet cũ: mã có công thức riêng (EMH2, ô đã bọc '=(') không đổi được tần suất
+        editable = True
+        if fund_sheet in wb.sheetnames and isinstance(fund_row, (int, float)) and not isinstance(fund_row, bool):
+            fws = wb[fund_sheet]
+            cols = [ba.FUND_MONTH_FIRST_COL + k for k in range(12)] + ([] if freq == lf.SCHEDULE else [ba.FUND_MONTHLY_COL])
+            editable = not any(_text(fws.cell(row=int(fund_row), column=c).value).startswith('=(') for c in cols)
+    try:
+        new_freq = lf.normalise(g(C['new_freq'])) or ''
+    except ValueError:
+        new_freq = ''
+    first_month = _num(g(C['first_month']))
+    inputs = [g(ba.MONTH_IN_FIRST_COL + k) for k in range(12)]
+    return dict(freq=freq, freq_label=freq_label(freq), orig_times=times, orig_first=first, orig_months=months,
+                new_freq=new_freq, first_month=int(first_month) if first_month else None,
+                ticks=[_text(v) != '' and _num(v) is None for v in inputs],
+                month_amounts=[_num(v) for v in inputs], freq_editable=editable)
+
+
+def period_labels(path, workdir=None):
+    """'MM/YYYY' của 12 tháng trong kỳ ngân sách: giá trị Excel đã tính của H8:S8 trên sheet quỹ (tiêu đề tháng của
+    form), đọc từ bản Excel đã tính lại trong thư mục lượt (deliverable_recalc.xlsx) nếu có, không thì từ bản giao.
+    [] khi không có giá trị đã tính hoặc ô không phải ngày (danh sách Tháng đầu khi đó chỉ ghi T1..T12)."""
+    recalc = os.path.join(workdir, 'deliverable_recalc.xlsx') if workdir else None
+    if recalc and os.path.exists(recalc):
+        got = period_labels(recalc)
+        if got:
+            return got
+    try:
+        wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        if '2. Budget-Management Fund' not in wb.sheetnames:
+            return []
+        row = next(wb['2. Budget-Management Fund'].iter_rows(min_row=8, max_row=8, min_col=8, max_col=19,
+                                                            values_only=True), ())
+        if len(row) != 12 or not all(hasattr(v, 'month') and hasattr(v, 'year') for v in row):
+            return []
+        return [f'{v.month:02d}/{v.year}' for v in row]
+    finally:
+        wb.close()
+
+
+def freq_label(freq):
+    """'Hàng quý (Quarterly)' ... như cột Tần suất của bảng điều chỉnh."""
+    return f'{lf.LABEL_VI[freq]} ({freq})' if freq in lf.LABEL_VI else ''
+
+
+def _read_wb(wb):
+    """Như read_items, trên workbook đã mở."""
+    if SHEET not in wb.sheetnames:
+        raise AdjustError(f"Bản giao không có sheet '{SHEET}' (bản giao cũ hơn chức năng điều chỉnh).")
+    ws = wb[SHEET]
+    items = []
+    for prow, srows in _scan(ws):
+        g = lambda col, r=prow: ws.cell(row=r, column=C[col]).value
+        code, fund_sheet = _text(g('code')), _text(g('fund_sheet'))
+        subs = []
+        for i, r in enumerate(srows):
+            qty_cell = ws.cell(row=r, column=C['new_qty']).value
+            editable = not (isinstance(qty_cell, str) and qty_cell.startswith('='))
+            qty, price, amount = (_num(ws.cell(row=r, column=C[k]).value) or 0.0 for k in ('qty', 'unit_price', 'amount'))
+            new_price = _num(ws.cell(row=r, column=C['new_price']).value)
+            subs.append(dict(idx=i, desc=_text(ws.cell(row=r, column=C['desc']).value),
+                             unit=_text(ws.cell(row=r, column=C['unit']).value), qty=qty, unit_price=price,
+                             amount=amount, new_qty=(_num(qty_cell) if editable else qty),
+                             new_price=price if new_price is None else new_price, qty_editable=editable))
+        amount = sum(s['amount'] for s in subs) if subs else (_num(g('amount')) or 0.0)
+        adj_type = _text(g('adj_type'))
+        items.append(dict(key=key_of(code, fund_sheet), code=code, name=_text(g('name')),
+                          fund=FUND_SHORT.get(fund_sheet, fund_sheet), fund_sheet=fund_sheet, section=_section(code),
+                          adj_type=adj_type if adj_type in TYPES else '', inflation=_num(g('inflation')) or 0.0,
+                          amount=amount, has_subs=bool(subs), zero_row=bool(subs) and abs(amount) < 0.5, subs=subs,
+                          remark=_fund_remark(wb, fund_sheet, g('fund_row')),
+                          **_freq_of(wb, ws, prow, fund_sheet, g('fund_row'))))
+    for it in items:
+        it['remark_stale'] = remark_stale(it)
+    return items
 
 
 OFF_FORM_GROUP = '__off_form__'
@@ -144,8 +212,75 @@ def add_groups(items, codes=None, groups=None):
     return items
 
 
-def new_amount(item, adj_type=None, inflation=None, subs=None):
-    """Thành tiền mới của một mã theo đúng công thức của template (để xem trước và để kiểm tra)."""
+def new_amount(item, adj_type=None, inflation=None, subs=None, freq=None):
+    """Thành tiền mới của một mã theo đúng công thức của sheet (để xem trước và để kiểm tra). `freq` (tuỳ chọn):
+    {new_freq, ticks, month_amounts} thay cho giá trị đang lưu. Tần suất mới (change add-line-frequency, cột M của
+    dòng Tổng): Schedule = tổng 12 tháng nhập; tần suất khác = số theo loại điều chỉnh × số lần mới / số lần gốc."""
+    base = _type_amount(item, adj_type, inflation, subs)
+    f = dict(item, **(freq or {}))
+    new_freq = f.get('new_freq') or ''
+    if not new_freq:
+        return base
+    if new_freq == lf.SCHEDULE:
+        return sum(v or 0.0 for v in f.get('month_amounts') or [])
+    times = new_times(f)
+    return base * times / (item.get('orig_times') or 1)
+
+
+def new_times(f):
+    """Số lần mới như cột AG: trống = số lần gốc; Optional = số tháng đánh dấu; tần suất khác = số lần của mẫu."""
+    new_freq = f.get('new_freq') or ''
+    if not new_freq:
+        return f.get('orig_times') or 12
+    if new_freq == lf.OPTIONAL:
+        return sum(1 for t in f.get('ticks') or [] if t)
+    return lf.TIMES[new_freq]
+
+
+def freq_months(f):
+    """(tần suất đang dùng, các tháng chi T1..T12) của một mã theo các ô đang có."""
+    eff = f.get('new_freq') or f.get('freq') or lf.MONTHLY
+    if eff == lf.OPTIONAL:
+        if f.get('new_freq'):
+            return eff, [k + 1 for k, t in enumerate(f.get('ticks') or []) if t]
+        return eff, [k + 1 for k, v in enumerate(f.get('orig_months') or []) if abs(v or 0) >= 1e-9]
+    if eff == lf.SCHEDULE:
+        source = f.get('month_amounts') if f.get('new_freq') else f.get('orig_months')
+        return eff, [k + 1 for k, v in enumerate(source or []) if abs(v or 0) >= 0.5]
+    if eff in lf.CYCLIC:
+        first = lf.first_in_use(eff, f.get('first_month'), f.get('orig_first') or 1)
+        return eff, list(range(first, 13, lf.STEP[eff]))
+    return eff, list(range(1, 13))
+
+
+def freq_sentence(item, amount=None, freq=None):
+    """Câu tần suất của remark cho các ô đang có (None khi Hàng tháng)."""
+    f = dict(item, **(freq or {}))
+    eff, months = freq_months(f)
+    if eff == lf.MONTHLY:
+        return None
+    amount = new_amount(item, freq=freq) if amount is None else amount
+    times = len(months) if eff in (lf.OPTIONAL, lf.SCHEDULE) else lf.TIMES[eff]
+    return lf.sentence(eff, round(amount / times) if times else 0, months)
+
+
+def remark_stale(item):
+    """True khi câu tần suất ở cuối remark không khớp tần suất đang có (sửa offline trong Excel: web báo
+    "Remark chưa theo tần suất mới"). Dòng 0 đồng không xét."""
+    if abs(new_amount(item)) < 0.5:
+        return False
+    if not item.get('new_freq') and item.get('freq') in (lf.MONTHLY, lf.SCHEDULE):
+        return False                 # a line the tool wrote Monthly or Schedule (ramped) carries no sentence
+    want = freq_sentence(item)
+    lines = (item.get('remark') or '').rstrip().split('\n')
+    last = lines[-1] if lines else ''
+    if want is None:
+        return lf.is_sentence(last)
+    return last.strip() != want
+
+
+def _type_amount(item, adj_type=None, inflation=None, subs=None):
+    """Thành tiền theo loại điều chỉnh, chưa tính tần suất."""
     adj_type = item['adj_type'] if adj_type is None else adj_type
     inflation = item['inflation'] if inflation is None else inflation
     subs = item['subs'] if subs is None else subs
@@ -200,7 +335,48 @@ def _validate(edit, item):
                 raise AdjustError(f"{item['code']}, dòng chi tiết {idx + 1}: số lượng và đơn giá không được âm.")
             vals[k] = v
         subs[idx] = vals
-    return adj_type, inflation, subs
+    return adj_type, inflation, subs, _validate_freq(edit, item)
+
+
+def _validate_freq(edit, item):
+    """Ô tần suất của một mã (change add-line-frequency); None khi lần lưu không gửi khoá new_freq (giữ nguyên ô)."""
+    if 'new_freq' not in edit:
+        return None
+    code = item['code']
+    raw = _text(edit.get('new_freq'))
+    try:
+        new_freq = lf.normalise(raw) or ''
+    except ValueError:
+        raise AdjustError(f"{code}: tần suất '{raw}' không hợp lệ.")
+    if new_freq and not item.get('freq_editable', True):
+        raise AdjustError(f'{code}: dòng quỹ của mã này là công thức riêng, không đổi được tần suất.')
+    first = edit.get('first_month')
+    try:
+        first = None if first in (None, '') else int(first)
+    except (TypeError, ValueError):
+        raise AdjustError(f'{code}: tháng đầu không phải số.')
+    if new_freq in lf.CYCLIC:
+        error = lf.first_month_error(new_freq, lf.first_in_use(new_freq, first, item.get('orig_first') or 1))
+        if error:
+            raise AdjustError(f'{code}: {error}.')
+    ticks = [bool(t) for t in (list(edit.get('ticks') or []) + [False] * 12)[:12]]
+    amounts = []
+    for k, v in enumerate((list(edit.get('month_amounts') or []) + [None] * 12)[:12]):
+        if v in (None, ''):
+            amounts.append(None)
+            continue
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            raise AdjustError(f'{code}: số tiền tháng T{k + 1} không phải số.')
+        if v < 0 and new_freq == lf.SCHEDULE:
+            raise AdjustError(f'{code}: số tiền tháng T{k + 1} không được âm.')
+        amounts.append(v)
+    if new_freq == lf.OPTIONAL and not 1 <= sum(ticks) <= 11:
+        raise AdjustError(f'{code}: Không theo chu kỳ phải chọn từ 1 đến 11 tháng (chọn Hàng tháng khi chi đủ 12 tháng).')
+    return dict(new_freq=new_freq, first_month=first if new_freq in lf.CYCLIC else None,
+                ticks=ticks if new_freq == lf.OPTIONAL else [False] * 12,
+                month_amounts=amounts if new_freq == lf.SCHEDULE else [None] * 12)
 
 
 MAX_REMARK = 5000
@@ -237,6 +413,28 @@ def upgrade_sheet(ws, blocks):
         dv.add(ws.cell(row=block[0], column=C['adj_type']))
 
 
+def _write_freq(wb, ws, prow, item, adj_type, inflation, subs, freq):
+    """Ghi các ô tần suất (AE, AF, AH:AS) của một dòng Tổng và thay câu tần suất ở cuối remark của mã (design D8):
+    phần remark của PM giữ nguyên, câu cuối do công cụ viết được thay (bỏ khi Hàng tháng)."""
+    ws.cell(row=prow, column=C['new_freq']).value = freq['new_freq'] or None
+    ws.cell(row=prow, column=C['first_month']).value = freq['first_month']
+    for k in range(12):
+        cell = ws.cell(row=prow, column=ba.MONTH_IN_FIRST_COL + k)
+        if freq['new_freq'] == lf.OPTIONAL:
+            cell.value = 'x' if freq['ticks'][k] else None
+        elif freq['new_freq'] == lf.SCHEDULE:
+            cell.value = freq['month_amounts'][k]
+        else:
+            cell.value = None
+    new_subs = [dict(s, **subs.get(i, {})) for i, s in enumerate(item['subs'])]
+    amount = new_amount(item, adj_type, inflation, new_subs, freq)
+    sheet, row = item['fund_sheet'], ws.cell(row=prow, column=C['fund_row']).value
+    if sheet in wb.sheetnames and isinstance(row, (int, float)):
+        cell = wb[sheet].cell(row=int(row), column=REMARK_COL)
+        current = cell.value if isinstance(cell.value, str) and not cell.value.startswith('=') else ''
+        cell.value = lf.with_sentence(current, freq_sentence(item, amount, freq)) or None
+
+
 def apply_edits(wb, edits):
     """Ghi các chỉnh sửa vào sheet '4. Điều chỉnh' của workbook `wb` (đã mở, không phải data_only).
 
@@ -256,21 +454,25 @@ def apply_edits(wb, edits):
             editable.append(not (isinstance(v, str) and v.startswith('=')))
         index[key_of(code, fund_sheet)] = (prow, srows, editable, code, fund_sheet,
                                            ws.cell(row=prow, column=C['fund_row']).value)
+    items = {it['key']: it for it in _read_wb(wb)}
     plan, remarks = [], []
     for edit in edits:
         key = _text(edit.get('key'))
         if key not in index:
             raise AdjustError(f"Không có mã {key} trên sheet '{SHEET}'.")
         prow, srows, editable, code, fund_sheet, fund_row = index[key]
-        item = dict(code=code, has_subs=bool(srows), subs=[None] * len(srows))
-        plan.append((prow, srows, editable, code) + _validate(edit, item))
+        plan.append((prow, srows, editable, code) + _validate(edit, items[key]))
         if edit.get('remark') is not None:          # chỉ khi gửi lên: mã không sửa remark giữ nguyên ô T
             remarks.append(_validate_remark(wb, code, edit['remark'], fund_sheet, fund_row))
+    ba.upgrade(wb)                                  # sheet cũ: thêm các ô tần suất, số không đổi
     upgrade_sheet(ws, index.values())
     written = []
     for sheet, row, text in remarks:
         wb[sheet].cell(row=row, column=REMARK_COL).value = text or None
-    for prow, srows, editable, code, adj_type, inflation, subs in plan:
+    for prow, srows, editable, code, adj_type, inflation, subs, freq in plan:
+        if freq is not None:
+            _write_freq(wb, ws, prow, items[key_of(code, _text(ws.cell(row=prow, column=C['fund_sheet']).value))],
+                        adj_type, inflation, subs, freq)
         ws.cell(row=prow, column=C['adj_type']).value = adj_type or None
         ws.cell(row=prow, column=C['inflation']).value = inflation
         for idx, vals in subs.items():

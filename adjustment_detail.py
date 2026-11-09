@@ -30,6 +30,7 @@ priced here from A1 the way the sheet computes it.
 import re
 
 import generate_project_budget as g
+import line_frequency
 from existing_staffing import excel_round
 
 FUND_SHEET = '2. Budget-Management Fund'
@@ -81,6 +82,17 @@ def _row_figures(ws, r):
     if kind == 'schedule':
         cells = [_number(ws.cell(row=r, column=c).value) for c in range(_FIRST_MONTH_COL, _FIRST_MONTH_COL + 12)]
         return 'Schedule', (None if any(v is None for v in cells) else cells)
+    try:
+        cyclic = line_frequency.normalise(freq)
+    except ValueError:
+        return None
+    if cyclic in line_frequency.CYCLIC or cyclic == line_frequency.OPTIONAL:
+        # change add-line-frequency: F = price per time, H:S = the row-8 month headers of the months of payment
+        f = _number(ws.cell(row=r, column=_UNIT_PRICE_COL).value)
+        paid = line_frequency.payment_months(ws, r)
+        if f is None or paid is None:
+            return cyclic, None
+        return cyclic, [f if m in paid else 0.0 for m in range(1, 13)]
     return None
 
 

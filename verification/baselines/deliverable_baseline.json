@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-11-06T15:32:22+07:00",
-  "reason": "2026-11-06 change widen-utility-and-capex-sources (signed off by the user): energy usage per m2 is the median of hand-checked real projects (Ref_UtilityUsage.csv: electricity 1.818 kWh, water 0.0231 m3, diesel 0.0049 l per m2/month vs the single reference 1.837 / 0.0237 / 0.0049), electricity priced at the dated EVN rate (2,226 VND/kWh, unchanged); capex item lists from 11 projects, the standard sample's nearest is now a 53,826 m2 store project (was the 64,124 m2 reference), with the amenity list taken from the nearest project that has one. Standard sample: capex 309.9M -> 202.2M, electricity -1.0%, water -2.3%, profit +149.7M.",
+  "recorded_at": "2026-11-09T10:11:28+07:00",
+  "reason": "2026-11-09 change add-line-frequency (signed off by the user): six codes take a default frequency from Ref_LineFrequency.csv (ESC12 Yearly; ESM2, ESM3, RO2a Half a Year; ESM5, ESM25 Quarterly; first month T1) and are written the form's way (price per time, month headers); the price per time is rounded from the annual figure, so four annual figures move by +-4 VND of the old monthly rounding (ESC12, ESM2, ESM25 +4; ESM5 -4). Nothing else moves.",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",
@@ -42,7 +42,7 @@
       "where": "2. Budget-Management Fund!G240"
     },
     "estimated_surplus_year1": {
-      "value": 1617092591.7386608,
+      "value": 1617092579.7794666,
       "unit": "VND",
       "where": "1. Summary!H54 (code 'PART 3:')"
     },

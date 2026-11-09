@@ -3005,9 +3005,10 @@ def _read_sheet_block(ws, first_row, last_col):
     return last_row, lookup
 
 
-def adjustment_cells_from_workbook(wb):
+def adjustment_cells_from_workbook(wb, last_col=37):
     """From an open, recalculated Excel COM workbook, the (sheet_names, cell, last_row) triple adjustment_sheet_ties
-    reads: the adjustment sheet from row 1 to AD and both fund sheets from row 12 to AK, read in bulk once."""
+    reads: the adjustment sheet from row 1 to AD and both fund sheets from row 12 to AK (`last_col`; the frequency
+    check reads to BB for the month spread), read in bulk once."""
     sheets = {_nfc(ws.Name): ws for ws in wb.Worksheets}
     sheet_names = [ws.Name for ws in wb.Worksheets]
     blocks = {}
@@ -3015,7 +3016,7 @@ def adjustment_cells_from_workbook(wb):
                         (_COMMON_AREA_SHEET, _ADJ_FUND_FIRST_ROW)):
         ws = sheets.get(_nfc(name))
         if ws is not None:
-            blocks[_nfc(name)] = _read_sheet_block(ws, first, 37)
+            blocks[_nfc(name)] = _read_sheet_block(ws, first, last_col)
 
     def cell(sheet, r, c):
         block = blocks.get(_nfc(sheet))
@@ -3070,6 +3071,220 @@ def check_adjustment_sheet(paths):
             pass
         shutil.rmtree(os.path.dirname(work), ignore_errors=True)
     return adjustment_sheet_ties(sheet_names, cell, last_row)
+
+
+# ---- change add-line-frequency: the form's own checks on every written line, and five frequency edits ----------
+
+_FREQ_TIMES = {'monthly': 12, 'quarterly': 4, 'half a year': 2, 'yearly': 1, 'schedule': 12}
+_FREQ_EDITS = (('Quarterly', 3, None), ('Half a Year', 6, None), ('Yearly', 12, None),
+               ('Optional', None, (2, 7, 11)), ('Schedule', None, None))
+
+
+def line_frequency_ties(sheet_names, cell, last_row):
+    """Every line of both fund sheets that carries a frequency, as Excel recalculates the workbook: the form's own
+    times check (U) is 0 and its total check (V) is TRUE, and a cyclic / Optional line pays as many months as its
+    times (E). `cell(sheet, r, c)` -> (value, formula or None); `last_row(sheet)`. Returns (ok, rows, differences,
+    notes). Spec budget-workflow-verification (change add-line-frequency)."""
+    rows, differences, notes = [], [], []
+    counted = {}
+    for sheet in _ADJ_FUND_SHEETS:
+        if _nfc(sheet) not in {_nfc(n) for n in sheet_names}:
+            differences.append((f"sheet '{sheet}'", 'missing', 'present'))
+            continue
+        by_freq = {}
+        for r in range(_ADJ_FUND_FIRST_ROW, last_row(sheet) + 1):
+            code = cell(sheet, r, 25)[0]
+            freq = cell(sheet, r, 3)[0]
+            if isinstance(code, str) and code.strip() == _ADJ_TAX_BLOCK_CODE:
+                break                                   # PART 2 (tax lines) is not budget lines
+            if not isinstance(code, str) or not code.strip() or not isinstance(freq, str) or not freq.strip():
+                continue
+            kind = freq.strip().lower()
+            by_freq[kind] = by_freq.get(kind, 0) + 1
+            label = f"'{sheet}' row {r} {code.strip()} ({freq.strip()})"
+            u, v, e = cell(sheet, r, 21)[0], cell(sheet, r, 22)[0], cell(sheet, r, 5)[0]
+            if not isinstance(u, (int, float)) or isinstance(u, bool) or abs(u) > 1e-9:
+                differences.append((f'{label}: U (times check)', u, 0))
+            if v is not True:
+                # the form compares SUM(spread) = G exactly; a pass-through share of the common-area fund can miss
+                # by a float hair, so a spread within 1 VND of G passes (the template's own rows do the same)
+                first_spread = 43 if _nfc(sheet) == _nfc(_FUND_SHEET) else 38
+                spread = [cell(sheet, r, c)[0] for c in range(first_spread, first_spread + 12)]
+                g = cell(sheet, r, 7)[0]
+                total = sum(x for x in spread if isinstance(x, (int, float)))
+                if not (isinstance(g, (int, float)) and abs(total - g) < 1):
+                    differences.append((f'{label}: V (total check)', v, True))
+            if kind in ('quarterly', 'half a year', 'yearly', 'optional'):
+                filled = sum(1 for c in range(8, 20) if cell(sheet, r, c)[0] not in (None, ''))
+                times = cell(sheet, r, 4)[0] if kind == 'optional' else _FREQ_TIMES[kind]
+                if not isinstance(e, (int, float)) or e != times or filled != times:
+                    differences.append((f'{label}: months of payment', f'E={e}, {filled} filled', f'{times} both'))
+                f = cell(sheet, r, 6)[0]
+                if f is None or isinstance(f, str):
+                    differences.append((f'{label}: F (price per time)', f, 'a number'))
+        counted[sheet] = by_freq
+        rows.append((f"'{sheet}': lines with a frequency", sum(by_freq.values()), sum(by_freq.values())))
+    notes.append('Frequencies on the fund sheets: ' + '; '.join(
+        f"'{s}': " + ', '.join(f'{k} {n}' for k, n in sorted(c.items())) for s, c in counted.items()))
+    return not differences, rows, differences, notes
+
+
+def frequency_edit_plan(wb):
+    """Five total rows of '4. Điều chỉnh' to edit, one per frequency: editable Monthly lines with detail rows and a
+    non-zero amount, in sheet order. [(code, fund_sheet, parent_row, amount, frequency, first_month, ticks)]."""
+    import budget_adjustment as ba
+    ws = wb[ADJUSTMENT_SHEET]
+    plan = []
+    for r in range(_ADJUSTMENT_FIRST_ROW, ws.max_row + 1):
+        if len(plan) == len(_FREQ_EDITS):
+            break
+        if ws.cell(row=r, column=ba.COL['kind']).value != ba.ROW_KIND_TOTAL:
+            continue
+        freq = str(ws.cell(row=r, column=ba.COL['freq']).value or '').strip().lower()
+        amount = ws.cell(row=r, column=ba.COL['amount']).value
+        has_subs = ws.cell(row=r + 1, column=ba.COL['kind']).value == ba.ROW_KIND_DETAIL
+        if freq != 'monthly' or not has_subs or ws.cell(row=r, column=ba.COL['new_freq']).protection.locked:
+            continue
+        if isinstance(amount, str):            # =SUM(details): add the detail rows right below
+            amount, k = 0.0, r + 1
+            while ws.cell(row=k, column=ba.COL['kind']).value == ba.ROW_KIND_DETAIL:
+                amount += ws.cell(row=k, column=ba.COL['amount']).value or 0
+                k += 1
+        if not isinstance(amount, (int, float)) or abs(amount) < 1:
+            continue
+        name, first, ticks = _FREQ_EDITS[len(plan)]
+        plan.append((str(ws.cell(row=r, column=ba.COL['code']).value).strip(),
+                     str(ws.cell(row=r, column=ba.COL['fund_sheet']).value).strip(), r, float(amount), name, first, ticks))
+    return plan
+
+
+def apply_frequency_edits(wb, plan):
+    """Write the five edits on sheet 4 (the cells a PM fills in Excel). Returns {code: expected new annual amount}."""
+    import budget_adjustment as ba
+    ws = wb[ADJUSTMENT_SHEET]
+    expected = {}
+    for code, _sheet, r, amount, name, first, ticks in plan:
+        ws.cell(row=r, column=ba.COL['new_freq']).value = name
+        ws.cell(row=r, column=ba.COL['first_month']).value = first
+        if name == 'Optional':
+            for m in ticks:
+                ws.cell(row=r, column=ba.MONTH_IN_FIRST_COL + m - 1).value = 'x'
+            expected[code] = amount * len(ticks) / 12
+        elif name == 'Schedule':
+            monthly = round(amount / 12)
+            for k in range(12):
+                ws.cell(row=r, column=ba.MONTH_IN_FIRST_COL + k).value = monthly if k % 2 == 0 else 0
+            expected[code] = monthly * 6
+        else:
+            expected[code] = amount * _FREQ_TIMES[name.lower()] / 12
+    return expected
+
+
+def frequency_edit_ties(plan, expected, sheet_names, cell, last_row):
+    """After Excel recalculates the edited copy: each edited code's M equals the expected amount, its fund line reads
+    the new frequency with the form's U = 0 and V = TRUE, the year total equals M, and a cyclic line's F is M / times.
+    Returns (ok, rows, differences, notes)."""
+    rows, differences, notes = [], [], []
+    for code, sheet, r, _amount, name, first, ticks in plan:
+        m = cell(ADJUSTMENT_SHEET, r, _ADJ_COL['new_amount'])[0]
+        label = f'{code} -> {name}'
+        rows.append((f'{label}: M', m, expected[code]))
+        if not isinstance(m, (int, float)) or abs(m - expected[code]) > ADJUSTMENT_TIE_TOLERANCE:
+            differences.append((f'{label}: M (new amount)', m, expected[code]))
+        fr = cell(ADJUSTMENT_SHEET, r, _ADJ_COL['fund_row'])[0]
+        if not isinstance(fr, (int, float)):
+            differences.append((f'{label}: fund row', fr, 'a row number'))
+            continue
+        fr = int(fr)
+        c, u, v = cell(sheet, fr, 3)[0], cell(sheet, fr, 21)[0], cell(sheet, fr, 22)[0]
+        total = cell(sheet, fr, _ADJ_TOTAL_COL[sheet])[0]
+        if str(c or '').strip().lower() != name.lower():
+            differences.append((f"{label}: '{sheet}' C", c, name))
+        if not isinstance(u, (int, float)) or isinstance(u, bool) or abs(u) > 1e-9:
+            differences.append((f"{label}: '{sheet}' U", u, 0))
+        if v is not True:
+            differences.append((f"{label}: '{sheet}' V", v, True))
+        if not isinstance(total, (int, float)) or abs(total - expected[code]) > ADJUSTMENT_TIE_TOLERANCE:
+            differences.append((f"{label}: '{sheet}' year total", total, expected[code]))
+        times = len(ticks) if name == 'Optional' else _FREQ_TIMES[name.lower()]
+        if name != 'Schedule':
+            f = cell(sheet, fr, 6)[0]
+            if not isinstance(f, (int, float)) or abs(f * times - expected[code]) > ADJUSTMENT_TIE_TOLERANCE:
+                differences.append((f"{label}: '{sheet}' F x times", f, expected[code] / times))
+        filled = [c for c in range(8, 20) if cell(sheet, fr, c)[0] not in (None, '')]
+        if name == 'Schedule':
+            if len(filled) != 12:
+                differences.append((f"{label}: '{sheet}' month amounts", len(filled), 12))
+        elif name == 'Optional':
+            if [c - 7 for c in filled] != list(ticks):
+                differences.append((f"{label}: '{sheet}' ticked months", [c - 7 for c in filled], list(ticks)))
+        else:
+            want = list(range(first, 13, {'Quarterly': 3, 'Half a Year': 6, 'Yearly': 12}[name]))
+            if [c - 7 for c in filled] != want:
+                differences.append((f"{label}: '{sheet}' months of payment", [c - 7 for c in filled], want))
+    notes.append('Five frequency edits through sheet 4: ' + ', '.join(f'{p[0]} -> {p[4]}' for p in plan))
+    if len(plan) < len(_FREQ_EDITS):
+        differences.append(('frequency edits', f'{len(plan)} editable Monthly lines found', len(_FREQ_EDITS)))
+    return not differences, rows, differences, notes
+
+
+def _recalc_and_read(path):
+    """Open a copy of `path` in Excel, recalculate fully, read the adjustment sheet and both fund sheets."""
+    import shutil
+    import tempfile
+
+    from verification.baseline import BaselineUnavailable
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The frequency check needs Excel ({exc}).') from exc
+    work = os.path.join(tempfile.mkdtemp(prefix='freq_tie_'), os.path.basename(path))
+    shutil.copy(path, work)
+    pythoncom.CoInitialize()
+    xl = wb = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        return adjustment_cells_from_workbook(wb, last_col=54)
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
+    finally:
+        for closer in ((lambda: wb.Close(SaveChanges=False)) if wb is not None else None,
+                       (lambda: xl.Quit()) if xl is not None else None, pythoncom.CoUninitialize):
+            try:
+                if closer:
+                    closer()
+            except Exception:
+                pass
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+
+
+def check_line_frequency(paths):
+    """Spec budget-workflow-verification (change add-line-frequency): on the deliverable as Excel recalculates it,
+    every line with a frequency passes the form's U and V checks (line_frequency_ties); then a copy with five
+    frequency edits on sheet 4 (one per frequency) recalculates to the expected amounts (frequency_edit_ties).
+    Returns (ok, rows, differences, notes)."""
+    import shutil
+    import tempfile
+
+    import openpyxl
+    ok1, rows, diffs, notes = line_frequency_ties(*_recalc_and_read(paths['deliverable']))
+    work = os.path.join(tempfile.mkdtemp(prefix='freq_edit_'), os.path.basename(paths['deliverable']))
+    try:
+        shutil.copy(paths['deliverable'], work)
+        wb = openpyxl.load_workbook(work)
+        plan = frequency_edit_plan(wb)
+        expected = apply_frequency_edits(wb, plan)
+        wb.save(work)
+        wb.close()
+        ok2, rows2, diffs2, notes2 = frequency_edit_ties(plan, expected, *_recalc_and_read(work))
+    finally:
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+    return ok1 and ok2, rows + rows2, diffs + diffs2, notes + notes2
 
 
 def check_run_log(paths, input_path, required_rows):

@@ -451,6 +451,7 @@ Six reference files, plus the template and your input. This list comes from trac
 | `data/master_list_verified/Fact_ProjectLocation.csv` | Project locations for ranking comparables |
 | `data/generation_A_star_schema/Fact_OPEX.csv` | Repairs, administrative expense, pool salt fallback; the utilities base's energy usage (fallback only) |
 | `data/generation_B_verified/Ref_UtilityUsage.csv` | Energy usage per m² of a new prospect: the median of the accepted, hand-checked rows (one per project and utility) after a 1.5 × IQR fence; fewer than 5 projects falls back to the utilities base. A missing file stops the run |
+| `data/generation_B_verified/Ref_LineFrequency.csv` | Default frequency per code in a new budget (code, frequency, times, first_month, source, note): a listed Monthly line is rewritten the form's way (C = Quarterly / Half a Year / Yearly, F = price per time, H:S = the month headers of the months of payment), the annual amount kept to the VND of rounding. A code not listed stays Monthly; a missing file means no default is applied |
 | `data/generation_A_star_schema/Fact_Capex_Rescanned.csv` | Capex line items |
 | `data/generation_A_star_schema/Fact_CapexReserve.csv` | The Years 2+ Capex reserve rate, derived from 4 real projects |
 | `input/template/2027 Resi Budget Form (IT team).xlsx` | The deliverable's shape |

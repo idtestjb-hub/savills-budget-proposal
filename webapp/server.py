@@ -592,6 +592,7 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
                              abnormal_keys=abnormal_keys, abnormal_rule=adjust.abnormal_rule(),
                              measure_labels={k: v for k, v in (cols.get('labels') or {}).items() if measures.get(k)},
                              prior_year=years[0], budget_year=years[1],
+                             period=adjust.period_labels(path, run['workdir']),   # 'MM/YYYY' x 12, danh sách Tháng đầu
                              last=results.adjust_result(run['workdir']) or None,
                              can_save=role_of(request) != ROLE_VIEWER, active=_active['id']))
 

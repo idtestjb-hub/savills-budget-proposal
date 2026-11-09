@@ -118,6 +118,28 @@ def _lazy_if(expr):
     raise ValueError(expr)
 
 
+class _Blank(int):
+    """An empty cell: equal to 0 and to "" at once, as Excel compares a blank."""
+    def __new__(cls):
+        return super().__new__(cls, 0)
+
+    def __eq__(self, other):
+        return other == '' or (isinstance(other, (int, float)) and not isinstance(other, _Blank) and other == 0) \
+            or isinstance(other, _Blank)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    __hash__ = int.__hash__
+
+
+BLANK = _Blank()
+
+
+def _num_of(v):
+    return 0 if v == '' or v is None else v
+
+
 class _Eval:
     def __init__(self, wb):
         self.wb = wb
@@ -126,7 +148,7 @@ class _Eval:
         v = self.wb[sheet][ref.replace('$', '')].value
         if isinstance(v, str) and v.startswith('='):
             return self.formula(sheet, v)
-        return v if v is not None else 0
+        return v if v is not None else BLANK
 
     def formula(self, sheet, text):
         expr = text[1:]
@@ -136,21 +158,39 @@ class _Eval:
             strings.append(m.group(0)[1:-1])
             return f'__s{len(strings) - 1}__'
         expr = re.sub(r'"[^"]*"', keep, expr)
+        expr = re.sub(r'SUMPRODUCT\(--\((\$?[A-Z]+\$?\d+):(\$?[A-Z]+\$?\d+)!=__s(\d+)__\)\)',
+                      lambda m: f'NB("{sheet}","{m.group(1)}","{m.group(2)}")', expr.replace('<>', '!='))
+        expr = re.sub(r'COUNTA\((\$?[A-Z]+\$?\d+):(\$?[A-Z]+\$?\d+)\)',
+                      lambda m: f'CA("{sheet}","{m.group(1)}","{m.group(2)}")', expr)
         expr = re.sub(r"SUM\('([^']+)'!(\$?[A-Z]+\$?\d+):(\$?[A-Z]+\$?\d+)\)",
                       lambda m: f'R("{m.group(1)}","{m.group(2)}","{m.group(3)}")', expr)
         expr = re.sub(r"'([^']+)'!(\$?[A-Z]+\$?\d+)", lambda m: f'C("{m.group(1)}","{m.group(2)}")', expr)
         expr = re.sub(r'SUM\((\$?[A-Z]+\$?\d+):(\$?[A-Z]+\$?\d+)\)',
                       lambda m: f'R("{sheet}","{m.group(1)}","{m.group(2)}")', expr)
         expr = re.sub(r'(?<![A-Za-z"])(\$?[A-Z]{1,3}\$?\d+)(?![\w"])', lambda m: f'C("{sheet}","{m.group(1)}")', expr)
-        expr = expr.replace('<>', '!=').replace('=', '==').replace('!==', '!=')
+        expr = expr.replace('<>', '!=').replace('>=', '\x01').replace('<=', '\x02')
+        expr = expr.replace('=', '==').replace('!==', '!=').replace('\x01', '>=').replace('\x02', '<=')
         expr = re.sub(r'__s(\d+)__', lambda m: repr(strings[int(m.group(1))]), expr)
         expr = _lazy_if(expr)
 
         def R(sh, a, b):
             ws = self.wb[sh]
             a, b = a.replace('$', ''), b.replace('$', '')
-            return sum((self.cell(sh, c.coordinate) or 0) for row in ws[a:b] for c in row)
-        return eval(expr, {'C': self.cell, 'R': R, 'VALUE': float})
+            return sum(_num_of(self.cell(sh, c.coordinate)) for row in ws[a:b] for c in row)
+
+        def cells(sh, a, b):
+            ws = self.wb[sh]
+            return [self.cell(sh, c.coordinate) for row in ws[a.replace('$', ''):b.replace('$', '')] for c in row]
+
+        def CA(sh, a, b):      # COUNTA of plain cells: anything not blank
+            return sum(1 for v in cells(sh, a, b) if not isinstance(v, _Blank))
+
+        def NB(sh, a, b):      # SUMPRODUCT(--(range<>"")): a formula returning "" is not counted
+            return sum(1 for v in cells(sh, a, b) if v != '')
+        return eval(expr, {'C': self.cell, 'R': R, 'VALUE': float, 'CA': CA, 'NB': NB,
+                           'OR': lambda *a: any(a), 'AND': lambda *a: all(a),
+                           'MOD': lambda a, b: _num_of(a) % _num_of(b), 'N': lambda v: _num_of(v)
+                           if isinstance(v, (int, float)) else 0})
 
 
 # ---- layout ----
@@ -180,7 +220,8 @@ def test_parent_and_detail_rows(applied):
     assert [ws.cell(row=r, column=3).value for r in range(5, 14)] == [
         'Tổng', 'Chi tiết', 'Chi tiết', 'Tổng', 'Chi tiết', 'Tổng', 'Chi tiết', 'Tổng', 'Chi tiết']
     assert (ws['A5'].value, ws['B5'].value) == ('ESS1', 'Dịch vụ bảo vệ')
-    assert ws['A6'].value is None and ws['B6'].value is None and ws['E5'].value is None
+    assert ws['A6'].value is None and ws['B6'].value is None
+    assert ws['E5'].value == f'=IF(AND(AE5="Schedule",D5<>""),"{ba.SCHEDULE_NOTE}","")'   # the Schedule note
     assert (ws['E6'].value, ws['F6'].value, ws['G6'].value, ws['H6'].value, ws['I6'].value) == (
         'Vị trí cổng chính', 'vị trí', 4.0, 300_000_000.0, 1_200_000_000.0)
     assert ws['E6'].alignment.indent >= 1
@@ -189,7 +230,7 @@ def test_parent_and_detail_rows(applied):
     assert ws['J6'].value == 4.0 and ws['K6'].value == 300_000_000.0
     assert ws['J9'].value == '=G9'                           # lumped row: quantity follows the original
     assert ws['L5'].value == 0 and ws['D5'].value is None
-    assert ws['I5'].value == '=SUM(I6:I7)' and ws['M5'].value == '=SUM(M6:M7)'
+    assert ws['I5'].value == '=SUM(I6:I7)' and ws['M5'].value == ba.frequency_amount('SUM(M6:M7)', 5)
     assert ws['N5'].value == '=M5-I5' and ws['O5'].value == '=IF(I5=0,"N/A",N5/I5)'
     assert ws['M6'].value == ('=IF($D$5="Số lượng",J6*H6,IF($D$5="Đơn giá",G6*K6,IF($D$5="Số lượng + Đơn giá",J6*K6,'
                               'IF($D$5="Trượt giá",I6*(1+$L$5),IF($D$5="Nhập số",K6,I6)))))')
@@ -209,7 +250,7 @@ def test_outline_groups_collapsed_with_the_button_on_the_parent_row(applied):
 
 def test_dropdown_on_every_parent_row(applied):
     _, ws, _ = applied
-    dvs = ws.data_validations.dataValidation
+    dvs = [d for d in ws.data_validations.dataValidation if 'Số lượng' in str(d.formula1 or '')]
     assert len(dvs) == 1 and dvs[0].type == 'list'
     assert dvs[0].formula1 == '"Số lượng,Đơn giá,Số lượng + Đơn giá,Trượt giá,Nhập số"'
     covered = {str(rng) for rng in dvs[0].sqref.ranges}
@@ -235,11 +276,14 @@ def test_protection_and_unlocked_cells(applied):
 def test_fund_month_cells_point_at_the_parent_row(applied):
     wb, _, _ = applied
     ws = wb[MGMT]
-    expected = ("=IF('4. Điều chỉnh'!$I$5=0,'4. Điều chỉnh'!$M$5/12,'4. Điều chỉnh'!$S$5*IF('4. Điều chỉnh'!$I$5=0,1,"
-                "'4. Điều chỉnh'!$M$5/'4. Điều chỉnh'!$I$5))")
-    assert ws['H20'].value == expected and ws['F20'].value == expected
-    assert ws['S20'].value == expected.replace('$S$5', '$AD$5')
-    assert ws['F14'].value is None                             # Schedule: F untouched
+    today = ("IF('4. Điều chỉnh'!$I$5=0,'4. Điều chỉnh'!$M$5/12,'4. Điều chỉnh'!$S$5*IF('4. Điều chỉnh'!$I$5=0,1,"
+             "'4. Điều chỉnh'!$M$5/'4. Điều chỉnh'!$I$5))")
+    # change add-line-frequency: with AE blank the month cell is the earlier link; F = new amount / times in use
+    assert ws['H20'].value == ba.fund_month_formula(5, 0, 8) and today in ws['H20'].value
+    assert ws['S20'].value == ba.fund_month_formula(5, 11, 19) and today.replace('$S$5', '$AD$5') in ws['S20'].value
+    assert ws['F20'].value == ba.fund_price_formula(5) and ws['C20'].value == "='4. Điều chỉnh'!$AV$5"
+    assert ws['U20'].value == '=E20-IF(C20<>"Monthly",SUMPRODUCT(--(H20:S20<>"")),12)'
+    assert ws['F14'].value == ba.fund_price_formula(10)        # Schedule: F blank ("")
     assert "'4. Điều chỉnh'!$S$10*" in ws['H14'].value and ws['H14'].value.startswith("=IF(")
     assert ws['H21'].value == 24_000_000 and ws['F21'].value == 24_000_000   # ESS4 not covered
     assert "'4. Điều chỉnh'!$S$12*" in wb[COMMON]['H20'].value
@@ -483,8 +527,10 @@ def test_append_items_keeps_the_earlier_rows_and_extends_the_dropdown():
     assert ws['J15'].value == '=G15'                      # locked quantity
     assert ws.protection.sheet and ws['K15'].protection.locked is False and ws['A14'].protection.locked
     assert 'D14' in str(ws.data_validations.dataValidation[0].sqref)
+    assert 'AE14' in str(next(d for d in ws.data_validations.dataValidation if 'Half a Year' in str(d.formula1)).sqref)
     assert ws.row_dimensions[15].outlineLevel == 1 and ws.row_dimensions[15].hidden
-    assert "'4. Điều chỉnh'!$M$14/12" in wb[MGMT]['F30'].value
+    assert wb[MGMT]['F30'].value == ba.fund_price_formula(14)
+    assert "'4. Điều chỉnh'!$M$14/12" in wb[MGMT]['H30'].value
 
 
 def test_append_items_skips_a_code_already_on_the_sheet():

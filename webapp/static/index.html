@@ -200,6 +200,11 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj tr.grp.sg { background: var(--sav-panel); }
 #adj button.gtg { background: none; border: 0; font: 700 13px var(--sav-font); color: inherit; cursor: pointer; padding: 0 4px 0 0; }
 #adj td.unit { white-space: nowrap; font-size: 13px; color: var(--sav-muted); }
+#adj td.freq { white-space: nowrap; font-size: 13px; }
+#adj td.freq select { max-width: 240px; }
+#adj tr.freqm .months { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0; }
+#adj tr.freqm label.mon { font-size: 13px; white-space: nowrap; }
+#adj tr.freqm input[type=number] { width: 110px; }
 #adj.hide-m .adj-mc, #adj.hide-rm .adj-rm { display: none; }
 #adj .top10 { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--sav-yellow); color: var(--sav-on-yellow); font: 700 10px var(--sav-font); vertical-align: middle; }
 #adj .zero-tag { display: block; font-size: 11px; color: var(--sav-muted); }
@@ -603,6 +608,7 @@ body.adj-full-on { overflow: hidden; }
           <tr><td>Số lượng + Đơn giá</td><td>SL mới và Đơn giá mới</td><td>SL mới × đơn giá mới</td></tr>
           <tr><td>Trượt giá</td><td>Trượt giá %</td><td>Thành tiền gốc × (1 + %)</td></tr>
           <tr><td>Nhập số</td><td>Số nhập (VND/năm) ở từng dòng chi tiết</td><td>Chính số đã nhập; dùng cho mã công cụ ra 0 (sheet quỹ chia đều 12 tháng)</td></tr>
+          <tr><td>Tần suất (cột riêng)</td><td>Tần suất, Tháng đầu; đánh dấu tháng (Không theo chu kỳ) hoặc số tiền từng tháng (Theo lịch)</td><td>Giữ đơn giá mỗi lần: số theo loại điều chỉnh × số lần mới / số lần gốc; Theo lịch = tổng 12 tháng</td></tr>
           </tbody>
         </table>
         <p class="src">Chênh lệch và % tính ngay tại dòng; dòng tổng, sheet quỹ, 1. Summary và dự phòng chạy theo. Liên kết theo mã dòng, không theo số dòng Excel. Chưa sửa gì thì bản giao giữ nguyên số gốc.</p>
@@ -735,7 +741,7 @@ body.adj-full-on { overflow: hidden; }
         </div>
         <div id="adj-wrap">
         <table id="adj">
-          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th class="num adj-df" title="Thành tiền gốc (công cụ) trừ số duyệt; không đổi khi sửa">Chênh so với duyệt</th><th class="num adj-df" title="Chênh so với duyệt, tính trên số duyệt">% so với duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
+          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th>Tần suất</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th class="num adj-df" title="Thành tiền gốc (công cụ) trừ số duyệt; không đổi khi sửa">Chênh so với duyệt</th><th class="num adj-df" title="Chênh so với duyệt, tính trên số duyệt">% so với duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -1485,7 +1491,64 @@ const DETAIL_TYPES = [T_QTY, T_PRICE, T_QP, T_ENT];
 let adj = null;          // {id, items, orig: {key: json}, open: Set, sel: Set}
 const adjTbody = document.querySelector('#adj tbody');
 
+// Tần suất (change add-line-frequency): như cột M của sheet 4 và webapp/adjust.new_amount.
+const F_LABEL = { Monthly: 'Hàng tháng', Quarterly: 'Hàng quý', 'Half a Year': '6 tháng/lần', Yearly: 'Hàng năm',
+  Optional: 'Không theo chu kỳ', Schedule: 'Theo lịch từng tháng' };
+const F_TIMES = { Monthly: 12, Quarterly: 4, 'Half a Year': 2, Yearly: 1, Schedule: 12 };
+const F_STEP = { Quarterly: 3, 'Half a Year': 6, Yearly: 12 };
+function itemTimes(it) {
+  if (!it.new_freq) return it.orig_times || 12;
+  if (it.new_freq === 'Optional') return (it.ticks || []).filter(Boolean).length;
+  return F_TIMES[it.new_freq];
+}
 function itemNew(it) {
+  const base = itemBase(it);
+  if (!it.new_freq) return base;
+  if (it.new_freq === 'Schedule') return (it.month_amounts || []).reduce((t, v) => t + (Number(v) || 0), 0);
+  return base * itemTimes(it) / (it.orig_times || 1);
+}
+function firstInUse(it, f) {
+  if (it.first_month) return it.first_month;
+  const st = F_STEP[f] || 1;
+  return it.orig_first && it.orig_first <= st ? it.orig_first : 1;
+}
+function payMonths(it) {
+  const f = it.new_freq || it.freq || 'Monthly', idx = (arr, ok) => (arr || []).map((v, i) => (ok(v) ? i + 1 : 0)).filter(Boolean);
+  if (f === 'Optional') return it.new_freq ? idx(it.ticks, Boolean) : idx(it.orig_months, v => Math.abs(v) > 1e-9);
+  if (f === 'Schedule') return idx(it.new_freq ? it.month_amounts : it.orig_months, v => Math.abs(Number(v) || 0) >= 0.5);
+  if (F_STEP[f]) { const out = []; for (let m = firstInUse(it, f); m <= 12; m += F_STEP[f]) out.push(m); return out; }
+  return [];
+}
+function monthLabel(m) { const per = (adj.data.period || [])[m - 1]; return per ? `T${m} · ${per}` : `T${m}`; }
+function freqCell(it) {
+  const f = it.new_freq || it.freq || 'Monthly';
+  if (!it.freq_editable) return `<td class="freq"><span title="Dòng quỹ của mã là công thức riêng, không đổi được tần suất">${esc(F_LABEL[f] || f)} (${esc(f)})</span></td>`;
+  const opts = [['', `(giữ: ${F_LABEL[it.freq] || it.freq}, ${it.orig_times} lần)`], ...Object.keys(F_LABEL).map(k => [k, `${F_LABEL[k]} (${k})`])]
+    .map(([v, l]) => `<option value="${esc(v)}" ${v === (it.new_freq || '') ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  let extra = '';
+  if (F_STEP[f]) {
+    const cur = firstInUse(it, f);
+    extra += `<br><select data-first="${esc(it.key)}" aria-label="Tháng đầu của ${esc(it.code)}" title="Tháng đầu">` +
+      Array.from({ length: F_STEP[f] }, (_, i) => i + 1).map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${monthLabel(m)}</option>`).join('') + '</select>';
+  }
+  const pm = payMonths(it);
+  if (f !== 'Monthly') extra += `<br><small>${f === 'Schedule' ? 'theo lịch' : itemTimes(it) + ' lần/năm'}${pm.length ? ', chi vào ' + pm.map(m => 'T' + m).join(', ') : ''}</small>`;
+  if (it.new_freq === 'Schedule' && it.adj_type) extra += '<br><small class="neg">Loại điều chỉnh không có tác dụng khi Theo lịch từng tháng</small>';
+  return `<td class="freq"><select data-freq="${esc(it.key)}" aria-label="Tần suất của ${esc(it.code)}">${opts}</select>${extra}</td>`;
+}
+function monthRow(it, cols) {
+  if (!['Optional', 'Schedule'].includes(it.new_freq)) return '';
+  const cells = Array.from({ length: 12 }, (_, k) => it.new_freq === 'Optional'
+    ? `<label class="mon"><input type="checkbox" data-tick="${esc(it.key)}" data-m="${k}" ${it.ticks[k] ? 'checked' : ''}> ${monthLabel(k + 1)}</label>`
+    : `<label class="mon">${monthLabel(k + 1)}<br><input class="edit" type="number" min="0" step="any" data-mamt="${esc(it.key)}" data-m="${k}" value="${it.month_amounts[k] ?? ''}"></label>`).join('');
+  const n = (it.ticks || []).filter(Boolean).length;
+  const note = it.new_freq === 'Optional'
+    ? `<small>${it.code}: ${n} lần/năm${n === 12 || n === 0 ? ' — chọn từ 1 đến 11 tháng (chọn Hàng tháng khi chi đủ 12 tháng)' : ''}</small>`
+    : `<small>${it.code}: số tiền từng tháng (VND); thành tiền mới = tổng 12 tháng</small>`;
+  return `<tr class="sub freqm"><td colspan="${cols}"><div class="months">${cells}</div>${note}</td></tr>`;
+}
+function freqSnap(it) { return JSON.stringify([it.new_freq || '', it.first_month || null, it.ticks || [], it.month_amounts || []]); }
+function itemBase(it) {
   if (!it.has_subs) return it.adj_type === T_INF ? it.amount * (1 + it.inflation) : it.amount;
   let t = 0;
   for (const s of it.subs) {
@@ -1508,7 +1571,7 @@ function subNew(it, s) {
 }
 function vnd(v) { return v == null ? '—' : Math.round(v).toLocaleString('en-US'); }
 function vpct(diff, base) { return Math.abs(base) < 0.5 ? 'N/A' : (diff >= 0 ? '+' : '') + (diff / base * 100).toFixed(1) + '%'; }
-function snap(it) { return JSON.stringify([it.adj_type, it.inflation, it.subs.map(s => [s.new_qty, s.new_price]), it.remark || '']); }
+function snap(it) { return JSON.stringify([it.adj_type, it.inflation, it.subs.map(s => [s.new_qty, s.new_price]), it.remark || '', freqSnap(it)]); }
 function isDirty(it) { return snap(it) !== adj.orig[it.key]; }
 function isAdjusted(it) { return !!it.adj_type; }
 
@@ -1520,7 +1583,7 @@ async function openAdjust(id, slot) {
   if (!r.ok) { body.classList.add('hidden'); return; }
   document.getElementById('adj-title').textContent = d.kind === 'review' ? '3. Điều chỉnh ngân sách năm mới trước khi giao' : 'Điều chỉnh ngân sách';
   adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set(), closed: new Set(), groups: {}, showZero: false };
-  d.items.forEach(it => { it.remark0 = it.remark || ''; adj.orig[it.key] = snap(it); });
+  d.items.forEach(it => { it.remark0 = it.remark || ''; it.freq0 = freqSnap(it); adj.orig[it.key] = snap(it); });
   // Mã công cụ ra 0: mặc định ẩn (trừ dòng bất thường), nút hiện thêm; nút chỉ có khi lượt có mã như vậy (lượt review).
   const nZero = d.items.filter(it => it.zero_row).length;
   document.getElementById('adj-zero').classList.toggle('hidden', !nZero);
@@ -1635,7 +1698,7 @@ function renderAdjust() {
   if (!adj) return;
   const ap = adj.data.has_approved;
   const mk = adjMeasureKeys();
-  const cols = (ap ? 15 : 12) + mk.length;
+  const cols = (ap ? 16 : 13) + mk.length;
   let html = '';
   adj.groups = {};
   // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng; trong đó các mã xếp và lồng theo nhóm của form 2027
@@ -1673,13 +1736,15 @@ function renderAdjust() {
       html += `<tr class="${cls}" data-k="${esc(it.key)}"><td class="pin p1"><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
         `<td class="pin p2"><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
         `<td class="pin p3"><b>${esc(it.code)}</b>${isAbnormal(it) ? abnTag() : ''}${topKeys().has(it.key) ? '<span class="top10" title="Nằm trong 10 dòng lệch lớn nhất của lượt review">Top 10</span>' : ''}<br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
-        unitCell(it) +
+        unitCell(it) + freqCell(it) +
         mk.map(k => `<td class="num adj-mc">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
         (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>${diffCells(it)}` : '') +
         `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
         `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
         `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
-        `<td class="adj-rm"><textarea class="edit" rows="2" maxlength="5000" data-rm="${esc(it.key)}" aria-label="Remark năm mới của ${esc(it.code)}">${esc(it.remark || '')}</textarea></td></tr>`;
+        `<td class="adj-rm"><textarea class="edit" rows="2" maxlength="5000" data-rm="${esc(it.key)}" aria-label="Remark năm mới của ${esc(it.code)}">${esc(it.remark || '')}</textarea>` +
+        `${it.remark_stale ? '<br><small class="neg" title="Tần suất đã đổi trong Excel; lưu lại trên web để câu tần suất của remark khớp">Remark chưa theo tần suất mới</small>' : ''}</td></tr>`;
+      html += monthRow(it, cols);
       if (open) html += `<tr class="sub"><td colspan="${cols}">${subTable(it)}</td></tr>`;
     }
   }
@@ -1735,7 +1800,7 @@ function groupHead(id) {
   const a = group.reduce((s, i) => s + (i.approved || 0), 0);
   const btn = sub ? `<button type="button" class="gtg" data-gtg="${esc(id)}" aria-expanded="${!closed}" title="${closed ? 'Mở nhóm' : 'Thu gọn nhóm'}">${closed ? '▸' : '▾'}</button>` : '';
   const pad = sub ? `padding-left:${6 + 14 * (g.depth - 1)}px;` : '';
-  return `<tr class="grp${sub ? ' sg' : ''}" data-grp="${esc(id)}"><td class="pin p1" colspan="4" style="width:auto;max-width:none;${pad}"${g.full ? ` title="${esc(g.full)}"` : ''}>${btn}${esc(g.label)}${sub ? ` <small style="font-weight:400">(${group.length} mã)</small>` : ''}</td><td></td>` +
+  return `<tr class="grp${sub ? ' sg' : ''}" data-grp="${esc(id)}"><td class="pin p1" colspan="4" style="width:auto;max-width:none;${pad}"${g.full ? ` title="${esc(g.full)}"` : ''}>${btn}${esc(g.label)}${sub ? ` <small style="font-weight:400">(${group.length} mã)</small>` : ''}</td><td></td><td></td>` +
     adjMeasureKeys().map(k => `<td class="num adj-mc">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
     (ap ? `<td class="num">${vnd(a)}</td>${diffSumCells(group)}` : '') + `<td colspan="2"></td>` +
     `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td class="adj-rm"></td></tr>`;
@@ -1780,6 +1845,27 @@ adjTbody.addEventListener('change', e => {
   } else if (t.dataset.sel) {
     t.checked ? adj.sel.add(t.dataset.sel) : adj.sel.delete(t.dataset.sel);
     renderAdjPreview();
+  } else if (t.dataset.freq) {
+    const it = itemOf(t.dataset.freq), was = it.new_freq;
+    it.new_freq = t.value;
+    if (t.value === 'Schedule' && was !== 'Schedule') {     // mở 12 ô với phân bổ tháng hiện tại
+      const base = itemBase(it), r = Math.abs(it.amount) >= 0.5 ? base / it.amount : null;
+      it.month_amounts = (it.orig_months || []).map(v => Math.round(r === null ? base / 12 : v * r));
+    }
+    if (!F_STEP[t.value]) it.first_month = null;
+    renderAdjust();
+  } else if (t.dataset.first) {
+    itemOf(t.dataset.first).first_month = Number(t.value);
+    renderAdjust();
+  } else if (t.dataset.tick) {
+    itemOf(t.dataset.tick).ticks[Number(t.dataset.m)] = t.checked;
+    renderAdjust();
+  } else if (t.dataset.mamt) {
+    const v = t.value === '' ? null : Number(t.value);
+    if (v !== null && (v < 0 || !isFinite(v))) { t.setCustomValidity('Không được âm'); return; }
+    t.setCustomValidity('');
+    itemOf(t.dataset.mamt).month_amounts[Number(t.dataset.m)] = v;
+    renderAdjust();
   }
 });
 adjTbody.addEventListener('input', e => {
@@ -1866,8 +1952,14 @@ document.getElementById('adj-save').addEventListener('click', async () => {
     const e = { key: it.key, adj_type: it.adj_type, inflation: it.inflation,
       subs: it.subs.map(s => ({ idx: s.idx, new_qty: s.qty_editable ? s.new_qty : null, new_price: s.new_price })) };
     if ((it.remark || '') !== it.remark0) e.remark = it.remark || '';      // chỉ gửi khi remark được sửa
+    if (freqSnap(it) !== it.freq0) {                                         // chỉ gửi khi tần suất được sửa
+      Object.assign(e, { new_freq: it.new_freq || '', first_month: F_STEP[it.new_freq] ? firstInUse(it, it.new_freq) : null,
+        ticks: it.ticks, month_amounts: it.month_amounts });
+    }
     return e;
   });
+  const badOpt = dirty.find(it => it.new_freq === 'Optional' && !(itemTimes(it) >= 1 && itemTimes(it) <= 11));
+  if (badOpt) { setAdjStatus(`${badOpt.code}: Không theo chu kỳ phải chọn từ 1 đến 11 tháng (chọn Hàng tháng khi chi đủ 12 tháng).`, true); return; }
   const save = document.getElementById('adj-save'), log = document.getElementById('adj-log'), bar = document.getElementById('adj-bar');
   save.disabled = true; save.dataset.busy = '1';
   log.classList.remove('hidden'); log.textContent = ''; bar.style.width = '3%';
