@@ -7,7 +7,8 @@
 
 Gói ra: <out>\\BudgetAgent-<site>\\ với python\\ (chép từ --runtime), app\\Budget_Agent\\source_code (không tests, legacy,
 openspec, docs, bytecode), app\\Budget_Agent\\data, app\\Budget_Agent\\reports\\Project_Budget_Input.xlsx,
-app\\input\\template\\<form 2027>, site\\site.json + file đã duyệt, runs\\, tmp\\, launcher .cmd, HUONG-DAN.txt.
+app\\input\\template\\<form 2027>, site\\site.json + file đã duyệt, runs\\, tmp\\, launcher .cmd, HUONG-DAN.txt,
+và trang sơ đồ hệ thống (docs\\so-do-he-thong-budget-agent.html của repo ngoài, tự chứa) khi file đó có.
 Dữ kiện mục 2: --facts (JSON {city, district, tower_count, ...}) hoặc điền sẵn từ kho khi có --library-id (lượt trước
 cùng dự án, sheet 0. Info, danh sách master); --city ghi đè / bổ sung Tỉnh / thành phố (bắt buộc để chạy).
 --check: python trong gói import đủ module, đọc được file đã duyệt bằng review_import, quét gói không chứa tên
@@ -34,6 +35,9 @@ BUDGET_AGENT = os.path.dirname(HERE)
 BASE = os.path.dirname(BUDGET_AGENT)
 TEMPLATE = os.path.join(BASE, 'input', 'template', '2027 Resi Budget Form (IT team).xlsx')
 INPUT_FORM = os.path.join(BUDGET_AGENT, 'reports', 'Project_Budget_Input.xlsx')
+# Trang sơ đồ hệ thống (kiến trúc, dữ liệu, luồng chạy), tự chứa, mở bằng trình duyệt; đi kèm gói (người dùng 09/11/2026).
+DIAGRAM = os.path.join(BASE, 'docs', 'so-do-he-thong-budget-agent.html')
+DIAGRAM_NAME = 'So do he thong Budget Agent.html'
 # Không mang sang site: test, mã cũ, OpenSpec, tài liệu (.md có đường dẫn máy văn phòng), bytecode, và chính hai script
 # dựng gói (chỉ chạy ở máy văn phòng).
 SOURCE_IGNORE = shutil.ignore_patterns('tests', 'legacy', 'openspec', 'docs', '__pycache__', '*.pyc', '.git*',
@@ -94,8 +98,9 @@ Microsoft Excel. Không cần cài Python hay phần mềm nào khác.
    - Kiểm tra mục 2 (dữ kiện file ngân sách không có), rồi bấm "Tạo ngân sách năm mới". Khoảng 1-2 phút.
    - Kết quả, bảng điều chỉnh và nút tải file hiện ngay bên dưới. Tab "Dự án đã tạo" giữ các lượt đã chạy.
    - Đóng cửa sổ đen là tắt trang. Bấm đúp lại để mở tiếp.
-3. Mọi lượt nằm trong runs\\<ngày-giờ>_review-<dự án>\\run\\ (bản giao khách, bản phân tích nội bộ, lịch trực).
+3. Mọi lượt nằm trong runs\\<ngày-giờ>_review-<dự án>\\run\\. Trên trang tải bản giao khách và lịch trực.
 4. Có file duyệt mới hơn: trên trang chọn "Tải file lên" và chọn file .xlsx đó.
+5. Sơ đồ hệ thống, dữ liệu và luồng chạy: bấm đúp "So do he thong Budget Agent.html" (mở bằng trình duyệt, không cần mạng).
 
 Khi Windows hỏi có chạy file không: chọn Run / Chạy. Nếu máy chặn hẳn, nhờ IT cho phép thư mục C:\\BudgetAgent\\.
 Lỗi thì gửi về văn phòng thư mục runs\\<lượt>\\ (file run.log, review_error.txt nếu có) kèm bản mã ở trên.
@@ -189,6 +194,10 @@ def build(site, prior, runtime, out, facts, store_id='', library_id=''):
         fh.write(LAUNCH_WEB.format(site=_safe(site)))
     with open(os.path.join(pkg, 'HUONG-DAN.txt'), 'w', encoding='utf-8-sig') as fh:
         fh.write(GUIDE.format(site=site, code=code, built=built))
+    if os.path.isfile(DIAGRAM):
+        shutil.copy2(DIAGRAM, os.path.join(pkg, DIAGRAM_NAME))
+    else:
+        print(f'Chú ý: không có trang sơ đồ {DIAGRAM}; gói không kèm sơ đồ.')
     return pkg
 
 
