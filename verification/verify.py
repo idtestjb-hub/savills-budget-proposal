@@ -352,6 +352,17 @@ def main(argv=None):
             return 1
         print(f'OK    the real-distance ranking and its 20% cap hold on invented comparables ({len(dkrows)} check(s))')
 
+        # ---- 5j. the costing catalogue's table shape (data quality pass 2026-11-09) ----------------
+        csok, csrows, csdiffs, _csnotes = checks.check_catalogue_shape()
+        if not csok:
+            print(f'FAIL  {len(csdiffs)} costing catalogue record problem(s):')
+            for label, msg in csdiffs:
+                print(f'        - {label}: {msg}')
+            print('\nEvery Costing_Method_Catalogue.csv record must have the header\'s field count and its own code; '
+                  'quote any text cell that contains a comma.')
+            return 1
+        print(f'OK    the costing catalogue has one well-formed record per code ({csrows[0][1]} records)')
+
         # ---- 6. coverage & method fidelity (never a pass/fail on the score itself) -----------
         _headline('6. COVERAGE & METHOD FIDELITY')
         try:
@@ -436,7 +447,10 @@ def main(argv=None):
                                lambda: checks.check_line_frequency(paths)),
                               # Change use-real-budget-ranges: the lines priced from real Savills budgets.
                               ('Real-Budget Ranges ties to the deliverable, 10+ projects, project left out',
-                               lambda: checks.check_real_budget_ranges(paths))]):
+                               lambda: checks.check_real_budget_ranges(paths)),
+                              # Change leave-unpriced-lines-for-pm (spec pm-filled-lines).
+                              ('Lines the tool cannot price are blank, shaded, "PM điền", on sheet 4 and fillable',
+                               lambda: checks.check_pm_lines(paths))]):
             return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
@@ -483,6 +497,8 @@ def main(argv=None):
                  lambda: checks.check_contingency(ex_paths)),
                 ('Real-Budget Ranges ties to the deliverable, 10+ projects, project left out',
                  lambda: checks.check_real_budget_ranges(ex_paths)),
+                ('Lines the tool cannot price are blank, shaded, "PM điền", on sheet 4 and fillable',
+                 lambda: checks.check_pm_lines(ex_paths)),
             ]
             if not _run_sections(sections):
                 return 1
@@ -528,6 +544,8 @@ def main(argv=None):
              lambda: checks.check_helper_sheet_ties(op_paths)),
             ('4. Điều chỉnh ties to its fund lines and leaves every figure unchanged',
              lambda: checks.check_adjustment_sheet(op_paths)),
+            ('Lines the tool cannot price are blank, shaded, "PM điền", on sheet 4 and fillable',
+             lambda: checks.check_pm_lines(op_paths)),
         ]):
             return 1
 

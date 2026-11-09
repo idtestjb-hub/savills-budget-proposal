@@ -128,8 +128,14 @@ tính (`webapp/adjust.py`).
   đọc danh sách (`adjust.abnormal_keys`), lượt cũ không có danh sách thì server tính lại từ thành tiền gốc trừ số duyệt
   (`adjust.flag_abnormal`). Trên bảng: nhãn *Bất thường* cạnh mã, hai ô chênh tô đỏ nhạt, số dòng bất thường trên dòng
   THU / CHI; bảng "10 dòng lệch lớn nhất" và dòng đếm của Review cũng ghi.
+- **Dòng PM điền** (change leave-unpriced-lines-for-pm, 09/11/2026): dòng công cụ không tính được, có ở mọi lượt (dự án
+  mới và review). Nhãn vàng *PM điền* cạnh mã (rê chuột xem lý do), cột Thành tiền gốc để trống, loại *Nhập số* chọn sẵn.
+  Thanh công cụ ghi "N dòng chờ PM điền" (dòng có số sau điều chỉnh còn 0) và ô đánh dấu để chỉ hiện các dòng này. Lưu một
+  số thì remark trên sheet quỹ đổi thành "Số do PM nhập: <số> VND/năm. Công cụ không tính được: <lý do>" (xoá số thì về lại
+  "PM điền: <lý do>"), trừ khi lần lưu đó gửi remark riêng của mã. `adjust.read_items` trả thêm `pm_fill`, `pm_reason`,
+  `pm_empty`.
 - **Nút "Mã công cụ ra 0":** các dòng Nhập số (thành tiền gốc 0, `zero_row`) mặc định ẩn để bảng gọn, **trừ dòng bất
-  thường** (luôn hiện). Nút hiện đủ / ẩn lại, ghi số mã đang ẩn; dòng THU / CHI ghi "n mã công cụ ra 0 đang ẩn". Không nhớ
+  thường và dòng PM điền** (luôn hiện). Nút hiện đủ / ẩn lại, ghi số mã đang ẩn; dòng THU / CHI ghi "n mã công cụ ra 0 đang ẩn". Không nhớ
   trạng thái giữa các lần mở (mặc định luôn ẩn). Dòng Cộng vẫn cộng các mã đang hiện. Sheet 4 trong Excel giữ đủ dòng.
 - **Tần suất** (change add-line-frequency, 07/11/2026): cột *Tần suất* sau ĐVT ghi tần suất hiện có (tiếng Việt và chữ của form, số lần/năm). Chọn tần suất mới trên dòng mã: Hàng quý / 6 tháng / Hàng năm có danh sách *Tháng đầu* (ghi tháng của kỳ, ví dụ "T3 · 03/2027") và dòng chữ "chi vào T3, T6, T9, T12"; Không theo chu kỳ mở 12 ô đánh dấu (1-11 tháng); Theo lịch từng tháng mở 12 ô số tiền, điền sẵn phân bổ hiện tại. Giữ đơn giá mỗi lần: thành tiền mới = số theo loại điều chỉnh × số lần mới / số lần gốc; Theo lịch = tổng 12 ô (loại điều chỉnh không tác dụng, dòng ghi rõ). Lưu ghi AE, AF, AH:AS của sheet 4 và thay câu tần suất ở cuối remark (phần của PM giữ nguyên). Web từ chối: Không theo chu kỳ 0 hoặc 12 tháng ("chọn Hàng tháng khi chi đủ 12 tháng"), tháng đầu ngoài khoảng, số tiền tháng âm. Sửa tần suất trong Excel thì web báo "Remark chưa theo tần suất mới" cho tới lần lưu sau. Sheet 4 của bản giao cũ được thêm các ô này khi lưu, số không đổi.
 - **Ô sửa được** theo loại: Số lượng → SL mới; Đơn giá → đơn giá mới; Trượt giá → % trên dòng mã; **Nhập số** → gõ số cả năm

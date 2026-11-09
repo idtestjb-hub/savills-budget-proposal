@@ -298,6 +298,13 @@ def measure(deliverable, analysis, input_path, classification_csv, now=None):
         problems.append('excel_unavailable')
     except Exception as exc:
         problems.append(f'measure_error:{type(exc).__name__}')
+    # Lines left for the PM (change leave-unpriced-lines-for-pm): code and kind (A no method / B input missing).
+    try:
+        import generate_project_budget as gpb
+        rec['pm_lines'] = [dict(code=ln['code'], kind=ln['kind']) for ln in gpb.pm_lines_of(deliverable)]
+    except Exception as exc:
+        rec['pm_lines'] = None
+        problems.append(f'pm_lines_unreadable:{type(exc).__name__}')
     rec['status'] = '; '.join(dict.fromkeys(problems)) if problems else 'ok'
     return rec
 

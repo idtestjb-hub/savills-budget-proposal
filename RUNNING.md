@@ -388,6 +388,16 @@ file, the Apartment rate comes from the comparables as before.
   6. The web library reads `final_v4` (`BUDGET_WEB_LIBRARY_STORE`, default `final_v4`). Files read through a map tie in
      the store but stay greyed in the Review tab ("Form riêng"), because Review does not read those forms.
 
+## Lines left for the PM ("PM điền")
+
+A line the tool cannot price (no pricing method, or a method whose input this project lacks: EMH1 without Savills fee
+terms, ESI1 without an insured value, EMH3 on an existing project without a duty roster, a real-budget range code with
+fewer than 10 budgets or no NFA) is written blank and shaded light yellow on `2. Budget-Management Fund`, with the
+remark "PM điền: <lý do>", and gets a "Nhập số" row marked "PM điền" on `4. Điều chỉnh` on every run. The PM types the
+annual figure there (web adjust table or Excel). A line that is genuinely 0 (no pool, no tower, a 0 entered by the PM,
+a 0% contingency rate, EMO2) keeps 0 and "Để ở mức 0". The analysis lists them on sheet `Dòng chờ PM điền`; the run log
+records `pm_lines`; `verify.py` checks them (`checks.check_pm_lines`). Change `leave-unpriced-lines-for-pm`, docs/32.
+
 ## If you run only one generator
 
 **The two outputs will describe different projects.**

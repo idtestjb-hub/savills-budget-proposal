@@ -109,6 +109,8 @@ class RangeResult:
     code: str
     usable: bool = False
     reason: str = ''                 # Vietnamese, when not usable
+    pm_fill: bool = False            # not usable for want of data (no values file, < 10 budgets, no NFA): the line is
+                                     # left for the PM (change leave-unpriced-lines-for-pm); False = genuinely 0
     stand_in: bool = False
     cross_check: bool = False
     rate: bool = False               # a RATE_CODES result: median/p25/p75 are a unit rate, figure stays 0
@@ -324,7 +326,7 @@ def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TAR
                       rate=code in RATE_CODES, nfa=nfa, vat_rate=vat_rate, vat_inclusive=vat_inclusive,
                       budget_year=budget_year)
     if rows is None:
-        res.reason = REASON_NO_DATA
+        res.reason, res.pm_fill = REASON_NO_DATA, True
         return res
     (res.used, res.left_out, res.p25, res.median, res.p75,
      res.n_value, res.n_zero) = form_range(code, rows, self_name, nfa if self_nfa is None else self_nfa)
@@ -332,7 +334,7 @@ def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TAR
         # A unit rate (design D4): usable by the floor alone; the caller applies it to the product's own area and
         # converts the VAT basis itself, so no figure is formed here.
         if res.n_used < MIN_PROJECTS:
-            res.reason = reason_too_few(res.n_used)
+            res.reason, res.pm_fill = reason_too_few(res.n_used), True
         else:
             res.usable = True
         return res
@@ -349,10 +351,10 @@ def price_line(code, rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TAR
         res.reason = REASON_NO_TOWER
         return res
     if res.n_used < MIN_PROJECTS:
-        res.reason = reason_too_few(res.n_used)
+        res.reason, res.pm_fill = reason_too_few(res.n_used), True
         return res
     if not nfa or nfa <= 0:
-        res.reason = REASON_NO_NFA
+        res.reason, res.pm_fill = REASON_NO_NFA, True
         return res
     res.figure_excl_vat = res.median * nfa * MONTHS
     if vat_factors is not None:

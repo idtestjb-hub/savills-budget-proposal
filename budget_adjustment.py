@@ -67,6 +67,12 @@ COL.update({key: LAST_COL + 1 + i for i, (key, _) in enumerate(FREQ_HEADERS)})
 MONTH_IN_FIRST_COL = COL['month_in_1']     # AH
 FREQ_HIDDEN_COLS = range(COL['orig_times'], COL['step'] + 1)   # AT .. AX
 FREQ_LAST_COL = COL['step']                # AX
+# Lines left for the PM (change leave-unpriced-lines-for-pm, design D4): hidden AY "PM điền" mark and AZ reason on the
+# total row, read back by the web; the fund row's F and H:S show nothing while the PM's cell is empty.
+PM_HEADERS = (('pm_mark', 'PM điền'), ('pm_reason', 'Lý do PM điền'))
+COL.update({key: FREQ_LAST_COL + 1 + i for i, (key, _) in enumerate(PM_HEADERS)})
+PM_MARK = 'PM điền'
+FMT_BLANK_ZERO = '#,##0;-#,##0;;@'         # a 0 shows nothing, so a fund cell the PM has not filled reads blank
 FREQUENCIES = ('Monthly', 'Quarterly', 'Half a Year', 'Yearly', 'Optional', 'Schedule')
 SCHEDULE_NOTE = 'Tần suất Schedule: loại điều chỉnh không có tác dụng, số mới = tổng 12 tháng nhập'
 
@@ -602,4 +608,107 @@ def append_items(wb, items):
         row = _write_item(ws, dv, row, item, validations)
         _link_fund_row(wb, item, parent_rows[item['code']], item['freq_editable'])
     return parent_rows
+
+
+# ------------------------------------------------------------------------------------------------
+# Lumped "Nhập số" lines: zero-tool codes on a Review, lines left for the PM on every run
+# ------------------------------------------------------------------------------------------------
+def lumped_item(wb, sheet, code, name, value_col, first_month_col, defaults=None):
+    """(item, None) for a one-detail "Nhập số" line of `code` on `sheet` for append_items(), or (None, reason) when the
+    code is not a plain leaf line of its fund sheet (no unique row, or no =SUM(first month) annual in `value_col`).
+    A frequency the fund row carries is kept; a blank one (or Optional) takes the code's default from
+    Ref_LineFrequency.csv, else Monthly (change add-line-frequency). Moved from review.add_zero_rows."""
+    if sheet not in wb.sheetnames:
+        return None, 'không có sheet quỹ'
+    ws = wb[sheet]
+    try:
+        row = find_fund_row(ws, code)
+    except ValueError as exc:
+        return None, str(exc)
+    annual = str(ws[f'{value_col}{row}'].value or '').replace(' ', '').upper()
+    if not annual.startswith(f'=SUM({first_month_col}'):
+        return None, 'không phải dòng chi tiết của form (không có công thức năm =SUM tháng)'
+    lf = line_frequency
+    defaults = lf.load_table() if defaults is None else defaults
+    try:
+        freq = lf.normalise(ws.cell(row=row, column=FUND_FREQ_COL).value)
+    except ValueError:
+        freq = None
+    default = defaults.get(code)
+    first = None
+    if freq in (None, lf.OPTIONAL):
+        freq = default.frequency if default else lf.MONTHLY
+        first = default.first_month if default else None
+    elif freq in lf.CYCLIC:
+        paid = lf.payment_months(ws, row)
+        first = (min(paid) if paid else
+                 default.first_month if default and default.frequency == freq else 1)
+    ws.cell(row=row, column=FUND_FREQ_COL).value = freq
+    name = name or code
+    return dict(code=code, sheet=sheet, row=row, name_vi=name, freq=freq, first_month=first,
+                months=[0.0] * 12, annual=0.0,
+                subs=[dict(desc_vi=name, unit_vi='khoản', qty=1.0, unit_price=0.0, amount=0.0,
+                           qty_editable=False)]), None
+
+
+def _write_pm_header(ws):
+    for key, name in PM_HEADERS:
+        c = ws.cell(row=HEADER_ROW, column=COL[key], value=name)
+        _style(c, fill=FILL_HEADER, align='wrap')
+        ws.column_dimensions[get_column_letter(COL[key])].hidden = True
+
+
+def shade_pm_fund_row(ws, row):
+    """A line left for the PM on its fund sheet: F and H:S light yellow, a 0 shown as nothing (design D3)."""
+    for col in [FUND_MONTHLY_COL] + [FUND_MONTH_FIRST_COL + k for k in range(12)]:
+        cell = ws.cell(row=row, column=col)
+        cell.fill = PatternFill('solid', fgColor=FILL_INPUT.fgColor.rgb)
+        cell.number_format = FMT_BLANK_ZERO
+
+
+def add_pm_rows(wb, lines, sheet, value_col, first_month_col):
+    """Rows on '4. Điều chỉnh' for the lines left for the PM (change leave-unpriced-lines-for-pm, spec
+    budget-adjustment-sheet): `lines` = [dict(code, name, reason)] of `sheet`. Each gets a lumped detail row whose
+    yellow cell is empty, the type "Nhập số" already chosen, the hidden mark and reason, and its fund row linked; every
+    line's F and H:S on the fund sheet are shaded, linked or not. Returns (added codes, [(code, reason skipped)])."""
+    added, skipped, items, reasons = [], [], [], {}
+    if SHEET_NAME not in wb.sheetnames:
+        return added, [(ln['code'], "không có sheet '4. Điều chỉnh'") for ln in lines]
+    defaults = line_frequency.load_table()
+    for ln in lines:
+        item, why = lumped_item(wb, sheet, ln['code'], ln.get('name'), value_col, first_month_col, defaults)
+        if item is None:
+            skipped.append((ln['code'], why))
+        else:
+            items.append(item)
+            reasons[ln['code']] = ln.get('reason') or ''
+    ws = wb[SHEET_NAME]
+    if items:
+        parent_rows = append_items(wb, items)
+        _write_pm_header(ws)
+        for code, prow in parent_rows.items():
+            ws.cell(row=prow, column=COL['adj_type'], value=TYPE_ENTER)
+            ws.cell(row=prow, column=COL['pm_mark'], value=PM_MARK)
+            ws.cell(row=prow, column=COL['pm_reason'], value=reasons.get(code, ''))
+            ws.cell(row=prow + 1, column=COL['new_price']).value = None    # the PM's cell starts empty
+            added.append(code)
+    fund = wb[sheet]
+    for ln in lines:
+        try:
+            shade_pm_fund_row(fund, find_fund_row(fund, ln['code']))
+        except ValueError:
+            pass
+    return added, skipped
+
+
+def pm_rows(ws):
+    """{(code, fund sheet): (total row, reason)} of the total rows marked "PM điền" on '4. Điều chỉnh'."""
+    out = {}
+    for r in range(FIRST_DATA_ROW, ws.max_row + 1):
+        if (ws.cell(row=r, column=COL['kind']).value == ROW_KIND_TOTAL
+                and ws.cell(row=r, column=COL['pm_mark']).value == PM_MARK):
+            out[(str(ws.cell(row=r, column=COL['code']).value or '').strip(),
+                 str(ws.cell(row=r, column=COL['fund_sheet']).value or '').strip())] = (
+                r, ws.cell(row=r, column=COL['pm_reason']).value or '')
+    return out
 

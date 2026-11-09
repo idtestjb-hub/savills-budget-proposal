@@ -3980,3 +3980,169 @@ def check_distance_ranking():
         mc.MASTER_COMPARABLES[:] = saved_pool
         mc.DISTANCE_COMPARISON_ENABLED = saved_flag
     return (not diffs), rows, diffs, ['invented comparables with coordinates; the standard sample carries none']
+
+
+def catalogue_shape_problems(lines):
+    """Problems in the costing catalogue's table shape, from its text lines ('#' comment lines are skipped):
+    a record whose field count differs from the header (an unquoted comma in a text cell shifts every later
+    column), a blank code, or a code listed twice. Returns ([(label, reason)], record count)."""
+    import csv
+    rows = list(csv.reader(line for line in lines if not line.startswith('#')))
+    if not rows:
+        return [('catalogue', 'no header row')], 0
+    width = len(rows[0])
+    problems, seen = [], set()
+    for n, row in enumerate(rows[1:], start=1):
+        if not any(cell.strip() for cell in row):
+            continue
+        code = row[0].strip()
+        label = code or f'record {n}'
+        if len(row) != width:
+            problems.append((label, f'{len(row)} fields, header has {width} (unquoted comma in a text cell?)'))
+        if not code:
+            problems.append((label, 'blank code'))
+        elif code in seen:
+            problems.append((label, 'code listed twice'))
+        seen.add(code)
+    return problems, len(rows) - 1
+
+
+def check_catalogue_shape(path=None):
+    """Every record of Costing_Method_Catalogue.csv has the header's field count and a unique code (data
+    quality pass 2026-11-09: ESI2's thousands separators had split its record into 20 fields, shifting
+    its precedence note and recipe columns). Returns (ok, rows, differences, notes)."""
+    import sys
+    src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    if path is None:
+        import generate_project_budget as gpb
+        path = gpb.CATALOGUE_PATH
+    with open(path, encoding='utf-8-sig', newline='') as f:
+        lines = f.read().splitlines(keepends=True)
+    problems, count = catalogue_shape_problems(lines)
+    rows = [('catalogue records', count)]
+    return (not problems), rows, problems, []
+
+
+# ------------------------------------------------------------------------------------------------
+# Lines left for the PM (change leave-unpriced-lines-for-pm, spec pm-filled-lines)
+# ------------------------------------------------------------------------------------------------
+PM_FILL_RGB = 'FFF2CC'
+_EXCEL_ERR = -2146826000            # Excel error values arrive as -2146826xxx through COM Value2
+
+
+def _genuine_zero_reasons():
+    """Reason texts of kind C (genuinely 0): a line left for the PM must not carry one."""
+    import contingency
+    import real_budget_ranges as rbr
+    return [r.removeprefix('Để 0: ') for r in (rbr.REASON_NO_POOL, rbr.REASON_NO_TOWER, rbr.REASON_LUMP_STAFF)] + [
+        contingency.ZERO_REASON_VI]
+
+
+def pm_line_problems(wb):
+    """Static problems of the lines left for the PM in an open (openpyxl) deliverable: [(code, reason)], and the
+    lines found. A line: F and H:S hold no typed number (empty or a formula into sheet 4), are shaded FFF2CC, its
+    remark starts "PM điền:" and carries no kind-C reason, it has its marked row on '4. Điều chỉnh' (unless it is
+    not a plain leaf of the form); no kind-A code is still "Để ở mức 0"; '2.2' shares say "PM điền", not "Để ở mức 0"."""
+    import budget_adjustment as ba
+    import generate_project_budget as gpb
+    problems, lines = [], []
+    ws = wb[_FUND_SHEET]
+    marked = ba.pm_rows(wb[ba.SHEET_NAME]) if ba.SHEET_NAME in wb.sheetnames else {}
+    c_reasons = _genuine_zero_reasons()
+    for r in range(1, ws.max_row + 1):
+        code = ws.cell(row=r, column=25).value
+        remark = ws.cell(row=r, column=20).value
+        if not isinstance(code, str) or not isinstance(remark, str):
+            continue
+        code = code.strip()
+        if remark.startswith('Để ở mức 0') and code in gpb.PM_KIND_A_CODES:
+            problems.append((code, 'mã chưa có phương pháp mà remark vẫn "Để ở mức 0", phải là "PM điền"'))
+        if not remark.startswith(gpb.PM_FILL_LEAD):
+            continue
+        lines.append(code)
+        if any(c in remark for c in c_reasons):
+            problems.append((code, 'lý do thuộc loại bằng 0 thật mà remark ghi "PM điền"'))
+        for col in [6] + list(range(8, 20)):
+            cell = ws.cell(row=r, column=col)
+            if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
+                problems.append((code, f'ô {cell.coordinate} có số {cell.value}, phải để trống'))
+                break
+            rgb = str(getattr(cell.fill.fgColor, 'rgb', '') or '') if cell.fill is not None else ''
+            if not rgb.upper().endswith(PM_FILL_RGB):
+                problems.append((code, f'ô {cell.coordinate} chưa tô vàng nhạt'))
+                break
+        if (code, _FUND_SHEET) not in marked:
+            annual = str(ws.cell(row=r, column=37).value or '').replace(' ', '').upper()
+            if annual.startswith('=SUM(AQ'):
+                problems.append((code, "không có dòng 'PM điền' trên sheet '4. Điều chỉnh'"))
+    if _COMMON_AREA_SHEET in wb.sheetnames:
+        ca = wb[_COMMON_AREA_SHEET]
+        for r in range(1, ca.max_row + 1):
+            code, remark = ca.cell(row=r, column=25).value, ca.cell(row=r, column=20).value
+            if (isinstance(code, str) and code.strip() in lines and isinstance(remark, str)
+                    and remark.startswith('Để ở mức 0')):
+                problems.append((code.strip(), "dòng '2.2 Common area Fund' vẫn ghi \"Để ở mức 0\""))
+    return problems, lines
+
+
+def check_pm_lines(paths):
+    """Lines left for the PM on the deliverable (spec pm-filled-lines): the static rules of pm_line_problems, then in
+    Excel: every such line totals 0 with no error, and typing 24,000,000 VND in the first linked line's "Nhập số" cell
+    makes its year 24,000,000 VND with no error. Returns (ok, rows, differences, notes)."""
+    import shutil
+    import tempfile
+
+    import openpyxl
+
+    import budget_adjustment as ba
+    wb = openpyxl.load_workbook(paths['deliverable'])
+    try:
+        problems, lines = pm_line_problems(wb)
+        marked = ba.pm_rows(wb[ba.SHEET_NAME]) if ba.SHEET_NAME in wb.sheetnames else {}
+    finally:
+        wb.close()
+    rows = [('lines left for the PM', len(lines)), ('with a row on sheet 4', len(marked))]
+    notes = [f"{len(lines)} dòng PM điền: {', '.join(lines)}"] if lines else ['no line left for the PM in this run']
+    if not lines:
+        return (not problems), rows, problems, notes
+
+    fund_rows = {}
+    _names, cell, _last = _recalc_and_read(paths['deliverable'])
+    for r in range(_ADJ_FUND_FIRST_ROW, _last(_FUND_SHEET) + 1):
+        code = cell(_FUND_SHEET, r, 25)[0]
+        if isinstance(code, str) and code.strip() in lines:
+            fund_rows[code.strip()] = r
+            vals = [cell(_FUND_SHEET, r, c)[0] for c in [6, 7] + list(range(8, 20))]
+            if any(isinstance(v, (int, float)) and v <= _EXCEL_ERR for v in vals):
+                problems.append((code.strip(), 'Excel báo lỗi trên dòng'))
+            elif abs(sum(v for v in vals[2:] if isinstance(v, (int, float)))) >= 0.5:
+                problems.append((code.strip(), 'chưa nhập mà 12 tháng khác 0'))
+
+    target = next(((code, row) for (code, sheet), (row, _why) in sorted(marked.items(), key=lambda kv: kv[1][0])
+                   if sheet == _FUND_SHEET and code in fund_rows), None)
+    if target:
+        code, prow = target
+        work = os.path.join(tempfile.mkdtemp(prefix='pm_fill_'), os.path.basename(paths['deliverable']))
+        try:
+            shutil.copy(paths['deliverable'], work)
+            wb = openpyxl.load_workbook(work)
+            wb[ba.SHEET_NAME].cell(row=prow + 1, column=ba.COL['new_price'], value=24_000_000)
+            wb.save(work)
+            wb.close()
+            _n, cell2, _l = _recalc_and_read(work)
+            fr = fund_rows[code]
+            months = [cell2(_FUND_SHEET, fr, c)[0] for c in range(8, 20)]
+            g = cell2(_FUND_SHEET, fr, 7)[0]
+            if any(isinstance(v, (int, float)) and v <= _EXCEL_ERR for v in months + [g]):
+                problems.append((code, 'Excel báo lỗi sau khi PM nhập số'))
+            else:
+                total = sum(v for v in months if isinstance(v, (int, float)))
+                if abs(total - 24_000_000) > 1 or not isinstance(g, (int, float)) or abs(g - 24_000_000) > 1:
+                    problems.append((code, f'PM nhập 24,000,000 VND mà 12 tháng = {total:,.0f}, G = {g}'))
+                else:
+                    rows.append((f'{code}: 24,000,000 VND typed on sheet 4 -> fund year', round(total)))
+        finally:
+            shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+    return (not problems), rows, problems, notes

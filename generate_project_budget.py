@@ -1012,6 +1012,20 @@ _ACTIVE_VAT_SENTENCE = ''
 # list, so a code that gets priced (EMH1 once Savills' fee terms are entered) drops out of both
 # sheets together. build_budget() clears both dicts at the start of every run.
 _ZERO_REASONS = {}
+# Lines left for the PM to fill (change leave-unpriced-lines-for-pm, spec pm-filled-lines): code -> dict(row, kind
+# 'A'/'B', reason). Kind A = no pricing method, B = a method whose input this project lacks; kind C (genuinely 0)
+# stays in _ZERO_REASONS only. Cleared by build_budget() with _ZERO_REASONS.
+PM_KINDS = ('A', 'B')
+ZERO_KIND = 'C'
+PM_FILL_LEAD = 'PM điền:'
+PM_FILL_MARK = 'PM điền'
+_PM_LINES = {}
+# The no-method codes the generator leaves for the PM (kind A) on every run, and the one entry of that list that is
+# genuinely 0 in a year-1 budget (EMO2, kind C). The list's other entries are priced elsewhere (the real-budget range
+# codes, EMH3). verification/checks.check_pm_lines reads PM_KIND_A_CODES.
+PM_KIND_A_CODES = ('RP3', 'EMB1', 'EMO6', 'ESC4', 'ESS10', 'ESS17', 'ESS18', 'ESS19', 'ESM6', 'ESM7', 'ESM9',
+                   'ESM10', 'ESM12', 'ESM13', 'ESR', 'ERCS1')
+_NO_METHOD_ZERO_CODES = frozenset({'EMO2'})
 # Catch-all lines whose remark carries other codes' reasons (EMA15 for EMA1-EMA4, matching
 # checks._REQUIRED_CODE_DISCLOSED_ON): code -> a figure-free remark for the matching '2.2' line.
 # Figure-free because the '2. Fund' remark quotes that sheet's own amounts, not the '2.2' share.
@@ -1126,10 +1140,21 @@ def _write_remark(ws, row, remark):
     # _normalise_all_remark_columns() after every sheet is filled — see build_budget().
 
 
-def _write_zero_reason(ws, row, code, reason):
-    """Write a "left at zero" remark on '2. Budget-Management Fund' and record the reason so the
-    matching '2.2 Common area Fund' line can state it too (see _ZERO_REASONS)."""
-    _write_remark(ws, row, remark=f"Để ở mức 0: {reason}")
+def _write_zero_reason(ws, row, code, reason, kind):
+    """Write the remark of a line left without a figure on '2. Budget-Management Fund' and record the reason so the
+    matching '2.2 Common area Fund' line can state it too (see _ZERO_REASONS).
+
+    `kind` (change leave-unpriced-lines-for-pm, spec pm-filled-lines): 'A' no pricing method, 'B' a method whose
+    input this project lacks — both are lines left for the PM ("PM điền: <reason>", recorded in _PM_LINES, cells
+    blanked and shaded by _mark_pm_lines, a row on '4. Điều chỉnh'); 'C' genuinely 0 for this project ("Để ở mức 0")."""
+    if kind not in PM_KINDS + (ZERO_KIND,):
+        raise ValueError(f'unknown zero kind {kind!r} for {code}')
+    if kind in PM_KINDS:
+        _write_remark(ws, row, remark=f"{PM_FILL_LEAD} {reason}")
+        _PM_LINES[code] = dict(row=row, kind=kind, reason=reason)
+    else:
+        _write_remark(ws, row, remark=f"Để ở mức 0: {reason}")
+        _PM_LINES.pop(code, None)
     _ZERO_REASONS[code] = reason
 
 
@@ -1295,6 +1320,10 @@ def _collect_written(wb):
             freq = ws.cell(row=r, column=3).value
             if not isinstance(freq, str) or not freq.strip():
                 continue
+            remark = ws.cell(row=r, column=_REMARKS_COL).value
+            if isinstance(remark, str) and remark.startswith(PM_FILL_LEAD):
+                continue                                    # left for the PM: linked to sheet 4, no tool figure
+
             try:
                 kind = line_frequency.normalise(freq)
             except ValueError:
@@ -2442,9 +2471,61 @@ def _write_real_budget_range_lines(ws, project, demand, existing=None):
             else:
                 _write_ramped_row(ws, row, res.months, res.remark)
         else:
-            _write_zero_reason(ws, row, code, res.reason.removeprefix('Để 0: '))
+            _write_zero_reason(ws, row, code, res.reason.removeprefix('Để 0: '), 'B' if res.pm_fill else ZERO_KIND)
         done.add(code)
     return done
+
+
+def _pm_line_name(ws, row):
+    """The Vietnamese item name of a fund row: the last line of its bilingual column Z."""
+    name = str(ws.cell(row=row, column=26).value or '').strip()
+    return name.splitlines()[-1].strip() if name else ''
+
+
+def pm_lines_of(path):
+    """The lines left for the PM in a written deliverable (spec pm-filled-lines), read back from the workbook so the
+    analysis, the run log and verification need no state from the run: [dict(code, name, kind 'A'/'B', reason,
+    row, sheet4)] in form order, from the "PM điền:" remarks of '2. Budget-Management Fund'; `sheet4` = the line has
+    its marked row on '4. Điều chỉnh'. [] when the file or the sheet is missing."""
+    if not path or not os.path.exists(path):
+        return []
+    import budget_adjustment
+    wb = openpyxl.load_workbook(path)
+    try:
+        if '2. Budget-Management Fund' not in wb.sheetnames:
+            return []
+        ws = wb['2. Budget-Management Fund']
+        marked = (budget_adjustment.pm_rows(wb[budget_adjustment.SHEET_NAME])
+                  if budget_adjustment.SHEET_NAME in wb.sheetnames else {})
+        out = []
+        for r in range(1, ws.max_row + 1):
+            remark = ws.cell(row=r, column=_REMARKS_COL).value
+            code = ws.cell(row=r, column=_CODE_COL).value
+            if not (isinstance(remark, str) and remark.startswith(PM_FILL_LEAD) and isinstance(code, str)):
+                continue
+            code = code.strip()
+            out.append(dict(code=code, name=_pm_line_name(ws, r), kind='A' if code in PM_KIND_A_CODES else 'B',
+                            reason=remark[len(PM_FILL_LEAD):].strip(), row=r,
+                            sheet4=(code, '2. Budget-Management Fund') in marked))
+        return out
+    finally:
+        wb.close()
+
+
+def _add_pm_rows(wb, budget_adjustment):
+    """Every line left for the PM gets its "Nhập số" row on '4. Điều chỉnh', marked "PM điền", and its fund cells
+    shaded (change leave-unpriced-lines-for-pm, design D4) — on every run, before a Review adds its own zero rows.
+    A line that is not a plain leaf of the form (ESR, the section roll-up) keeps its shading and remark only."""
+    sheet = '2. Budget-Management Fund'
+    ws = wb[sheet]
+    lines = [dict(code=code, name=_pm_line_name(ws, info['row']), reason=info['reason'])
+             for code, info in sorted(_PM_LINES.items(), key=lambda kv: kv[1]['row'])]
+    if not lines:
+        return
+    added, skipped = budget_adjustment.add_pm_rows(wb, lines, sheet, 'AK', 'AQ')
+    print(f"  {len(lines)} dòng để PM điền; {len(added)} dòng Nhập số trên '4. Điều chỉnh'")
+    for code, why in skipped:
+        print(f"  {code}: không có dòng trên '4. Điều chỉnh' ({why}); ô vẫn tô vàng và ghi 'PM điền'")
 
 
 def template_vat_inclusive():
@@ -2761,7 +2842,7 @@ def _write_asset_insurance(ws, project, write_vat_monthly):
             f"này." if value == 0 else
             f"chưa có giá trị tài sản bảo hiểm. PM nhập giá trị tại ô '{ESI1_VALUE_LABEL}' (Project Info) để công cụ "
             f"tính: tổng giá trị tài sản x 0,05%/năm (đã gồm bảo hiểm cháy nổ bắt buộc), theo ví dụ của hướng dẫn lập "
-            f"ngân sách Savills và Nghị định 105/2025/NĐ-CP, cộng VAT bảo hiểm."))
+            f"ngân sách Savills và Nghị định 105/2025/NĐ-CP, cộng VAT bảo hiểm."), ZERO_KIND if value == 0 else 'B')
         return
     annual_excl = round(value * rate)
     bp = project.get('budget_period') or budget_period.default()
@@ -3697,7 +3778,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     else:
         _write_zero_reason(ws, MGMT_FUND_ROWS['esi2'], 'ESI2', (
             f"PM nhập phí bảo hiểm trách nhiệm công cộng bằng 0 USD tại ô '{ESI2_PREMIUM_LABEL}', nên không tính "
-            f"khoản này. Để trống ô đó để dùng mức mặc định {ESI2_DEFAULT_PREMIUM_USD:,.0f} USD/năm."))
+            f"khoản này. Để trống ô đó để dùng mức mặc định {ESI2_DEFAULT_PREMIUM_USD:,.0f} USD/năm."), ZERO_KIND)
 
     # EMH4 PCCC training/allowance — 'A5. Trợ cấp PCCC' is a template sheet with its own real,
     # already-computed total (1 team leader + 2 deputies + 17 members trained 4x/year, 2 days/
@@ -3737,7 +3818,7 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
     # against a project with Fixed Monthly Fee filled in. Now guarded the same way the fixed-fee/%
     # branch's own condition already is.
     if not savills_fee.basis(project):
-        _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', savills_fee.ZERO_REASON_VI)
+        _write_zero_reason(ws, MGMT_FUND_ROWS['mgmt_fee_expense'], 'EMH1', savills_fee.ZERO_REASON_VI, 'B')
     _write_asset_insurance(ws, project, write_vat_monthly)
 
     # ---- Required codes with genuinely no findable pricing method or real input (checked this
@@ -3878,11 +3959,11 @@ def fill_management_fund_sheet(wb, project, demand, year, rates, existing=None, 
         if _code == 'EMH3' and not existing.duty:
             _write_zero_reason(ws, _row, _code, (
                 f"{existing_staffing.BLANK_DUTY_TEXT}, và NS {existing.prior_year} không có số EMH3 đã duyệt, nên "
-                f"EMH3 = 0. Nếu dự án có trực đêm hoặc làm ngày lễ, PM điền bảng này rồi chạy lại."))
+                f"EMH3 = 0. Nếu dự án có trực đêm hoặc làm ngày lễ, PM điền bảng này rồi chạy lại."), 'B')
             continue
         _write_zero_reason(ws, _row, _code, (
             f"{_FLAGGED_NO_METHOD_VI[_code]} Không tự đặt ra số liệu — đã được rà soát "
-            f"và ghi nhận đầy đủ."))
+            f"và ghi nhận đầy đủ."), ZERO_KIND if _code in _NO_METHOD_ZERO_CODES else 'A')
 
     # ---- Capex — Year-1 lump sum (see docstring above) ----
     capex_items, capex_source = estimate_capex_items(project['total_nfa'], exclude_name=project['name'])
@@ -3937,7 +4018,7 @@ def _write_new_prospect_emh3(ws, demand, period):
     if not duty:
         _write_zero_reason(ws, _FUND_EMH3_ROW, 'EMH3', (
             "Staffing Demand không có vị trí nội bộ nào làm ca đêm (ca D hoặc 24H), nên không có phụ cấp ca đêm, "
-            "ca đêm ngày lễ và ca ngày ngày lễ theo Điều 98 Bộ luật Lao động 2019."))
+            "ca đêm ngày lễ và ca ngày ngày lễ theo Điều 98 Bộ luật Lao động 2019."), ZERO_KIND)
         return
     t = _new_prospect_a11_total_row(duty)
     formula = f"='{A11_SHEET}'!S13" if t is None else f"='{A11_SHEET}'!T{t}"
@@ -4160,10 +4241,13 @@ def _write_common_area_zero_reasons(ws):
         existing = ws.cell(row=row, column=_REMARKS_COL).value
         if existing is not None and str(existing).strip():
             continue
+        # A line left for the PM on '2. Fund' says so here too (change leave-unpriced-lines-for-pm); its share follows
+        # the '2. Fund' figure once the PM types one.
+        lead = PM_FILL_MARK if code in _PM_LINES else 'Để ở mức 0'
         if is_own_contingency:
-            remark = f"Để ở mức 0: {_ZERO_REASONS[code]}"
+            remark = f"{lead}: {_ZERO_REASONS[code]}"
         elif code in _ZERO_REASONS:
-            remark = f"Để ở mức 0 (phần phân bổ từ '2. Budget-Management Fund'): {_ZERO_REASONS[code]}"
+            remark = f"{lead} (phần phân bổ từ '2. Budget-Management Fund'): {_ZERO_REASONS[code]}"
         else:
             remark = _CATCH_ALL_REASONS[code]
         _write_remark(ws, row, remark=remark)
@@ -4234,7 +4318,7 @@ def _write_contingency_lines(ws, sheet, project):
     if not rate:
         if sheet == contingency.FUND_SHEET:
             for line in lines:
-                _write_zero_reason(ws, line['row'], line['code'], contingency.ZERO_REASON_VI)
+                _write_zero_reason(ws, line['row'], line['code'], contingency.ZERO_REASON_VI, ZERO_KIND)
         return lines
     for line in lines:
         row = line['row']
@@ -5084,6 +5168,7 @@ def build_budget(project, demand, year):
     # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
     _ZERO_REASONS.clear()
+    _PM_LINES.clear()
     _CATCH_ALL_REASONS.clear()
     _UNIT_RATES.clear()
     _ENTERED_RATE_VAT.clear()
@@ -5182,6 +5267,7 @@ def build_budget(project, demand, year):
         budget_adjustment = None
     if budget_adjustment is not None:
         budget_adjustment.apply(wb, _adjust_items)
+        _add_pm_rows(wb, budget_adjustment)
     wb.save(local_out)
     print('Saved locally:', local_out)
 

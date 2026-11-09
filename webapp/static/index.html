@@ -215,6 +215,7 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj .top10 { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--sav-yellow); color: var(--sav-on-yellow); font: 700 10px var(--sav-font); vertical-align: middle; }
 #adj .zero-tag { display: block; font-size: 11px; color: var(--sav-muted); }
 /* Dòng bất thường (chênh so với duyệt ≥20% và ≥50 triệu/năm): nhãn cạnh mã, hai ô chênh tô đỏ nhạt. */
+.pm { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: #FFF2CC; border: 1px solid #B38F00; color: #5C4A00; font: 700 10px var(--sav-font); vertical-align: middle; white-space: nowrap; cursor: help; }
 .abn { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: #FCE4D6; color: var(--sav-neg); font: 700 10px var(--sav-font); vertical-align: middle; white-space: nowrap; }
 #adj tr.par td.abn-cell { background: #FCE4D6; }
 #adj tr.par.dirty td.abn-cell { background: #F8D7C0; }
@@ -450,6 +451,7 @@ body.adj-full-on { overflow: hidden; }
         <li>Trên dòng của mã, chọn <b>loại điều chỉnh</b>: Số lượng, Đơn giá, Số lượng + Đơn giá, Trượt giá hoặc Nhập số (gõ số cả năm cho mã công cụ ra 0). Chọn một loại có dòng chi tiết thì các dòng đó mở ngay bên dưới.</li>
         <li>Sửa ô vàng. Thành tiền mới, chênh lệch và % tính ngay; cột <b>Duyệt</b> cho thấy số năm cũ để so.</li>
         <li><b>Dòng bất thường:</b> mã có nhãn <span class="abn">Bất thường</span> và hai ô "Chênh so với duyệt" tô đỏ nhạt là mã công cụ lệch so với số duyệt <b>từ 20% và từ 50 triệu VND/năm</b> (mã không có số duyệt: chỉ xét số tiền). Tick "Chỉ dòng bất thường" để rà riêng các mã này; sheet Review của bản phân tích tô cùng màu và ghi "BẤT THƯỜNG" ở cột Ghi chú.</li>
+        <li><b>PM điền:</b> dòng công cụ không tính được (chưa có phương pháp, hoặc dự án thiếu dữ liệu đầu vào). Trên bản giao các ô số của dòng để trống, tô vàng, remark ghi "PM điền: lý do". Loại điều chỉnh đã chọn sẵn <b>Nhập số</b>: mở dòng chi tiết, gõ số cả năm (VND), Lưu. Thanh công cụ đếm số dòng còn chờ điền; đánh dấu ô bên cạnh để chỉ hiện các dòng này. Các dòng này luôn hiện, không bị nút "Mã công cụ ra 0" ẩn.</li>
         <li><b>Mã công cụ ra 0:</b> mã có số duyệt mà công cụ chưa có phương pháp (dòng Nhập số) mặc định ẩn để bảng gọn, trừ mã bất thường. Bấm nút <b>Mã công cụ ra 0</b> để hiện đủ; dòng THU / CHI ghi số mã đang ẩn.</li>
         <li><b>Trượt giá hàng loạt:</b> lọc (ví dụ gõ ES), bấm "Chọn mọi mã đang hiện", nhập %, bấm "Áp cho các mã đã chọn".</li>
         <li>Bấm <b>Lưu điều chỉnh vào bản giao</b>. Bản giao được ghi đè, bản cũ giữ làm backup có ngày giờ; Excel tính lại và trang hiện thu, chi, thặng dư trước và sau. Bản giao tải sau khi lưu mới là bản cuối.</li>
@@ -730,6 +732,7 @@ body.adj-full-on { overflow: hidden; }
           <label><input type="checkbox" id="adj-only"> Chỉ mã đã điều chỉnh</label>
           <label id="adj-abn-wrap" class="hidden" title="Chênh so với duyệt từ 20% và từ 50 triệu VND/năm (mã không có số duyệt: chỉ xét số tiền)"><input type="checkbox" id="adj-abn"> Chỉ dòng bất thường</label>
           <label id="adj-order-wrap" class="hidden">Thứ tự <select id="adj-order"><option value="form">Theo form 2027</option><option value="diff">Lệch lớn nhất</option></select></label>
+          <label id="adj-pm-wrap" class="hidden" title="Dòng công cụ không tính được, chờ PM nhập số (đánh dấu để chỉ hiện các dòng này)"><input type="checkbox" id="adj-pm"> <span id="adj-pm-count">dòng chờ PM điền</span></label>
           <button type="button" class="sm hidden" id="adj-zero" aria-pressed="false" title="Mã có số duyệt mà công cụ ra 0 (dòng Nhập số). Mặc định ẩn, trừ dòng bất thường.">Mã công cụ ra 0</button>
           <label><input type="checkbox" id="adj-show-m" checked> Cột năm trước</label>
           <label><input type="checkbox" id="adj-show-rm" checked> Cột Remark</label>
@@ -1591,8 +1594,11 @@ async function openAdjust(id, slot) {
   adj = { id, data: d, items: d.items, orig: {}, open: new Set(), sel: new Set(), closed: new Set(), groups: {}, showZero: false };
   d.items.forEach(it => { it.remark0 = it.remark || ''; it.freq0 = freqSnap(it); adj.orig[it.key] = snap(it); });
   // Mã công cụ ra 0: mặc định ẩn (trừ dòng bất thường), nút hiện thêm; nút chỉ có khi lượt có mã như vậy (lượt review).
-  const nZero = d.items.filter(it => it.zero_row).length;
+  const nZero = d.items.filter(it => it.zero_row && !it.pm_fill).length;
   document.getElementById('adj-zero').classList.toggle('hidden', !nZero);
+  // Dòng để PM điền (luôn hiện): ô đếm + lọc, chỉ có khi lượt có dòng như vậy.
+  document.getElementById('adj-pm-wrap').classList.toggle('hidden', !d.items.some(it => it.pm_fill));
+  document.getElementById('adj-pm').checked = false;
   document.getElementById('adj-abn-wrap').classList.toggle('hidden', !d.has_approved);
   document.getElementById('adj-abn').checked = false;
   body.classList.remove('hidden');
@@ -1631,11 +1637,21 @@ function visible(it) {
   if (sc && it.section !== sc) return false;
   if (document.getElementById('adj-only').checked && !isAdjusted(it) && !isDirty(it)) return false;
   if (document.getElementById('adj-abn').checked && !isAbnormal(it)) return false;
+  if (document.getElementById('adj-pm').checked && !pmWaiting(it)) return false;
   if (hiddenZero(it)) return false;
   return true;
 }
 // Mã công cụ ra 0 đang ẩn: chưa bấm nút "Mã công cụ ra 0" và dòng không bất thường (dòng bất thường luôn hiện).
-function hiddenZero(it) { return it.zero_row && !adj.showZero && !isAbnormal(it); }
+// Dòng để PM điền không bao giờ bị ẩn theo nút này (change leave-unpriced-lines-for-pm).
+function hiddenZero(it) { return it.zero_row && !it.pm_fill && !adj.showZero && !isAbnormal(it); }
+// Dòng để PM điền mà số sau điều chỉnh còn bằng 0 (chưa nhập, kể cả thay đổi chưa lưu).
+function pmWaiting(it) { return !!it.pm_fill && Math.abs(itemNew(it)) < 0.5; }
+function pmTag(it) { return `<span class="pm" title="${esc('Công cụ không tính được: ' + (it.pm_reason || ''))}">PM điền</span>`; }
+function renderPmCount() {
+  if (!adj) return;
+  const n = adj.items.filter(pmWaiting).length;
+  document.getElementById('adj-pm-count').textContent = `${n} dòng chờ PM điền`;
+}
 function isAbnormal(it) { return abnKeys().has(it.key); }
 let abnCache = null;
 function abnKeys() {
@@ -1646,7 +1662,7 @@ function abnTag() { return '<span class="abn" title="Chênh so với duyệt t�
 function renderZeroButton() {
   const btn = document.getElementById('adj-zero');
   if (!adj) return;
-  const hidden = adj.items.filter(it => it.zero_row && !adj.showZero && !isAbnormal(it)).length;
+  const hidden = adj.items.filter(hiddenZero).length;
   btn.textContent = adj.showZero ? 'Ẩn mã công cụ ra 0' : `Mã công cụ ra 0 (${hidden} đang ẩn)`;
   btn.setAttribute('aria-pressed', String(adj.showZero));
 }
@@ -1750,13 +1766,13 @@ function renderAdjust() {
       const cls = ['par', isDirty(it) ? 'dirty' : '', isAdjusted(it) && !isDirty(it) ? 'saved' : ''].join(' ');
       html += `<tr class="${cls}" data-k="${esc(it.key)}"><td class="pin p1"><input type="checkbox" data-sel="${esc(it.key)}" ${adj.sel.has(it.key) ? 'checked' : ''} aria-label="Chọn ${esc(it.code)}"></td>` +
         `<td class="pin p2"><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
-        `<td class="pin p3"><b>${esc(it.code)}</b>${isAbnormal(it) ? abnTag() : ''}${topKeys().has(it.key) ? '<span class="top10" title="Nằm trong 10 dòng lệch lớn nhất của lượt review">Top 10</span>' : ''}<br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
+        `<td class="pin p3"><b>${esc(it.code)}</b>${it.pm_fill ? pmTag(it) : ''}${isAbnormal(it) ? abnTag() : ''}${topKeys().has(it.key) ? '<span class="top10" title="Nằm trong 10 dòng lệch lớn nhất của lượt review">Top 10</span>' : ''}<br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
         unitCell(it) + freqCell(it) +
         groupStart(mk.map(k => `<td class="num adj-mc">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
           (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>${diffCells(it)}` : '')) +
         `<td class="gs"><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
         `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
-        `<td class="num gs">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
+        `<td class="num gs">${it.pm_fill ? '' : vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
         `<td class="adj-rm gs"><textarea class="edit" rows="2" maxlength="5000" data-rm="${esc(it.key)}" aria-label="Remark năm mới của ${esc(it.code)}">${esc(it.remark || '')}</textarea>` +
         `${it.remark_stale ? '<br><small class="neg" title="Tần suất đã đổi trong Excel; lưu lại trên web để câu tần suất của remark khớp">Remark chưa theo tần suất mới</small>' : ''}</td></tr>`;
       html += monthRow(it, cols);
@@ -1832,6 +1848,7 @@ function refreshGroups() {
 }
 
 function renderAdjPreview() {
+  renderPmCount();                                         // số dòng chờ PM điền theo cả số đang gõ, chưa lưu
   const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
   let rows = '', dirty = 0;
   for (const fund of ['MF', 'CA']) {
@@ -1943,7 +1960,7 @@ adjTbody.addEventListener('click', e => {
   adj.open.has(k) ? adj.open.delete(k) : adj.open.add(k);
   renderAdjust();
 });
-['adj-q', 'adj-fund', 'adj-sec', 'adj-only', 'adj-abn'].forEach(id => document.getElementById(id).addEventListener('input', renderAdjust));
+['adj-q', 'adj-fund', 'adj-sec', 'adj-only', 'adj-abn', 'adj-pm'].forEach(id => document.getElementById(id).addEventListener('input', renderAdjust));
 document.getElementById('adj-zero').addEventListener('click', () => { if (!adj) return; adj.showZero = !adj.showZero; renderAdjust(); });
 document.getElementById('adj-order').addEventListener('change', e => { if (!adj) return; adj.order = e.target.value; localStorage.setItem('budget-adj-order', adj.order); renderAdjust(); });
 document.getElementById('adj-selall').addEventListener('click', () => { adj.items.filter(visible).forEach(i => adj.sel.add(i.key)); renderAdjust(); });

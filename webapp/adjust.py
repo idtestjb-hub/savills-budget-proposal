@@ -177,7 +177,12 @@ def _read_wb(wb):
                              new_price=price if new_price is None else new_price, qty_editable=editable))
         amount = sum(s['amount'] for s in subs) if subs else (_num(g('amount')) or 0.0)
         adj_type = _text(g('adj_type'))
+        # Dòng để PM điền (change leave-unpriced-lines-for-pm): dấu ở cột ẩn AY, lý do ở AZ; "chưa điền" khi ô nhập
+        # của dòng Chi tiết còn trống hoặc 0.
+        pm_fill = _text(g('pm_mark')) == ba.PM_MARK
+        pm_empty = pm_fill and not any(_num(ws.cell(row=r, column=C['new_price']).value) for r in srows)
         items.append(dict(key=key_of(code, fund_sheet), code=code, name=_text(g('name')),
+                          pm_fill=pm_fill, pm_reason=_text(g('pm_reason')) if pm_fill else '', pm_empty=pm_empty,
                           fund=FUND_SHORT.get(fund_sheet, fund_sheet), fund_sheet=fund_sheet, section=_section(code),
                           adj_type=adj_type if adj_type in TYPES else '', inflation=_num(g('inflation')) or 0.0,
                           amount=amount, has_subs=bool(subs), zero_row=bool(subs) and abs(amount) < 0.5, subs=subs,
@@ -469,6 +474,7 @@ def apply_edits(wb, edits):
     written = []
     for sheet, row, text in remarks:
         wb[sheet].cell(row=row, column=REMARK_COL).value = text or None
+    sent_remark = {(s, r) for s, r, _t in remarks}
     for prow, srows, editable, code, adj_type, inflation, subs, freq in plan:
         if freq is not None:
             _write_freq(wb, ws, prow, items[key_of(code, _text(ws.cell(row=prow, column=C['fund_sheet']).value))],
@@ -481,8 +487,46 @@ def apply_edits(wb, edits):
                 ws.cell(row=r, column=C['new_qty']).value = vals['new_qty']
             if 'new_price' in vals:
                 ws.cell(row=r, column=C['new_price']).value = vals['new_price']
+        _pm_remark(wb, ws, prow, srows, sent_remark)
         written.append(code)
     return written
+
+
+PM_LEAD = 'PM điền: '
+PM_FILLED_LEAD = 'Số do PM nhập: {figure} VND/năm. Công cụ không tính được: '
+
+
+def pm_remark_text(remark, figure):
+    """Remark của dòng để PM điền theo số PM nhập (spec budget-web-adjust-table): có số thì "Số do PM nhập: <số>
+    VND/năm. Công cụ không tính được: <lý do>", không có số thì "PM điền: <lý do>"; phần sau lý do (câu VAT, câu tần
+    suất) giữ nguyên. Remark không mở đầu bằng một trong hai câu đó (PM đã tự viết) thì trả về nguyên như cũ."""
+    text = remark or ''
+    m = re.match(r'^Số do PM nhập: [\d,.]+ VND/năm\. Công cụ không tính được: ', text)
+    if text.startswith(PM_LEAD):
+        body = text[len(PM_LEAD):]
+    elif m:
+        body = text[m.end():]
+    else:
+        return text
+    if figure:
+        return PM_FILLED_LEAD.format(figure=f'{figure:,.0f}') + body
+    return PM_LEAD + body
+
+
+def _pm_remark(wb, ws, prow, srows, sent):
+    """Sau khi ghi một dòng để PM điền: viết lại câu đầu remark trên sheet quỹ theo số PM nhập (trừ khi lần lưu
+    này gửi remark riêng của mã)."""
+    if _text(ws.cell(row=prow, column=C['pm_mark']).value) != ba.PM_MARK:
+        return
+    fund_sheet = _text(ws.cell(row=prow, column=C['fund_sheet']).value)
+    fund_row = ws.cell(row=prow, column=C['fund_row']).value
+    if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or (fund_sheet, int(fund_row)) in sent:
+        return
+    figure = sum(_num(ws.cell(row=r, column=C['new_price']).value) or 0.0 for r in srows)
+    cell = wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL)
+    new = pm_remark_text(_text(cell.value), figure)
+    if new != _text(cell.value):
+        cell.value = new
 
 
 N_CONVERTED_RE = re.compile(r'^Duyệt NS \d{4} \(quy đổi\)$')    # cột số duyệt năm N đã quy đổi (bố cục cũ và mới)

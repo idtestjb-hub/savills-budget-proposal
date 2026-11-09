@@ -4143,6 +4143,44 @@ RBR_NFA_LABEL = 'Fee-paying NFA (m²)'
 RBR_NAME_LABEL = 'Project'
 
 
+PM_LINES_SHEET = 'Dòng chờ PM điền'
+
+
+def build_pm_lines_sheet(wb, project, deliverable=None):
+    """'Dòng chờ PM điền' (change leave-unpriced-lines-for-pm, spec pm-filled-lines): every line of the deliverable
+    that the tool could not price and left for the PM — code, item, kind (A no pricing method / B input missing),
+    reason, whether it has its "Nhập số" row on '4. Điều chỉnh' — read back from the written deliverable. Internal."""
+    import generate_project_budget as gpb
+    if deliverable is None:
+        deliverable = os.path.join(gpb.BUDGET_OUT_DIR, f"{project['name']} - Sample Consulting Budget.xlsx")
+    lines = gpb.pm_lines_of(deliverable)
+    ws = wb.create_sheet(PM_LINES_SHEET)
+    title_block(ws, 'Dòng chờ PM điền — hạng mục công cụ không tính được',
+                'Nội bộ. Trên bản giao các ô số của những dòng này để trống, tô vàng, remark "PM điền: <lý do>"; PM nhập '
+                'số cả năm ở bảng điều chỉnh (web hoặc sheet 4. Điều chỉnh, loại Nhập số).')
+    r = 4
+    if not lines:
+        ws.cell(row=r, column=1, value='Lượt này không có dòng nào chờ PM điền.')
+        return lines
+    ws.cell(row=r, column=1, value=f'{len(lines)} dòng chờ PM điền').font = Font(bold=True)
+    r += 1
+    heads = ('Mã', 'Hạng mục', 'Loại', 'Lý do công cụ không tính được', 'Dòng trên sheet 4')
+    for c, h in enumerate(heads, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.font = Font(bold=True)
+    kinds = {'A': 'A · chưa có phương pháp', 'B': 'B · thiếu dữ liệu đầu vào'}
+    for ln in lines:
+        r += 1
+        ws.cell(row=r, column=1, value=ln['code'])
+        ws.cell(row=r, column=2, value=ln['name'])
+        ws.cell(row=r, column=3, value=kinds[ln['kind']])
+        ws.cell(row=r, column=4, value=ln['reason']).alignment = Alignment(wrap_text=True, vertical='top')
+        ws.cell(row=r, column=5, value='có' if ln['sheet4'] else 'không (dòng tổng của form)')
+    for col, w in zip('ABCDE', (10, 34, 26, 90, 22)):
+        ws.column_dimensions[col].width = w
+    return lines
+
+
 def build_real_budget_ranges_sheet(wb, project, demand, staff):
     """'Real-Budget Ranges' (change use-real-budget-ranges, spec real-budget-ranges): for each code priced or
     cross-checked from the range of real Savills budgets, the projects used and left out (anonymous ids), P25 /
@@ -4330,6 +4368,7 @@ def main():
     if project.get('utilities_result') is not None:
         build_utility_bridge_sheet(wb, project['utilities_result'])
     build_real_budget_ranges_sheet(wb, project, demand, staff)
+    build_pm_lines_sheet(wb, project)
     # Last among the internal sheets and read-only (change add-service-level-table, design D9).
     build_service_levels_sheet(wb, project, demand)
 
