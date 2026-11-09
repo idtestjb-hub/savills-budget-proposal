@@ -192,6 +192,12 @@ details summary { cursor: pointer; font-weight: 700; margin: 6px 0; }
 #adj .p3 { left: 64px; width: 70px; min-width: 70px; max-width: 70px; }
 #adj .p4 { left: 134px; width: 200px; min-width: 200px; max-width: 200px; box-shadow: inset -1px 0 0 var(--sav-rule); }
 #adj tr.par > td.pin, #adj tr.grp > td.pin { background: inherit; }
+/* Gạch dọc giữa các cột (người dùng 09/11/2026): gạch mảnh mọi cột, gạch đậm mở mỗi nhóm cột
+   (so với năm cũ / điều chỉnh / số năm ngân sách / remark). Áp cả các bảng so sánh của lượt review. */
+#adj td, #adj th, #rv-sum td, #rv-sum th, #rv-top td, #rv-top th, .adj-sum td, .adj-sum th { border-left: 1px solid var(--sav-rule); }
+#rv-sum td:first-child, #rv-sum th:first-child, #rv-top td:first-child, #rv-top th:first-child,
+.adj-sum td:first-child, .adj-sum th:first-child, #adj td.p1, #adj th.p1 { border-left: 0; }
+#adj td.gs, #adj th.gs { border-left: 2px solid var(--sav-navy); }
 #adj tr.par { background: var(--sav-surface); }
 #adj tr.par.dirty { background: #FFF8CC; }
 #adj tr.grp { background: var(--sav-total); }
@@ -452,7 +458,7 @@ body.adj-full-on { overflow: hidden; }
       <h3>Tải file</h3>
       <ul>
         <li><b>Bản giao khách:</b> form chuẩn, có sheet "4. Điều chỉnh".</li>
-        <li><b>Bản phân tích nội bộ:</b> có sheet Review so từng dòng duyệt với công cụ và ghi cách công cụ ra số.</li>
+        <li class="site-hide"><b>Bản phân tích nội bộ:</b> có sheet Review so từng dòng duyệt với công cụ và ghi cách công cụ ra số.</li>
         <li><b>Lịch trực.</b> Tài khoản chỉ xem chỉ tải được bản giao khách.</li>
       </ul>
       <h3>Lưu ý khi đọc số</h3>
@@ -470,7 +476,7 @@ body.adj-full-on { overflow: hidden; }
         <tr><td>Thiếu Tỉnh / thành phố</td><td>Điền ô này ở mục 2 rồi bấm lại.</td></tr>
         <tr><td>Dòng xám, không chọn được</td><td>File không đọc được. Nếu có bản .xlsx của file đó, dùng "Tải file lên".</td></tr>
         <tr><td>Bản giao đang mở trong Excel</td><td>File đang được mở trên máy chủ. Báo nhóm IT đóng file rồi lưu lại.</td></tr>
-        <tr><td>Đối chiếu LỆCH</td><td>Kết quả vẫn dùng được. Mở bản phân tích, sheet Review, xem các dòng lệch và ghi chú nhập.</td></tr>
+        <tr><td>Đối chiếu LỆCH</td><td>Kết quả vẫn dùng được.<span class="site-hide"> Mở bản phân tích, sheet Review, xem các dòng lệch và ghi chú nhập.</span></td></tr>
         </tbody>
       </table>
     </section>
@@ -741,7 +747,7 @@ body.adj-full-on { overflow: hidden; }
         </div>
         <div id="adj-wrap">
         <table id="adj">
-          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th>Tần suất</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th class="num adj-df" title="Thành tiền gốc (công cụ) trừ số duyệt; không đổi khi sửa">Chênh so với duyệt</th><th class="num adj-df" title="Chênh so với duyệt, tính trên số duyệt">% so với duyệt</th><th>Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num">Thành tiền gốc</th><th class="num">Thành tiền mới</th><th class="num">Chênh lệch</th><th class="num">%</th><th class="adj-rm">Remark năm mới</th></tr></thead>
+          <thead><tr><th class="pin p1"></th><th class="pin p2"></th><th class="pin p3">Mã</th><th class="pin p4">Hạng mục</th><th>ĐVT</th><th>Tần suất</th><th class="num adj-m adj-mc hidden" data-m="n1"></th><th class="num adj-m adj-mc hidden" data-m="actual"></th><th class="num adj-m adj-mc hidden" data-m="expected"></th><th class="num adj-ap">Duyệt</th><th class="num adj-df" title="Số công cụ (trước điều chỉnh) trừ số duyệt quy đổi; không đổi khi sửa">Công cụ − duyệt</th><th class="num adj-df" title="Công cụ − duyệt, tính trên số duyệt">%</th><th class="gs">Loại điều chỉnh</th><th class="num">Trượt giá %</th><th class="num gs" id="adj-h-tool" title="Số công cụ tính cho năm ngân sách, trước điều chỉnh">Công cụ</th><th class="num" id="adj-h-new" title="Số công cụ sau điều chỉnh trên trang này">Sau điều chỉnh</th><th class="num" title="Sau điều chỉnh − công cụ">Chênh lệch</th><th class="num" title="Chênh lệch, tính trên số công cụ">%</th><th class="adj-rm gs">Remark năm mới</th></tr></thead>
           <tbody></tbody>
         </table>
         </div>
@@ -1324,7 +1330,7 @@ function renderReview(run) {
   document.querySelector('#rv-top tbody').innerHTML = (s.top || []).map((x, i) =>
     `<tr><td>${i + 1}</td><td>${esc(x.fund)}</td><td>${esc(x.code)}${x.abnormal ? abnTag() : ''}</td><td>${esc(x.item)}</td><td class="num">${mil(x.converted)}</td><td class="num">${mil(x.tool_num)}</td><td class="${negCls(x.diff)}">${mil(x.diff)}</td><td class="${negCls(x.pct)}">${pct(x.pct)}</td><td>${esc(x.label)}${x.remark ? ` <small style="color:var(--sav-muted)">${esc(x.remark)}</small>` : ''}</td></tr>`).join('') ||
     '<tr><td colspan="9">Chưa có dòng.</td></tr>';
-  document.getElementById('rv-top-src').textContent = 'Triệu VND/năm. Toàn bộ các dòng, từng mã, nằm ở sheet "Review" cuối bản phân tích nội bộ.';
+  document.getElementById('rv-top-src').textContent = 'Triệu VND/năm.' + (SITE ? ' Toàn bộ các dòng, từng mã, xem ở bảng điều chỉnh bên dưới.' : ' Toàn bộ các dòng, từng mã, nằm ở sheet "Review" cuối bản phân tích nội bộ.');
   const notes = s.notes || [];
   const by_kind = {};
   notes.forEach(n => { by_kind[n.kind] = (by_kind[n.kind] || 0) + 1; });
@@ -1591,14 +1597,23 @@ async function openAdjust(id, slot) {
   document.getElementById('adj-abn').checked = false;
   body.classList.remove('hidden');
   document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
-    (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi (sheet Review)` : '');
+    (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi${SITE ? '' : ' (sheet Review)'}` : '');
   document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
   document.querySelectorAll('.adj-df').forEach(th => th.classList.toggle('hidden', !d.has_approved));
+  // Tiêu đề ghi năm của lượt (không cố định năm): số công cụ và số sau điều chỉnh là của năm ngân sách.
+  const nsy = d.budget_year ? ` NS ${d.budget_year}` : '';
+  document.getElementById('adj-h-tool').textContent = `Công cụ${nsy}`;
+  document.getElementById('adj-h-new').textContent = `Sau điều chỉnh${nsy}`;
   document.getElementById('adj-order-wrap').classList.toggle('hidden', !d.has_approved);
   adj.order = d.has_approved && localStorage.getItem('budget-adj-order') === 'diff' ? 'diff' : 'form';
   document.getElementById('adj-order').value = adj.order;
   const ml = d.measure_labels || {};
   document.querySelectorAll('.adj-m').forEach(th => { const k = th.dataset.m; th.classList.toggle('hidden', !ml[k]); th.textContent = shortMeasure(ml[k] || ''); th.title = ml[k] || ''; });
+  // Gạch đậm mở nhóm "so với năm cũ": ô tiêu đề đầu tiên đang hiện trong các cột năm trước và cột Duyệt.
+  const g2 = [...document.querySelectorAll('#adj thead .adj-m, #adj thead .adj-ap, #adj thead .adj-df')];
+  g2.forEach(th => th.classList.remove('gs'));
+  const g2first = g2.find(th => !th.classList.contains('hidden'));
+  if (g2first) g2first.classList.add('gs');
   const save = document.getElementById('adj-save');
   save.disabled = !d.can_save;
   setAdjStatus(d.can_save ? 'Chưa có thay đổi.' : 'Tài khoản chỉ xem: xem được, không lưu được.');
@@ -1737,12 +1752,12 @@ function renderAdjust() {
         `<td class="pin p2"><button type="button" class="tg" data-tg="${esc(it.key)}" ${it.has_subs ? '' : 'disabled'} aria-expanded="${open}" title="${open ? 'Thu gọn' : 'Mở dòng chi tiết'}">${it.has_subs ? (open ? '−' : '+') : ''}</button></td>` +
         `<td class="pin p3"><b>${esc(it.code)}</b>${isAbnormal(it) ? abnTag() : ''}${topKeys().has(it.key) ? '<span class="top10" title="Nằm trong 10 dòng lệch lớn nhất của lượt review">Top 10</span>' : ''}<br><small style="color:var(--sav-muted)">${it.fund}</small></td><td class="pin p4">${esc(it.name)}</td>` +
         unitCell(it) + freqCell(it) +
-        mk.map(k => `<td class="num adj-mc">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
-        (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>${diffCells(it)}` : '') +
-        `<td><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
+        groupStart(mk.map(k => `<td class="num adj-mc">${it[k] == null ? '—' : vnd(it[k])}</td>`).join('') +
+          (ap ? `<td class="num">${it.approved == null ? '—' : vnd(it.approved)}</td>${diffCells(it)}` : '')) +
+        `<td class="gs"><select data-type="${esc(it.key)}">${typeOptions(it)}</select></td>` +
         `<td class="num"><input class="pct edit" type="number" step="0.1" data-pct="${esc(it.key)}" value="${+(it.inflation * 100).toFixed(4)}" ${it.adj_type === T_INF ? '' : 'disabled'}></td>` +
-        `<td class="num">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
-        `<td class="adj-rm"><textarea class="edit" rows="2" maxlength="5000" data-rm="${esc(it.key)}" aria-label="Remark năm mới của ${esc(it.code)}">${esc(it.remark || '')}</textarea>` +
+        `<td class="num gs">${vnd(it.amount)}</td><td class="num"><b>${vnd(nw)}</b></td><td class="${negCls(df)}">${vnd(df)}</td><td class="${negCls(df)}">${vpct(df, it.amount)}</td>` +
+        `<td class="adj-rm gs"><textarea class="edit" rows="2" maxlength="5000" data-rm="${esc(it.key)}" aria-label="Remark năm mới của ${esc(it.code)}">${esc(it.remark || '')}</textarea>` +
         `${it.remark_stale ? '<br><small class="neg" title="Tần suất đã đổi trong Excel; lưu lại trên web để câu tần suất của remark khớp">Remark chưa theo tần suất mới</small>' : ''}</td></tr>`;
       html += monthRow(it, cols);
       if (open) html += `<tr class="sub"><td colspan="${cols}">${subTable(it)}</td></tr>`;
@@ -1766,6 +1781,11 @@ function shortMeasure(label) {
 }
 
 // ĐVT của mã: đơn vị chung của các dòng chi tiết; "nhiều" khi khác nhau (rê chuột xem danh sách); trống khi không có dòng chi tiết.
+// Ô đầu của nhóm "so với năm cũ" (cột năm trước, Duyệt, chênh) mang gạch đậm bên trái; nhóm trống thì không có gì.
+function groupStart(html) {
+  return html.replace(/^<td class="/, '<td class="gs ').replace(/^<td>/, '<td class="gs">');
+}
+
 function unitCell(it) {
   const units = [...new Set((it.subs || []).map(s => (s.unit || '').trim()).filter(Boolean))];
   if (!units.length) return '<td class="unit"></td>';
@@ -1801,9 +1821,9 @@ function groupHead(id) {
   const btn = sub ? `<button type="button" class="gtg" data-gtg="${esc(id)}" aria-expanded="${!closed}" title="${closed ? 'Mở nhóm' : 'Thu gọn nhóm'}">${closed ? '▸' : '▾'}</button>` : '';
   const pad = sub ? `padding-left:${6 + 14 * (g.depth - 1)}px;` : '';
   return `<tr class="grp${sub ? ' sg' : ''}" data-grp="${esc(id)}"><td class="pin p1" colspan="4" style="width:auto;max-width:none;${pad}"${g.full ? ` title="${esc(g.full)}"` : ''}>${btn}${esc(g.label)}${sub ? ` <small style="font-weight:400">(${group.length} mã)</small>` : ''}</td><td></td><td></td>` +
-    adjMeasureKeys().map(k => `<td class="num adj-mc">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
-    (ap ? `<td class="num">${vnd(a)}</td>${diffSumCells(group)}` : '') + `<td colspan="2"></td>` +
-    `<td class="num">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td class="adj-rm"></td></tr>`;
+    groupStart(adjMeasureKeys().map(k => `<td class="num adj-mc">${vnd(group.reduce((t, i) => t + (i[k] || 0), 0))}</td>`).join('') +
+      (ap ? `<td class="num">${vnd(a)}</td>${diffSumCells(group)}` : '')) + `<td class="gs"></td><td></td>` +
+    `<td class="num gs">${vnd(o)}</td><td class="num">${vnd(n)}</td><td class="${negCls(n - o)}">${vnd(n - o)}</td><td class="${negCls(n - o)}">${vpct(n - o, o)}</td><td class="adj-rm gs"></td></tr>`;
 }
 function refreshGroups() {
   for (const tr of adjTbody.querySelectorAll('tr.grp[data-grp]')) {

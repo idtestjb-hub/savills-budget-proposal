@@ -181,18 +181,29 @@ def _strip(outputs):
     return [{k: v for k, v in o.items() if k != 'path'} for o in outputs]
 
 
-def visible_outputs(outputs, role):
-    """Danh sách file người có vai trò `role` được thấy: viewer chỉ bản giao khách; ai khác đủ 3 file."""
+# Gói site (người dùng 09/11/2026): PM ở site không cần bản phân tích nội bộ. File vẫn được sinh trong thư mục lượt
+# (sheet Review và bảng điều chỉnh đọc từ đó), chỉ bị ẩn khỏi danh sách và chặn tải; bản giao và lịch trực vẫn tải được.
+SITE_HIDDEN_KINDS = {'analysis'}
+
+
+def visible_outputs(outputs, role, site=None):
+    """Danh sách file người có vai trò `role` được thấy: viewer chỉ bản giao khách; trong gói site bỏ bản phân tích
+    nội bộ; còn lại đủ 3 file. `site` mặc định theo chế độ của server (SITE_DIR)."""
     if role == ROLE_VIEWER:
         return _strip(o for o in outputs if o['kind'] in VIEWER_KINDS)
+    if SITE_DIR if site is None else site:
+        return _strip(o for o in outputs if o['kind'] not in SITE_HIDDEN_KINDS)
     return _strip(outputs)
 
 
-def may_download(run, name, role):
-    """Viewer chỉ tải được file có trong danh sách của mình; ai khác tải mọi file trong thư mục chạy."""
-    if role != ROLE_VIEWER:
-        return True
-    return any(o['name'] == name for o in visible_outputs(run['outputs'], role))
+def may_download(run, name, role, site=None):
+    """Viewer chỉ tải được file có trong danh sách của mình; trong gói site không tải được bản phân tích nội bộ; ai khác
+    tải mọi file trong thư mục chạy."""
+    if role == ROLE_VIEWER:
+        return any(o['name'] == name for o in visible_outputs(run['outputs'], role))
+    if SITE_DIR if site is None else site:
+        return not any(o['name'] == name and o['kind'] in SITE_HIDDEN_KINDS for o in run['outputs'])
+    return True
 
 
 def visible_log(lines, outputs, role):

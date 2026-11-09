@@ -114,7 +114,7 @@ tính (`webapp/adjust.py`).
 
 - **Bảng:** mỗi mã một dòng (mã, quỹ, hạng mục, loại điều chỉnh, trượt giá %, thành tiền gốc, mới, chênh lệch, %);
   lượt review thêm cột *Duyệt NS <năm cũ>* (số đã quy đổi, đọc từ sheet Review) và hai cột *Chênh so với duyệt* / *% so với
-  duyệt* (thành tiền gốc trừ số duyệt; cố định khi sửa). Ô chọn *Thứ tự*: Theo form 2027 (mặc định) hoặc Lệch lớn nhất (trong
+  duyệt* (thành tiền gốc trừ số duyệt; cố định khi sửa). Tiêu đề ghi năm của lượt (09/11/2026): *Duyệt NS <năm cũ>*, *Công cụ − duyệt*, *Công cụ NS <năm>* (thành tiền gốc, số công cụ trước điều chỉnh), *Sau điều chỉnh NS <năm>*; gạch mảnh giữa mọi cột, gạch đậm mở mỗi nhóm cột (so với năm cũ / điều chỉnh / số năm ngân sách / remark). Ô chọn *Thứ tự*: Theo form 2027 (mặc định) hoặc Lệch lớn nhất (trong
   mỗi nhóm xếp theo |chênh| giảm dần, nhóm theo mã lớn nhất của nó; dòng Cộng vẫn đúng). Mã nằm trong "10 dòng lệch lớn nhất"
   của Review có nhãn *Top 10*. Lượt review còn thêm vào bảng một dòng cho mỗi mã có số duyệt mà công cụ ra 0 (lấy từ
   `review_summary.json` và sheet 4 do `review.add_zero_rows` ghi). Nút +/− mở hoặc thu gọn dòng chi tiết
@@ -182,6 +182,8 @@ xem. Với tiêu đề đó (không phân biệt hoa thường) lượt chạy c
 (bản phân tích, lịch trực) bị ẩn khỏi `outputs`, bị bỏ khỏi log hiển thị, và `files/<tên>` trả 403 dù đoán đúng
 tên. Vắng tiêu đề hoặc giá trị khác: đủ 3 file. Thư mục chạy vẫn luôn có đủ 3 file. Hàm: `role_of`,
 `visible_outputs`, `may_download`, `visible_log` trong `server.py`; test `tests/test_webapp_roles.py`.
+
+Gói site (`BUDGET_WEB_SITE`, 09/11/2026): PM ở site không cần bản phân tích nội bộ, nên `visible_outputs` bỏ file loại `analysis` và `files/<tên>` của file đó trả 403; bản giao khách và lịch trực vẫn tải được, lưu điều chỉnh vẫn được. File vẫn được sinh trong thư mục lượt (bảng điều chỉnh đọc từ đó).
 
 ## Đăng nhập SSO (Microsoft Entra ID)
 

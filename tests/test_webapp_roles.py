@@ -101,3 +101,16 @@ def test_helpers_pure():
     run = dict(outputs=outs)
     assert server.may_download(run, 'a.xlsx', 'viewer') and not server.may_download(run, 'b.xlsx', 'viewer')
     assert server.may_download(run, 'b.xlsx', None)
+
+
+def test_site_package_hides_internal_analysis():
+    """Gói site: bản phân tích nội bộ ẩn và bị chặn tải; bản giao, lịch trực và file khác của lượt vẫn tải được."""
+    outs = [dict(kind='deliverable', name='a.xlsx'), dict(kind='analysis', name='b.xlsx'),
+            dict(kind='roster', name='c.xlsx')]
+    assert [o['name'] for o in server.visible_outputs(outs, None, site=True)] == ['a.xlsx', 'c.xlsx']
+    assert len(server.visible_outputs(outs, None, site=False)) == 3
+    run = dict(outputs=outs)
+    assert not server.may_download(run, 'b.xlsx', None, site=True)
+    assert server.may_download(run, 'a.xlsx', None, site=True) and server.may_download(run, 'c.xlsx', None, site=True)
+    assert server.may_download(run, 'in.xlsx', None, site=True)
+    assert [o['name'] for o in server.visible_outputs(outs, 'viewer', site=True)] == ['a.xlsx']
