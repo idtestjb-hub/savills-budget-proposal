@@ -763,6 +763,7 @@ body.adj-full-on { overflow: hidden; }
       </section>
       <div class="actions">
         <button id="adj-save" type="button" class="cta">Lưu điều chỉnh vào bản giao</button>
+        <button id="adj-fixrm" type="button" class="sm hidden" title="Cập nhật câu tần suất ở cuối remark của các dòng có ghi chú &quot;Remark chưa theo tần suất mới&quot;; không số nào thay đổi">Cập nhật remark</button>
         <a href="#" id="adj-reset" style="color:var(--sav-link);font-weight:700">Bỏ thay đổi chưa lưu</a>
         <div class="bar"><i id="adj-bar"></i></div>
         <span id="adj-status" class="status"></span>
@@ -1868,6 +1869,20 @@ function renderAdjPreview() {
   document.getElementById('adj-sel').textContent = adj.sel.size ? `${adj.sel.size} mã đã chọn` : '';
   if (adj.data.can_save && !document.getElementById('adj-save').dataset.busy)
     setAdjStatus(dirty ? `${dirty} mã có thay đổi chưa lưu.` : 'Chưa có thay đổi.');
+  renderFixRemark(dirty);
+}
+
+// Nút "Cập nhật remark (n dòng)" (change fix-stale-frequency-remarks): chỉ hiện khi có dòng bị cờ; khoá khi còn thay
+// đổi chưa lưu hoặc đang lưu.
+function renderFixRemark(dirty) {
+  const btn = document.getElementById('adj-fixrm');
+  const n = adj.items.filter(i => i.remark_stale).length;
+  btn.classList.toggle('hidden', !(n && adj.data.can_save));
+  btn.textContent = `Cập nhật remark (${n} dòng)`;
+  const busy = !!document.getElementById('adj-save').dataset.busy;
+  btn.disabled = busy || dirty > 0;
+  btn.title = dirty > 0 ? 'Lưu hoặc bỏ thay đổi chưa lưu trước, rồi cập nhật remark.'
+    : busy ? 'Đang lưu.' : 'Cập nhật câu tần suất ở cuối remark của các dòng có ghi chú "Remark chưa theo tần suất mới"; không số nào thay đổi.';
 }
 
 function itemOf(key) { return adj.items.find(i => i.key === key); }
@@ -1997,14 +2012,27 @@ document.getElementById('adj-save').addEventListener('click', async () => {
   });
   const badOpt = dirty.find(it => it.new_freq === 'Optional' && !(itemTimes(it) >= 1 && itemTimes(it) <= 11));
   if (badOpt) { setAdjStatus(`${badOpt.code}: Không theo chu kỳ phải chọn từ 1 đến 11 tháng (chọn Hàng tháng khi chi đủ 12 tháng).`, true); return; }
+  postAdjust(edits, `Đang lưu ${edits.length} mã…`);
+});
+
+document.getElementById('adj-fixrm').addEventListener('click', () => {
+  if (adj.items.some(isDirty)) { setAdjStatus('Lưu hoặc bỏ thay đổi chưa lưu trước, rồi cập nhật remark.', true); return; }
+  const keys = adj.items.filter(i => i.remark_stale).map(i => i.key);
+  if (!keys.length) return;
+  postAdjust(keys.map(key => ({ key, fix_remark: true })), `Đang cập nhật remark ${keys.length} dòng…`);
+});
+
+// Gửi một lần lưu (điều chỉnh hoặc cập nhật remark) qua cùng một đường: hàng đợi, backup, Excel tính lại, tải lại trang.
+async function postAdjust(edits, startText) {
   const save = document.getElementById('adj-save'), log = document.getElementById('adj-log'), bar = document.getElementById('adj-bar');
-  save.disabled = true; save.dataset.busy = '1';
+  const fix = document.getElementById('adj-fixrm');
+  save.disabled = true; save.dataset.busy = '1'; fix.disabled = true;
   log.classList.remove('hidden'); log.textContent = ''; bar.style.width = '3%';
-  setAdjStatus(`Đang lưu ${edits.length} mã…`);
+  setAdjStatus(startText);
   const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(adj.id)}/adjust`, { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits }) });
   const job = await r.json().catch(() => ({}));
-  if (!r.ok) { setAdjStatus(job.detail || `Lỗi ${r.status}`, true); save.disabled = false; delete save.dataset.busy; return; }
+  if (!r.ok) { setAdjStatus(job.detail || `Lỗi ${r.status}`, true); save.disabled = false; delete save.dataset.busy; renderFixRemark(0); return; }
   const t0 = Date.now();
   const tick = async since => {
     const rr = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(job.id)}?since=${since}`);
@@ -2024,18 +2052,26 @@ document.getElementById('adj-save').addEventListener('click', async () => {
       await openAdjust(id);
       const rb = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(id)}`);
       if (rb.ok) renderFiles(await rb.json());          // bản giao đã ghi đè: cỡ file mới
-      setAdjStatus(`Đã lưu sau ${secs} giây. Bản giao đã cập nhật: tải ở mục Tải file phía trên.`);
-    } else setAdjStatus(`Không lưu được sau ${secs} giây. Xem log.`, true);
+      setAdjStatus(`Đã lưu sau ${secs} giây.${remarkResult(adj.data.last)} Bản giao đã cập nhật: tải ở mục Tải file phía trên.`);
+    } else { setAdjStatus(`Không lưu được sau ${secs} giây. Xem log.`, true); renderFixRemark(0); }
   };
   tick(0);
-});
+}
+
+function remarkResult(last) {
+  if (!last) return '';
+  const fixed = last.remarks_fixed || [], skipped = last.remarks_skipped || [];
+  let t = fixed.length ? ` Đã cập nhật remark ${fixed.length} dòng.` : '';
+  if (skipped.length) t += ` Bỏ qua remark: ${skipped.map(s => `${s.code} (${s.reason})`).join(', ')}.`;
+  return t;
+}
 
 function renderAdjResult(last) {
   const box = document.getElementById('adj-res');
   if (!last || !last.after) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
   const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
-  document.getElementById('adj-res-head').textContent = `Lưu lúc ${(last.saved_at || '').replace('T', ' ')} · ${last.written.length} mã: ${last.written.join(', ')} · backup: ${last.backup}`;
+  document.getElementById('adj-res-head').textContent = `Lưu lúc ${(last.saved_at || '').replace('T', ' ')} ${last.written.length ? ` · ${last.written.length} mã: ${last.written.join(', ')}` : ''} · backup: ${last.backup}${remarkResult(last).replace(/\.$/, '').replace(/^ /, ' · ')}`;
   let rows = '';
   for (const fund of ['MF', 'CA']) {
     const a = (last.after || {})[fund], b = (last.baseline || {})[fund];

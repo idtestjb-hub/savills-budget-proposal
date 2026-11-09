@@ -14,7 +14,8 @@ Các bước:
 3. Backup, ghi các ô nhập của sheet '4. Điều chỉnh' (webapp.adjust.apply_edits), lưu đè bản giao.
 4. Excel tính lại một bản sao (adjust_recalc.xlsx): tổng R / E / thặng dư mỗi quỹ, thành tiền mới từng mã đã chỉnh,
    ô lỗi (#REF!, #DIV/0!, #VALUE!...) trên sheet 4, hai sheet quỹ và 1. Summary.
-5. Ghi adjust_result.json (đọc bởi trang web) và nối vào lịch sử lưu trong adjust_state.json.
+5. Ghi adjust_result.json (đọc bởi trang web) và nối vào lịch sử lưu trong adjust_state.json, kèm số remark đã cập nhật
+   câu tần suất và các mã bỏ qua (change fix-stale-frequency-remarks).
 
 Mã thoát: 0 = xong, 2 = dừng có thông báo ("STOPPED: ...").
 """
@@ -111,7 +112,8 @@ def main():
             raise adjust.AdjustError(f"Bản giao '{name}' đang mở trong Excel trên máy chủ. Đóng file rồi lưu lại.")
         print(f'[1/3] Kiểm tra {len(edits)} mã điều chỉnh')
         wb = openpyxl.load_workbook(deliverable)
-        written = adjust.apply_edits(wb, edits)       # kiểm tra hết trước khi ghi bất cứ gì xuống đĩa
+        report = {}
+        written = adjust.apply_edits(wb, edits, report=report)   # kiểm tra hết trước khi ghi bất cứ gì xuống đĩa
 
         if not state.get('baseline'):
             base = args.baseline_recalc if args.baseline_recalc and os.path.exists(args.baseline_recalc) else None
@@ -126,7 +128,10 @@ def main():
         stem, ext = os.path.splitext(name)
         backup = os.path.join(folder, f'{stem}_BACKUP_{stamp}{ext}')
         shutil.copy2(deliverable, backup)
-        print(f'[2/3] Backup: {os.path.basename(backup)}; ghi {len(written)} mã vào bản giao')
+        fixed, skipped = report['remarks_fixed'], report['remarks_skipped']
+        print(f'[2/3] Backup: {os.path.basename(backup)}; ghi {len(written)} mã vào bản giao'
+              + (f'; cập nhật remark {len(fixed)} dòng' if fixed else '')
+              + (f"; bỏ qua remark: {', '.join(f'{c} ({why})' for c, why in skipped)}" if skipped else ''))
         wb.save(deliverable)
         wb.close()
 
@@ -143,9 +148,11 @@ def main():
 
     result = dict(saved_at=datetime.datetime.now().isoformat(timespec='seconds'), deliverable=name,
                   backup=os.path.basename(backup), written=written, baseline=state['baseline'], after=after,
-                  items={k: v for k, v in measured.items()}, errors=errors[:50], error_count=len(errors))
+                  items={k: v for k, v in measured.items()}, errors=errors[:50], error_count=len(errors),
+                  remarks_fixed=fixed, remarks_skipped=[dict(code=c, reason=why) for c, why in skipped])
     state.setdefault('saves', []).append(dict(saved_at=result['saved_at'], backup=result['backup'],
-                                              written=written, after=after))
+                                              written=written, after=after, remarks_fixed=fixed,
+                                              remarks_skipped=result['remarks_skipped']))
     with open(state_path, 'w', encoding='utf-8') as fh:
         json.dump(state, fh, ensure_ascii=False, indent=1)
     with open(os.path.join(workdir, RESULT_FILE), 'w', encoding='utf-8') as fh:

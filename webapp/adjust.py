@@ -284,6 +284,16 @@ def remark_stale(item):
     return last.strip() != want
 
 
+def fixed_remark(item, current):
+    """Remark của một dòng bị cờ "Remark chưa theo tần suất mới" sau khi cập nhật (change fix-stale-frequency-remarks,
+    design D2): chỉ câu tần suất ở cuối được thay theo tần suất và thành tiền đang có trên sheet 4, như một lần lưu
+    trên web; phần PM viết giữ nguyên; Hàng tháng thì bỏ câu; remark chưa có câu thì thêm vào cuối."""
+    return lf.with_sentence(current or '', freq_sentence(item))
+
+
+FORMULA_REMARK = 'remark là công thức Excel'
+
+
 def _type_amount(item, adj_type=None, inflation=None, subs=None):
     """Thành tiền theo loại điều chỉnh, chưa tính tần suất."""
     adj_type = item['adj_type'] if adj_type is None else adj_type
@@ -420,7 +430,8 @@ def upgrade_sheet(ws, blocks):
 
 def _write_freq(wb, ws, prow, item, adj_type, inflation, subs, freq):
     """Ghi các ô tần suất (AE, AF, AH:AS) của một dòng Tổng và thay câu tần suất ở cuối remark của mã (design D8):
-    phần remark của PM giữ nguyên, câu cuối do công cụ viết được thay (bỏ khi Hàng tháng)."""
+    phần remark của PM giữ nguyên, câu cuối do công cụ viết được thay (bỏ khi Hàng tháng). Remark là công thức Excel
+    thì giữ nguyên ô và trả về lý do bỏ qua (change fix-stale-frequency-remarks, D3); ngược lại trả về None."""
     ws.cell(row=prow, column=C['new_freq']).value = freq['new_freq'] or None
     ws.cell(row=prow, column=C['first_month']).value = freq['first_month']
     for k in range(12):
@@ -436,16 +447,22 @@ def _write_freq(wb, ws, prow, item, adj_type, inflation, subs, freq):
     sheet, row = item['fund_sheet'], ws.cell(row=prow, column=C['fund_row']).value
     if sheet in wb.sheetnames and isinstance(row, (int, float)):
         cell = wb[sheet].cell(row=int(row), column=REMARK_COL)
-        current = cell.value if isinstance(cell.value, str) and not cell.value.startswith('=') else ''
+        if isinstance(cell.value, str) and cell.value.startswith('='):
+            return FORMULA_REMARK
+        current = cell.value if isinstance(cell.value, str) else ''
         cell.value = lf.with_sentence(current, freq_sentence(item, amount, freq)) or None
+    return None
 
 
-def apply_edits(wb, edits):
+def apply_edits(wb, edits, report=None):
     """Ghi các chỉnh sửa vào sheet '4. Điều chỉnh' của workbook `wb` (đã mở, không phải data_only).
 
     `edits`: [{key, adj_type, inflation, subs: [{idx, new_qty, new_price}], remark?}]. Mã không có trong `edits` giữ nguyên.
     `remark` (tuỳ chọn): remark năm mới, ghi vào ô T của dòng mã trên sheet quỹ; bỏ trống khóa này thì ô T giữ nguyên.
-    Trả về danh sách mã đã ghi. Lỗi bất kỳ (khoá không có, giá trị sai) thì không ghi gì và ném AdjustError."""
+    `{key, fix_remark: true}` (không kèm khoá nào khác; change fix-stale-frequency-remarks): chỉ cập nhật câu tần suất ở
+    cuối remark của một dòng đang bị cờ "Remark chưa theo tần suất mới", không ghi ô nào của sheet 4.
+    Trả về danh sách mã đã ghi trên sheet 4. `report` (dict, tuỳ chọn) nhận remarks_fixed [mã] và remarks_skipped
+    [(mã, lý do)]. Lỗi bất kỳ (khoá không có, giá trị sai) thì không ghi gì và ném AdjustError."""
     if SHEET not in wb.sheetnames:
         raise AdjustError(f"Bản giao không có sheet '{SHEET}'.")
     ws = wb[SHEET]
@@ -460,25 +477,39 @@ def apply_edits(wb, edits):
         index[key_of(code, fund_sheet)] = (prow, srows, editable, code, fund_sheet,
                                            ws.cell(row=prow, column=C['fund_row']).value)
     items = {it['key']: it for it in _read_wb(wb)}
-    plan, remarks = [], []
+    plan, remarks, fixes, seen = [], [], [], set()
     for edit in edits:
         key = _text(edit.get('key'))
         if key not in index:
             raise AdjustError(f"Không có mã {key} trên sheet '{SHEET}'.")
+        if key in seen:
+            raise AdjustError(f'{key}: mã được gửi hai lần trong một lần lưu.')
+        seen.add(key)
         prow, srows, editable, code, fund_sheet, fund_row = index[key]
+        if edit.get('fix_remark'):
+            if set(edit) - {'key', 'fix_remark'}:
+                raise AdjustError(f'{code}: lần cập nhật remark không được kèm thay đổi khác.')
+            fixes.append(key)
+            continue
         plan.append((prow, srows, editable, code) + _validate(edit, items[key]))
         if edit.get('remark') is not None:          # chỉ khi gửi lên: mã không sửa remark giữ nguyên ô T
             remarks.append(_validate_remark(wb, code, edit['remark'], fund_sheet, fund_row))
-    ba.upgrade(wb)                                  # sheet cũ: thêm các ô tần suất, số không đổi
-    upgrade_sheet(ws, index.values())
+    fixed, skipped = [], []
+    if report is not None:
+        report['remarks_fixed'], report['remarks_skipped'] = fixed, skipped
+    if plan:                                        # chỉ cập nhật remark: không đụng sheet 4, kể cả nâng cấp sheet cũ
+        ba.upgrade(wb)                              # sheet cũ: thêm các ô tần suất, số không đổi
+        upgrade_sheet(ws, index.values())
     written = []
     for sheet, row, text in remarks:
         wb[sheet].cell(row=row, column=REMARK_COL).value = text or None
     sent_remark = {(s, r) for s, r, _t in remarks}
     for prow, srows, editable, code, adj_type, inflation, subs, freq in plan:
         if freq is not None:
-            _write_freq(wb, ws, prow, items[key_of(code, _text(ws.cell(row=prow, column=C['fund_sheet']).value))],
-                        adj_type, inflation, subs, freq)
+            why = _write_freq(wb, ws, prow, items[key_of(code, _text(ws.cell(row=prow, column=C['fund_sheet']).value))],
+                              adj_type, inflation, subs, freq)
+            if why:
+                skipped.append((code, why))
         ws.cell(row=prow, column=C['adj_type']).value = adj_type or None
         ws.cell(row=prow, column=C['inflation']).value = inflation
         for idx, vals in subs.items():
@@ -487,9 +518,29 @@ def apply_edits(wb, edits):
                 ws.cell(row=r, column=C['new_qty']).value = vals['new_qty']
             if 'new_price' in vals:
                 ws.cell(row=r, column=C['new_price']).value = vals['new_price']
-        _pm_remark(wb, ws, prow, srows, sent_remark)
+        it = items[key_of(code, _text(ws.cell(row=prow, column=C['fund_sheet']).value))]
+        _pm_remark(wb, ws, prow, srows, sent_remark, it, adj_type, inflation, subs, freq)
         written.append(code)
+    for key in fixes:
+        _fix_remark(wb, items[key], index[key], fixed, skipped)
     return written
+
+
+def _fix_remark(wb, item, entry, fixed, skipped):
+    """Cập nhật câu tần suất ở cuối remark của một dòng (design D1-D3): dòng không còn bị cờ thì bỏ qua (không đếm);
+    remark là công thức thì giữ nguyên và ghi vào `skipped`."""
+    _prow, _srows, _editable, code, fund_sheet, fund_row = entry
+    if not item.get('remark_stale'):
+        return
+    if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or isinstance(fund_row, bool):
+        skipped.append((code, 'không tìm được dòng của mã trên sheet quỹ'))
+        return
+    cell = wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL)
+    if isinstance(cell.value, str) and cell.value.startswith('='):
+        skipped.append((code, FORMULA_REMARK))
+        return
+    cell.value = fixed_remark(item, cell.value if isinstance(cell.value, str) else '') or None
+    fixed.append(code)
 
 
 PM_LEAD = 'PM điền: '
@@ -513,9 +564,10 @@ def pm_remark_text(remark, figure):
     return PM_LEAD + body
 
 
-def _pm_remark(wb, ws, prow, srows, sent):
+def _pm_remark(wb, ws, prow, srows, sent, item=None, adj_type=None, inflation=None, subs=None, freq=None):
     """Sau khi ghi một dòng để PM điền: viết lại câu đầu remark trên sheet quỹ theo số PM nhập (trừ khi lần lưu
-    này gửi remark riêng của mã)."""
+    này gửi remark riêng của mã). Dòng không phải Hàng tháng (change default-frequency-from-real-budgets, D6): có số
+    thì remark kết thúc bằng câu tần suất theo số đó, chưa có số thì không có câu."""
     if _text(ws.cell(row=prow, column=C['pm_mark']).value) != ba.PM_MARK:
         return
     fund_sheet = _text(ws.cell(row=prow, column=C['fund_sheet']).value)
@@ -525,6 +577,12 @@ def _pm_remark(wb, ws, prow, srows, sent):
     figure = sum(_num(ws.cell(row=r, column=C['new_price']).value) or 0.0 for r in srows)
     cell = wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL)
     new = pm_remark_text(_text(cell.value), figure)
+    if item is not None and (new.startswith(PM_LEAD) or new.startswith(PM_FILLED_LEAD.split('{')[0])):
+        sentence = None
+        if figure:
+            new_subs = [dict(s, **(subs or {}).get(i, {})) for i, s in enumerate(item['subs'])]
+            sentence = freq_sentence(item, new_amount(item, adj_type, inflation, new_subs, freq), freq)
+        new = lf.with_sentence(new, sentence)
     if new != _text(cell.value):
         cell.value = new
 

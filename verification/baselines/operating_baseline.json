@@ -1,6 +1,6 @@
 {
-  "recorded_at": "2026-11-09T10:13:22+07:00",
-  "reason": "2026-11-09 change add-line-frequency (signed off by the user): six codes take a default frequency from Ref_LineFrequency.csv (ESC12 Yearly; ESM2, ESM3, RO2a Half a Year; ESM5, ESM25 Quarterly; first month T1) and are written the form's way (price per time, month headers); the price per time is rounded from the annual figure, so four annual figures move by +-4 VND of the old monthly rounding (ESC12, ESM2, ESM25 +4; ESM5 -4). Nothing else moves.",
+  "recorded_at": "2026-11-09T16:42:50+07:00",
+  "reason": "change default-frequency-from-real-budgets signed off by the user 2026-11-09 (P28): default frequency from the 55 real budgets (11 codes); EMB4/ESC5 paid once in T1, RO2a Monthly, PM lines ESC4/ESS10/ERCS1 cyclic; annual figures unchanged, contingency rounding only",
   "runtime": {
     "python_version": "3.14.6",
     "python_full": "3.14.6 (tags/v3.14.6:c63aec6, Jun 10 2026, 10:26:10) [MSC v.1944 64 bit (AMD64)]",

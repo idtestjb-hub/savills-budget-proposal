@@ -4040,6 +4040,25 @@ def _genuine_zero_reasons():
         contingency.ZERO_REASON_VI]
 
 
+def pm_cyclic_codes(wb, marked):
+    """Codes of the lines left for the PM on the Management Fund whose sheet-4 row carries a cyclic frequency
+    (change default-frequency-from-real-budgets): their H:S show the months of payment, not amounts."""
+    import budget_adjustment as ba
+    import line_frequency as lf
+    if ba.SHEET_NAME not in wb.sheetnames:
+        return set()
+    ws4 = wb[ba.SHEET_NAME]
+    out = set()
+    for (code, sheet), (prow, _why) in marked.items():
+        try:
+            freq = lf.normalise(ws4.cell(row=prow, column=ba.COL['freq']).value)
+        except ValueError:
+            continue
+        if sheet == _FUND_SHEET and freq in lf.CYCLIC:
+            out.add(code)
+    return out
+
+
 def pm_line_problems(wb):
     """Static problems of the lines left for the PM in an open (openpyxl) deliverable: [(code, reason)], and the
     lines found. A line: F and H:S hold no typed number (empty or a formula into sheet 4), are shaded FFF2CC, its
@@ -4050,6 +4069,7 @@ def pm_line_problems(wb):
     problems, lines = [], []
     ws = wb[_FUND_SHEET]
     marked = ba.pm_rows(wb[ba.SHEET_NAME]) if ba.SHEET_NAME in wb.sheetnames else {}
+    cyclic = pm_cyclic_codes(wb, marked)
     c_reasons = _genuine_zero_reasons()
     for r in range(1, ws.max_row + 1):
         code = ws.cell(row=r, column=25).value
@@ -4069,6 +4089,8 @@ def pm_line_problems(wb):
             if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
                 problems.append((code, f'ô {cell.coordinate} có số {cell.value}, phải để trống'))
                 break
+            if code in cyclic and col != 6:
+                continue          # a cyclic line shows its months of payment, unshaded (default-frequency D4)
             rgb = str(getattr(cell.fill.fgColor, 'rgb', '') or '') if cell.fill is not None else ''
             if not rgb.upper().endswith(PM_FILL_RGB):
                 problems.append((code, f'ô {cell.coordinate} chưa tô vàng nhạt'))
@@ -4101,6 +4123,7 @@ def check_pm_lines(paths):
     try:
         problems, lines = pm_line_problems(wb)
         marked = ba.pm_rows(wb[ba.SHEET_NAME]) if ba.SHEET_NAME in wb.sheetnames else {}
+        cyclic = pm_cyclic_codes(wb, marked)
     finally:
         wb.close()
     rows = [('lines left for the PM', len(lines)), ('with a row on sheet 4', len(marked))]
@@ -4117,13 +4140,17 @@ def check_pm_lines(paths):
             vals = [cell(_FUND_SHEET, r, c)[0] for c in [6, 7] + list(range(8, 20))]
             if any(isinstance(v, (int, float)) and v <= _EXCEL_ERR for v in vals):
                 problems.append((code.strip(), 'Excel báo lỗi trên dòng'))
+            elif code.strip() in cyclic:            # H:S hold the months of payment: the year is G
+                if isinstance(vals[1], (int, float)) and abs(vals[1]) >= 0.5:
+                    problems.append((code.strip(), f'chưa nhập mà G = {vals[1]:,.0f}'))
             elif abs(sum(v for v in vals[2:] if isinstance(v, (int, float)))) >= 0.5:
                 problems.append((code.strip(), 'chưa nhập mà 12 tháng khác 0'))
 
-    target = next(((code, row) for (code, sheet), (row, _why) in sorted(marked.items(), key=lambda kv: kv[1][0])
-                   if sheet == _FUND_SHEET and code in fund_rows), None)
-    if target:
-        code, prow = target
+    ordered = [(code, row) for (code, sheet), (row, _why) in sorted(marked.items(), key=lambda kv: kv[1][0])
+               if sheet == _FUND_SHEET and code in fund_rows]
+    targets = [t for t in (next((t for t in ordered if t[0] not in cyclic), None),      # a Monthly line
+                           next((t for t in ordered if t[0] in cyclic), None)) if t]   # and a cyclic one
+    for code, prow in targets:
         work = os.path.join(tempfile.mkdtemp(prefix='pm_fill_'), os.path.basename(paths['deliverable']))
         try:
             shutil.copy(paths['deliverable'], work)
@@ -4138,11 +4165,12 @@ def check_pm_lines(paths):
             if any(isinstance(v, (int, float)) and v <= _EXCEL_ERR for v in months + [g]):
                 problems.append((code, 'Excel báo lỗi sau khi PM nhập số'))
             else:
-                total = sum(v for v in months if isinstance(v, (int, float)))
-                if abs(total - 24_000_000) > 1 or not isinstance(g, (int, float)) or abs(g - 24_000_000) > 1:
-                    problems.append((code, f'PM nhập 24,000,000 VND mà 12 tháng = {total:,.0f}, G = {g}'))
+                total = g if code in cyclic else sum(v for v in months if isinstance(v, (int, float)))
+                if not isinstance(total, (int, float)) or abs(total - 24_000_000) > 1                         or not isinstance(g, (int, float)) or abs(g - 24_000_000) > 1:
+                    problems.append((code, f'PM nhập 24,000,000 VND mà năm = {total}, G = {g}'))
                 else:
-                    rows.append((f'{code}: 24,000,000 VND typed on sheet 4 -> fund year', round(total)))
+                    kind = 'cyclic' if code in cyclic else 'monthly'
+                    rows.append((f'{code} ({kind}): 24,000,000 VND typed on sheet 4 -> fund year', round(g)))
         finally:
             shutil.rmtree(os.path.dirname(work), ignore_errors=True)
     return (not problems), rows, problems, notes

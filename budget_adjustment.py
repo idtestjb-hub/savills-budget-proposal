@@ -30,6 +30,7 @@ import line_frequency
 
 SHEET_NAME = '4. Điều chỉnh'
 AFTER_SHEET = '3.1 Report-Sinking Fund'
+MF_SHEET = '2. Budget-Management Fund'          # the default frequency table is for this fund only
 ADJUSTMENT_TYPES = ('Số lượng', 'Đơn giá', 'Số lượng + Đơn giá', 'Trượt giá', 'Nhập số')
 TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION, TYPE_ENTER = ADJUSTMENT_TYPES
 ROW_KIND_TOTAL, ROW_KIND_DETAIL = 'Tổng', 'Chi tiết'
@@ -613,11 +614,13 @@ def append_items(wb, items):
 # ------------------------------------------------------------------------------------------------
 # Lumped "Nhập số" lines: zero-tool codes on a Review, lines left for the PM on every run
 # ------------------------------------------------------------------------------------------------
-def lumped_item(wb, sheet, code, name, value_col, first_month_col, defaults=None):
+def lumped_item(wb, sheet, code, name, value_col, first_month_col, defaults=None, pm_line=False):
     """(item, None) for a one-detail "Nhập số" line of `code` on `sheet` for append_items(), or (None, reason) when the
     code is not a plain leaf line of its fund sheet (no unique row, or no =SUM(first month) annual in `value_col`).
     A frequency the fund row carries is kept; a blank one (or Optional) takes the code's default from
-    Ref_LineFrequency.csv, else Monthly (change add-line-frequency). Moved from review.add_zero_rows."""
+    Ref_LineFrequency.csv, else Monthly (change add-line-frequency). A line left for the PM (`pm_line`) on a Monthly
+    row also takes a non-Monthly default (change default-frequency-from-real-budgets, design D3): its price is blank,
+    so the template's Monthly carries no choice of the tool. Moved from review.add_zero_rows."""
     if sheet not in wb.sheetnames:
         return None, 'không có sheet quỹ'
     ws = wb[sheet]
@@ -636,6 +639,8 @@ def lumped_item(wb, sheet, code, name, value_col, first_month_col, defaults=None
         freq = None
     default = defaults.get(code)
     first = None
+    if pm_line and freq == lf.MONTHLY and default and default.frequency != lf.MONTHLY:
+        freq = None                                  # the default below applies
     if freq in (None, lf.OPTIONAL):
         freq = default.frequency if default else lf.MONTHLY
         first = default.first_month if default else None
@@ -658,10 +663,16 @@ def _write_pm_header(ws):
         ws.column_dimensions[get_column_letter(COL[key])].hidden = True
 
 
-def shade_pm_fund_row(ws, row):
-    """A line left for the PM on its fund sheet: F and H:S light yellow, a 0 shown as nothing (design D3)."""
+def shade_pm_fund_row(ws, row, cyclic=False):
+    """A line left for the PM on its fund sheet: F and H:S light yellow, a 0 shown as nothing (design D3). A cyclic
+    line (change default-frequency-from-real-budgets, D4): H:S show the months of payment as on any cyclic row of the
+    form, so they keep the row-8 month format and no fill; only F is shaded."""
     for col in [FUND_MONTHLY_COL] + [FUND_MONTH_FIRST_COL + k for k in range(12)]:
         cell = ws.cell(row=row, column=col)
+        if cyclic and col != FUND_MONTHLY_COL:
+            cell.fill = PatternFill(fill_type=None)
+            cell.number_format = ws.cell(row=8, column=col).number_format
+            continue
         cell.fill = PatternFill('solid', fgColor=FILL_INPUT.fgColor.rgb)
         cell.number_format = FMT_BLANK_ZERO
 
@@ -676,7 +687,8 @@ def add_pm_rows(wb, lines, sheet, value_col, first_month_col):
         return added, [(ln['code'], "không có sheet '4. Điều chỉnh'") for ln in lines]
     defaults = line_frequency.load_table()
     for ln in lines:
-        item, why = lumped_item(wb, sheet, ln['code'], ln.get('name'), value_col, first_month_col, defaults)
+        item, why = lumped_item(wb, sheet, ln['code'], ln.get('name'), value_col, first_month_col, defaults,
+                                pm_line=sheet == MF_SHEET)   # common-area shares stay Monthly
         if item is None:
             skipped.append((ln['code'], why))
         else:
@@ -693,9 +705,10 @@ def add_pm_rows(wb, lines, sheet, value_col, first_month_col):
             ws.cell(row=prow + 1, column=COL['new_price']).value = None    # the PM's cell starts empty
             added.append(code)
     fund = wb[sheet]
+    cyclic = {it['code'] for it in items if it['freq'] in line_frequency.CYCLIC}
     for ln in lines:
         try:
-            shade_pm_fund_row(fund, find_fund_row(fund, ln['code']))
+            shade_pm_fund_row(fund, find_fund_row(fund, ln['code']), cyclic=ln['code'] in cyclic)
         except ValueError:
             pass
     return added, skipped

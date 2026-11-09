@@ -112,3 +112,87 @@ def test_a_code_without_detail_rows_on_the_common_area_fund(deliv):
     it = _items(deliv)['CA|ESS4']                     # original Yearly x1 (fixture), 60 a year -> Monthly x12
     assert it['orig_times'] == 1 and _Eval(wb).cell(ba.SHEET_NAME, f'M{prow}') == 720.0
     assert adjust.new_amount(it) == 720.0
+
+
+# ---- change fix-stale-frequency-remarks: the button that fixes the flagged remarks (TEST DATA) ----
+
+def _offline(path, freq, first=None, remark=None):
+    """The PM changes RM.AP's frequency in Excel on sheet 4 (AE, AF), optionally with a remark of their own."""
+    wb = openpyxl.load_workbook(path)
+    ws = wb[ba.SHEET_NAME]
+    prow = next(r for r in range(ba.FIRST_DATA_ROW, ws.max_row + 1) if ws.cell(row=r, column=1).value == 'RM.AP')
+    ws.cell(row=prow, column=ba.COL['new_freq']).value = freq
+    ws.cell(row=prow, column=ba.COL['first_month']).value = first
+    if remark is not None:
+        wb[MF].cell(row=10, column=20).value = remark
+    wb.save(path)
+
+
+def _sheet4_values(wb):
+    ws = wb[ba.SHEET_NAME]          # reading creates empty cells, so compare the filled ones
+    return {c.coordinate: c.value for row in ws.iter_rows() for c in row if c.value is not None}
+
+
+def test_fixed_remark_keeps_the_pms_text_and_replaces_the_sentence(deliv):
+    it = dict(_items(deliv)['MF|RM.AP'], new_freq='Half a Year', first_month=1)
+    old = 'Theo hợp đồng mới.\nHàng quý, 4 lần/năm × 50 VND/lần, chi vào T3, T6, T9, T12'
+    assert adjust.fixed_remark(it, old) == 'Theo hợp đồng mới.\n6 tháng/lần, 2 lần/năm × 50 VND/lần, chi vào T1, T7'
+    assert adjust.fixed_remark(it, 'Theo hợp đồng mới.') == ('Theo hợp đồng mới.\n'
+                                                          '6 tháng/lần, 2 lần/năm × 50 VND/lần, chi vào T1, T7')
+    monthly = dict(it, new_freq='Monthly')
+    assert adjust.fixed_remark(monthly, old) == 'Theo hợp đồng mới.'
+
+
+def test_fix_remark_rewrites_only_column_t_and_clears_the_flag(deliv):
+    _offline(deliv, 'Yearly', 6, remark='Theo hợp đồng mới.')
+    assert _items(deliv)['MF|RM.AP']['remark_stale'] is True
+    wb = openpyxl.load_workbook(deliv)
+    before = _sheet4_values(wb)
+    report = {}
+    assert adjust.apply_edits(wb, [dict(key='MF|RM.AP', fix_remark=True)], report=report) == []
+    assert _sheet4_values(wb) == before                       # no cell of sheet 4 changes
+    assert report == dict(remarks_fixed=['RM.AP'], remarks_skipped=[])
+    assert wb[MF].cell(row=10, column=20).value == ('Theo hợp đồng mới.\n'
+                                                    'Hàng năm, 1 lần/năm × 50 VND/lần, chi vào T6')
+    wb.save(deliv)
+    assert _items(deliv)['MF|RM.AP']['remark_stale'] is False
+
+
+def test_fix_remark_skips_a_line_that_is_no_longer_flagged(deliv):
+    wb = openpyxl.load_workbook(deliv)
+    report = {}
+    adjust.apply_edits(wb, [dict(key='MF|RM.AP', fix_remark=True)], report=report)
+    assert report == dict(remarks_fixed=[], remarks_skipped=[])
+    assert wb[MF].cell(row=10, column=20).value == openpyxl.load_workbook(deliv)[MF].cell(row=10, column=20).value
+
+
+def test_fix_remark_leaves_a_formula_remark_and_lists_it(deliv):
+    _offline(deliv, 'Yearly', 6, remark='="Theo hợp đồng"')
+    wb = openpyxl.load_workbook(deliv)
+    report = {}
+    adjust.apply_edits(wb, [dict(key='MF|RM.AP', fix_remark=True)], report=report)
+    assert wb[MF].cell(row=10, column=20).value == '="Theo hợp đồng"'
+    assert report == dict(remarks_fixed=[], remarks_skipped=[('RM.AP', 'remark là công thức Excel')])
+
+
+def test_a_frequency_save_keeps_a_formula_remark(deliv):
+    _offline(deliv, None, remark='="Theo hợp đồng"')
+    wb = openpyxl.load_workbook(deliv)
+    report = {}
+    adjust.apply_edits(wb, [dict(key='MF|RM.AP', adj_type='', inflation=0, subs=[], new_freq='Yearly', first_month=6)],
+                       report=report)
+    assert wb[MF].cell(row=10, column=20).value == '="Theo hợp đồng"'
+    assert report['remarks_skipped'] == [('RM.AP', 'remark là công thức Excel')]
+
+
+@pytest.mark.parametrize('edits, message', [
+    ([dict(key='MF|RM.AP', fix_remark=True, adj_type='Trượt giá')], 'không được kèm thay đổi khác'),
+    ([dict(key='MF|RM.AP', fix_remark=True), dict(key='MF|RM.AP', fix_remark=True)], 'gửi hai lần'),
+    ([dict(key='MF|NOPE', fix_remark=True)], 'Không có mã'),
+])
+def test_fix_remark_refusals_write_nothing(deliv, edits, message):
+    before = open(deliv, 'rb').read()
+    wb = openpyxl.load_workbook(deliv)
+    with pytest.raises(adjust.AdjustError, match=message):
+        adjust.apply_edits(wb, edits)
+    assert open(deliv, 'rb').read() == before

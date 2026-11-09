@@ -1868,6 +1868,31 @@ def _write_year1_lump_row(ws, row, annual_amount, remark=None):
     _write_remark(ws, row, remark)
 
 
+def _template_cycle_to_monthly(ws, row):
+    """A template row with a cyclic frequency (C) whose code the default table does not list goes to Monthly (change
+    default-frequency-from-real-budgets, spec line-frequency: a code not listed is Monthly; RO2a, whose template row is
+    Half a Year with one month marked, is the case today). C = Monthly, the month-of-payment references in H:S are
+    cleared, and a plain-number F (price per time) becomes the monthly figure of the same year (F x times / 12). A
+    formula C or F is left alone. Returns True when the row was changed."""
+    try:
+        current = line_frequency.normalise(ws.cell(row=row, column=3).value)
+    except ValueError:
+        return False
+    if current not in line_frequency.CYCLIC:
+        return False
+    f_cell = ws.cell(row=row, column=6)
+    if isinstance(f_cell.value, str) and f_cell.value.startswith('='):
+        return False
+    ws.cell(row=row, column=3, value=line_frequency.MONTHLY)
+    if isinstance(f_cell.value, (int, float)) and not isinstance(f_cell.value, bool) and f_cell.value:
+        f_cell.value = round(f_cell.value * line_frequency.TIMES[current] / 12)
+    for k in range(12):
+        cell = ws.cell(row=row, column=8 + k)
+        if isinstance(cell.value, str) and re.fullmatch(r'=\$?[A-Z]{1,2}\$?8', cell.value):
+            cell.value = None                           # ws.cell(value=None) would leave the old value
+    return True
+
+
 def _apply_line_frequencies(ws, table=None):
     """Write each listed code's default frequency on '2. Budget-Management Fund' the way a PM fills the form by hand
     (change add-line-frequency, spec line-frequency, design D5): C = the frequency, F = the price per time, H:S =
@@ -1889,6 +1914,8 @@ def _apply_line_frequencies(ws, table=None):
         code = code.strip() if isinstance(code, str) else code
         default = table.get(code)
         if default is None or default.frequency == line_frequency.MONTHLY:
+            if code and _template_cycle_to_monthly(ws, row):
+                changed.append((code, line_frequency.MONTHLY, ws.cell(row=row, column=6).value))
             continue
         try:
             current = line_frequency.normalise(ws.cell(row=row, column=3).value)

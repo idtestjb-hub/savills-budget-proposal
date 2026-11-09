@@ -127,3 +127,59 @@ def test_an_older_sheet_without_the_pm_columns_reads_as_no_pm_line():
     ba.apply(wb, _items())
     assert ba.pm_rows(wb[ba.SHEET_NAME]) == {}
     assert not any(it['pm_fill'] for it in adjust._read_wb(wb))
+
+
+# ---- change default-frequency-from-real-budgets: a line left for the PM takes the table's frequency (TEST DATA) ----
+import line_frequency as lf  # noqa: E402
+
+
+@pytest.fixture
+def yearly_default(monkeypatch):
+    table = {'ESS99': lf.Default('ESS99', lf.YEARLY, 1, 1, [1], 'real budgets: Yearly 3 of 5 MF files', '')}
+    monkeypatch.setattr(lf, 'load_table', lambda path=None: table)
+    return table
+
+
+def _pm_yearly():
+    wb = _with_pm_line()
+    added, _skipped = ba.add_pm_rows(wb, [dict(code='ESS99', name='Dòng thử', reason='Chưa có phương pháp.')],
+                                     MGMT, 'AK', 'AQ')
+    assert added == ['ESS99']
+    return wb
+
+
+def test_a_pm_line_takes_the_tables_cyclic_frequency_and_keeps_the_month_cells_unshaded(yearly_default):
+    wb = _pm_yearly()
+    ws = wb[ba.SHEET_NAME]
+    (prow, _reason), = [v for (c, _s), v in ba.pm_rows(ws).items() if c == 'ESS99']
+    assert ws.cell(row=prow, column=ba.COL['freq']).value == lf.YEARLY
+    fund = wb[MGMT]
+    assert fund.cell(row=30, column=6).fill.fgColor.rgb.endswith('FFF2CC')            # F shaded
+    for col in range(8, 20):                                                           # months of payment
+        cell = fund.cell(row=30, column=col)
+        assert cell.fill.fill_type is None and cell.number_format == fund.cell(row=8, column=col).number_format
+    problems, lines = checks.pm_line_problems(wb)
+    assert lines == ['ESS99'] and problems == []
+    assert checks.pm_cyclic_codes(wb, ba.pm_rows(ws)) == {'ESS99'}
+
+
+def test_without_the_pm_flag_a_monthly_row_keeps_monthly(yearly_default):
+    """add_pm_rows passes the flag only for the Management Fund: common-area shares stay Monthly."""
+    wb = _with_pm_line()
+    item, why = ba.lumped_item(wb, MGMT, 'ESS99', 'Dòng thử', 'AK', 'AQ', yearly_default, pm_line=False)
+    assert why is None and item['freq'] == lf.MONTHLY
+
+
+def test_a_saved_pm_figure_on_a_yearly_line_ends_the_remark_with_the_sentence(yearly_default):
+    wb = _pm_yearly()
+    it = {i['code']: i for i in adjust._read_wb(wb)}['ESS99']
+    adjust.apply_edits(wb, [dict(key=it['key'], adj_type=ba.TYPE_ENTER, inflation=0,
+                                 subs=[dict(idx=0, new_price=24_000_000)])])
+    remark = wb[MGMT].cell(row=30, column=20).value
+    assert remark.startswith('Số do PM nhập: 24,000,000 VND/năm.')
+    assert remark.endswith('\nHàng năm, 1 lần/năm × 24,000,000 VND/lần, chi vào T1')
+    it = {i['code']: i for i in adjust._read_wb(wb)}['ESS99']
+    assert it['remark_stale'] is False
+    adjust.apply_edits(wb, [dict(key=it['key'], adj_type=ba.TYPE_ENTER, inflation=0,
+                                 subs=[dict(idx=0, new_price=0)])])
+    assert wb[MGMT].cell(row=30, column=20).value == 'PM điền: Chưa có phương pháp định giá được ghi nhận.'

@@ -86,6 +86,25 @@ def test_generation_writes_the_forms_way_and_keeps_the_annual():
         3_850_000 if k in (0, 3, 6, 9) else 0 for k in range(12)]
 
 
+def test_an_unlisted_cyclic_template_row_goes_to_monthly():
+    """Change default-frequency-from-real-budgets: RO2a left the table (Monthly in every real budget), so its
+    template row (Half a Year, one month marked) is written Monthly; a priced row keeps its year."""
+    wb, ws = _gen_sheet()
+    ws['K21'] = '=K8'                                      # the template marks only T4
+    ws.cell(row=26, column=25, value='ZZ1')
+    ws.cell(row=26, column=3, value='Quarterly')
+    ws.cell(row=26, column=6, value=3_000_000)
+    for col in (8, 11, 14, 17):
+        ws.cell(row=26, column=col, value=f'={get_column_letter(col)}8')
+    table = {k: v for k, v in TABLE.items() if k != 'RO2a'}
+    changed = g._apply_line_frequencies(ws, table)
+    assert ('RO2a', 'Monthly', 0) in changed and ('ZZ1', 'Monthly', 1_000_000) in changed
+    assert ws['C21'].value == 'Monthly' and ws['F21'].value == 0
+    assert all(ws.cell(row=21, column=8 + k).value is None for k in range(12))
+    assert ws['C26'].value == 'Monthly' and ws['F26'].value == 1_000_000      # 3,000,000 x 4 / 12
+    assert all(ws.cell(row=26, column=8 + k).value is None for k in range(12))
+
+
 def test_collect_written_reads_a_cyclic_line_as_price_times_count():
     wb, ws = _gen_sheet()
     g._apply_line_frequencies(ws, TABLE)
