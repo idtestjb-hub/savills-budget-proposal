@@ -28,11 +28,11 @@
 ## 5. Site package
 
 - [x] 5.1 `site_data.KEEP` gains `Ref_UtilityUsage.csv` (sheet names masked); R09..R12 pseudonymised; `tests/test_site_data.py` updated
-- [ ] 5.2 Rebuild the City Garden package after the commit; leak scan clean
+- [x] 5.2 Rebuild the City Garden package after the commit; leak scan clean (done at 902399f on 2026-11-09, session P26: import, prior read, text scan and name scan clean)
 
 ## 6. Measure and verify
 
 - [x] 6.1 Before/after on the five fixtures, the City Garden Review and the four M3 projects: energy, capex, total expense, surplus; report in `Savills-local\backups\budget-agent\<date>-widen-sources-measure`
 - [x] 6.2 User signs off the before/after
 - [x] 6.3 Re-record the three baselines once; full test suite; `python verification/verify.py` PASS
-- [ ] 6.4 Docs: RUNNING, README module table, outer `docs/05-decisions.md` (open questions answered), `docs/project-status.md`; release note
+- [x] 6.4 Docs: RUNNING, README module table, outer `docs/05-decisions.md` (open questions answered), `docs/project-status.md`; release note (release note `2026-11-09-budget-web-nguon-dien-nuoc-va-tan-suat.txt`, at 902399f)
