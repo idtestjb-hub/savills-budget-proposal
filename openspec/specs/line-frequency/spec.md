@@ -66,6 +66,8 @@ The table SHALL be built from the frequency column of the 55 real budgets mapped
   votes; otherwise it is Monthly and is not listed;
 - ESC12 (Yearly), ESM2 (Half a Year), ESM5 (Quarterly) and ESM25 (Quarterly) keep the frequency their costing counts,
   as an exception the row's note states;
+- ESC2, ESC3, ESS7 and EMA18 are Yearly by the user's choice (2026-11-09), although Yearly has 40–50 % of their votes,
+  as an exception the row's note states;
 - a code not on the 2027 form's Management Fund sheet SHALL NOT be listed.
 
 Each row SHALL state its source as counts (for example "real budgets: Yearly 22 of 39 MF files") and SHALL list no
@@ -73,12 +75,14 @@ project name, file name or path. The raw read of the real budgets stays on the o
 
 A defaulted line SHALL keep the annual amount the tool computed: the per-time price SHALL be that amount divided by
 the number of times. A line left for the PM SHALL take the table's frequency and months of payment with no price
-until the PM types an annual figure. A line whose amount varies by month (a ramped revenue or occupancy-driven line)
-SHALL NOT be defaulted to a cyclic frequency. Data files: reads the mapped real budgets (office only),
-`real_budget_ranges_map.csv` and the 2027 template; writes `Ref_LineFrequency.csv`. Recorded baselines: annual
-figures SHALL NOT move beyond the per-time rounding; the per-time price (F), the month figures and the remark of the
-newly defaulted priced lines move, and RO2a's row returns to Monthly; they are re-recorded once after the user's
-sign-off.
+until the PM types an annual figure. A Monthly row of a listed code that the tool leaves without a price (F blank or
+0) and that is not a line left for the PM SHALL take the table's frequency and months of payment, write F as 0 (a
+blank F too, user 2026-11-10) and keep its remark, so the form's times check (U) is 0. A line whose amount varies by month (a ramped revenue or
+occupancy-driven line) SHALL NOT be defaulted to a cyclic frequency. Data files: reads the mapped real budgets
+(office only), `real_budget_ranges_map.csv` and the 2027 template; writes `Ref_LineFrequency.csv`. Recorded
+baselines: annual figures SHALL NOT move beyond the per-time rounding; the per-time price (F), the month figures and
+the remark of the newly defaulted priced lines move, and unpriced rows of listed codes gain their frequency and
+months at 0 VND; they are re-recorded once after the user's sign-off.
 
 #### Scenario: A defaulted quarterly line
 - **WHEN** the table lists ESM25 as Quarterly, 4 times, first month T1, and the tool prices ESM25 at 14,000,000 VND a
@@ -91,6 +95,20 @@ sign-off.
   36,000,000 VND a year
 - **THEN** the table SHALL list ESC5 as Yearly with source "real budgets: Yearly 22 of 40 MF files …"
 - **AND** the new budget SHALL write ESC5 once, 36,000,000 VND in T1, with the annual amount unchanged
+
+#### Scenario: A near-threshold code the user set to Yearly
+- **WHEN** 16 of the 34 real budgets that carry ESC2 on their MF sheets pay it Yearly and 14 Monthly
+- **THEN** the table SHALL list ESC2 as Yearly, 1 time, first month T1, with source "real budgets: Yearly 16 of 34 MF
+  files …" and a note that the user chose Yearly on 2026-11-09
+- **AND** when the tool prices ESC2 at 30,000,000 VND a year, the new budget SHALL write ESC2 once, 30,000,000 VND in
+  T1, with the annual amount unchanged
+
+#### Scenario: An unpriced row of a listed code
+- **WHEN** the table lists ESA16 as Yearly and the tool writes ESA16 as a Monthly row with F blank that is not a line
+  left for the PM
+- **THEN** the new budget SHALL write ESA16 with C = Yearly and T1 marked with the row-8 month header, F = 0, the
+  remark unchanged
+- **AND** the row's times check (U) SHALL be 0 and its annual amount SHALL stay 0
 
 #### Scenario: A template default the real budgets do not follow
 - **WHEN** RO2a is Monthly in all 22 real budgets that carry it
