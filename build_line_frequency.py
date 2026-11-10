@@ -16,6 +16,8 @@ Rules (user, 2026-11-09, docs/05-decisions.md "Default frequency from the 55 rea
 - a code is listed when at least MIN_FILES files carry it and one frequency other than Monthly has more than half of
   the votes; otherwise it is Monthly and not listed;
 - COSTING_KEEPS: four codes keep the frequency their costing counts (user, 2026-11-09);
+- USER_FREQUENCIES: four near-threshold codes the user set to Yearly (2026-11-09, change
+  near-threshold-and-unpriced-frequency); a code in both lists stops the build;
 - a code not on the 2027 form's Management Fund sheet is not listed.
 Every cyclic line starts in T1 (user's choice 2026-11-07). The template's own column C is read only for the notes.
 Sources are stated as counts; the written table is checked against the store's project names and refused on a match.
@@ -68,6 +70,16 @@ COSTING_KEEPS = [
      'Đối chiếu chất lượng nước sau xử lý, hàng quý.'),
 ]
 KEEP_NOTE = 'Giữ tần suất theo cách tính (người dùng chốt 09/11/2026), không theo đa số ngân sách thật.'
+
+# Codes near the threshold (Yearly in 40-50 % of the MF files that carry them) that the user set to Yearly on
+# 2026-11-09 (change near-threshold-and-unpriced-frequency, design D1). The rule itself is unchanged.
+USER_FREQUENCIES = [
+    ('ESC2', lf.YEARLY, 'Diễn tập PCCC.'),
+    ('ESC3', lf.YEARLY, 'Đại hội cư dân.'),
+    ('ESS7', lf.YEARLY, 'Vệ sinh mặt ngoài.'),
+    ('EMA18', lf.YEARLY, 'Thuế môn bài.'),
+]
+USER_NOTE = 'Gần ngưỡng: người dùng chốt Hàng năm 09/11/2026, không theo quy tắc trên một nửa.'
 
 
 # ---- reading the real budgets (office machine) ----
@@ -261,6 +273,10 @@ def build(lines, template_path):
     tpl, mf_codes = template_rows(template_path)
     mf = votes(lines, 'MF')
     keeps = {code: (freq, source, note) for code, freq, source, note in COSTING_KEEPS}
+    users = {code: (freq, note) for code, freq, note in USER_FREQUENCIES}
+    both = sorted(set(keeps) & set(users))
+    if both:
+        raise ValueError(f'codes in both COSTING_KEEPS and USER_FREQUENCIES: {", ".join(both)}')
     report, chosen = [], {}
     for code in sorted(mf):
         freq = winner(mf[code])
@@ -271,13 +287,17 @@ def build(lines, template_path):
             continue
         chosen[code] = freq
     out = []
-    for code in sorted(set(chosen) | set(keeps)):
+    for code in sorted(set(chosen) | set(keeps) | set(users)):
         counts = count_text(mf.get(code, collections.Counter()))
         notes = []
         if code in keeps:
             freq, costing, note = keeps[code]
             source = f'{costing}; real budgets: {counts}'
             notes += [note, KEEP_NOTE]
+        elif code in users:
+            freq, note = users[code]
+            source = f'real budgets: {counts}'
+            notes += [note, USER_NOTE]
         else:
             freq = chosen[code]
             source = f'real budgets: {counts}'

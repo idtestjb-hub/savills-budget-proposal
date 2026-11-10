@@ -1901,8 +1901,11 @@ def _apply_line_frequencies(ws, table=None):
     becomes 3,850,000 x 4 rather than 1,283,333 x 12 / 4; the annual G moves only by the old monthly rounding (a few
     VND). Without a recorded annual, F x 12 / times. Only two shapes are changed:
     - a Monthly line with a plain-number F (a formula F, for example a link to another sheet, is left alone);
-    - a line already at the table's frequency with no price (the template's own row, for example RO2a at 0), which
-      gains its months of payment so the form's times check (U) is 0.
+    - a line with no price (F blank or 0) that is already at the table's frequency (the template's own row) or is a
+      Monthly row not left for the PM (ESA16 with the template's guidance remark; change
+      near-threshold-and-unpriced-frequency, design D2): it gains the frequency and its months of payment so the
+      form's times check (U) is 0; F is written 0 (a blank F becomes 0, user 2026-11-10, as the template's RO2a) and
+      the remark stays as it is. Lines in _PM_LINES are left to sheet 4.
     Schedule lines (ramped, VAT varying by month, one-time amounts) and unlisted codes are left as written. The
     remark of a priced line gains the frequency sentence on its own last line. '2.2 Common area Fund' is not touched:
     its shares read the fund line's monthly average (column AL), so they stay Monthly as the template has them.
@@ -1927,8 +1930,9 @@ def _apply_line_frequencies(ws, table=None):
             if annual is not None and round(annual / 12) != f_val:
                 annual = None                               # F was rewritten after: the record is stale
             per_time = round((annual if annual is not None else f_val * 12) / default.times)
-        elif current == default.frequency and f_val in (None, 0):
-            per_time = f_val
+        elif f_val in (None, 0) and (current == default.frequency
+                                     or (current == line_frequency.MONTHLY and code not in _PM_LINES)):
+            per_time = 0                                    # no price: F = 0, frequency and months (design D2)
         else:
             continue
         ws.cell(row=row, column=3, value=default.frequency)

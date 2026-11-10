@@ -115,8 +115,11 @@ def test_table_refuses_wrong_times(tmp_path):
 
 def test_shipped_table_lists_the_reviewed_codes():
     table = lf.load_table()
-    # change default-frequency-from-real-budgets (signed off 2026-11-09): 11 codes; RO2a back to Monthly (not listed)
-    assert set(table) == {'EMB4', 'ERCS1', 'ESA16', 'ESC12', 'ESC4', 'ESC5', 'ESM2', 'ESM25', 'ESM3', 'ESM5', 'ESS10'}
+    # change default-frequency-from-real-budgets (signed off 2026-11-09): 11 codes; RO2a back to Monthly (not listed);
+    # change near-threshold-and-unpriced-frequency: + ESC2, ESC3, ESS7, EMA18 Yearly by the user's choice = 15
+    assert set(table) == {'EMB4', 'ERCS1', 'ESA16', 'ESC12', 'ESC4', 'ESC5', 'ESM2', 'ESM25', 'ESM3', 'ESM5', 'ESS10',
+                          'ESC2', 'ESC3', 'ESS7', 'EMA18'}
+    assert all(table[c].frequency == 'Yearly' for c in ('ESC2', 'ESC3', 'ESS7', 'EMA18'))
     assert 'RO2a' not in table and 'ESA1' not in table
     assert all(d.source for d in table.values())
     assert table['ESM25'].months == [1, 4, 7, 10] and table['ESC5'].months == [1]

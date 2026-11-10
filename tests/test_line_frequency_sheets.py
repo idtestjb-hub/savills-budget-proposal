@@ -105,6 +105,42 @@ def test_an_unlisted_cyclic_template_row_goes_to_monthly():
     assert all(ws.cell(row=26, column=8 + k).value is None for k in range(12))
 
 
+def test_an_unpriced_monthly_row_takes_the_table_frequency_but_a_pm_line_does_not(monkeypatch):
+    """Change near-threshold-and-unpriced-frequency, task 2.1 (TEST DATA): a Monthly row of a listed code with no
+    price that is not left for the PM (ESA16 with the template's guidance remark; ESC2 at 0) gains the frequency and
+    its months, F = 0 (a blank F too, user 2026-11-10), remark unchanged, U = 0; a PM line, a Schedule row and an unlisted code are not touched."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = MGMT
+    wb.create_sheet(COMMON)
+    _with_headers(wb)
+    guidance = 'Trường hợp đồng hồ nước thuộc sở hữu chung thì sử dụng quỹ bảo trì.'
+    for r, code, c, f in ((30, 'ESA16', 'Monthly', None), (31, 'ESC2', 'Monthly', 0), (32, 'ESC4', 'Monthly', None),
+                          (33, 'ZZ9', 'Monthly', None)):
+        ws.cell(row=r, column=25, value=code)
+        ws.cell(row=r, column=3, value=c)
+        ws.cell(row=r, column=6, value=f)
+    ws['T30'] = guidance
+    g._write_ramped_row(ws, 34, [0] * 12)                  # Schedule at 0: stays Schedule
+    ws.cell(row=34, column=25, value='ESS7')
+    monkeypatch.setitem(g._PM_LINES, 'ESC4', dict(row=32, kind='B', reason='TEST DATA'))
+    yearly = lambda code: lf.Default(code, 'Yearly', 1, 1, [1], 'TEST DATA', '')  # noqa: E731
+    table = {code: yearly(code) for code in ('ESA16', 'ESC2', 'ESC4', 'ESS7')}
+    changed = g._apply_line_frequencies(ws, table)
+    assert changed == [('ESA16', 'Yearly', 0), ('ESC2', 'Yearly', 0)]
+    assert (ws['C30'].value, ws['F30'].value, ws['T30'].value) == ('Yearly', 0, guidance)
+    assert ws['H30'].value == '=H8' and all(ws.cell(row=30, column=9 + k).value is None for k in range(11))
+    assert (ws['C31'].value, ws['F31'].value, ws['H31'].value, ws['T31'].value) == ('Yearly', 0, '=H8', None)
+    assert ws['C32'].value == 'Monthly' and ws['H32'].value is None                   # PM line: sheet 4 decides
+    assert ws['C33'].value == 'Monthly' and ws['C34'].value == 'Schedule'
+    for r in (30, 31):
+        _form_cells(ws, r)
+        ws.cell(row=r, column=21, value=ba.times_check_formula(r))
+    ev = _Eval(wb)
+    assert ev.cell(MGMT, 'U30') == 0 == ev.cell(MGMT, 'U31')
+    assert ev.cell(MGMT, 'AK30') == 0 == ev.cell(MGMT, 'AK31')
+
+
 def test_collect_written_reads_a_cyclic_line_as_price_times_count():
     wb, ws = _gen_sheet()
     g._apply_line_frequencies(ws, TABLE)

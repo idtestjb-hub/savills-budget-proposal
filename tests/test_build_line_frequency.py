@@ -67,7 +67,7 @@ def test_build_lists_the_winners_keeps_the_costing_codes_and_drops_off_form_code
              + _files('ESM2', ['Monthly'] * 15 + ['Yearly'] * 7))      # costing keeps Half a Year
     rows, report = blf.build(lines, TEMPLATE)
     table = {r['code']: r for r in rows}
-    assert set(table) == {'ESC5', 'ESC12', 'ESM2', 'ESM5', 'ESM25'}
+    assert set(table) == {'ESC5', 'ESC12', 'ESM2', 'ESM5', 'ESM25', 'ESC2', 'ESC3', 'ESS7', 'EMA18'}
     assert (table['ESC5']['frequency'], table['ESC5']['times'], table['ESC5']['first_month']) == ('Yearly', 1, 1)
     assert table['ESC5']['source'] == 'real budgets: Yearly 4 of 6 MF files (2 Monthly)'
     assert table['ESM2']['frequency'] == 'Half a Year' and 'real budgets: Monthly 15 of 22 MF files' in table['ESM2']['source']
@@ -75,6 +75,30 @@ def test_build_lists_the_winners_keeps_the_costing_codes_and_drops_off_form_code
     assert table['ESC12']['source'].endswith('real budgets: no MF file carries the code')
     assert any('not on the 2027 form: ESA1' in r for r in report)
     assert any(r.endswith(': RO2a') and 'not used' in r for r in report)
+
+
+def test_a_near_threshold_code_is_yearly_only_through_the_user_list(monkeypatch):
+    """Change near-threshold-and-unpriced-frequency, task 1.1 (TEST DATA): ESC2 at 16 of 34 does not pass the rule,
+    so it is listed only because the user set it Yearly; the source keeps the counts and the note says why."""
+    lines = _files('ESC2', ['Yearly'] * 16 + ['Monthly'] * 14 + ['Quarterly'])
+    for fid in ('t1', 't2', 't3'):                                      # three files that tie: no vote, still counted
+        lines += [_line(fid, 'ESC2', 'Yearly'), _line(fid, 'ESC2', 'Monthly')]
+    assert blf.winner(blf.votes(lines)['ESC2']) is None
+    monkeypatch.setattr(blf, 'USER_FREQUENCIES', [])
+    rows, _ = blf.build(lines, TEMPLATE)
+    assert 'ESC2' not in {r['code'] for r in rows}
+    monkeypatch.undo()
+    rows, _ = blf.build(lines, TEMPLATE)
+    esc2 = {r['code']: r for r in rows}['ESC2']
+    assert (esc2['frequency'], esc2['times'], esc2['first_month']) == ('Yearly', 1, 1)
+    assert esc2['source'] == 'real budgets: Yearly 16 of 34 MF files (14 Monthly, 3 tie, 1 Quarterly)'
+    assert blf.USER_NOTE in esc2['note'] and blf.KEEP_NOTE not in esc2['note']
+
+
+def test_a_code_in_both_exception_lists_stops_the_build(monkeypatch):
+    monkeypatch.setattr(blf, 'USER_FREQUENCIES', blf.USER_FREQUENCIES + [('ESM2', lf.YEARLY, 'x')])
+    with pytest.raises(ValueError, match='ESM2'):
+        blf.build([], TEMPLATE)
 
 
 def test_the_written_table_is_read_back(tmp_path):
