@@ -458,8 +458,10 @@ OpenSpec, docs and the two build scripts; `data\`; the input form; the 2027 temp
 approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tabs, see `webapp/README.md`) and
 `HUONG-DAN.txt`.
 `--prior` may be left out when the office has no approved budget of the project: the package then carries none
-(`site.json` prior_file is empty), the page opens on "Tải file lên" and `HUONG-DAN.txt` tells the site to upload the
-file on every run.
+(`site.json` prior_file is empty), the page opens on "Tải file lên" and also offers the tabs Nhập liệu dự án mới /
+Kết quả dự án mới, so a project with no approved budget yet is budgeted from its own facts (change
+`site-package-new-project-entry`); `HUONG-DAN.txt` names both ways. A package with an approved budget stays
+Review-only (`POST api/runs` answers 403).
 `--check` imports the modules with the packaged Python, reads the approved budget (when the package has one), and scans the package for the build
 PC's user name, machine name, paths and AI-tool names, and for every other project's name (the two master lists, the
 reference-project registry's names and aliases, the scan store's file names). Inside a package every project other

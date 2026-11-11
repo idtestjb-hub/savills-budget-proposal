@@ -114,6 +114,31 @@ def test_build_copies_only_keep_files_and_masks_names_consistently(data, tmp_pat
     assert vat[1][0] == ak and vat[1][3] == 'Hand-verified'               # the validator needs source_text
 
 
+def test_parking_fee_columns_are_kept_with_names_replaced(tmp_path):
+    """parking_prices.py prices a new project's parking from the portfolio median of CarParkingFee_raw /
+    BikeParkingFee_raw, so those two raw columns stay (other _raw columns are still blanked); a project name inside the
+    text is replaced (change site-package-new-project-entry)."""
+    src = tmp_path / 'data'
+    _csv(str(src / 'master_list_verified' / 'Dim_Property_Residential.csv'),
+         ['Name', 'NFA_raw', 'CarParkingFee_raw', 'BikeParkingFee_raw'],
+         [['Tháp Mây Xanh', '50,000', '1.200.000 đ/tháng', '145.000'],
+          ['Biệt Thự Sông', '20,000', 'như Tháp Mây Xanh', '120.000']])
+    for rel in sd.KEEP:
+        p = src.joinpath(*rel.split('/'))
+        if not p.exists():
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('a,b\n1,2\n', encoding='utf-8')
+    dst = tmp_path / 'pkg_data'
+    out = sd.build(str(src), str(dst))
+    res = _read(str(dst / 'master_list_verified' / 'Dim_Property_Residential.csv'))
+    head, rows = res[0], res[1:]
+    assert [r[head.index('NFA_raw')] for r in rows] == ['', '']
+    assert [r[head.index('CarParkingFee_raw')] for r in rows][0] == '1.200.000 đ/tháng'
+    assert [r[head.index('BikeParkingFee_raw')] for r in rows] == ['145.000', '120.000']
+    code = out['pseudonyms'][sd.norm('Tháp Mây Xanh')]
+    assert rows[1][head.index('CarParkingFee_raw')] == f'như {code}'
+
+
 def test_leak_words_and_find_leaks(data, tmp_path):
     store = tmp_path / 'store'
     _csv(str(store / 'dim_file.csv'), ['file_id', 'file_name'], [['abc', 'Budget 2026 Sao Mai_rv1.xlsx'], ['def', 'Budget 2026 Khu Thu Nghiem.xlsx'], ['ghi', 'NGÂN SÁCH NĂM 2026 (final).xlsx']])

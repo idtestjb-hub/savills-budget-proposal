@@ -102,3 +102,48 @@ def test_start_site_skips_a_taken_port():
         taken = s.getsockname()[1]
         port = start_site.free_port(start=taken, tries=5)
         assert port != taken and taken < port <= taken + 4
+
+
+# ---- Gói không kèm ngân sách đã duyệt (change site-package-new-project-entry) ----
+
+@pytest.fixture
+def site_dir_no_prior(site_dir):
+    info = json.loads((site_dir / 'site.json').read_text(encoding='utf-8'))
+    info['prior_file'] = ''
+    (site_dir / 'site.json').write_text(json.dumps(info), encoding='utf-8')
+    (site_dir / PRIOR).unlink()
+    return site_dir
+
+
+def test_new_project_run_refused_when_the_package_has_an_approved_budget(client, site_dir, runs_dir):
+    r = client.post('/api/runs', json=dict(scalars=dict(project_name=PROJECT)))
+    assert r.status_code == 403
+    assert not list(runs_dir.iterdir())
+
+
+def test_new_project_run_reaches_the_runner_without_an_approved_budget(client, site_dir_no_prior, runs_dir):
+    # Tên trống: qua được bước chặn của gói, dừng ở kiểm tra tên như trên Hub (không chạy pipeline thật).
+    r = client.post('/api/runs', json=dict(scalars=dict(project_name='')))
+    assert r.status_code == 400 and 'Tên dự án' in r.json()['detail']
+    d = client.get('/api/site').json()
+    assert d['prior_file'] == '' and d['prior_exists'] is False
+
+
+def test_new_project_run_unchanged_outside_site_mode(client, runs_dir, monkeypatch):
+    monkeypatch.setattr(server, 'SITE_DIR', None)
+    r = client.post('/api/runs', json=dict(scalars=dict(project_name='')))
+    assert r.status_code == 400
+
+
+def test_page_marks_only_the_new_project_parts_for_a_package_without_budget(client, site_dir_no_prior):
+    html = client.get('/').text
+    assert 'body.site.site-new .site-hide.site-new-ok { display: revert; }' in html
+    assert 'class="on site-hide site-new-ok" data-tab="nhap"' in html
+    assert 'class="site-hide site-new-ok" data-tab="ketqua"' in html
+    assert '<section id="hd-new" class="site-hide site-new-ok">' in html
+    assert 'data-act="clone"' in html and 'sm site-hide site-new-ok' in html
+    # Kho, kiến trúc và nguồn "Dự án có sẵn" vẫn ẩn trong mọi gói.
+    assert 'class="site-hide" data-tab="kho"' in html
+    assert '<section id="hd-arch" class="site-hide">' in html
+    assert "document.body.classList.add('site-new')" in html and 'if (!siteInfo.prior_file)' in html
+    assert "getElementById('src-site-btn').classList.add('hidden')" in html

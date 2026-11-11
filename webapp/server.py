@@ -382,6 +382,10 @@ def _failed_before_start(workdir, kind, project, who, started, exc):
 
 @router.post('/api/runs')
 def start_run(request: Request, values: dict, user=Depends(require_user)):
+    # Gói site có kèm ngân sách đã duyệt chỉ chạy Review; gói không kèm (dựng không có --prior) lập được dự án mới
+    # (change site-package-new-project-entry).
+    if SITE_DIR and (site_info() or {}).get('prior_file'):
+        raise HTTPException(403, 'Gói này lập ngân sách từ ngân sách đã duyệt của dự án: dùng tab Review.')
     with _lock:
         if _active['id']:
             raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')

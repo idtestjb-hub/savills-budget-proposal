@@ -34,6 +34,9 @@ KEEP = (
     'generation_B_verified/Ref_UtilityTariffs.csv',
     'generation_B_verified/Ref_UtilityUsage.csv',
     'generation_B_verified/Ref_LineFrequency.csv',
+    # Bảng Required/Optional theo AI Guideline: run.py đọc để ghi nhật ký đo lượt chạy (run_log); thiếu thì nhật ký trống
+    # số. Chỉ có mã ngân sách, không có tên dự án (change site-package-new-project-entry, 11/11/2026).
+    'master_list_verified/AI_Guideline_Required_Classification.csv',
     'master_list_verified/Costing_Method_Catalogue.csv',
     'master_list_verified/Dim_Property_Residential.csv',
     'master_list_verified/Dim_ReferenceProject.csv',
@@ -47,8 +50,11 @@ KEEP = (
 )
 # File có tên dự án: cột tên để ẩn danh, cột văn bản để xoá trắng. Cột kết thúc bằng "_raw" (ghi chép thô) luôn xoá.
 MASK = {
+    # Giá gửi xe thô: parking_prices.py lấy trung vị danh mục cho dự án mới từ hai cột này, nên giữ lại (chỉ thay tên
+    # dự án nằm trong chuỗi) thay vì xoá như các cột _raw khác (change site-package-new-project-entry, 11/11/2026).
     'master_list_verified/Dim_Property_Residential.csv': dict(
-        name='Name', blank=('SourceRow', 'No', 'Address_Raw', 'Street', 'Ward', 'District_Raw', 'AddressParseStatus')),
+        name='Name', blank=('SourceRow', 'No', 'Address_Raw', 'Street', 'Ward', 'District_Raw', 'AddressParseStatus'),
+        subst=('CarParkingFee_raw', 'BikeParkingFee_raw')),
     'master_list_verified/Fact_ProjectLocation.csv': dict(name='asset_name', blank=()),
     # File đăng ký: tên hiển thị ẩn danh; biến thể tên, nguồn và chứng cứ vị trí (có nhắc tên) xoá trắng; mã và số giữ.
     'master_list_verified/Dim_ReferenceProject.csv': dict(name='DisplayName', blank=('Aliases', 'Source', 'LocationSource')),
@@ -172,9 +178,17 @@ def _mask_file(src, dst, rule, pseud):
         return 0
     idx = {h: i for i, h in enumerate(header)}
     name_i = idx.get(rule['name'])
-    blank_i = {idx[h] for h in rule['blank'] if h in idx} | {i for i, h in enumerate(header) if h.lower().endswith('_raw')}
-    changed = 0
     subst_i = {idx[h] for h in rule.get('subst', ()) if h in idx}
+    # Cột _raw luôn xoá, trừ cột được giữ với tên đã thay (subst).
+    blank_i = ({idx[h] for h in rule['blank'] if h in idx}
+               | {i for i, h in enumerate(header) if h.lower().endswith('_raw')}) - subst_i
+    if subst_i and name_i is not None:
+        # Cấp mã cho cả cột tên trước (cùng thứ tự dòng như vòng dưới, nên mã không đổi), để cột subst thay được cả tên
+        # của một dòng khác trong file, không chỉ tên của file đăng ký.
+        for r in rows:
+            if name_i < len(r) and r[name_i] and pseud(r[name_i]) != r[name_i]:
+                pseud.known.add(r[name_i])
+    changed = 0
     for r in rows:
         if name_i is not None and name_i < len(r):
             new = pseud(r[name_i])

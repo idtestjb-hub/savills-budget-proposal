@@ -112,9 +112,12 @@ GUIDE_PRIOR = dict(
     intro='Gói này lập ngân sách năm mới cho dự án từ ngân sách đã duyệt năm ngoái (file trong thư mục site\\).',
     step4='Có file duyệt mới hơn: trên trang chọn "Tải file lên" và chọn file .xlsx đó.')
 GUIDE_NO_PRIOR = dict(
-    intro='Gói này lập ngân sách năm mới cho dự án từ ngân sách đã duyệt năm ngoái. Gói CHƯA kèm file đó: trên trang\n'
-          'chọn "Tải file lên" và chọn file .xlsx ngân sách đã duyệt của dự án.',
-    step4='Mỗi lần chạy: trên trang chọn "Tải file lên" và chọn file .xlsx ngân sách đã duyệt (gói không giữ sẵn file).')
+    intro='Gói này CHƯA kèm ngân sách đã duyệt của dự án. Có hai cách lập ngân sách:\n'
+          '  - Có file ngân sách đã duyệt năm ngoái: tab Review, chọn "Tải file lên" và chọn file .xlsx đó.\n'
+          '  - Chưa có (dự án mới): tab "Nhập liệu dự án mới", sửa các ô theo dự án (tên dự án, tỉnh và quận đã điền\n'
+          '    sẵn; các ô khác là giá trị mẫu), rồi bấm "Tạo ngân sách"; kết quả ở tab "Kết quả dự án mới".',
+    step4='Mỗi lần chạy theo cách thứ nhất: chọn "Tải file lên" và chọn file .xlsx (gói không giữ sẵn file). Cách thứ\n'
+          '   hai: tab "Dự án đã tạo", nút Clone điền lại form của một lượt cũ để sửa và chạy lại.')
 
 
 def _safe(name, fallback='site'):

@@ -254,6 +254,11 @@ Cho các dự án không có mạng nội bộ, không chắc có Python hay quy
   file trong gói vào `prior\` như file kho), vẫn có "Tải file lên" và "Bản giao của lượt cũ"; mục 2 điền sẵn từ
   `api/site` (ghi nguồn, PM sửa được); `api/library` trả rỗng và `api/library/*` 404 dù máy dựng có kho ở đường dẫn mặc
   định; Hướng dẫn ẩn phần dự án mới, kho và kiến trúc. Không đặt biến thì trang như cũ. Test: `tests/test_webapp_site.py`.
+- **Gói không kèm ngân sách đã duyệt** (dựng không có `--prior`, `site.json` prior_file rỗng; change
+  `site-package-new-project-entry`, 11/11/2026): trang thêm hai tab Nhập liệu dự án mới / Kết quả dự án mới, mục
+  hướng dẫn dự án mới và nút Clone (phần tử `site-hide site-new-ok`, hiện khi body có `site-new`); vẫn mở tab Review
+  với "Tải file lên" và một dòng chỉ hai cách. Form Nhập liệu điền sẵn tên dự án, tỉnh, quận từ gói (các ô khác là mẫu).
+  Gói có kèm ngân sách đã duyệt giữ ba tab và `POST api/runs` trả 403.
 
 ## Cách hoạt động
 

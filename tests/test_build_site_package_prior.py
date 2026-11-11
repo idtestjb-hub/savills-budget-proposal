@@ -54,7 +54,7 @@ def test_build_without_prior_leaves_site_folder_empty_and_tells_the_site_to_uplo
     assert _site(pkg)['prior_file'] == '' and _site(pkg)['code'] == 'abc1234'
     assert os.listdir(os.path.join(pkg, 'site')) == ['site.json']
     g = _guide(pkg)
-    assert 'CHƯA kèm file' in g and 'Mỗi lần chạy' in g and '{' not in g
+    assert 'CHƯA kèm ngân sách đã duyệt' in g and 'Tải file lên' in g and 'Nhập liệu dự án mới' in g and '{' not in g
     assert 'file trong thư mục site' not in g
 
 
