@@ -457,12 +457,17 @@ The runtime is a pruned copy of this PC's Python 3.14 plus only the packages the
 OpenSpec, docs and the two build scripts; `data\`; the input form; the 2027 template), `site\` (`site.json` + the
 approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tabs, see `webapp/README.md`) and
 `HUONG-DAN.txt`.
-`--check` imports the modules with the packaged Python, reads the approved budget, and scans the package for the build
+`--prior` may be left out when the office has no approved budget of the project: the package then carries none
+(`site.json` prior_file is empty), the page opens on "Tải file lên" and `HUONG-DAN.txt` tells the site to upload the
+file on every run.
+`--check` imports the modules with the packaged Python, reads the approved budget (when the package has one), and scans the package for the build
 PC's user name, machine name, paths and AI-tool names, and for every other project's name (the two master lists, the
 reference-project registry's names and aliases, the scan store's file names). Inside a package every project other
 than the site's own reads "Dự án tham chiếu NN", the eight reference budgets included (change
 `reference-projects-by-key`): the code joins on `RefKey`, so a pseudonym changes no figure. The scan store and
-`input\budget_planning` never go into a package.
+`input\budget_planning` never go into a package. No source file that goes into a package may name any project, not
+even in a comment (the check would refuse every other site's package); `tests/test_build_site_package_prior.py`
+scans the shipped source for every master-list and registry name.
 
 ## Verifying a run
 

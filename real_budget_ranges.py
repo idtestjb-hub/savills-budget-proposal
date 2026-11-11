@@ -207,7 +207,7 @@ def percentile_inc(values, p):
 
 def self_keys(name):
     """The name keys the project being budgeted may carry in the values file: its name as entered, and its name
-    without a trailing parenthesis, so that "CITY GARDEN (REBUILT AS NEW PROSPECT)" matches "CITY GARDEN"
+    without a trailing parenthesis, so that "PROJECT X (REBUILT AS NEW PROSPECT)" matches "PROJECT X"
     (user's rule, 2026-10-19)."""
     if not name:
         return set()

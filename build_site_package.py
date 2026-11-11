@@ -1,7 +1,7 @@
 """
 Đóng một gói chạy độc lập cho một site (change site-standalone-package, design D1, D3, D7, D8).
 
-    python build_site_package.py --site "<tên dự án>" --prior <file .xlsx đã duyệt> --city "Hồ Chí Minh"
+    python build_site_package.py --site "<tên dự án>" [--prior <file .xlsx đã duyệt>] --city "Hồ Chí Minh"
                                  --runtime <thư mục python đã dựng bằng build_site_runtime.py>
                                  --out <thư mục chứa gói> [--library-id <id kho>] [--facts <json>] [--zip] [--check]
 
@@ -9,10 +9,11 @@ Gói ra: <out>\\BudgetAgent-<site>\\ với python\\ (chép từ --runtime), app\
 openspec, docs, bytecode), app\\Budget_Agent\\data, app\\Budget_Agent\\reports\\Project_Budget_Input.xlsx,
 app\\input\\template\\<form 2027>, site\\site.json + file đã duyệt, runs\\, tmp\\, launcher .cmd, HUONG-DAN.txt,
 và trang sơ đồ hệ thống (docs\\so-do-he-thong-budget-agent.html của repo ngoài, tự chứa) khi file đó có.
+Không có --prior (văn phòng chưa có file duyệt của dự án): gói không kèm file, site.json ghi prior_file rỗng, trang mở
+sẵn "Tải file lên" và HUONG-DAN dặn ban quản lý tải file lên mỗi lần chạy.
 Dữ kiện mục 2: --facts (JSON {city, district, tower_count, ...}) hoặc điền sẵn từ kho khi có --library-id (lượt trước
 cùng dự án, sheet 0. Info, danh sách master); --city ghi đè / bổ sung Tỉnh / thành phố (bắt buộc để chạy).
---check: python trong gói import đủ module, đọc được file đã duyệt bằng review_import, quét gói không chứa tên
-người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI. --zip: nén gói thành <out>\\BudgetAgent-<site>.zip;
+--check: python trong gói import đủ module, đọc được file đã duyệt bằng review_import (khi gói có file), quét gói không chứa tên người dùng, tên máy, đường dẫn máy dựng hay tên công cụ AI. --zip: nén gói thành <out>\\BudgetAgent-<site>.zip;
 --zip luôn chạy bước kiểm của --check và không nén khi kiểm không đạt.
 """
 import argparse
@@ -91,7 +92,7 @@ finally:
 GUIDE = """BUDGET AGENT - GÓI CHẠY RIÊNG CHO DỰ ÁN {site}
 Bản mã {code} · đóng gói {built}
 
-Gói này lập ngân sách năm mới cho dự án từ ngân sách đã duyệt năm ngoái (file trong thư mục site\\). Máy cần có
+{intro} Máy cần có
 Microsoft Excel. Không cần cài Python hay phần mềm nào khác.
 
 1. Giải nén cả thư mục này ra ổ C, ví dụ C:\\BudgetAgent\\ (không chạy trong file zip, không đặt trong OneDrive).
@@ -100,12 +101,20 @@ Microsoft Excel. Không cần cài Python hay phần mềm nào khác.
    - Kết quả, bảng điều chỉnh và nút tải file hiện ngay bên dưới. Tab "Dự án đã tạo" giữ các lượt đã chạy.
    - Đóng cửa sổ đen là tắt trang. Bấm đúp lại để mở tiếp.
 3. Mọi lượt nằm trong runs\\<ngày-giờ>_review-<dự án>\\run\\. Trên trang tải bản giao khách và lịch trực.
-4. Có file duyệt mới hơn: trên trang chọn "Tải file lên" và chọn file .xlsx đó.
+4. {step4}
 5. Sơ đồ hệ thống, dữ liệu và luồng chạy: bấm đúp "So do he thong Budget Agent.html" (mở bằng trình duyệt, không cần mạng).
 
 Khi Windows hỏi có chạy file không: chọn Run / Chạy. Nếu máy chặn hẳn, nhờ IT cho phép thư mục C:\\BudgetAgent\\.
 Lỗi thì gửi về văn phòng thư mục runs\\<lượt>\\ (file run.log, review_error.txt nếu có) kèm bản mã ở trên.
 """
+# Hai câu của HUONG-DAN đổi theo việc gói có kèm file ngân sách đã duyệt hay không.
+GUIDE_PRIOR = dict(
+    intro='Gói này lập ngân sách năm mới cho dự án từ ngân sách đã duyệt năm ngoái (file trong thư mục site\\).',
+    step4='Có file duyệt mới hơn: trên trang chọn "Tải file lên" và chọn file .xlsx đó.')
+GUIDE_NO_PRIOR = dict(
+    intro='Gói này lập ngân sách năm mới cho dự án từ ngân sách đã duyệt năm ngoái. Gói CHƯA kèm file đó: trên trang\n'
+          'chọn "Tải file lên" và chọn file .xlsx ngân sách đã duyệt của dự án.',
+    step4='Mỗi lần chạy: trên trang chọn "Tải file lên" và chọn file .xlsx ngân sách đã duyệt (gói không giữ sẵn file).')
 
 
 def _safe(name, fallback='site'):
@@ -182,8 +191,10 @@ def build(site, prior, runtime, out, facts, store_id='', library_id=''):
     shutil.copy2(TEMPLATE, os.path.join(pkg, 'app', 'input', 'template'))
     site_dir = os.path.join(pkg, 'site')
     os.makedirs(site_dir)
-    prior_name = os.path.basename(prior)
-    shutil.copy2(prior, os.path.join(site_dir, prior_name))
+    # Không có file duyệt (prior rỗng / None): prior_file rỗng, trang mở sẵn "Tải file lên" (server.site_info).
+    prior_name = os.path.basename(prior) if prior else ''
+    if prior:
+        shutil.copy2(prior, os.path.join(site_dir, prior_name))
     code = git_hash()
     built = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     with open(os.path.join(site_dir, 'site.json'), 'w', encoding='utf-8') as fh:
@@ -194,7 +205,7 @@ def build(site, prior, runtime, out, facts, store_id='', library_id=''):
     with open(os.path.join(pkg, 'Chay Budget Agent.cmd'), 'w', encoding='utf-8') as fh:
         fh.write(LAUNCH_WEB.format(site=_safe(site)))
     with open(os.path.join(pkg, 'HUONG-DAN.txt'), 'w', encoding='utf-8-sig') as fh:
-        fh.write(GUIDE.format(site=site, code=code, built=built))
+        fh.write(GUIDE.format(site=site, code=code, built=built, **(GUIDE_PRIOR if prior else GUIDE_NO_PRIOR)))
     if os.path.isfile(DIAGRAM):
         shutil.copy2(DIAGRAM, os.path.join(pkg, DIAGRAM_NAME))
     else:
@@ -237,9 +248,13 @@ def check(pkg, leak_words=None):
     r = subprocess.run([py, '-s', '-c', IMPORT_CHECK], capture_output=True, text=True, encoding='utf-8',
                        errors='replace', env=env, cwd=pkg)
     print('import:', 'OK' if r.returncode == 0 else 'LỖI ' + (r.stderr or r.stdout)[-400:])
-    r2 = subprocess.run([py, '-s', '-X', 'utf8', '-c', READ_CHECK], capture_output=True, text=True,
-                        encoding='utf-8', errors='replace', env=env, cwd=pkg)
-    print('đọc file đã duyệt:', 'OK ' + r2.stdout.strip() if r2.returncode == 0 else 'LỖI ' + (r2.stderr or r2.stdout)[-400:])
+    if _prior_name(pkg):
+        r2 = subprocess.run([py, '-s', '-X', 'utf8', '-c', READ_CHECK], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace', env=env, cwd=pkg)
+        print('đọc file đã duyệt:', 'OK ' + r2.stdout.strip() if r2.returncode == 0 else 'LỖI ' + (r2.stderr or r2.stdout)[-400:])
+    else:
+        r2 = subprocess.CompletedProcess([], 0)
+        print('đọc file đã duyệt: không áp dụng (gói không kèm file; ban quản lý tải lên trên trang)')
     hits = scan_text(pkg)
     print('quét văn bản:', 'sạch' if not hits else 'CÓ ' + '; '.join(f'{p}: {w}' for p, w in hits[:10]))
     found = site_data.find_leaks(pkg, leak_words) if leak_words else []
@@ -277,18 +292,29 @@ def _leak_words(site, store):
                                 store_dir=store if store and os.path.isdir(store) else None)
 
 
-def _site_name(pkg):
+def _site_json(pkg):
     try:
         with open(os.path.join(pkg, 'site', 'site.json'), encoding='utf-8') as fh:
-            return json.load(fh).get('project', '')
+            info = json.load(fh)
+        return info if isinstance(info, dict) else {}
     except (OSError, ValueError):
-        return ''
+        return {}
+
+
+def _site_name(pkg):
+    return _site_json(pkg).get('project', '')
+
+
+def _prior_name(pkg):
+    """Tên file đã duyệt trong site.json; '' khi gói không kèm file (dựng không có --prior)."""
+    return str(_site_json(pkg).get('prior_file') or '')
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Đóng một gói chạy độc lập cho một site.')
     ap.add_argument('--site', help='tên dự án (hiện trên trang và trong tên gói)')
-    ap.add_argument('--prior', help='file .xlsx ngân sách đã duyệt năm ngoái của dự án')
+    ap.add_argument('--prior', default='', help='file .xlsx ngân sách đã duyệt năm ngoái của dự án; bỏ trống khi văn phòng '
+                                                 'chưa có: gói không kèm file, ban quản lý tải lên trên trang')
     ap.add_argument('--runtime', help='thư mục python đã dựng bằng build_site_runtime.py')
     ap.add_argument('--out', help='thư mục chứa gói (ngoài SharePoint)')
     ap.add_argument('--check-only', default='', help='chỉ kiểm một gói đã dựng (đường dẫn gói)')
@@ -303,16 +329,18 @@ def main(argv=None):
     if a.check_only:
         pkg = os.path.abspath(a.check_only)
         return 0 if check(pkg, _leak_words(_site_name(pkg), a.store)) else 1
-    if not all((a.site, a.prior, a.runtime, a.out)):
-        raise SystemExit('Cần --site, --prior, --runtime và --out (hoặc --check-only <gói>).')
-    if not os.path.isfile(a.prior) or not a.prior.lower().endswith('.xlsx'):
+    if not all((a.site, a.runtime, a.out)):
+        raise SystemExit('Cần --site, --runtime và --out (hoặc --check-only <gói>).')
+    if a.prior and (not os.path.isfile(a.prior) or not a.prior.lower().endswith('.xlsx')):
         raise SystemExit(f'--prior phải là file .xlsx có thật: {a.prior}')
+    if not a.prior:
+        print('Chú ý: không có --prior; gói không kèm file ngân sách đã duyệt, ban quản lý chọn "Tải file lên" trên trang.')
     if not os.path.isfile(os.path.join(a.runtime, 'python.exe')):
         raise SystemExit(f'--runtime không có python.exe: {a.runtime}')
     facts = facts_for(a.library_id, a.facts, a.city)
     if not facts.get('city'):
         print('Chú ý: chưa có Tỉnh / thành phố; PM phải chọn trên trang trước khi chạy.')
-    pkg = build(a.site, os.path.abspath(a.prior), os.path.abspath(a.runtime), os.path.abspath(a.out), facts,
+    pkg = build(a.site, os.path.abspath(a.prior) if a.prior else '', os.path.abspath(a.runtime), os.path.abspath(a.out), facts,
                 library_id=a.library_id)
     # --zip luôn kiểm trước (kể cả khi quên --check); kiểm không đạt thì không nén, để gói rò rỉ không ra được file gửi đi.
     ok = check(pkg, _leak_words(a.site, a.store)) if (a.check or a.zip) else True

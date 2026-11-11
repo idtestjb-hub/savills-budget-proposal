@@ -1,7 +1,7 @@
 """Bộ dữ liệu tham chiếu rút gọn, ẩn danh cho một dự án (change site-data-isolation).
 
 Gói site của một dự án (và sau này một vai trò chỉ xem một dự án trên server) chỉ được mang dữ liệu của chính dự án đó cộng
-với phần tham chiếu mà công cụ cần để lập ngân sách. Đo bằng một lượt Review có ghi vết mở file (05/11/2026, City Garden):
+với phần tham chiếu mà công cụ cần để lập ngân sách. Đo bằng một lượt Review có ghi vết mở file (05/11/2026, một dự án mẫu):
 pipeline đọc đúng 14 file trong `data\\` (KEEP). Những file đó được chép sang gói qua `build()`:
 - tên dự án khác đổi thành "Dự án tham chiếu NN" (cùng một mã cho cùng một tên ở mọi file, để các phép nối theo tên vẫn
   đúng); địa chỉ, tên file nguồn và các cột ghi chú thô bị xoá; số (diện tích, đơn giá, toạ độ) giữ nguyên để công cụ ra
