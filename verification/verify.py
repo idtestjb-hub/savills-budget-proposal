@@ -450,7 +450,10 @@ def main(argv=None):
                                lambda: checks.check_real_budget_ranges(paths)),
                               # Change leave-unpriced-lines-for-pm (spec pm-filled-lines).
                               ('Lines the tool cannot price are blank, shaded, "PM điền", on sheet 4 and fillable',
-                               lambda: checks.check_pm_lines(paths))]):
+                               lambda: checks.check_pm_lines(paths)),
+                              # Change add-budget-print-layout (spec deliverable-print-layout).
+                              ('Management Fund print setup: Not Use rows hidden by column B, 8 signature boxes in X:AO',
+                               lambda: checks.check_print_layout(paths))]):
             return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):

@@ -131,6 +131,9 @@ pre { background: var(--sav-panel); color: var(--sav-text); border-left: 6px sol
 .file b { display: block; margin-bottom: 4px; }
 .file span { color: var(--sav-muted); font-size: 13px; word-break: break-all; }
 .file a { display: inline-block; margin-top: 8px; color: var(--sav-link); font-weight: 700; }
+.print-bar { display: flex; gap: 8px; margin-top: 10px; }
+.print-bar button { padding: 6px 12px; font-size: 13px; background: #fff; color: var(--sav-link); border: 1px solid var(--sav-link); cursor: pointer; }
+.print-bar button:disabled { opacity: .6; cursor: wait; }
 .hidden { display: none; }
 /* Chế độ gói site (change site-standalone-package): phần không thuộc dự án của gói bị ẩn. */
 body.site .site-hide { display: none; }
@@ -1385,8 +1388,41 @@ function renderFiles(run) {
     div.className = 'file';
     div.innerHTML = `<b>${o.title}</b><span>${o.name} · ${(o.size / 1024).toFixed(0)} KB</span><br>` +
       `<a href="${PREFIX}/api/runs/${run.id}/files/${encodeURIComponent(o.name)}" download>Tải xuống</a>`;
+    if (o.kind === 'deliverable' && run.status !== 'running') {
+      // In sheet 2. Budget-Management Fund: A4 từ cột No đến Remarks, A3 thêm 12 tháng (change add-budget-print-layout).
+      const bar = document.createElement('div');
+      bar.className = 'print-bar';
+      ['A4', 'A3'].forEach(p => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'secondary';
+        b.textContent = `PDF ${p}`;
+        b.title = p === 'A4' ? 'In Quỹ quản lý vận hành khổ A4: từ cột No đến Ghi chú' : 'In Quỹ quản lý vận hành khổ A3: thêm 12 tháng';
+        b.onclick = () => printPdf(run, p, b);
+        bar.appendChild(b);
+      });
+      div.appendChild(bar);
+    }
     filesEl.appendChild(div);
   });
+}
+
+async function printPdf(run, paper, btn) {
+  const bar = btn.parentElement;
+  bar.querySelectorAll('button').forEach(x => { x.disabled = true; });
+  const label = btn.textContent;
+  btn.textContent = 'Đang xuất PDF…';
+  try {
+    const r = await fetch(`${PREFIX}/api/runs/${encodeURIComponent(run.id)}/print`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paper }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(d.detail || `Không xuất được PDF (mã ${r.status}).`); return; }
+    renderFiles(Object.assign({}, run, { outputs: d.outputs }));
+    window.location.href = `${PREFIX}/api/runs/${encodeURIComponent(run.id)}/files/${encodeURIComponent(d.pdf)}`;
+  } finally {
+    btn.textContent = label;
+    bar.querySelectorAll('button').forEach(x => { x.disabled = false; });
+  }
 }
 
 async function poll(id, since, t0) {

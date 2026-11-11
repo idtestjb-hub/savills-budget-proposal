@@ -25,12 +25,23 @@ OUTPUT_KINDS = (
     ('roster', 'Roster_Demand_Model.xlsx', 'Lịch trực'),
 )
 OUTPUT_DIRS = ('', 'run')      # lượt new ghi thẳng vào thư mục lượt; lượt review ghi vào <lượt>\run
+# Bản in PDF của bản giao (change add-budget-print-layout): chỉ có sau khi người dùng bấm nút, nên không tính vào
+# điều kiện "đủ file" của một lượt.
+OPTIONAL_OUTPUT_KINDS = (
+    ('deliverable_pdf_a4', '* - In A4.pdf', 'Bản in PDF A4 (Quỹ quản lý vận hành)'),
+    ('deliverable_pdf_a3', '* - In A3.pdf', 'Bản in PDF A3 (Quỹ quản lý vận hành)'),
+)
+
+
+def is_complete(outputs):
+    """Đủ 3 file kết quả bắt buộc (bản giao, phân tích, lịch trực); file PDF không tính."""
+    return {k for k, _p, _t in OUTPUT_KINDS} <= {o['kind'] for o in outputs}
 
 
 def outputs_of(workdir):
     """[{kind, title, name, size, path}] của các file kết quả có trong thư mục lượt (hoặc thư mục con run\\)."""
     found = []
-    for kind, pattern, title in OUTPUT_KINDS:
+    for kind, pattern, title in OUTPUT_KINDS + OPTIONAL_OUTPUT_KINDS:
         matches = []
         for sub in OUTPUT_DIRS:
             matches += glob.glob(os.path.join(workdir, sub, pattern) if sub else os.path.join(workdir, pattern))
@@ -119,7 +130,7 @@ def describe(workdir, run_id=None):
     status = meta.get('status')
     if status in (None, 'running'):
         # web_meta chưa có, hoặc server dừng giữa chừng: suy từ file kết quả.
-        status = 'done' if len(outputs) == len(OUTPUT_KINDS) else 'failed'
+        status = 'done' if is_complete(outputs) else 'failed'
         if kind == 'review' and status == 'done' and not os.path.exists(os.path.join(workdir, 'review_summary.json')):
             status = 'failed'
     return dict(id=run_id, kind=kind, project=project, budget_year=budget_year, prior_year=prior_year,

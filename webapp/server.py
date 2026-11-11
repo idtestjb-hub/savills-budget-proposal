@@ -129,7 +129,7 @@ def _worker(run_id):
         run['outputs'] = _outputs(run['workdir'])
         # Tóm tắt kết quả cho mọi vai trò, kể cả viewer; lỗi chỉ thành note.
         run['summary'] = results.summarize_run(run['workdir'], run['kind'])
-        complete = len(run['outputs']) == len(OUTPUT_KINDS)
+        complete = history.is_complete(run['outputs'])
         if run['kind'] == 'adjust':
             ok = rc == 0 and not run['summary'].get('note')
             base = _runs.get(run.get('base_id'))
@@ -166,7 +166,7 @@ def _worker(run_id):
 # bản giao khách; hai file nội bộ vẫn được sinh đủ trong thư mục chạy, chỉ bị ẩn khỏi danh sách và chặn tải.
 ROLE_HEADER = 'X-Hub-Role'
 ROLE_VIEWER = 'viewer'
-VIEWER_KINDS = {'deliverable'}
+VIEWER_KINDS = {'deliverable', 'deliverable_pdf_a4', 'deliverable_pdf_a3'}   # bản in PDF cũng là bản giao khách
 _INTERNAL_LOG_MARKERS = ('[2/2]', 'generate_project_output', 'Internal analysis', '  analysis ', '  roster ',
                          'phân tích:', "Sheet 'Review'")
 
@@ -555,8 +555,54 @@ def get_file(request: Request, run_id: str, name: str, user=Depends(require_user
     path = known or os.path.join(run['workdir'], name)
     if not os.path.isfile(path):
         raise HTTPException(404, 'File không tồn tại.')
-    return FileResponse(path, filename=name,
-                        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    media = ('application/pdf' if name.lower().endswith('.pdf')
+             else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return FileResponse(path, filename=name, media_type=media)
+
+
+PRINT_TIMEOUT_S = 300
+
+
+@router.post('/api/runs/{run_id}/print')
+def print_pdf(request: Request, run_id: str, body: dict, user=Depends(require_user)):
+    """Xuất PDF A4 (X:AO) hoặc A3 (X:BB) sheet '2. Budget-Management Fund' của bản giao hiện tại, kể cả điều chỉnh đã
+    lưu (change add-budget-print-layout). Excel làm trên bản sao trong một tiến trình riêng; bản giao không đổi.
+    Mọi vai trò tải được bản giao đều xuất được."""
+    paper = str((body or {}).get('paper') or '').strip().upper()
+    if paper not in ('A4', 'A3'):
+        raise HTTPException(400, 'Chọn khổ giấy A4 hoặc A3.')
+    run = _ensure_run(run_id)
+    if run.get('status') == 'running':
+        raise HTTPException(409, 'Lượt này đang chạy.')
+    path = next((o['path'] for o in run['outputs'] if o['kind'] == 'deliverable'), None)
+    if not path:
+        raise HTTPException(404, 'Lượt này không có bản giao để in.')
+    import print_layout
+    out = os.path.join(os.path.dirname(path), print_layout.pdf_name(path, paper))
+    with _lock:
+        if _active['id']:
+            raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')
+        _active['id'] = f'{run_id}__print-{paper}'
+    try:
+        cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'print_run.py'), '--deliverable', path,
+               '--paper', paper, '--out', out]
+        env = dict(os.environ, PYTHONIOENCODING='utf-8')
+        try:
+            proc = subprocess.run(cmd, cwd=SOURCE_DIR, capture_output=True, timeout=PRINT_TIMEOUT_S, env=env)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, 'Excel xuất PDF quá lâu. Thử lại sau; bản giao không bị thay đổi.')
+        lines = proc.stdout.decode('utf-8', errors='replace').splitlines()
+        if proc.returncode != 0 or not os.path.isfile(out):
+            stopped = next((ln[len('STOPPED: '):] for ln in reversed(lines) if ln.startswith('STOPPED: ')), None)
+            _log(f'print {run_id} {paper} failed rc={proc.returncode}')
+            raise HTTPException(400, stopped or 'Không xuất được PDF. Bản giao không bị thay đổi.')
+        run['outputs'] = _outputs(run['workdir'])
+        _log(f'print {run_id} {paper} -> {os.path.basename(out)} by {_who(request, user)}')
+        return JSONResponse(dict(pdf=os.path.basename(out), message=lines[-1] if lines else '',
+                                 outputs=visible_outputs(run['outputs'], role_of(request))))
+    finally:
+        with _lock:
+            _active['id'] = None
 
 
 def _deliverable_of(run):

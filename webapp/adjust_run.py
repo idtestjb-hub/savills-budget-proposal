@@ -132,6 +132,8 @@ def main():
         print(f'[2/3] Backup: {os.path.basename(backup)}; ghi {len(written)} mã vào bản giao'
               + (f'; cập nhật remark {len(fixed)} dòng' if fixed else '')
               + (f"; bỏ qua remark: {', '.join(f'{c} ({why})' for c, why in skipped)}" if skipped else ''))
+        import print_layout
+        print_layout.apply(wb)                 # thiết lập in (change add-budget-print-layout); dòng ẩn chốt lại ở bước 3
         wb.save(deliverable)
         wb.close()
 
@@ -142,6 +144,12 @@ def main():
         keys = {adjust._text(e.get('key')) for e in edits}
         measured = _new_amounts(recalc, keys)
         errors = _errors(recalc)
+        # Dòng "Not Use" theo cột B do Excel vừa tính: dòng vừa có số thì hiện, dòng về 0 thì ẩn.
+        wb = openpyxl.load_workbook(deliverable)
+        hidden = print_layout.apply(wb, not_use=print_layout.excel_not_use_rows(recalc))
+        wb.save(deliverable)
+        wb.close()
+        print(f"    Thiết lập in: ẩn {len(hidden)} dòng không dùng trên '{print_layout.SHEET}'")
     except (adjust.AdjustError, review.ReviewError, OSError) as exc:
         print(f'STOPPED: {exc}')
         return 2

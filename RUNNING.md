@@ -398,6 +398,30 @@ annual figure there (web adjust table or Excel). A line that is genuinely 0 (no 
 a 0% contingency rate, EMO2) keeps 0 and "Để ở mức 0". The analysis lists them on sheet `Dòng chờ PM điền`; the run log
 records `pm_lines`; `verify.py` checks them (`checks.check_pm_lines`). Change `leave-unpriced-lines-for-pm`, docs/32.
 
+## Printing the Management Fund (change `add-budget-print-layout`)
+
+Sheet `2. Budget-Management Fund` of every deliverable is ready to print like an approved, signed budget:
+- **Print setup:** print area X2:BB526, A3 landscape, fit to 1 page wide, rows 9:10 repeated, footer "Page x of y".
+- **Rows hidden:**
+  - every "Not Use" line by the form's column B (filter kept over A12:AW505), except the top-level sections (PART, A–D,
+    roman numerals);
+  - the check row 506 and the spacer rows 507–513.
+- **Columns folded:** AC, AE, AF and AI, in a +/− group.
+- **Signature block:** 8 boxes inside X:AO. Đề xuất: Trưởng Ban Quản lý. Phê duyệt: Trưởng BQT, 2 Phó BQT, 4 BQT.
+
+How column B is worked out:
+- At the end of `generate_project_budget.py`, Excel works out column B on the finished deliverable
+  (`print_layout.refresh_with_excel`, about 20 s).
+  Without Excel, lines the tool cannot evaluate stay visible, and the run says so.
+- A web adjustment does the same from its recalculated copy.
+
+The web run page has **PDF A4** (X:AO, No to Remarks) and **PDF A3** (X:BB, with the 12 months):
+- Excel exports from a copy of the current deliverable (`webapp/print_run.py`), so the deliverable is untouched.
+- The PDF lands beside the deliverable as `<deliverable> - In A4.pdf` / `- In A3.pdf`, and viewers can download it.
+- This needs Excel on the machine running the web.
+
+`verify.py` checks the layout (`checks.check_print_layout`).
+
 ## If you run only one generator
 
 **The two outputs will describe different projects.**

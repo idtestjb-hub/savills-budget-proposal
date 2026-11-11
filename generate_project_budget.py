@@ -5292,6 +5292,10 @@ def build_budget(project, demand, year):
     local_out = os.path.join(tempfile.gettempdir(), out_filename)
     # '4. Điều chỉnh' is built last: it turns the fund lines' month cells into formulas, which every reader above
     # (the narratives, _collect_written) needs as numbers. Skipped when the sheet module is not present.
+    # Print layout (change add-budget-print-layout): which lines are "Not Use" is read now, while the month cells are
+    # still the figures the fills wrote; sheet 4 below turns them into formulas without moving any figure.
+    import print_layout
+    _not_use, _unknown = print_layout.python_flags(wb)
     try:
         import budget_adjustment
     except ImportError:
@@ -5299,6 +5303,9 @@ def build_budget(project, demand, year):
     if budget_adjustment is not None:
         budget_adjustment.apply(wb, _adjust_items)
         _add_pm_rows(wb, budget_adjustment)
+    _hidden = print_layout.apply(wb, not_use=_not_use)
+    print(f"Print layout: {len(_hidden)} unused lines hidden on '{print_layout.SHEET}'"
+          + (f', {len(_unknown)} kept visible (figures only Excel can work out)' if _unknown else ''))
     wb.save(local_out)
     print('Saved locally:', local_out)
 
@@ -5319,6 +5326,15 @@ def build_budget(project, demand, year):
         print('Could not copy into place yet (still locked):', e)
         print('Local copy remains valid at:', local_out)
         out_path = local_out
+    # Print layout, second pass (change add-budget-print-layout): Excel works out the form's column B ("Not Use") on the
+    # saved file and exactly those rows are hidden. Optional: without Excel the first pass above stays, and lines this
+    # module could not evaluate are left visible. No figure is touched.
+    try:
+        _n = print_layout.refresh_with_excel(out_path)
+        print('Print layout: Excel not available; unused lines the tool could not evaluate stay visible' if _n is None
+              else f'Print layout: {_n} unused lines hidden (column B worked out by Excel)')
+    except Exception as exc:  # noqa: BLE001
+        print(f'Print layout: not refreshed in Excel ({type(exc).__name__}: {exc})')
     return out_path
 
 

@@ -4174,3 +4174,101 @@ def check_pm_lines(paths):
         finally:
             shutil.rmtree(os.path.dirname(work), ignore_errors=True)
     return (not problems), rows, problems, notes
+
+
+# ---- change add-budget-print-layout: the Management Fund sheet's print setup ----------------------------------------
+
+def check_print_layout(paths):
+    """Spec deliverable-print-layout on the generated deliverable. Without Excel: print area, title rows, footer,
+    folded columns, the 8 signature boxes inside X:AO. In Excel (recalculated copy): every hidden table row is "Not Use"
+    in column B (or a spacer row under PART 3), carries no figure in AB:BB and no remark in AO; every "Not Use" line
+    is hidden, except top-level section rows (run.py works column B out in Excel). Returns (ok, rows, differences, notes)."""
+    import shutil
+    import tempfile
+
+    import openpyxl
+    from openpyxl.utils import column_index_from_string as ci
+
+    import print_layout as pl
+    from verification.baseline import BaselineUnavailable
+
+    problems, notes = [], []
+    wb = openpyxl.load_workbook(paths['deliverable'])
+    try:
+        ws = wb[pl.SHEET]
+        loc = pl.locate(ws)
+        hidden = {r for r in range(pl.FILTER_FIRST_ROW, loc['part3'] + 1) if ws.row_dimensions[r].hidden}
+        area = (ws.print_area or '').replace("'", '')
+        if not area.endswith(f"$X$2:$BB${loc['sign_bottom']}"):
+            problems.append(('print area', area or 'none'))
+        if ws.print_title_rows != '$9:$10':
+            problems.append(('print title rows', ws.print_title_rows))
+        if ws.oddFooter.center.text != pl.FOOTER:
+            problems.append(('footer', ws.oddFooter.center.text))
+        for c in pl.FOLD_COLS:
+            d = ws.column_dimensions[c]
+            if not (d.hidden and d.outlineLevel == 2):
+                problems.append((f'column {c}', 'not folded'))
+        top = loc['sign_top']
+        heads = [(m.min_col, m.max_col) for m in ws.merged_cells.ranges if m.min_row == top == m.max_row]
+        heads += [(c, c) for c in range(ci('X'), ci('BB') + 1)
+                  if ws.cell(top, c).value and not any(lo <= c <= hi for lo, hi in heads)]
+        if len(heads) != len(pl.SIGNERS) or max(hi for _lo, hi in heads) > ci('AO'):
+            problems.append(('signature block', f'{len(heads)} boxes, last column {max(hi for _lo, hi in heads)}'))
+    finally:
+        wb.close()
+    rows = [('table rows hidden as "Not Use"', len(hidden))]
+
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError as exc:
+        raise BaselineUnavailable(f'The print-layout check needs Excel ({exc}).') from exc
+    work = os.path.join(tempfile.mkdtemp(prefix='print_chk_'), os.path.basename(paths['deliverable']))
+    shutil.copy(paths['deliverable'], work)
+    pythoncom.CoInitialize()
+    xl = xwb = None
+    try:
+        xl = win32com.client.DispatchEx('Excel.Application')
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        xwb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
+        xl.CalculateFullRebuild()
+        xs = xwb.Worksheets(pl.SHEET)
+        first, last = pl.FILTER_FIRST_ROW, loc['part3']
+        bcol = [r[0] for r in xs.Range(f'B{first}:B{last}').Value]
+        xcol = [r[0] for r in xs.Range(f'X{first}:X{last}').Value]
+        block = xs.Range(f'AB{first}:BB{last}').Value
+        ao_idx = ci('AO') - ci('AB')
+        for i, r in enumerate(range(first, last + 1)):
+            flag = str(bcol[i] or '').strip().lower()
+            section = bool(pl.SECTION_RE.match(str(xcol[i] or '').strip()))
+            if r in hidden:
+                if flag != 'not use':
+                    problems.append((f'row {r}', f'hidden but column B reads "{bcol[i]}"'))
+                vals = [v for j, v in enumerate(block[i]) if j != ao_idx]
+                if any(isinstance(v, (int, float)) and abs(v) > 0.5 for v in vals):
+                    problems.append((f'row {r}', 'hidden but carries a figure in AB:BB'))
+                if str(block[i][ao_idx] or '').strip():
+                    problems.append((f'row {r}', 'hidden but carries a remark in AO'))
+            elif flag == 'not use' and not section:
+                problems.append((f'row {r}', 'column B reads "Not Use" but the row shows'))
+    except BaselineUnavailable:
+        raise
+    except Exception as exc:
+        raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
+    finally:
+        if xwb is not None:
+            try:
+                xwb.Close(SaveChanges=False)
+            except Exception:
+                pass
+        if xl is not None:
+            try:
+                xl.Quit()
+            except Exception:
+                pass
+        pythoncom.CoUninitialize()
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+    notes.append(f'{len(hidden)} dòng "Not Use" ẩn khi in')
+    return (not problems), rows, problems, notes
