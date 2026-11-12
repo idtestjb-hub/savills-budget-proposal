@@ -453,7 +453,10 @@ def main(argv=None):
                                lambda: checks.check_pm_lines(paths)),
                               # Change add-budget-print-layout (spec deliverable-print-layout).
                               ('Management Fund print setup: Not Use rows hidden by column B, 8 signature boxes in X:AO',
-                               lambda: checks.check_print_layout(paths))]):
+                               lambda: checks.check_print_layout(paths)),
+                              # Change project-info-everywhere (spec deliverable-project-info).
+                              ('0. Info: every project fact with its source from row 23, parking rows priced like B5',
+                               lambda: checks.check_project_info(paths))]):
             return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):

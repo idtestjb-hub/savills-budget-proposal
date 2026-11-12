@@ -99,6 +99,11 @@ FACT_LABELS = {
     'site_area': ('Site Area', 'number'),
     'garden_area': ('Garden / Landscape Area', 'number'),
     'open_space': ('Circulation / Hardscape Area', 'number'),
+    # change project-info-everywhere
+    'elevators': ('Passenger Elevators per Tower', 'number'),
+    'basements': ('Number of Basements', 'number'),
+    'pool_count': ('Number of Pools', 'number'),
+    'street': ('Street Address', 'text'),
 }
 MAX_UPLOAD = 60 * 1024 * 1024
 
@@ -435,6 +440,18 @@ def _facts_from_form(raw):
     return facts
 
 
+def _mark_package_facts(fact_map, raw):
+    """Trong gói site: ô trang giữ nguyên giá trị đóng trong gói thì nguồn là 'dữ kiện đóng trong gói' (change
+    project-info-everywhere); ô PM đã sửa vẫn là 'nhập trên trang web'."""
+    info = site_info()
+    if not info:
+        return
+    packed = info.get('facts') or {}
+    for key, (label, _kind) in FACT_LABELS.items():
+        if key in packed and label in fact_map and str(raw.get(key, '')).strip() == str(packed[key]).strip():
+            fact_map['_sources'][label] = 'dữ kiện đóng trong gói'
+
+
 @router.post('/api/reviews')
 async def start_review(request: Request, prior: UploadFile | None = File(None), source_run: str = Form(''),
                        library_id: str = Form(''), facts: str = Form('{}'), site: str = Form(''),
@@ -450,6 +467,7 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
     except ValueError:
         raise HTTPException(400, 'Dữ kiện gửi lên không đúng dạng.')
     fact_map = _facts_from_form(raw)
+    _mark_package_facts(fact_map, raw)
     source_run, library_id = (source_run or '').strip(), (library_id or '').strip()
     upload, copy_from = None, None
     if (site or '').strip() in ('1', 'true', 'yes'):
@@ -707,8 +725,8 @@ def get_site(user=Depends(require_user)):
     info = site_info()
     if info is None:
         raise HTTPException(404, 'Trang này không chạy ở chế độ gói site.')
-    return JSONResponse({k: v for k, v in info.items() if k in ('project', 'prior_file', 'facts', 'store_id',
-                                                                 'built_at', 'code', 'prior_exists')})
+    return JSONResponse({k: v for k, v in info.items() if k in ('project', 'prior_file', 'facts', 'fact_notes',
+                                                                 'store_id', 'built_at', 'code', 'prior_exists')})
 
 
 @router.get('/api/library')

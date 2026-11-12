@@ -148,6 +148,11 @@ PRODUCT_CODES = {'Apartment': 'RM.AP', 'Officetel': 'RM.OT', 'Office': 'RM.OF', 
                  'Nursery / Nhà trẻ': 'RM.KG'}
 INFO_SHEET_PREFIXES = ('0. info', 'info', 'thông tin')
 
+# Change project-info-everywhere: which car-park row of the standard 0. Info table the car slots belong to, and the
+# per-run record of where every fact came from.
+import project_facts as pf  # noqa: E402
+CAR_OWNER_LABEL, CAR_OWNER_DEV, CAR_OWNER_COMMON = pf.CAR_OWNER_LABEL, pf.CAR_OWNER_DEV, pf.CAR_OWNER_COMMON
+
 # Project Info fields the file does not carry: blanked on a fresh form (its placeholders would otherwise pass as
 # facts) and listed for the PM, unless the facts file gives them (design D7).
 PM_SCALE_LABELS = ('Site Area', 'Garden / Landscape Area', 'Circulation / Hardscape Area', 'Floor Count',
@@ -247,6 +252,7 @@ class ProjectInfo:
     products: dict = field(default_factory=dict)   # form label -> dict(gfa, nfa, units, rate)
     car_bays: 'float | None' = None
     moto_bays: 'float | None' = None
+    car_owner: str = ''          # change project-info-everywhere: CAR_OWNER_DEV / CAR_OWNER_COMMON, '' when unknown
     notes: list = field(default_factory=list)
     sheet: str = ''
 
@@ -1079,6 +1085,10 @@ def read_info(wb):
         if re.search(r'ô tô|\bcar\b', k):
             if out.car_bays is None and cell('bays') is not None:
                 out.car_bays = cell('bays')
+            # Ownership from the first DETAIL row with bays ('... thuộc Sở hữu riêng / chung ...'); the group row
+            # 'Bãi xe ô tô' carries the subtotal and says nothing about ownership.
+            if not out.car_owner and cell('bays') and re.search(r'thuộc|sở hữu|owned', k):
+                out.car_owner = CAR_OWNER_DEV if re.search(r'riêng|developer|cđt', k) else CAR_OWNER_COMMON
             continue
         product = _product_of(first)
         if product and product not in out.products and (cell('nfa') or cell('units')):
@@ -1234,9 +1244,23 @@ def write_form(prior, info, facts, out_dir, base_form=None, now=None, stamp=None
         pi.cell(row=row, column=3).value = p.get('nfa') or 0
         pi.cell(row=row, column=4).value = p.get('units') or 0
         notes.append((NOTE_INFO, product, f"NFA {p.get('nfa') or 0:,.2f} m², {p.get('units') or 0:g} căn ({info.sheet} dòng {p['row']})"))
+    file_sources = {product: pf.SRC_FILE for product in info.products}
+    if prior.project_name:
+        file_sources['Project Name'] = pf.SRC_FILE
     for label in ('Car Parking Slots', 'Moto Parking Slots'):
         v = info.car_bays if label.startswith('Car') else info.moto_bays
         _put(pi, label, v, required=False)
+        if v:
+            file_sources[label] = pf.SRC_FILE
+    # Which car-park row of 0. Info the slots belong to (change project-info-everywhere); appended on forms that
+    # predate the label.
+    owner_row = _label_row(pi, CAR_OWNER_LABEL, required=False)
+    if owner_row is None:
+        owner_row = (pi.max_row or 1) + 1
+        pi.cell(row=owner_row, column=1, value=CAR_OWNER_LABEL)
+    pi.cell(row=owner_row, column=2, value=info.car_owner or None)
+    if info.car_owner:
+        file_sources[CAR_OWNER_LABEL] = pf.SRC_FILE
 
     # Fee rates and parking revenue from the file (user's choice 2026-10-20): the operating-project inputs
     rate_basis = oi.VAT_EXCL if mf.vat_basis == 'excl' else oi.VAT_INCL
@@ -1345,6 +1369,11 @@ def write_form(prior, info, facts, out_dir, base_form=None, now=None, stamp=None
                       f"(gồm VAT: {'Yes' if mf.vat_basis == 'incl' else 'No'}); không có 12 tháng hoá đơn"))
 
     add_prior_budget_sheet(wb, prior, notes)
+    # Where every fact came from (change project-info-everywhere): the file's own facts, then the page / master /
+    # package facts (their later write wins on the form, so their source wins here too).
+    fact_sources = dict(file_sources, **{es.MODE_LABEL: pf.SRC_FILE, es.PRIOR_YEAR_LABEL: pf.SRC_FILE})
+    fact_sources.update({label: sources.get(label, 'file dữ kiện') for label in filled['facts']})
+    pf.write_sources(wb, fact_sources)
     wb.save(path)
     return path, notes, filled
 

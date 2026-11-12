@@ -29,7 +29,7 @@ def calls(tmp_path, monkeypatch):
     monkeypatch.setattr(bsp, 'check', fake_check)
     monkeypatch.setattr(bsp, 'make_zip', fake_zip)
     log['argv'] = ['--site', 'Du an Gia', '--prior', str(prior), '--runtime', str(runtime),
-                   '--out', str(tmp_path / 'out')]
+                   '--out', str(tmp_path / 'out'), '--no-master']       # invented project: no master row
     return log
 
 

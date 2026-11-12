@@ -595,6 +595,11 @@ body.adj-full-on { overflow: hidden; }
         <p class="src" id="fin-src"></p>
       </section>
       <section>
+        <h2><button type="button" class="fold" data-fold="nw-fold-info" aria-expanded="true" title="Thu gọn / mở mục này">▾</button>Thông tin dự án</h2>
+        <div class="dg-wrap"><table id="nw-info"><thead><tr><th>Hạng mục</th><th class="num">Giá trị</th><th>Đơn vị</th><th>Nguồn</th></tr></thead><tbody></tbody></table></div>
+        <p class="src" id="nw-info-src"></p>
+      </section>
+      <section>
         <h2>Mức dịch vụ</h2>
         <table id="svc"><thead><tr><th>Dịch vụ</th><th>Người trực / ngày</th><th>Chỉ số</th><th>Mức</th><th>Vị trí so với dự án tham chiếu</th></tr></thead><tbody></tbody></table>
         <p class="src" id="svc-src"></p>
@@ -676,7 +681,11 @@ body.adj-full-on { overflow: hidden; }
       <div class="field"><label>Thể tích hồ bơi (m³) <small>tổng mọi hồ</small></label><input type="number" name="pool_volume" min="0" step="any"></div>
       <div class="field"><label>Số chỗ đậu ô tô <small>để trống = lấy theo sheet 0. Info</small></label><input type="number" name="car_slots" min="0" step="1"></div>
       <div class="field"><label>Số chỗ đậu xe máy</label><input type="number" name="moto_slots" min="0" step="1"></div>
-      <p class="src">Ô để trống được ghi 0 trên form và liệt kê trong ghi chú nhập để PM điền sau.</p>
+      <div class="field"><label>Số thang máy mỗi tháp</label><input type="number" name="elevators" min="0" step="1"></div>
+      <div class="field"><label>Số tầng hầm</label><input type="number" name="basements" min="0" step="1"></div>
+      <div class="field"><label>Số hồ bơi</label><input type="number" name="pool_count" min="0" step="1"></div>
+      <div class="field"><label>Địa chỉ <small>tuỳ chọn</small></label><input type="text" name="street"></div>
+      <p class="src">Ô để trống: khi chạy, công cụ lấy theo danh sách master nếu tên dự án khớp đúng một dòng (số tháp chỉ ghi chú, không tự điền); còn trống thì ghi 0 trên form, liệt kê trong ghi chú nhập và hiện "Chưa có số — PM nhập" ở mục Thông tin dự án của kết quả.</p>
     </section>
     </form>
     <div class="actions">
@@ -698,6 +707,11 @@ body.adj-full-on { overflow: hidden; }
         <h2><button type="button" class="fold" data-fold="rv-fold-ties" aria-expanded="true" title="Thu gọn / mở mục này">▾</button>Đối chiếu tổng</h2>
         <ul class="ties" id="rv-ties"></ul>
         <p class="src">Hai phép đối chiếu cho mỗi quỹ và mục: cột công cụ cộng lại bằng dòng R / E của bản giao; cột duyệt cộng lại bằng dòng R / E của file nguồn.</p>
+      </section>
+      <section>
+        <h2><button type="button" class="fold" data-fold="rv-fold-info" aria-expanded="true" title="Thu gọn / mở mục này">▾</button>Thông tin dự án</h2>
+        <div class="dg-wrap"><table id="rv-info"><thead><tr><th>Hạng mục</th><th class="num">Giá trị</th><th>Đơn vị</th><th>Nguồn</th></tr></thead><tbody></tbody></table></div>
+        <p class="src" id="rv-info-src"></p>
       </section>
       <section>
         <h2>10 dòng lệch lớn nhất</h2>
@@ -986,6 +1000,12 @@ async function loadSite() {
     } else el.value = v;
     factNote(k, 'Nguồn: dữ kiện đóng trong gói (sửa được)');
   }
+  // Ghi chú của master đóng trong gói (change project-info-everywhere), ví dụ số tháp không tự điền.
+  for (const n of (siteInfo.fact_notes || [])) {
+    if (!n || !n.key || !formReview.elements[n.key]) continue;
+    const prev = formReview.elements[n.key].closest('.field').querySelector('.fsrc');
+    factNote(n.key, (prev && prev.dataset.text ? prev.dataset.text + ' · ' : '') + n.text);
+  }
 }
 // Form Nhập liệu của gói không kèm ngân sách đã duyệt: tên dự án và dữ kiện của gói ghi đè giá trị mẫu (chờ mẫu tải xong).
 async function prefillNewProject() {
@@ -1077,7 +1097,8 @@ document.querySelector('#lib tbody').addEventListener('click', e => {
 
 // Mục 2 điền sẵn khi chọn một dòng kho (change prefill-review-facts): lượt trước cùng dự án > sheet 0. Info > danh sách
 // master. Mỗi ô ghi nguồn, và số của nguồn khác khi khác nhau. PM sửa ô nào thì trang gửi số PM.
-const FACT_KEYS = ['city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots', 'moto_slots'];
+const FACT_KEYS = ['city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots', 'moto_slots',
+                   'elevators', 'basements', 'pool_count', 'street'];
 function factNote(key, text) {
   const el = formReview.elements[key];
   if (!el) return;
@@ -1366,12 +1387,28 @@ function renderReview(run) {
     (fl.blank && fl.blank.length ? `Để trống, PM điền: ${fl.blank.join(', ')}. ` : '') +
     (fl.facts && fl.facts.length ? `Từ dữ kiện trên trang: ${fl.facts.join(', ')}.` : '');
   document.querySelector('#rv-notes tbody').innerHTML = notes.map(n => `<tr><td>${esc(n.kind)}</td><td>${esc(n.where)}</td><td>${esc(n.text)}</td></tr>`).join('');
+  renderInfo('rv', s.project_info);
+}
+
+// Mục Thông tin dự án (change project-info-everywhere): mọi dữ kiện lượt đã dùng, kèm nguồn; ô trống tô vàng.
+function renderInfo(prefix, info) {
+  const tb = document.querySelector(`#${prefix}-info tbody`), src = document.getElementById(`${prefix}-info-src`);
+  info = info || {};
+  if (!info.items) { tb.innerHTML = `<tr><td colspan="4">${esc(info.note || 'Chưa có thông tin dự án.')}</td></tr>`; src.textContent = ''; return; }
+  tb.innerHTML = info.items.map(it => {
+    const v = it.value == null ? '' : (typeof it.value === 'number' ? it.value.toLocaleString('vi-VN') : it.value);
+    const st = it.blank ? ' style="background:#FFF2CC"' : '';
+    return `<tr><td>${esc(it.vi)}</td><td class="num"${st}>${esc(String(v))}</td><td>${esc(it.unit || '')}</td><td${st}>${esc(it.source || '')}</td></tr>`;
+  }).join('');
+  src.textContent = (info.blank ? `${info.blank} dữ kiện chưa có số: PM nhập để các dòng tính theo dữ kiện (bảo vệ, vệ sinh, cứu hộ, thang máy…) không ra 0. ` : 'Đủ dữ kiện. ') +
+    'Cùng bảng nằm ở sheet 0. Info của bản giao, từ dòng 23.';
 }
 
 function renderSummary(run) {
   const s = run.summary;
   openResults(run, 'new');
   if (!s) return;
+  renderInfo('nw', s.project_info);
   const f = s.finance || {};
   const vat = f.vat_basis === 'inclusive' ? 'gồm VAT' : (f.vat_basis === 'exclusive' ? 'chưa VAT' : '');
   const year = f.budget_year ? `năm ngân sách ${f.budget_year}` : 'năm đầu';

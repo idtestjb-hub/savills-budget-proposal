@@ -43,10 +43,45 @@ def test_master_unique_match_zero_is_no_value_and_pool_from_count(tmp_path):
     path = _master(tmp_path, [['Test Tower A', 'HCM', 'Quận 9', '1', '30', '0', '120', '', '1'],
                               ['Test Tower B', '', '', '0', '0', '2', '0', '500', '0']])
     a, notes = fp.master_facts('TEST TOWER A', path)
-    assert a == {'city': 'HCM', 'district': 'Quận 9', 'floor_count': 30, 'car_slots': 120, 'has_pool': 'Yes'}
+    assert a == {'city': 'HCM', 'district': 'Quận 9', 'floor_count': 30, 'car_slots': 120, 'has_pool': 'Yes',
+                 'pool_count': 1}                               # pool count too (change project-info-everywhere)
     assert notes == [dict(key='tower_count', text='master ghi 1 tháp; số tháp để PM kiểm và nhập')]   # towers never filled
     b, _ = fp.master_facts('test tower b', path)
     assert b == {'gate_count': 2, 'moto_slots': 500}          # zeros and blanks fill nothing, PoolCount 0 too
+
+
+def _master_full(tmp_path, rows):
+    head = MASTER_HEAD + ['ElevatorCount', 'BasementCount', 'Street', 'Address_Raw']
+    path = tmp_path / 'master_full.csv'
+    with open(path, 'w', encoding='utf-8-sig', newline='') as fh:
+        w = csv.writer(fh)
+        w.writerow(head)
+        w.writerows(rows)
+    return str(path)
+
+
+def test_master_elevators_basements_street(tmp_path):
+    """Change project-info-everywhere: lifts (project total) only for one tower, else a note; basements; street, else
+    the raw address. TEST DATA."""
+    path = _master_full(tmp_path, [['Test One', 'HCM', '', '1', '20', '1', '', '', '0', '4', '2', '1 Test Street', ''],
+                                   ['Test Three', 'HCM', '', '3', '20', '1', '', '', '0', '9', '', '', '9 Raw Road']])
+    one, _ = fp.master_facts('Test One', path)
+    assert one['elevators'] == 4 and one['basements'] == 2 and one['street'] == '1 Test Street'
+    three, notes = fp.master_facts('Test Three', path)
+    assert 'elevators' not in three and 'basements' not in three and three['street'] == '9 Raw Road'
+    assert any(n['key'] == 'elevators' and '9 thang máy' in n['text'] for n in notes)
+
+
+def test_master_fallback_fills_blanks_only_and_keeps_file_parking(tmp_path):
+    path = _master_full(tmp_path, [['Test One', 'HCM', 'Quận 1', '1', '20', '3', '50', '400', '1', '4', '2', '', '']])
+    facts = {'City / Province': 'Hà Nội', '_sources': {'City / Province': 'nhập trên trang web'}}
+    added, notes = fp.master_fallback(facts, 'TEST ONE', keep={'car_slots'}, path=path)
+    assert facts['City / Province'] == 'Hà Nội'                       # the page wins
+    assert 'Car Parking Slots' not in facts                           # the approved file's slots win
+    assert facts['Gate / Entrance Count'] == 3 and facts['Moto Parking Slots'] == 400
+    assert facts['_sources']['Gate / Entrance Count'] == 'danh sách master'
+    assert 'Tower Count' not in facts and any('tháp' in n for n in notes)
+    assert set(added) >= {'District', 'Gate / Entrance Count', 'Number of Basements', 'Number of Pools'}
 
 
 def test_master_floors_of_one_tower_only(tmp_path):

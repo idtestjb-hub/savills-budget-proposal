@@ -175,7 +175,33 @@ def _rmtree(path, tries=5):
             time.sleep(1.5)
 
 
-def build(site, prior, runtime, out, facts, store_id='', library_id=''):
+def master_facts_for(site, master_row='', no_master=False, master_path=None):
+    """(facts, fact_notes) của chính dự án trong danh sách master văn phòng (change project-info-everywhere, design D3).
+
+    Khớp theo tên gấp của `site`, hoặc đúng tên `master_row`. Không khớp hoặc khớp từ hai dòng: dừng, liệt kê tên ứng
+    viên, trừ khi `no_master`. Quy tắc master như phần điền sẵn của Review (số tháp chỉ ghi chú; số tầng, số thang chỉ
+    dùng khi một tháp)."""
+    from webapp import facts_prefill as fp
+    path = master_path or fp.MASTER_CSV
+    if no_master:
+        return {}, []
+    if master_row:
+        row = fp.master_row_by_name(master_row, path)
+        if row is None:
+            raise SystemExit(f'--master-row "{master_row}": không có đúng một dòng master tên này.')
+    else:
+        rows = fp.master_rows(site, path)
+        if len(rows) != 1:
+            names = '; '.join(r.get('Name', '') for r in rows) or 'không có'
+            raise SystemExit(f'Danh sách master có {len(rows)} dòng khớp tên "{site}" ({names}). Chọn một dòng bằng '
+                             f'--master-row "<tên master>", hoặc bỏ qua bằng --no-master.')
+        row = rows[0]
+    facts, notes = fp.row_facts(row)
+    print(f"dữ kiện master: {', '.join(sorted(facts)) or 'không có'}; ghi chú: {len(notes)}")
+    return facts, notes
+
+
+def build(site, prior, runtime, out, facts, store_id='', library_id='', fact_notes=()):
     pkg = os.path.join(out, 'BudgetAgent-' + _safe(site))
     if os.path.exists(pkg):
         _rmtree(pkg)
@@ -201,8 +227,8 @@ def build(site, prior, runtime, out, facts, store_id='', library_id=''):
     code = git_hash()
     built = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     with open(os.path.join(site_dir, 'site.json'), 'w', encoding='utf-8') as fh:
-        json.dump(dict(project=site, prior_file=prior_name, facts=facts, store_id=store_id or library_id or '',
-                       built_at=built, code=code), fh, ensure_ascii=False, indent=1)
+        json.dump(dict(project=site, prior_file=prior_name, facts=facts, fact_notes=list(fact_notes),
+                       store_id=store_id or library_id or '', built_at=built, code=code), fh, ensure_ascii=False, indent=1)
     for d in ('runs', 'tmp'):
         os.makedirs(os.path.join(pkg, d))
     with open(os.path.join(pkg, 'Chay Budget Agent.cmd'), 'w', encoding='utf-8') as fh:
@@ -325,6 +351,8 @@ def main(argv=None):
     ap.add_argument('--library-id', default='', help='id dòng kho để điền sẵn dữ kiện')
     ap.add_argument('--facts', default='', help='file JSON dữ kiện {city, district, tower_count, ...}')
     ap.add_argument('--store', default=DEFAULT_STORE, help='thư mục kho quét (dim_file.csv) để lấy tên file cho bước quét rò rỉ')
+    ap.add_argument('--master-row', default='', help='tên đúng của dòng master của dự án, khi tên dự án khớp nhiều dòng')
+    ap.add_argument('--no-master', action='store_true', help='không lấy dữ kiện từ danh sách master')
     ap.add_argument('--zip', action='store_true')
     ap.add_argument('--check', action='store_true')
     a = ap.parse_args(argv)
@@ -340,11 +368,14 @@ def main(argv=None):
         print('Chú ý: không có --prior; gói không kèm file ngân sách đã duyệt, ban quản lý chọn "Tải file lên" trên trang.')
     if not os.path.isfile(os.path.join(a.runtime, 'python.exe')):
         raise SystemExit(f'--runtime không có python.exe: {a.runtime}')
-    facts = facts_for(a.library_id, a.facts, a.city)
+    # Dữ kiện của chính dự án từ master (change project-info-everywhere); --facts / --library-id / --city thắng.
+    mfacts, fact_notes = master_facts_for(a.site, a.master_row, a.no_master)
+    facts = dict(mfacts, **facts_for(a.library_id, a.facts, a.city))
+    fact_notes = [n for n in fact_notes if n.get('key') not in facts]
     if not facts.get('city'):
         print('Chú ý: chưa có Tỉnh / thành phố; PM phải chọn trên trang trước khi chạy.')
     pkg = build(a.site, os.path.abspath(a.prior) if a.prior else '', os.path.abspath(a.runtime), os.path.abspath(a.out), facts,
-                library_id=a.library_id)
+                library_id=a.library_id, fact_notes=fact_notes)
     # --zip luôn kiểm trước (kể cả khi quên --check); kiểm không đạt thì không nén, để gói rò rỉ không ra được file gửi đi.
     ok = check(pkg, _leak_words(a.site, a.store)) if (a.check or a.zip) else True
     if a.zip:

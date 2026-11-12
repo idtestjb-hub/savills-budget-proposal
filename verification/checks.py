@@ -4178,6 +4178,58 @@ def check_pm_lines(paths):
 
 # ---- change add-budget-print-layout: the Management Fund sheet's print setup ----------------------------------------
 
+def check_project_info(paths):
+    """Spec deliverable-project-info on the generated deliverable: the 'QUY MÔ DỰ ÁN' block from row 23 carries a row
+    for every fact, each with a value or 'Chưa có số — PM nhập'; F12 is blank; the parking rows carry the slots and the
+    same price per vehicle as helper sheet B5 (D22 car, D24 motorbike). Returns (ok, rows, differences, notes)."""
+    import openpyxl
+
+    import generate_project_budget as gpb
+    import project_facts as pf
+
+    problems, notes = [], []
+    wb = openpyxl.load_workbook(paths['deliverable'])
+    try:
+        ws = wb['0. Info']
+        r0 = gpb.INFO_BLOCK_ROW
+        if not str(ws[f'B{r0}'].value or '').startswith('QUY MÔ DỰ ÁN'):
+            problems.append(('block title', ws[f'B{r0}'].value))
+        labels = {}
+        r = r0 + 2
+        while ws[f'B{r}'].value:
+            labels[str(ws[f'B{r}'].value)] = r
+            r += 1
+        want = [f'{vi} / {en}' for _label, vi, en, _unit, _kind in pf.FACTS]
+        missing = [w for w in want if w not in labels]
+        if missing:
+            problems.append(('fact rows missing', ', '.join(missing)))
+        blank = 0
+        for w, row in labels.items():
+            value, source = ws[f'C{row}'].value, ws[f'E{row}'].value
+            if value in (None, '') and source != pf.BLANK_TEXT:
+                problems.append((f'row {row} {w}', f'blank without "{pf.BLANK_TEXT}"'))
+            if value not in (None, '') and not source:
+                problems.append((f'row {row} {w}', 'value without a source'))
+            blank += value in (None, '')
+        if ws['F12'].value not in (None, ''):
+            problems.append(('F12', f'written ({ws["F12"].value}); the car slots belong on row 15 or 16'))
+        helper = next((wb[n] for n in wb.sheetnames if n.startswith('B5.')), None)
+        car_rows = [r for r in (15, 16) if ws[f'F{r}'].value]
+        if len(car_rows) > 1:
+            problems.append(('car rows', 'slots on both 15 and 16'))
+        for rows, cell in ((car_rows, 'D22'), ([18] if ws['F18'].value else [], 'D24')):
+            for row in rows:
+                price, ref = ws[f'I{row}'].value, (helper[cell].value if helper is not None else None)
+                if isinstance(ref, (int, float)) and ref and (not isinstance(price, (int, float))
+                                                              or abs(price - round(ref)) > 0.5):
+                    problems.append((f'I{row}', f'{price} vs B5!{cell} {ref}'))
+    finally:
+        wb.close()
+    rows = [('fact rows in the block', len(labels)), ('blank facts flagged', blank),
+            ('car slots row', car_rows[0] if car_rows else '-')]
+    return not problems, rows, problems, notes
+
+
 def check_print_layout(paths):
     """Spec deliverable-print-layout on the generated deliverable. Without Excel: print area, title rows, footer,
     folded columns, the 8 signature boxes inside X:AO. In Excel (recalculated copy): every hidden table row is "Not Use"

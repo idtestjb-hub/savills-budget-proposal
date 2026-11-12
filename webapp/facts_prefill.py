@@ -21,12 +21,17 @@ MASTER_CSV = os.path.join(os.path.dirname(SOURCE_DIR), 'data', 'master_list_veri
 
 # Ô của mục 2 -> nhãn trên form nhập liệu (fill_input.SCALARS)
 FIELDS = ('city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots',
-          'moto_slots')
-NUMERIC = {'tower_count', 'floor_count', 'gate_count', 'pool_volume', 'car_slots', 'moto_slots'}
+          'moto_slots', 'elevators', 'basements', 'pool_count', 'street')
+NUMERIC = {'tower_count', 'floor_count', 'gate_count', 'pool_volume', 'car_slots', 'moto_slots', 'elevators',
+           'basements', 'pool_count'}
 MASTER_COLUMNS = {'city': 'City_Province', 'district': 'District', 'tower_count': 'TowerCount',
                   'floor_count': 'FloorCount', 'gate_count': 'GateCount', 'car_slots': 'CarParkingSlots',
-                  'moto_slots': 'BikeParkingSlots'}
+                  'moto_slots': 'BikeParkingSlots', 'basements': 'BasementCount', 'pool_count': 'PoolCount',
+                  'street': 'Street'}
 SRC_RUN, SRC_INFO, SRC_MASTER = 'run', 'info', 'master'
+# Ô của mục 2 -> nhãn Project Info (change project-info-everywhere): một bảng dùng chung cho trang và lúc chạy.
+LABELS = {k: fill_input.SCALARS[k][1] for k in FIELDS}
+SOURCE_MASTER = 'danh sách master'
 
 
 def fold(name):
@@ -68,10 +73,42 @@ def master_facts(name, path=MASTER_CSV):
     if len(hits) > 1:
         return {}, [dict(key='', text=f'danh sách master có {len(hits)} dòng trùng tên "{hits[0].get("Name", "")}", '
                                        f'không dùng')]
-    row = hits[0]
+    return row_facts(hits[0])
+
+
+def master_rows(name, path=MASTER_CSV):
+    """Các dòng master có tên gấp trùng `name` (để bên đóng gói chọn khi trùng)."""
+    key = fold(name)
+    if not key or not os.path.exists(path):
+        return []
+    with open(path, encoding='utf-8-sig', newline='') as fh:
+        return [r for r in csv.DictReader(fh) if fold(r.get('Name')) == key]
+
+
+def master_row_by_name(name, path=MASTER_CSV):
+    """Dòng master có tên đúng y `name` (sau khi bỏ khoảng trắng hai đầu), hoặc None."""
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding='utf-8-sig', newline='') as fh:
+        hits = [r for r in csv.DictReader(fh) if (r.get('Name') or '').strip() == (name or '').strip()]
+    return hits[0] if len(hits) == 1 else None
+
+
+def row_facts(row):
+    """(facts, notes) của một dòng master, theo các quy tắc đã chốt (28/10, 29/10/2026)."""
     facts = {k: _clean(k, row.get(col)) for k, col in MASTER_COLUMNS.items()}
+    if facts.get('street') is None:
+        facts['street'] = _clean('street', row.get('Address_Raw'))
     notes = []
     towers = facts.get('tower_count')
+    elevators = _clean('elevators', row.get('ElevatorCount'))
+    if elevators is not None:
+        # Master ghi tổng số thang của dự án; ô trên form là số thang mỗi tháp: chỉ chia được khi dự án có một tháp.
+        if towers == 1:
+            facts['elevators'] = elevators
+        else:
+            notes.append(dict(key='elevators', text=f'master ghi {elevators:g} thang máy cả dự án với {towers or "?"} '
+                                                     f'tháp; số thang mỗi tháp để PM nhập'))
     if facts.get('floor_count') is not None and towers != 1:
         # Master ghi số tầng của một tháp; ô trên trang là tổng các tháp (người dùng chốt 28/10/2026).
         notes.append(dict(key='floor_count', text=f'master ghi {facts["floor_count"]:g} tầng/tháp với {towers or "?"} '
@@ -82,9 +119,27 @@ def master_facts(name, path=MASTER_CSV):
         # vệ sinh và giá thật; chỉ ghi chú để PM nhập.
         notes.append(dict(key='tower_count', text=f'master ghi {towers:g} tháp; số tháp để PM kiểm và nhập'))
         facts['tower_count'] = None
-    pools = _clean('pool_volume', row.get('PoolCount'))      # số dương, hoặc None khi 0 / trống
+    pools = facts.get('pool_count')                           # số dương, hoặc None khi 0 / trống
     facts['has_pool'] = 'Yes' if pools else None
     return {k: v for k, v in facts.items() if v is not None}, notes
+
+
+def master_fallback(facts, name, keep=(), path=MASTER_CSV):
+    """Lúc chạy Review (change project-info-everywhere): ô dữ kiện còn trống lấy từ master theo tên gấp.
+
+    `facts` = {nhãn Project Info: giá trị, '_sources': {...}} như server gửi; sửa tại chỗ. `keep` = các khoá đã có số từ
+    file ngân sách đã duyệt (số chỗ đậu xe), master không ghi đè. Trả (danh sách nhãn đã điền, ghi chú)."""
+    mfacts, notes = master_facts(name, path)
+    sources = facts.setdefault('_sources', {})
+    added = []
+    for key, value in mfacts.items():
+        label = LABELS[key]
+        if key in keep or label in facts:
+            continue
+        facts[label] = value
+        sources[label] = SOURCE_MASTER
+        added.append(label)
+    return added, [n['text'] for n in notes]
 
 
 def run_facts(form_path):

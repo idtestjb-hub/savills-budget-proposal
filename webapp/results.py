@@ -226,8 +226,37 @@ def adjust_result(workdir):
         return json.load(fh) or {}
 
 
+def project_info(workdir, kind='new'):
+    """Mục 'Thông tin dự án' (change project-info-everywhere): mọi dữ kiện của form nhập liệu lượt này kèm nguồn, đúng
+    như khối QUY MÔ DỰ ÁN trên 0. Info. dict(items=[...]) hoặc dict(note=...) khi lượt không có form."""
+    from webapp import history
+    import project_facts
+    path = history.input_form_of(workdir, kind)
+    if not path:
+        return dict(note='Lượt này không có form nhập liệu.')
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=False, data_only=True)
+    try:
+        items = project_facts.facts_of(wb)
+    finally:
+        wb.close()
+    for it in items:
+        if it['blank']:
+            it['source'] = project_facts.BLANK_TEXT
+    return dict(items=items, blank=sum(1 for it in items if it['blank']))
+
+
+def _with_info(summary, workdir, kind):
+    try:
+        summary['project_info'] = project_info(workdir, kind)
+    except Exception as exc:  # trang vẫn hiện các phần còn lại
+        summary['project_info'] = dict(note=f'Không đọc được: {type(exc).__name__}: {exc}')
+    return summary
+
+
 def summarize_run(workdir, kind='new'):
-    """Tóm tắt theo loại lượt: 'review' đọc review_summary.json; 'adjust' đọc adjust_result.json; 'new' như summarize()."""
+    """Tóm tắt theo loại lượt: 'review' đọc review_summary.json; 'adjust' đọc adjust_result.json; 'new' như summarize().
+    Lượt review và lượt mới kèm 'project_info'."""
     if kind == 'adjust':
         try:
             data = adjust_result(workdir)
@@ -236,10 +265,11 @@ def summarize_run(workdir, kind='new'):
             return dict(kind='adjust', note=f'Không đọc được: {type(exc).__name__}: {exc}')
     if kind == 'review':
         try:
-            return review_summary(workdir)
+            out = review_summary(workdir)
         except Exception as exc:
-            return dict(kind='review', note=f'Không đọc được: {type(exc).__name__}: {exc}')
-    return summarize(workdir)
+            out = dict(kind='review', note=f'Không đọc được: {type(exc).__name__}: {exc}')
+        return _with_info(out, workdir, kind)
+    return _with_info(summarize(workdir), workdir, kind)
 
 
 if __name__ == '__main__':

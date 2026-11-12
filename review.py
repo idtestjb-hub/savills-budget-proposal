@@ -742,6 +742,19 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
     finally:
         wb.close()
     facts = ri.load_facts(facts_path) if facts_path else {}
+    # Change project-info-everywhere: facts the page left blank come from the master list (folded name, the rules of
+    # the library prefill); the approved file's parking slots and the page's values win.
+    from webapp import facts_prefill as fp
+    keep = {k for k, v in (('car_slots', info.car_bays), ('moto_slots', info.moto_bays)) if v}
+    # A package's packed facts come from the master list; left unchanged on the page they must not beat the approved
+    # file's own parking slots (the file wins over the master).
+    srcs = facts.get('_sources') or {}
+    for key in keep:
+        label = fp.LABELS[key]
+        if srcs.get(label) == 'dữ kiện đóng trong gói':
+            facts.pop(label, None)
+            srcs.pop(label, None)
+    master_added, master_notes = fp.master_fallback(facts, prior.project_name or info.name, keep=keep)
     for fund in ri.FUNDS:
         fr = prior.funds.get(fund)
         if fr:
@@ -753,6 +766,9 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
         for kind, col in ks.items():
             say(f"    {fund} {rm.KIND_VI[kind]} {rm.period_text(col)}: {col['sheet']} cột {col['col_letter']}, "
                 f"{'khớp tổng' if col['tie_ok'] else 'chưa khớp tổng'}")
+
+    say(f"    từ danh sách master: {', '.join(master_added) or 'không'}"
+        + (f"; ghi chú master: {'; '.join(master_notes)}" if master_notes else ''))
 
     say('[2/4] Đổ form Existing project')
     form_dir = os.path.join(workdir, 'input')

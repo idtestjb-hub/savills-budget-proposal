@@ -90,7 +90,7 @@ def no_prior_main(tmp_path, monkeypatch):
 
 def test_main_accepts_a_missing_prior(no_prior_main, capsys):
     argv, seen = no_prior_main
-    assert bsp.main(argv + ['--zip']) == 0
+    assert bsp.main(argv + ['--zip', '--no-master']) == 0
     assert seen['prior'] == ''
     assert 'không có --prior' in capsys.readouterr().out
 

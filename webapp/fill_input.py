@@ -45,6 +45,11 @@ SCALARS = {
     'pool_area':     ('Project Info', 'Pool Area', 'number'),
     'pool_volume':   ('Project Info', 'Pool Volume', 'number'),
     'gate_count':    ('Project Info', 'Gate / Entrance Count', 'number'),
+    # change project-info-everywhere: the four facts section 2 of the Review tab gained (labels already on the form)
+    'elevators':     ('Project Info', 'Passenger Elevators per Tower', 'number'),
+    'basements':     ('Project Info', 'Number of Basements', 'number'),
+    'pool_count':    ('Project Info', 'Number of Pools', 'number'),
+    'street':        ('Project Info', 'Street Address', 'text'),
     'budget_start':  ('Project Info', 'Budget Start Month', 'month'),
     'roster_month':  ('Roster Setup', 'Month', 'number'),
     'roster_year':   ('Roster Setup', 'Year', 'number'),
@@ -167,6 +172,9 @@ def write_input(values, dest, template=TEMPLATE_INPUT):
             ws.cell(row=row, column=2, value=_to_number(product.get('gfa')) or 0)
             ws.cell(row=row, column=3, value=_to_number(product.get('nfa')) or 0)
             ws.cell(row=row, column=4, value=_to_number(product.get('units')) or 0)
+        # Change project-info-everywhere: every fact on this form was typed (or kept) on the web page.
+        import project_facts
+        project_facts.write_sources(wb, {}, default=project_facts.SRC_PAGE)
         wb.save(dest)
     finally:
         wb.close()

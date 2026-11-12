@@ -58,6 +58,7 @@ import savills_fee
 import breakeven_cells
 import real_budget_ranges
 import parking_prices
+import project_facts
 import line_frequency
 from fill_curve import (year1_fills, year1_electricity_fills, parking_fills,
                         MONTH_ANCHORS as FILL_ANCHORS)
@@ -838,6 +839,11 @@ def read_input(path):
     # Existing-project common-area electricity and water (change carry-forward-common-utilities): the
     # 'Prior-Year Utilities' inputs, or None for a New-prospect workbook.
     project['utilities'] = existing_utilities.read_utilities(wb, L)
+    # Change project-info-everywhere: every project fact with its source (the form's 'Fact Sources' sheet, else
+    # "form nhập liệu"), shown on 0. Info from row 23; and which car-park row the car slots belong to.
+    project['facts_list'] = project_facts.facts_of(wb)
+    project['car_owner'] = str((L.value(project_facts.CAR_OWNER_LABEL) if L.has(project_facts.CAR_OWNER_LABEL)
+                                else None) or project_facts.CAR_OWNER_COMMON).strip()
     # Each product read from the row bearing ITS OWN name, inside the Product Mix block. Reading
     # positionally from a fixed start row is what once made the PARKING rows below the block get
     # read as product areas when the block grew.
@@ -2024,6 +2030,64 @@ def _villa_column_note(nfa):
 
 _ZERO_BAY_NOTE = ("Dự án không có chỗ {kind}: tỷ lệ lấp đầy từ tháng 13 ghi 0, vì công thức của mẫu chia cho số "
                   "chỗ {kind}.")
+
+
+INFO_BLOCK_ROW = 23                      # first row of the scale block on 0. Info (rows 6-21 are the standard table)
+INFO_BLANK_FILL = PatternFill('solid', start_color='FFF2CC', end_color='FFF2CC')
+
+
+def _applied_parking_price(project, key):
+    """Price per vehicle per month the revenue lines use (parking_prices.resolve), or None when there is none."""
+    e = parking_prices.resolved(project)[key]
+    if e['price'] is not None:
+        return e['price']
+    return getattr(e.get('range'), 'price', None) or None
+
+
+def _fill_info_parking(info, project):
+    """0. Info rows 15/16/18 (change project-info-everywhere, design D6): slots in F, applied price in I."""
+    car_row = 15 if str(project.get('car_owner') or '').strip() == project_facts.CAR_OWNER_DEV else 16
+    for key, row, slots in (('car', car_row, project.get('car_slots')), ('moto', 18, project.get('moto_slots'))):
+        if not slots:
+            continue
+        info[f'F{row}'] = slots
+        price = _applied_parking_price(project, key)
+        if price:
+            info[f'I{row}'] = round(price)
+            info[f'I{row}'].number_format = '#,##0'
+
+
+def _write_info_scale_block(info, project):
+    """'QUY MÔ DỰ ÁN / PROJECT SCALE' from row 23 of 0. Info (change project-info-everywhere, design D5): every fact
+    with its value, unit and source; a blank fact stays on the sheet, shaded, reading 'Chưa có số — PM nhập'."""
+    thin = Side(style='thin', color='BFBFBF')
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    bold = Font(name='Arial', bold=True, size=10)
+    plain = Font(name='Arial', size=10)
+    r = INFO_BLOCK_ROW
+    info[f'B{r}'] = 'QUY MÔ DỰ ÁN / PROJECT SCALE'
+    info[f'B{r}'].font = Font(name='Arial', bold=True, size=11)
+    r += 1
+    for col, head in (('B', 'Hạng mục / Item'), ('C', 'Giá trị / Value'), ('D', 'Đơn vị / Unit'), ('E', 'Nguồn / Source')):
+        cell = info[f'{col}{r}']
+        cell.value, cell.font, cell.border = head, bold, box
+        cell.fill = PatternFill('solid', start_color='D9E1F2', end_color='D9E1F2')
+    info.merge_cells(f'E{r}:G{r}')
+    for fact in project.get('facts_list') or []:
+        r += 1
+        info[f'B{r}'] = f"{fact['vi']} / {fact['en']}"
+        info[f'C{r}'] = fact['value']
+        info[f'D{r}'] = fact['unit'] or None
+        info[f'E{r}'] = project_facts.BLANK_TEXT if fact['blank'] else fact['source']
+        info.merge_cells(f'E{r}:G{r}')
+        for col in 'BCDE':
+            info[f'{col}{r}'].font, info[f'{col}{r}'].border = plain, box
+        if isinstance(fact['value'], (int, float)) and not isinstance(fact['value'], bool):
+            info[f'C{r}'].number_format = '#,##0.##' if fact['value'] != int(fact['value']) else '#,##0'
+        if fact['blank']:
+            for col in 'CE':
+                info[f'{col}{r}'].fill = INFO_BLANK_FILL
+    return r
 
 
 def _fill_product_mix_fallbacks(wb, project):
@@ -5151,9 +5215,11 @@ def build_budget(project, demand, year):
     _rowless = [p for p in PRODUCT_ROWS
                 if p not in _INFO_FEE_ROWS and (project['products'].get(p) or {}).get('nfa')]
     if _rowless:
-        info['G7'] = ("Also priced but not shown in this 4-product table (no row on the standard form): "
-                      + ', '.join(_rowless) + ". Full management-fee revenue is on '2. Budget-Management "
-                      "Fund' (rows RM.AP–RM.KG) and '1. Summary'.")
+        # Vietnamese (change project-info-everywhere): every note on the deliverable is Vietnamese.
+        info['G7'] = ("Có tính phí nhưng mẫu chuẩn không có dòng trong bảng 4 sản phẩm này: "
+                      + ', '.join(_PRODUCT_VI_LABEL.get(p, p) for p in _rowless)
+                      + ". Xem dòng 21 (TỔNG CỘNG THỰC TẾ) và doanh thu phí quản lý đầy đủ tại '2. Budget-"
+                      "Management Fund' (dòng RM.AP–RM.KG) và '1. Summary'.")
         # The disclosure above says the missing products' revenue is "elsewhere", but leaves TỔNG
         # CỘNG (row 19) reading as if it were the whole project — its own SUBTOTAL() formula sums
         # only rows 7:17 of a template that has no row for Villas/Nursery/etc. at all (change
@@ -5191,10 +5257,12 @@ def build_budget(project, demand, year):
                        "(2 dự án tương đồng gần nhất, dự phòng theo đơn giá Apartment nếu không có "
                        "dự án tương đồng cho sản phẩm này) — khớp với doanh thu thực tại '2. "
                        "Budget-Management Fund'.")
-    info['F12'] = project['car_slots']
-    # I12 (parking mgmt fee/m²) left blank -- no consistent real per-project reference was found
-    # across comparables (each real file's own parking fee differs and isn't NFA-comparable the
-    # way the apartment fee is); PM to confirm before this line item is trusted.
+    # Parking rows (change project-info-everywhere, design D6). Row 12 (the developer's car park charged a fee per
+    # m²) is left blank: the tool has no figure for it. The car slots go on row 15 (owned by the developer) or 16 (owned
+    # in common) as the approved file had them, default 16; motorbike slots on 18. Prices are the applied price per
+    # vehicle per month, decided once by parking_prices (the same figure as the RP1 / RP2 revenue lines).
+    _fill_info_parking(info, project)
+    _write_info_scale_block(info, project)
 
     # ---- 2. Budget-Management Fund: real computed OPEX/Capex/Staff/Parking/Management-Fee
     # numbers — see MGMT_FUND_ROWS and fill_management_fund_sheet()'s docstring above. ----
