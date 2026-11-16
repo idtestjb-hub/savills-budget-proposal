@@ -29,3 +29,36 @@ any figure, request or saved value.
 #### Scenario: Unfold
 - **WHEN** the PM clicks the folded heading's button
 - **THEN** the section's table is shown with the figures of the current run
+
+### Requirement: The run page shows the project facts the run used
+The result of a run, new project or Review, SHALL show a folding section "Thông tin dự án". The section SHALL list
+every fact of the `0. Info` scale block with its value and source. Blank facts SHALL be flagged "Chưa có số — PM
+nhập". Viewers SHALL see the section too.
+
+#### Scenario: Review run in a site package
+- **WHEN** a Review run in a package used master facts from `site.json`
+- **THEN** the section SHALL show those facts with source "dữ kiện đóng trong gói", and the facts the PM changed with
+  source "nhập trên trang web"
+
+#### Scenario: Earlier run without a sources sheet
+- **WHEN** the page shows a run made before this change
+- **THEN** the section SHALL show the values read from that run's input form with source "form nhập liệu", or say
+  that the run has no input form
+
+### Requirement: The Review page shows a sinking-fund comparison table
+
+The Review results SHALL include a folded section "Quỹ bảo trì". It SHALL have one row per sinking-fund code that
+carries a figure on either side. The columns SHALL be:
+- code and item;
+- prior approved;
+- the tool's new year;
+- the median reference (VND per year for this project's NFA or lifts, blank when the code has none);
+- the difference and the difference in %.
+
+Rows in the warranty or left for the PM SHALL be tagged. The section SHALL show the fund totals. A Review whose file
+has no sinking fund SHALL show the section with the line "file không có quỹ bảo trì".
+
+#### Scenario: Line far from the median
+
+- **WHEN** a code's new year is more than twice its median reference
+- **THEN** the row SHALL be tagged "cao hơn trung vị"

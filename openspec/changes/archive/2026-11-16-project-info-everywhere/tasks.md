@@ -43,10 +43,15 @@
 
 - [x] 5.1 Full pytest and `verification/verify.py` pass (12/11: pytest 1517 passed + the 4 package tests fixed with
   `--no-master`; verify.py exit 0, its baselines unchanged)
-- [ ] 5.2 Run the Lô G Review in a rebuilt Sunrise package (`--master-row "Sunrise Riverside Lot G"`). Check in
+- [x] 5.2 Run the Lô G Review in a rebuilt Sunrise package (`--master-row "Sunrise Riverside Lot G"`). Check in
   Excel and on the page:
   - the block and the parking rows;
   - the facts section;
   - the lines that came out 0 because a fact was blank.
-- [ ] 5.3 The user signs off on the moved Review figures; re-record the Review sample baselines
-- [ ] 5.4 Rebuild the City Garden package. Write the Hub release note through [Hub].
+  *Done 12/11 (sinking-fund P4 measure, package Review of the Lô G file with this change's code, opened in Excel
+  without repair or error cells); the user accepted the result 16/11 ("assume đúng hết, PM duyệt rồi").*
+- [x] 5.3 The user signs off on the moved Review figures; re-record the Review sample baselines *16/11: signed off
+  ("PM duyệt rồi"). No Review sample baseline moved in verify.py (12/11 and 16/11), so none was re-recorded.*
+- [x] 5.4 Rebuild the City Garden package. Write the Hub release note through [Hub]. *16/11: both packages rebuilt
+  from 593c3f7 (Sunrise from efe34cc on 12/11 before); one stacked release note
+  `releases/2026-11-16-budget-web-quy-bao-tri.txt` covers this change with add-sinking-fund.*
