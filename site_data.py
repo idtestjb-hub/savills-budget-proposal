@@ -45,6 +45,9 @@ KEEP = (
     'master_list_verified/Ref_ComparableVATBasis.csv',
     'real_budget_ranges/README.txt',
     'real_budget_ranges/Ref_RealBudgetValues.csv',
+    # Trung vị quỹ bảo trì theo mã (change add-sinking-fund, D9): generate_project_budget đọc để tính sheet 3. Không có
+    # tên dự án (name_key là mã hoá, như file quỹ quản lý), nên không cần MASK; find_leaks vẫn quét.
+    'real_budget_ranges/Ref_SinkingFundValues.csv',
     'service_levels/Ref_ServiceLevelProjects.csv',
     'service_levels/Ref_ServiceLevelThresholds.csv',
 )

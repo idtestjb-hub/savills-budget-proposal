@@ -51,6 +51,9 @@ SCALARS = {
     'pool_count':    ('Project Info', 'Number of Pools', 'number'),
     'street':        ('Project Info', 'Street Address', 'text'),
     'budget_start':  ('Project Info', 'Budget Start Month', 'month'),
+    # change add-sinking-fund (task 3.2)
+    'warranty_months': ('Project Info', 'Remaining Warranty Months', 'number'),
+    'total_lifts':   ('Project Info', 'Total Elevators (incl. service)', 'number'),
     'roster_month':  ('Roster Setup', 'Month', 'number'),
     'roster_year':   ('Roster Setup', 'Year', 'number'),
 }
@@ -60,6 +63,8 @@ APPEND_LABELS = {
     'District': 'District — leave blank if unknown',
     'City / Province': 'City / Province — leave blank if unknown',
     'Budget Start Month': 'Budget Start Month',
+    'Remaining Warranty Months': 'Remaining Warranty Months',
+    'Total Elevators (incl. service)': 'Total Elevators (incl. service) — leave blank if unknown',
 }
 
 

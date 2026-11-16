@@ -192,6 +192,10 @@ def review_summary(workdir):
         out['ties'] = data.get('ties') or []
         out['top'] = data.get('top') or []
         out['measure_ties'] = data.get('measure_ties') or []      # cột năm trước: tham khảo, không tính vào kết quả
+        if 'sf_rows' in data:                                      # quỹ bảo trì (change add-sinking-fund); lượt cũ: không có
+            out['sf_rows'] = data.get('sf_rows') or []
+            out['sf_totals'] = data.get('sf_totals') or {}
+            out['sf_none'] = bool(data.get('sf_none'))
     notes_path = os.path.join(workdir, 'review_notes.json')
     if os.path.exists(notes_path):
         with open(notes_path, encoding='utf-8') as fh:

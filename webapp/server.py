@@ -104,6 +104,8 @@ FACT_LABELS = {
     'basements': ('Number of Basements', 'number'),
     'pool_count': ('Number of Pools', 'number'),
     'street': ('Street Address', 'text'),
+    # change add-sinking-fund: every lift of the project, for the sinking-fund lift lines
+    'total_lifts': ('Total Elevators (incl. service)', 'number'),
 }
 MAX_UPLOAD = 60 * 1024 * 1024
 
@@ -450,6 +452,12 @@ def _mark_package_facts(fact_map, raw):
     for key, (label, _kind) in FACT_LABELS.items():
         if key in packed and label in fact_map and str(raw.get(key, '')).strip() == str(packed[key]).strip():
             fact_map['_sources'][label] = 'dữ kiện đóng trong gói'
+    # Ô văn phòng cố ý để trống khi đóng gói (site.json blank_facts, build_site_package --blank-fact): PM không nhập thì
+    # Review cũng không lấy số master (facts_prefill.master_fallback).
+    blank = [FACT_LABELS[k][0] for k in info.get('blank_facts') or () if k in FACT_LABELS]
+    blank = [label for label in blank if label not in fact_map]
+    if blank:
+        fact_map['_no_master'] = blank
 
 
 @router.post('/api/reviews')
@@ -654,6 +662,8 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
         cols = adjust.review_columns(analysis)
         years = adjust.review_years(analysis)
     approved = cols.get('approved') or {}
+    if run.get('kind') == 'review':                                           # quỹ bảo trì: số duyệt từ review_summary.json
+        approved = {**approved, **adjust.sf_approved(run['workdir'])}
     top_keys = adjust.top_keys(run['workdir']) if approved else []            # 10 dòng lệch lớn nhất của lượt review
     measures = {k: cols.get(k) or {} for k in ('n1', 'actual', 'expected')}   # cột năm trước có trong file (nếu có)
     for it in items:

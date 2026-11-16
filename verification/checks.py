@@ -2763,6 +2763,12 @@ _ADJ_TAX_BLOCK_CODE = 'PL1'                         # first code of PART 2 on bo
 # The year total the parent's I is held to: AK (=SUM(AQ:BB), what '1. Summary' reads) on the management fund;
 # the common-area fund has no AK, so its own G (the form's year total).
 _ADJ_TOTAL_COL = {_FUND_SHEET: 37, _COMMON_AREA_SHEET: 7}
+# '3. Budget-Sinking Fund' (change add-sinking-fund): one column right of sheet 2 (code Z, months I:T, year AF). Only its
+# PM lines and a Review's zero rows are on sheet 4, as Schedule rows linked month by month; its priced lines are not.
+_SF_SHEET = '3. Budget-Sinking Fund'
+_SF_CODE_COL, _SF_TOTAL_COL, _SF_FIRST_ROW, _SF_LAST_ROW = 26, 32, 15, 262      # E.S = SUBTOTAL(9, AF15:AF262)
+_SF_MONTH_COLS = tuple(range(9, 21))
+_ADJ_TOTAL_COL[_SF_SHEET] = _SF_TOTAL_COL
 ADJUSTMENT_TIE_TOLERANCE = HELPER_TIE_TOLERANCE   # VND a year: the fund lines are written month by month, rounded
 _ADJ_DETAIL_TOLERANCE = 1.0                         # VND: the detail invariants of docs/32 section 2
 
@@ -2880,6 +2886,12 @@ def adjustment_sheet_ties(sheet_names, cell, last_row):
                 continue                                   # a section subtotal, not a line
             fund_rows.setdefault((sheet, code), r)
             leaves.append((sheet, code, r))
+    if _nfc(_SF_SHEET) in names:          # sheet 3 lines: located for their sheet-4 rows, not required on sheet 4
+        for r in range(_SF_FIRST_ROW, min(_SF_LAST_ROW, last_row(_SF_SHEET)) + 1):
+            code = text(_SF_SHEET, r, _SF_CODE_COL)
+            h_formula = (cell(_SF_SHEET, r, 8)[1] or '').upper()
+            if code and not h_formula.startswith('=SUBTOTAL'):
+                fund_rows.setdefault((_SF_SHEET, code), r)
 
     # ---- the adjustment sheet: parents and their details -------------------------------------
     A = _ADJ_COL
@@ -2926,7 +2938,7 @@ def adjustment_sheet_ties(sheet_names, cell, last_row):
                 differences.append((f'{label}: detail row {d} G x H vs I', q * p, a))
         # the fund line
         fund_sheet = text(ADJUSTMENT_SHEET, pr, A['fund_sheet'])
-        key = (next((s for s in _ADJ_FUND_SHEETS if _nfc(s) == fund_sheet), fund_sheet), code)
+        key = (next((s for s in _ADJ_FUND_SHEETS + (_SF_SHEET,) if _nfc(s) == fund_sheet), fund_sheet), code)
         if key not in fund_rows:
             differences.append((f'{label}: fund line', f"'{fund_sheet}' has no leaf with code {code!r}", ''))
             continue
@@ -2941,7 +2953,10 @@ def adjustment_sheet_ties(sheet_names, cell, last_row):
         if abs(amount - total) > ADJUSTMENT_TIE_TOLERANCE:
             differences.append((f"{label}: parent I vs '{key[0]}'!{_col_letter(tcol)}{fr}", amount, total))
         freq = text(ADJUSTMENT_SHEET, pr, A['freq']).lower()
-        month_cols = list(range(8, 20)) + ([6] if freq == 'monthly' else [])
+        if key[0] == _SF_SHEET:
+            month_cols = list(_SF_MONTH_COLS)                # Schedule rows: I:T only (design D6)
+        else:
+            month_cols = list(range(8, 20)) + ([6] if freq == 'monthly' else [])
         unlinked = [c for c in month_cols if not _formula_names_sheet(cell(key[0], fr, c)[1], ADJUSTMENT_SHEET)]
         rows.append((f"{label}: '{key[0]}' row {fr} month cells linked", len(month_cols) - len(unlinked),
                      len(month_cols)))
@@ -2984,17 +2999,21 @@ def _col_letter(c):
     return s
 
 
-def _read_sheet_block(ws, first_row, last_col):
+def _read_sheet_block(ws, first_row, last_col, values_only=False):
     """Read a sheet's rows `first_row`..last used row, columns 1..`last_col`, in two bulk reads (values and
-    formulas). Returns (last_row, lookup) where lookup(r, c) -> (value, formula or None)."""
+    formulas). Returns (last_row, lookup) where lookup(r, c) -> (value, formula or None). `values_only`: one read,
+    every formula None (Excel refuses .Formula on sheet 3's range; its formula text is read with openpyxl)."""
     used = ws.UsedRange
     last_row = used.Row + used.Rows.Count - 1
     if last_row < first_row:
         return last_row, (lambda r, c: (None, None))
     rng = ws.Range(ws.Cells(first_row, 1), ws.Cells(last_row, last_col))
-    values, formulas = rng.Value2, rng.Formula
+    values = rng.Value2
+    formulas = None if values_only else rng.Formula
     if not isinstance(values, tuple):           # a single cell comes back bare
         values, formulas = ((values,),), ((formulas,),)
+    if formulas is None:
+        formulas = tuple((None,) * len(row) for row in values)
 
     def lookup(r, c):
         i, j = r - first_row, c - 1
@@ -3005,10 +3024,11 @@ def _read_sheet_block(ws, first_row, last_col):
     return last_row, lookup
 
 
-def adjustment_cells_from_workbook(wb, last_col=37):
+def adjustment_cells_from_workbook(wb, last_col=37, extra=()):
     """From an open, recalculated Excel COM workbook, the (sheet_names, cell, last_row) triple adjustment_sheet_ties
     reads: the adjustment sheet from row 1 to AD and both fund sheets from row 12 to AK (`last_col`; the frequency
-    check reads to BB for the month spread), read in bulk once."""
+    check reads to BB for the month spread), read in bulk once. `extra`: more (sheet, first row) blocks, read as values
+    only (their formula text comes from openpyxl)."""
     sheets = {_nfc(ws.Name): ws for ws in wb.Worksheets}
     sheet_names = [ws.Name for ws in wb.Worksheets]
     blocks = {}
@@ -3017,6 +3037,10 @@ def adjustment_cells_from_workbook(wb, last_col=37):
         ws = sheets.get(_nfc(name))
         if ws is not None:
             blocks[_nfc(name)] = _read_sheet_block(ws, first, last_col)
+    for name, first in extra:
+        ws = sheets.get(_nfc(name))
+        if ws is not None:
+            blocks[_nfc(name)] = _read_sheet_block(ws, first, last_col, values_only=True)
 
     def cell(sheet, r, c):
         block = blocks.get(_nfc(sheet))
@@ -3051,7 +3075,7 @@ def check_adjustment_sheet(paths):
         xl.DisplayAlerts = False
         wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
         xl.CalculateFullRebuild()
-        sheet_names, cell, last_row = adjustment_cells_from_workbook(wb)
+        sheet_names, cell, last_row = adjustment_cells_from_workbook(wb, extra=((_SF_SHEET, 1),))
     except Exception as exc:
         raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
     finally:
@@ -3070,7 +3094,34 @@ def check_adjustment_sheet(paths):
         except Exception:
             pass
         shutil.rmtree(os.path.dirname(work), ignore_errors=True)
-    return adjustment_sheet_ties(sheet_names, cell, last_row)
+    return adjustment_sheet_ties(sheet_names, with_openpyxl_formulas(cell, paths['deliverable'], _SF_SHEET), last_row)
+
+
+def with_openpyxl_formulas(cell, path, sheet):
+    """`cell` with the formula text of `sheet` taken from openpyxl (Excel's bulk .Formula read fails on sheet 3): values
+    stay Excel's; an array formula gives its text."""
+    import openpyxl
+    from openpyxl.worksheet.formula import ArrayFormula
+    wb = openpyxl.load_workbook(path)
+    try:
+        name = next((n for n in wb.sheetnames if _nfc(n) == _nfc(sheet)), None)
+        formulas = {}
+        if name is not None:
+            for row in wb[name].iter_rows():
+                for c in row:
+                    v = c.value
+                    if isinstance(v, ArrayFormula):
+                        v = v.text
+                    if isinstance(v, str) and v.startswith('='):
+                        formulas[(c.row, c.column)] = v
+    finally:
+        wb.close()
+
+    def wrapped(s, r, c):
+        if _nfc(s) != _nfc(sheet):
+            return cell(s, r, c)
+        return cell(s, r, c)[0], formulas.get((r, c))
+    return wrapped
 
 
 # ---- change add-line-frequency: the form's own checks on every written line, and five frequency edits ----------
@@ -3228,8 +3279,9 @@ def frequency_edit_ties(plan, expected, sheet_names, cell, last_row):
     return not differences, rows, differences, notes
 
 
-def _recalc_and_read(path):
-    """Open a copy of `path` in Excel, recalculate fully, read the adjustment sheet and both fund sheets."""
+def _recalc_and_read(path, extra=()):
+    """Open a copy of `path` in Excel, recalculate fully, read the adjustment sheet and both fund sheets (and the
+    `extra` (sheet, first row) blocks)."""
     import shutil
     import tempfile
 
@@ -3249,7 +3301,7 @@ def _recalc_and_read(path):
         xl.DisplayAlerts = False
         wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
         xl.CalculateFullRebuild()
-        return adjustment_cells_from_workbook(wb, last_col=54)
+        return adjustment_cells_from_workbook(wb, last_col=54, extra=extra)
     except Exception as exc:
         raise BaselineUnavailable(f'Excel could not evaluate the deliverable: {type(exc).__name__}: {exc}') from exc
     finally:
@@ -4109,10 +4161,41 @@ def pm_line_problems(wb):
     return problems, lines
 
 
+def sf_pm_line_problems(wb):
+    """The lines left for the PM on '3. Budget-Sinking Fund' (change add-sinking-fund, task 4.4): ([(code, reason)],
+    {code: row}). A line: remark U starts "PM điền:", G and I:T hold no typed number (empty or a formula into sheet
+    4), all shaded FFF2CC, and its marked SF row is on '4. Điều chỉnh'."""
+    import budget_adjustment as ba
+    import generate_project_budget as gpb
+    problems, lines = [], {}
+    if _SF_SHEET not in wb.sheetnames:
+        return problems, lines
+    ws = wb[_SF_SHEET]
+    marked = ba.pm_rows(wb[ba.SHEET_NAME]) if ba.SHEET_NAME in wb.sheetnames else {}
+    for code, r in gpb.sf_leaf_rows(ws).items():
+        remark = ws.cell(row=r, column=21).value
+        if not (isinstance(remark, str) and remark.startswith(gpb.PM_FILL_LEAD)):
+            continue
+        lines[code] = r
+        for col in (7, *_SF_MONTH_COLS):
+            c = ws.cell(row=r, column=col)
+            if isinstance(c.value, (int, float)) and not isinstance(c.value, bool):
+                problems.append((f'SF {code}', f'ô {c.coordinate} có số {c.value}, phải để trống'))
+                break
+            rgb = str(getattr(c.fill.fgColor, 'rgb', '') or '') if c.fill is not None else ''
+            if not rgb.upper().endswith(PM_FILL_RGB):
+                problems.append((f'SF {code}', f'ô {c.coordinate} chưa tô vàng nhạt'))
+                break
+        if (code, _SF_SHEET) not in marked:
+            problems.append((f'SF {code}', "không có dòng 'PM điền' trên sheet '4. Điều chỉnh'"))
+    return problems, lines
+
+
 def check_pm_lines(paths):
-    """Lines left for the PM on the deliverable (spec pm-filled-lines): the static rules of pm_line_problems, then in
-    Excel: every such line totals 0 with no error, and typing 24,000,000 VND in the first linked line's "Nhập số" cell
-    makes its year 24,000,000 VND with no error. Returns (ok, rows, differences, notes)."""
+    """Lines left for the PM on the deliverable (spec pm-filled-lines): the static rules of pm_line_problems (and
+    sf_pm_line_problems for sheet 3), then in Excel: every such line totals 0 with no error, and typing 24,000,000 VND in
+    the first linked line's "Nhập số" cell makes its year 24,000,000 VND with no error (on sheet 3 too: its I:T and AF).
+    Returns (ok, rows, differences, notes)."""
     import shutil
     import tempfile
 
@@ -4122,14 +4205,25 @@ def check_pm_lines(paths):
     wb = openpyxl.load_workbook(paths['deliverable'])
     try:
         problems, lines = pm_line_problems(wb)
+        sf_problems, sf_lines = sf_pm_line_problems(wb)
+        problems += sf_problems
         marked = ba.pm_rows(wb[ba.SHEET_NAME]) if ba.SHEET_NAME in wb.sheetnames else {}
         cyclic = pm_cyclic_codes(wb, marked)
     finally:
         wb.close()
-    rows = [('lines left for the PM', len(lines)), ('with a row on sheet 4', len(marked))]
+    rows = [('lines left for the PM', len(lines)), ('sinking-fund lines left for the PM', len(sf_lines)),
+            ('with a row on sheet 4', len(marked))]
     notes = [f"{len(lines)} dòng PM điền: {', '.join(lines)}"] if lines else ['no line left for the PM in this run']
-    if not lines:
+    if sf_lines:
+        notes.append(f'{len(sf_lines)} dòng PM điền trên quỹ bảo trì (sheet 3)')
+    if not lines and not sf_lines:
         return (not problems), rows, problems, notes
+
+    sf_ok, sf_rows, sf_diffs = _sf_pm_fill_in_excel(paths['deliverable'], sf_lines, marked)
+    rows += sf_rows
+    problems += sf_diffs
+    if not lines:
+        return (not problems) and sf_ok, rows, problems, notes
 
     fund_rows = {}
     _names, cell, _last = _recalc_and_read(paths['deliverable'])
@@ -4174,6 +4268,214 @@ def check_pm_lines(paths):
         finally:
             shutil.rmtree(os.path.dirname(work), ignore_errors=True)
     return (not problems), rows, problems, notes
+
+
+def _sf_pm_fill_in_excel(path, sf_lines, marked):
+    """Sheet 3 PM lines in Excel: each totals 0 (AF) with no error; typing 24,000,000 VND in the first one's "Nhập số"
+    cell makes its I:T and AF 24,000,000 VND. (ok, rows, problems)."""
+    import shutil
+    import tempfile
+
+    import openpyxl
+
+    import budget_adjustment as ba
+    rows, problems = [], []
+    if not sf_lines:
+        return True, rows, problems
+    extra = ((_SF_SHEET, 1),)
+    _n, cell, _l = _recalc_and_read(path, extra=extra)
+    for code, r in sf_lines.items():
+        vals = [cell(_SF_SHEET, r, c)[0] for c in (*_SF_MONTH_COLS, _SF_TOTAL_COL)]
+        if any(isinstance(v, (int, float)) and v <= _EXCEL_ERR for v in vals):
+            problems.append((f'SF {code}', 'Excel báo lỗi trên dòng'))
+        elif abs(sum(v for v in vals if isinstance(v, (int, float)))) >= 0.5:
+            problems.append((f'SF {code}', 'chưa nhập mà I:T / AF khác 0'))
+    target = next(((code, prow) for (code, sheet), (prow, _why) in sorted(marked.items(), key=lambda kv: kv[1][0])
+                   if sheet == _SF_SHEET and code in sf_lines), None)
+    if target is None:
+        return not problems, rows, problems
+    code, prow = target
+    work = os.path.join(tempfile.mkdtemp(prefix='sf_pm_fill_'), os.path.basename(path))
+    try:
+        shutil.copy(path, work)
+        wb = openpyxl.load_workbook(work)
+        wb[ba.SHEET_NAME].cell(row=prow + 1, column=ba.COL['new_price'], value=24_000_000)
+        wb.save(work)
+        wb.close()
+        _n2, cell2, _l2 = _recalc_and_read(work, extra=extra)
+        r = sf_lines[code]
+        months = [cell2(_SF_SHEET, r, c)[0] for c in _SF_MONTH_COLS]
+        af = cell2(_SF_SHEET, r, _SF_TOTAL_COL)[0]
+        if any(isinstance(v, (int, float)) and v <= _EXCEL_ERR for v in months + [af]):
+            problems.append((f'SF {code}', 'Excel báo lỗi sau khi PM nhập số'))
+        else:
+            total = sum(v for v in months if isinstance(v, (int, float)))
+            if abs(total - 24_000_000) > 1 or not isinstance(af, (int, float)) or abs(af - 24_000_000) > 1:
+                problems.append((f'SF {code}', f'PM nhập 24,000,000 VND mà I:T = {total}, AF = {af}'))
+            else:
+                rows.append((f'SF {code}: 24,000,000 VND typed on sheet 4 -> sheet 3 year (AF)', round(af)))
+    finally:
+        shutil.rmtree(os.path.dirname(work), ignore_errors=True)
+    return not problems, rows, problems
+
+
+_SF_REPORT_SHEET = '3.1 Report-Sinking Fund'
+_SUMMARY_SHEET = '1. Summary'
+_SF_TOTAL_ROW = 14                    # E.S: SUBTOTAL(9, AF15:AF262), the row 1. Summary reads
+_SF_TOL_MONTH = 1.0                   # VND: a month cell is the rounded monthly amount
+
+
+def sinking_fund_expected(project, prior, review, sf_rows_csv, excluded, codes, vat_factors, budget_year, cpi):
+    """{code: (status, [12 expected month cells])} recomputed from the rules of design D2-D5 without price_sf: the
+    median (statistics.median, plain) of the code's 2027 values x NFA or lifts, the warranty months for a new project,
+    prior x CPI in a Review, 0 for a code sheet 2 holds. A PM line expects no figure (None)."""
+    import statistics
+
+    import real_budget_ranges as rbr
+    nfa, lifts = project.get('total_nfa'), project.get('total_lifts')
+    w = 0 if review else max(0, min(int(project.get('warranty_months', rbr.DEFAULT_WARRANTY_MONTHS) or 0), 12))
+    keys = rbr.self_keys(project.get('name')) if review and project.get('name') else set()
+    out = {}
+    for code in codes:
+        if code in excluded:
+            out[code] = (rbr.SF_STATUS_OTHER_FUND, [0] * 12)
+            continue
+        if review and code in prior:
+            amount, year, _src = prior[code]
+            monthly = amount * rbr.cpi_factor(year, cpi, target=budget_year) / 12
+            out[code] = (rbr.SF_STATUS_CARRY, [round(monthly * f) for f in vat_factors])
+            continue
+        vals = [r['value_unit_month_2027'] for r in sf_rows_csv or ()
+                if r['code'] == code and r['value_unit_month_2027'] is not None
+                and not (keys and rbr.is_self({'name_key': r['name_key'], 'nfa_m2': r['nfa_m2']}, keys, nfa))]
+        driver = lifts if code in rbr.SF_LIFT_CODES else nfa
+        in_list = code in rbr.SF_WARRANTY_CODES
+        if sf_rows_csv is None:
+            out[code] = (rbr.SF_STATUS_PM, None)
+        elif w >= 12 and not in_list:
+            out[code] = (rbr.SF_STATUS_WARRANTY, [0] * 12)
+        elif len(vals) < rbr.MIN_PROJECTS or not driver or driver <= 0:
+            out[code] = (rbr.SF_STATUS_PM, None)
+        else:
+            monthly = statistics.median(vals) * driver
+            zero = 0 if in_list else w
+            out[code] = (rbr.SF_STATUS_PRICED, [0 if i < zero else round(monthly * f) for i, f in enumerate(vat_factors)])
+    return out
+
+
+def check_sinking_fund(paths, input_path):
+    """Change add-sinking-fund (task 8.1) on a generated deliverable and its input form:
+    - every sheet 3 line has the status and the twelve month cells the rules give (sinking_fund_expected), as written
+      (G x 12 for a Monthly line, I:T for a Schedule line) and as Excel totals it (AF);
+    - the warranty zeros are 0; each PM line is blank (the static and Excel rules are check_pm_lines');
+    - no code has a figure on both sheet 2 (AK) and sheet 3 (AF);
+    - 1. Summary's E.S row: H = sheet 3 AF14, I = H / 12, and AF14 = the sum of the lines' AF;
+    - sheets 3 and 3.1 visible exactly when sheet 3 has a figure or 3.1 holds prior figures.
+    Returns (ok, rows, differences, notes)."""
+    import openpyxl
+
+    import generate_project_budget as gpb
+    import real_budget_ranges as rbr
+    problems, notes = [], []
+    project = gpb.read_input(input_path)[0]
+    prior, _actual = gpb.read_sf_prior(input_path)
+    review = project.get('existing') is not None or prior is not None
+    prior = prior or {}
+    bp = project.get('budget_period')
+    factors_incl = [1 + v / 100 for v in gpb._general_vat_months(project)]
+    wb = openpyxl.load_workbook(paths['deliverable'])
+    try:
+        if _SF_SHEET not in wb.sheetnames:
+            return False, [], [('sheet 3', 'missing from the deliverable', '')], notes
+        ws, mf = wb[_SF_SHEET], wb[_FUND_SHEET]
+        incl = ' '.join(str(mf['F7'].value or '').split()).upper() != 'KHOÁN'
+        lines = gpb.sf_leaf_rows(ws)
+        written = {}
+        for code, r in lines.items():
+            freq = str(ws.cell(row=r, column=4).value or '')
+            remark = str(ws.cell(row=r, column=21).value or '')
+            if freq == 'Monthly':
+                g = ws.cell(row=r, column=7).value
+                months = [g if isinstance(g, (int, float)) else 0] * 12
+            else:
+                months = [v if isinstance(v := ws.cell(row=r, column=c).value, (int, float)) else 0
+                          for c in _SF_MONTH_COLS]
+            written[code] = (gpb.sf_status_of(remark), months, remark)
+        mf_rows, mf_pm = {}, set()
+        for r in range(_ADJ_FUND_FIRST_ROW, mf.max_row + 1):
+            code = mf.cell(row=r, column=25).value
+            if isinstance(code, str) and code.strip() in lines and code.strip() not in mf_rows:
+                mf_rows[code.strip()] = r
+                if str(mf.cell(row=r, column=20).value or '').startswith(gpb.PM_FILL_LEAD):
+                    mf_pm.add(code.strip())
+        report = {}                       # 3.1: code (E) -> the approved figure written in N
+        if _SF_REPORT_SHEET in wb.sheetnames:
+            for row in wb[_SF_REPORT_SHEET].iter_rows(min_row=_SF_FIRST_ROW, max_col=14, values_only=True):
+                if isinstance(row[4], str) and row[4].strip() and row[4].strip() not in report:
+                    report[row[4].strip()] = row[13]
+        report_has = any(isinstance(v, (int, float)) and v for v in report.values())
+        for code, (amount, _year, _src) in prior.items():   # a Review writes each prior figure into 3.1 (task 4.2)
+            if code in report and report[code] != round(amount):
+                problems.append((f'3.1 N, {code}', report[code], round(amount)))
+        states = (ws.sheet_state, wb[_SF_REPORT_SHEET].sheet_state if _SF_REPORT_SHEET in wb.sheetnames else None)
+    finally:
+        wb.close()
+
+    _names, cell, _last = _recalc_and_read(paths['deliverable'], extra=((_SF_SHEET, 1), (_SUMMARY_SHEET, 1)))
+    excluded = {c for c, r in mf_rows.items() if c in mf_pm or abs(_num(cell(_FUND_SHEET, r, 37)[0]) or 0) >= 0.5}
+    expected = sinking_fund_expected(project, prior, review, rbr.load_sf_values(), excluded, list(lines),
+                                     factors_incl if incl else [1.0] * 12, bp.budget_year if bp else rbr.TARGET_YEAR,
+                                     rbr.load_cpi() if review else None)
+    counts, af_sum = {}, 0.0
+    for code, r in lines.items():
+        status, want = expected[code]
+        got_status, months, _remark = written[code]
+        counts[status] = counts.get(status, 0) + 1
+        af = _num(cell(_SF_SHEET, r, _SF_TOTAL_COL)[0])
+        if af is not None and af <= _EXCEL_ERR:
+            problems.append((f'{code} AF{r}', 'Excel error', ''))
+            continue
+        af = af or 0.0
+        af_sum += af
+        if got_status != status:
+            problems.append((f'{code}: status', got_status or '(no remark)', status))
+            continue
+        if want is None:                                  # a PM line: no figure until the PM types one
+            if abs(af) >= 0.5:
+                problems.append((f'{code}: PM line AF', af, 0))
+            continue
+        bad = [i + 1 for i, (g, e) in enumerate(zip(months, want)) if abs(g - e) > _SF_TOL_MONTH]
+        if bad:
+            problems.append((f'{code}: month cells (T{bad[0]}…)', months[bad[0] - 1], want[bad[0] - 1]))
+        if abs(af - sum(want)) > _SF_TOL_MONTH * 12:
+            problems.append((f'{code}: AF{r} (Excel)', af, sum(want)))
+        if code in mf_rows and abs(af) >= 0.5:
+            mf_value = _num(cell(_FUND_SHEET, mf_rows[code], 37)[0]) or 0.0
+            if abs(mf_value) >= 0.5:
+                problems.append((f'{code}: figure on both funds', f'sheet 2 AK {mf_value:,.0f}', f'sheet 3 AF {af:,.0f}'))
+    total = _num(cell(_SF_SHEET, _SF_TOTAL_ROW, _SF_TOTAL_COL)[0]) or 0.0
+    if abs(total - af_sum) > 1:
+        problems.append(('sheet 3 AF14 vs the lines', total, af_sum))
+    srow = next((r for r in range(1, _last(_SUMMARY_SHEET) + 1)
+                 if str(cell(_SUMMARY_SHEET, r, 2)[0] or '').strip() == 'E.S'), None)
+    if srow is None:
+        problems.append(('1. Summary', 'no E.S row', ''))
+    else:
+        h, i = _num(cell(_SUMMARY_SHEET, srow, 8)[0]), _num(cell(_SUMMARY_SHEET, srow, 9)[0])
+        if h is None or abs(h - total) > 1:
+            problems.append((f'1. Summary H{srow} (E.S)', h, total))
+        if i is None or abs(i - total / 12) > 1:
+            problems.append((f'1. Summary I{srow} (E.S / month)', i, total / 12))
+    show = abs(total) >= 0.5 or report_has
+    want_state = 'visible' if show else 'hidden'
+    if states[0] != want_state or states[1] != want_state:
+        problems.append(('sheets 3 / 3.1 state', '/'.join(str(s) for s in states), want_state))
+    rows = [('sheet 3 lines', len(lines))] + [(f'lines {k}', v) for k, v in sorted(counts.items())] + [
+        ('sheet 3 AF14 = 1. Summary E.S', round(total)), ('mode', 'Review / Existing' if review else 'new project'),
+        ('codes held on sheet 2', ', '.join(sorted(excluded)) or '-')]
+    notes.append(f"quỹ bảo trì: {len(lines)} dòng; " + ', '.join(f'{k} {v}' for k, v in sorted(counts.items()))
+                 + f"; mã ở quỹ quản lý: {', '.join(sorted(excluded)) or 'không'}")
+    return not problems, rows, problems, notes
 
 
 # ---- change add-budget-print-layout: the Management Fund sheet's print setup ----------------------------------------

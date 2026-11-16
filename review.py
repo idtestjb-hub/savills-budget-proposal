@@ -44,7 +44,16 @@ TOP = 10
 DELIVERABLE_LAYOUT = {
     'MF': dict(sheet='2. Budget-Management Fund', code='Y', name='Z', value='AK', first_month='AQ'),
     'CA': dict(sheet='2.2 Common area Fund', code='Y', name='Z', value='AG', first_month='AL'),
+    # change add-sinking-fund (task 5.3): used for its "Nhập số" rows; its comparison is sf_review(), apart from the
+    # management and common-area funds, so their figures do not move
+    'SF': dict(sheet='3. Budget-Sinking Fund', code='Z', name='AA', value='AF', first_month='AL'),
 }
+SF_TAG_HIGH = 'cao hơn trung vị'
+SF_TAG_WARRANTY = 'trong bảo hành'
+SF_TAG_PM = 'PM điền'
+SF_TAG_B8 = 'B8: đang ở quỹ quản lý'
+SF_NONE = 'file không có quỹ bảo trì'
+SF_REVIEW_SHEET = 'Review - Quỹ bảo trì'
 SECTION_VI = {'R': 'THU', 'E': 'CHI'}
 
 # "How the tool got its figure" (design D6).
@@ -157,8 +166,8 @@ def tool_lines(deliverable, recalced):
     wbv = openpyxl.load_workbook(recalced, data_only=True)
     out = {}
     for fund, lay in DELIVERABLE_LAYOUT.items():
-        if lay['sheet'] not in wbv.sheetnames:
-            continue
+        if fund == 'SF' or lay['sheet'] not in wbv.sheetnames:
+            continue                  # the sinking fund is compared by sf_review()
         wf, wv = wbf[lay['sheet']], wbv[lay['sheet']]
         lines, totals, sec = {}, {}, None
         for r in range(1, wv.max_row + 1):
@@ -241,6 +250,110 @@ def add_zero_rows(deliverable, rows):
     else:
         wb.close()
     return added, skipped
+
+
+# ------------------------------------------------------------------------------------------------
+# The sinking fund (change add-sinking-fund, tasks 5.3-5.4)
+# ------------------------------------------------------------------------------------------------
+def sf_median_refs(form, codes):
+    """{code: median x driver x 12, excl. VAT} for this project (its NFA and total lifts from the form, itself left out
+    of the reference); codes without a usable median are absent."""
+    import generate_project_budget as gpb
+    import real_budget_ranges as rbr
+    try:
+        project = gpb.read_input(form)[0]
+    except Exception:          # noqa: BLE001 - the reference column is information only
+        return {}
+    res = rbr.price_sf(list(codes), rbr.load_sf_values(), nfa=project.get('total_nfa'), lifts=project.get('total_lifts'),
+                       warranty_months=0, self_name=project.get('name'), self_nfa=project.get('total_nfa'), prior={})
+    return {c: r.figure_excl_vat for c, r in res.items() if r.status == rbr.SF_STATUS_PRICED}
+
+
+def sf_review(prior_sf, deliverable, recalced, meta, refs=None):
+    """dict(rows, totals, none) comparing the approved sinking fund (per year excl. VAT, brought to the deliverable's VAT
+    basis) with the tool's sheet 3 (AF after Excel's recalculation). One row per code with a figure on either side;
+    tags: "cao hơn trung vị" (new above twice the median reference), "PM điền", "B8" (the code is held on sheet 2)."""
+    import generate_project_budget as gpb
+    lay = DELIVERABLE_LAYOUT['SF']
+    lines = {ln['code']: ln for ln in gpb.sf_lines_of(deliverable)}
+    wbv = openpyxl.load_workbook(recalced, data_only=True)
+    try:
+        ws = wbv[lay['sheet']] if lay['sheet'] in wbv.sheetnames else None
+        new = {}
+        for code, ln in lines.items():
+            v = ws[f"{lay['value']}{ln['row']}"].value if ws is not None else None
+            new[code] = float(v) if isinstance(v, (int, float)) else 0.0
+    finally:
+        wbv.close()
+    d_incl = meta.get('deliverable_incl', True)
+    by = int(meta.get('budget_year') or 0)
+    f_new = (sum(1 + vat_rate(by, m) / 100 for m in range(1, 13)) / 12) if d_incl and by else 1.0
+    refs = refs or {}
+    rows = []
+    for code in sorted(set(prior_sf) | {c for c, v in new.items() if abs(v) >= 0.5}, key=lambda c: lines.get(c, {}).get('row', 9999)):
+        p = prior_sf.get(code) or {}
+        f_old = (sum(1 + vat_rate(int(p['year']), m) / 100 for m in range(1, 13)) / 12
+                 if d_incl and p.get('year') else 1.0)
+        approved = (p.get('approved') or 0.0) * f_old
+        tool = new.get(code, 0.0)
+        ref = refs.get(code)
+        ref_conv = ref * f_new if ref is not None else None
+        status = lines.get(code, {}).get('status', '')
+        tags = []
+        if ref_conv and tool > 2 * ref_conv:
+            tags.append(SF_TAG_HIGH)
+        if status == 'pm_fill':
+            tags.append(SF_TAG_PM)
+        if status == 'warranty_zero':
+            tags.append(SF_TAG_WARRANTY)
+        if status == 'other_fund':
+            tags.append(SF_TAG_B8)
+        diff = tool - approved
+        rows.append(dict(code=code, item=lines.get(code, {}).get('name') or p.get('item', ''), approved=round(approved),
+                         new=round(tool), median_ref=round(ref_conv) if ref_conv is not None else None,
+                         diff=round(diff), pct=(diff / approved) if approved else None, tags=tags,
+                         source=p.get('source', ''), status=status))
+    totals = dict(approved=sum(r['approved'] for r in rows), new=sum(r['new'] for r in rows))
+    return dict(rows=rows, totals=totals, none=not prior_sf)
+
+
+def sf_zero_rows(sf):
+    """[('SF', row)] for add_zero_rows: an approved code the tool gives 0, unless sheet 2 holds it (B8, no row)."""
+    return [('SF', dict(code=r['code'], item=r['item'])) for r in sf['rows']
+            if r['approved'] >= 0.5 and abs(r['new']) < 0.5 and r['status'] != 'other_fund']
+
+
+def build_sf_review_sheet(wb, sf, meta):
+    """'Review - Quỹ bảo trì' of the analysis workbook: approved, new year, median reference, difference, tags."""
+    if SF_REVIEW_SHEET in wb.sheetnames:
+        del wb[SF_REVIEW_SHEET]
+    ws = wb.create_sheet(SF_REVIEW_SHEET)
+    if REVIEW_SHEET in wb.sheetnames:            # the Review sheet stays the last one
+        wb._sheets.remove(ws)
+        wb._sheets.insert(wb.sheetnames.index(REVIEW_SHEET), ws)
+    ws.cell(row=1, column=1, value=f"Quỹ bảo trì: duyệt năm {meta.get('prior_year')} so với ngân sách năm "
+                                   f"{meta.get('budget_year')} do công cụ sinh").font = Font(bold=True, size=12)
+    if sf['none']:
+        ws.cell(row=2, column=1, value=SF_NONE)
+    heads = ('Mã', 'Hạng mục', 'Duyệt (quy đổi)', 'Công cụ', 'Tham chiếu trung vị', 'Chênh', '%', 'Gắn cờ', 'Nguồn số duyệt')
+    r = 4
+    for c, h in enumerate(heads, start=1):
+        cell = ws.cell(row=r, column=c, value=h)
+        cell.font, cell.fill = HEADER_FONT, HEADER_FILL
+    for x in sf['rows']:
+        r += 1
+        vals = (x['code'], x['item'], x['approved'], x['new'], x['median_ref'], x['diff'], x['pct'], ', '.join(x['tags']),
+                x['source'])
+        for c, v in enumerate(vals, start=1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.number_format = PCT if c == 7 else MONEY
+    r += 1
+    ws.cell(row=r, column=2, value='Tổng').font = Font(bold=True)
+    ws.cell(row=r, column=3, value=sf['totals']['approved']).number_format = MONEY
+    ws.cell(row=r, column=4, value=sf['totals']['new']).number_format = MONEY
+    for col, w in zip('ABCDEFGHI', (10, 40, 18, 18, 18, 18, 8, 26, 40)):
+        ws.column_dimensions[col].width = w
+    return ws
 
 
 # ------------------------------------------------------------------------------------------------
@@ -713,6 +826,11 @@ def summary_json(data, meta):
                abnormal=data.get('abnormal', []), abnormal_rule=dict(pct=ABNORMAL_PCT, vnd=ABNORMAL_VND))
     if data.get('measure_ties'):
         out['measure_ties'] = data['measure_ties']
+    if data.get('sf') is not None:                # change add-sinking-fund, task 5.4
+        sf = data['sf']
+        out['sf_rows'] = [{k: v for k, v in r.items() if k != 'status'} for r in sf['rows']]
+        out['sf_totals'] = sf['totals']
+        out['sf_none'] = sf['none']
     return out
 
 
@@ -832,7 +950,14 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
     if m_meta:
         meta['measures'] = m_meta
     data = assemble(prior_lines, anchors, tool, meta, ctx, measures=measures)
-    zero_added, zero_skipped = add_zero_rows(deliverable, zero_tool_rows(data))
+    # change add-sinking-fund: the sinking fund, compared apart from the two funds above
+    import generate_project_budget as gpb
+    sf_codes = set(prior.sf) | {ln['code'] for ln in gpb.sf_lines_of(deliverable)}
+    sf = sf_review(prior.sf, deliverable, recalced, meta, sf_median_refs(form, sf_codes))
+    data['sf'] = sf
+    say(f"    quỹ bảo trì: {SF_NONE if sf['none'] else str(len(prior.sf)) + ' mã có số duyệt'}; "
+        f"duyệt {sf['totals']['approved']:,.0f}, công cụ {sf['totals']['new']:,.0f}")
+    zero_added, zero_skipped = add_zero_rows(deliverable, zero_tool_rows(data) + sf_zero_rows(sf))
     if zero_added:
         say(f"    thêm {len(zero_added)} dòng Nhập số trên sheet '4. Điều chỉnh' (mã có số duyệt, công cụ ra 0): "
             f"{', '.join(zero_added)}")
@@ -840,6 +965,7 @@ def run(prior_path, base_form=None, facts_path=None, workdir=None, quiet=True, n
         say(f"    không thêm dòng Nhập số cho {key}: {why}")
     awb = openpyxl.load_workbook(analysis)
     build_review_sheet(awb, data, meta)
+    build_sf_review_sheet(awb, sf, meta)
     awb.save(analysis)
     md = summary_md(data, meta)
     open(os.path.join(workdir, 'review_summary.md'), 'w', encoding='utf-8').write(md)

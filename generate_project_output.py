@@ -4181,6 +4181,58 @@ def build_pm_lines_sheet(wb, project, deliverable=None):
     return lines
 
 
+SF_ANALYSIS_SHEET = 'Quỹ bảo trì'
+
+
+def build_sinking_fund_sheet(wb, project, deliverable=None):
+    """'Quỹ bảo trì' (change add-sinking-fund, task 4.5): every sheet 3 line the tool wrote, read back from the
+    deliverable — code, item, status, the written year and the remark (basis, n projects, P25-P75 or the prior year x
+    CPI) — with the totals by status. The lines left for the PM are listed again with their '4. Điều chỉnh' row.
+    Internal."""
+    import generate_project_budget as gpb
+    if deliverable is None:
+        deliverable = os.path.join(gpb.BUDGET_OUT_DIR, f"{project['name']} - Sample Consulting Budget.xlsx")
+    lines = gpb.sf_lines_of(deliverable)
+    ws = wb.create_sheet(SF_ANALYSIS_SHEET)
+    title_block(ws, 'Quỹ bảo trì — sheet 3. Budget-Sinking Fund',
+                'Nội bộ. Dự án mới: trung vị quỹ bảo trì thực tế theo mã (thang máy theo số thang, mã khác theo m² NFA '
+                'thu phí), số tháng bảo hành chỉ tính hợp đồng bảo trì, kiểm định và các mục trong danh sách bảo hành. '
+                'Review: số duyệt năm trước của từng mã × CPI, không có thì trung vị. Mã sheet 2 đang giữ để 0 ở đây.')
+    r = 4
+    if not lines:
+        ws.cell(row=r, column=1, value='Bản giao không có sheet 3 hoặc sheet 3 không có dòng nào do công cụ ghi.')
+        return lines
+    totals = {}
+    for ln in lines:
+        n, s = totals.get(ln['status'], (0, 0))
+        totals[ln['status']] = (n + 1, s + (ln['annual'] or 0))
+    ws.cell(row=r, column=1, value='Tổng theo trạng thái').font = Font(bold=True)
+    for status, (n, s) in sorted(totals.items()):
+        r += 1
+        ws.cell(row=r, column=1, value=gpb.SF_STATUS_VI.get(status, status))
+        ws.cell(row=r, column=2, value=n)
+        ws.cell(row=r, column=3, value=s).number_format = MONEY_FMT
+    r += 1
+    ws.cell(row=r, column=1, value='Cộng').font = Font(bold=True)
+    ws.cell(row=r, column=3, value=sum(s for _, s in totals.values())).number_format = MONEY_FMT
+    r += 2
+    heads = ('Mã', 'Hạng mục', 'Trạng thái', 'Số ghi trên bản giao (VND/năm)', 'Ghi chú / cơ sở', 'Dòng trên sheet 4')
+    for c, h in enumerate(heads, start=1):
+        ws.cell(row=r, column=c, value=h).font = Font(bold=True)
+    for ln in lines:
+        r += 1
+        ws.cell(row=r, column=1, value=ln['code'])
+        ws.cell(row=r, column=2, value=ln['name'])
+        ws.cell(row=r, column=3, value=gpb.SF_STATUS_VI.get(ln['status'], ln['status']))
+        ws.cell(row=r, column=4, value=ln['annual']).number_format = MONEY_FMT
+        ws.cell(row=r, column=5, value=ln['reason']).alignment = Alignment(wrap_text=True, vertical='top')
+        if ln['status'] == 'pm_fill':
+            ws.cell(row=r, column=6, value='có' if ln['sheet4'] else 'không')
+    for col, w in zip('ABCDEF', (10, 34, 24, 20, 100, 16)):
+        ws.column_dimensions[col].width = w
+    return lines
+
+
 def build_real_budget_ranges_sheet(wb, project, demand, staff):
     """'Real-Budget Ranges' (change use-real-budget-ranges, spec real-budget-ranges): for each code priced or
     cross-checked from the range of real Savills budgets, the projects used and left out (anonymous ids), P25 /
@@ -4369,6 +4421,7 @@ def main():
         build_utility_bridge_sheet(wb, project['utilities_result'])
     build_real_budget_ranges_sheet(wb, project, demand, staff)
     build_pm_lines_sheet(wb, project)
+    build_sinking_fund_sheet(wb, project)          # change add-sinking-fund, task 4.5
     # Last among the internal sheets and read-only (change add-service-level-table, design D9).
     build_service_levels_sheet(wb, project, demand)
 

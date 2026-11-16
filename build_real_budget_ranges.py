@@ -45,6 +45,20 @@ Checked NFA (change widen-real-budget-store, approved 2026-10-22, design D4):
     When the fee revenue mixes products at different rates (apartments, shops, nursery, villas, parking), the table's
     ref_rate is the area-weighted rate of the rates written in the file (approved 2026-10-22), not the apartment rate.
 
+Sinking-fund reference (change add-sinking-fund, design D1; read rules approved 2026-11-12):
+  <out>/Ref_SinkingFundValues.csv         one row per anonymous project and sinking-fund expense code with a value
+  - the same chosen projects, project ids, fee-paying NFA and CPI as Ref_RealBudgetValues.csv;
+  - the file's sinking-fund budget sheets (sheet_catalog fund 'SF', kind 'budget'), hidden ones included (the template
+    ships them hidden); a sheet of another budget year than the file's is left out; two sheets of the same year
+    (blocks A/B) are summed;
+  - the amount is the line's Total Price (column H); a sheet whose read column is the prior year's approved budget
+    (AB, one form variant) gives 0 where H is blank; VAT out at the line's own factor; per month over the line's months;
+  - a sheet whose expense lines (5 or more with an amount) all carry one amount is a placeholder: the project gives
+    no sinking-fund values;
+  - lift codes (real_budget_ranges.SF_LIFT_CODES) are per lift: the master list's ElevatorCount (every lift, service
+    lifts included) by folded project name, one matching row only; without it the project gives no lift-code value.
+    Every other code is per m2 of fee-paying NFA.
+
 The script refuses to write when any output cell or the README would contain a store project or file name.
 """
 import argparse
@@ -63,6 +77,7 @@ STORE_FILE = 'budget_scan_v2.sqlite'
 MAP_FILE = 'real_budget_ranges_map.csv'
 NAMES_FILE = 'real_budget_ranges_names.txt'
 VALUES_FILE = 'Ref_RealBudgetValues.csv'
+SF_VALUES_FILE = 'Ref_SinkingFundValues.csv'
 README_FILE = 'README.txt'
 USAGE_FILE = 'Ref_RealBudgetUsage.csv'
 USAGE_COLUMNS = ['file_id', 'usage', 'reason_code', 'merged_into']
@@ -378,11 +393,148 @@ def build_rows(chosen, lines, cpi, codes=rbr.ALL_CODES, log=None, decisions=None
     return rows, pids
 
 
-def name_scan(rows, texts, names):
+# ---------------------------------------------------------------- sinking fund (change add-sinking-fund, design D1)
+
+SF_SQL = ('select l.code, l.amount_year, l.price_total, l.vat_rule, l.vat_factor, l.months_in_period, '
+          's.sheet, s.value_col, s.budget_year_v2 as sy '
+          'from fact_line l join sheet_catalog s on s.file_id = l.file_id and s.sheet = l.sheet '
+          "where l.file_id = ? and s.fund = 'SF' and s.sheet_kind = 'budget' and l.is_blank = 0 "
+          'and l.dup_code_in_sheet = 0')
+SF_PRIOR_READ_COLUMN = 'AB'      # one form variant: the store's read column there is the prior year's approved budget
+SF_PLACEHOLDER_MIN_LINES = 5
+SF_PLACEHOLDER, SF_OTHER_YEAR = 'placeholder', 'other_year'
+
+
+def read_sf_lines(path, file_ids):
+    """{file_id: [row dict]} of each file's sinking-fund budget-sheet lines; {} when the store has no sheet catalogue."""
+    con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    try:
+        con.row_factory = sqlite3.Row
+        out = {}
+        for fid in file_ids:
+            try:
+                out[fid] = [dict(r) for r in con.execute(SF_SQL, (fid,))]
+            except sqlite3.OperationalError:
+                return {}
+        return out
+    finally:
+        con.close()
+
+
+def sf_amount(line):
+    """The line's budget-year amount: Total Price (H) first; where the store read the prior year's approved column,
+    no H means no budget figure; else the store's read amount."""
+    pt = line.get('price_total')
+    if isinstance(pt, (int, float)) and pt:
+        return float(pt)
+    if (line.get('value_col') or '') == SF_PRIOR_READ_COLUMN:
+        return 0.0
+    return float(line.get('amount_year') or 0)
+
+
+def sf_codes_of_file(lines, year, months):
+    """({code: amount per month excluding VAT, budget-year prices}, notes) for one file. notes: SF_OTHER_YEAR when
+    a sheet of another budget year was left out, SF_PLACEHOLDER when the file's figures are a placeholder (codes {})."""
+    years = {ln['sheet']: ln.get('sy') for ln in lines}
+    keep = {s for s, y in years.items() if y is None or int(y) == int(year)}
+    notes = [SF_OTHER_YEAR] if len(keep) < len(years) else []
+    expense = [ln for ln in lines if ln['sheet'] in keep and (ln.get('code') or '').startswith('E') and sf_amount(ln)]
+    if len(expense) >= SF_PLACEHOLDER_MIN_LINES and len({round(sf_amount(ln)) for ln in expense}) == 1:
+        return {}, notes + [SF_PLACEHOLDER]
+    codes = {}
+    for ln in expense:
+        amount = sf_amount(ln)
+        if ln.get('vat_rule') == 'converted' and ln.get('vat_factor'):
+            amount /= ln['vat_factor']
+        codes[ln['code']] = codes.get(ln['code'], 0.0) + amount / (_f(ln.get('months_in_period')) or months or 12)
+    return codes, notes
+
+
+def master_lifts(master_path, chosen):
+    """{file_id: lift count} from the master list's ElevatorCount (every lift), by folded project name, one row only."""
+    if not master_path or not os.path.exists(master_path):
+        return {}
+    from webapp.facts_prefill import fold
+    by_name = {}
+    with open(master_path, encoding='utf-8-sig', newline='') as fh:
+        for r in csv.DictReader(fh):
+            by_name.setdefault(fold(r.get('Name')), []).append(r)
+    out = {}
+    for c in chosen:
+        key = fold(c.get('project_name'))
+        hits = by_name.get(key) if key else None
+        if hits and len(hits) == 1:
+            n = _f(hits[0].get('ElevatorCount'))
+            if n and n > 0:
+                out[c['file_id']] = n
+    return out
+
+
+def build_sf_rows(chosen, pids, sf_lines, cpi, lifts):
+    """(rows, counts): rows in rbr.SF_VALUE_COLUMNS order, only codes with a value above 0. counts: projects with
+    values, placeholder files, files with an other-year sheet left out, files without sinking-fund lines, and projects
+    whose lift-code lines were left out for want of a lift count."""
+    counts = {'with_values': 0, SF_PLACEHOLDER: 0, SF_OTHER_YEAR: 0, 'no_sf_lines': 0, 'no_lifts': 0}
+    rows = []
+    for c in sorted(chosen, key=lambda c: c['file_id']):
+        fid = c['file_id']
+        year = int(_f(c['budget_year_v2']))
+        codes, notes = sf_codes_of_file(sf_lines.get(fid) or [], year, _f(c.get('months_in_period')))
+        for n in notes:
+            counts[n] += 1
+        codes = {k: v for k, v in codes.items() if v > 0}
+        if not codes:
+            if SF_PLACEHOLDER not in notes:
+                counts['no_sf_lines'] += 1
+            continue
+        factor = rbr.cpi_factor(year, cpi)
+        key = '' if FLAG_STALE_NAME in c['flags'] else rbr.name_key(c.get('project_name'))
+        n_lifts, wrote, lift_missing = lifts.get(fid), False, False
+        for code in sorted(codes):
+            if code in rbr.SF_LIFT_CODES:
+                if not n_lifts:
+                    lift_missing = True
+                    continue
+                basis, unit = rbr.BASIS_LIFT, codes[code] / n_lifts
+            else:
+                basis, unit = rbr.BASIS_FEE_NFA, codes[code] / c['nfa']
+            rows.append({'project_id': pids[fid], 'name_key': key, 'nfa_m2': round(c['nfa'], -1), 'budget_year': year,
+                         'code': code, 'basis': basis, 'value_unit_month': round(unit, 4),
+                         'cpi_factor': round(factor, 6), 'value_unit_month_2027': round(unit * factor, 4),
+                         'flag': '; '.join(c['flags'])})
+            wrote = True
+        counts['with_values'] += int(wrote)
+        counts['no_lifts'] += int(lift_missing)
+    return rows, counts
+
+
+def sf_summary(rows, counts, n_chosen):
+    import statistics
+    by_code = {}
+    for r in rows:
+        by_code.setdefault(r['code'], []).append(r['value_unit_month_2027'])
+    priced = sum(1 for v in by_code.values() if len(v) >= rbr.MIN_PROJECTS)
+    lines = ['', f'{SF_VALUES_FILE} (change add-sinking-fund): sinking-fund expense per driver unit per month, excluding '
+                 'VAT; value_unit_month at budget-year prices, value_unit_month_2027 = x cpi_factor.',
+             f'basis = {rbr.BASIS_LIFT} for {", ".join(rbr.SF_LIFT_CODES)} (per lift, master ElevatorCount, every lift); '
+             f'basis = {rbr.BASIS_FEE_NFA} for every other code. Only values above 0 are written.',
+             f'projects of the management-fund choice: {n_chosen}; with sinking-fund values: {counts["with_values"]}',
+             f'left out: placeholder sheet (one amount on every line) {counts[SF_PLACEHOLDER]}; '
+             f'no sinking-fund expense line {counts["no_sf_lines"]}; other-year sheet dropped in {counts[SF_OTHER_YEAR]} '
+             f'file(s); lift codes without a master lift count in {counts["no_lifts"]} project(s). '
+             'Projects without a checked NFA are not in the choice (see the list below).',
+             f'codes with at least {rbr.MIN_PROJECTS} projects: {priced}',
+             'Per code: projects / median per unit per month at 2027 prices']
+    for code, vals in sorted(by_code.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        lines.append(f'  {code}: {len(vals)} / {statistics.median(vals):,.1f}')
+    return '\n'.join(lines) + '\n'
+
+
+def name_scan(rows, texts, names, columns=None):
     """Raise NameWouldLeak if any output cell or text contains a store project or file name (4+ characters,
     normalised). Runs before any file is opened for writing."""
     tokens = {_norm(n) for n in names if len(_norm(n)) >= 4}
-    cells = [(f'{r["project_id"]}.{col}', r.get(col, '')) for r in rows for col in rbr.VALUE_COLUMNS]
+    cells = [(f'{r["project_id"]}.{col}', r.get(col, '')) for r in rows for col in (columns or rbr.VALUE_COLUMNS)]
     cells += [(label, t) for label, t in texts]
     for label, cell in cells:
         c = _norm(cell)
@@ -393,7 +545,7 @@ def name_scan(rows, texts, names):
                 raise NameWouldLeak(f'{label} would carry a store name; nothing written')
 
 
-def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES, nfa_log=()):
+def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES, nfa_log=(), sf_text=''):
     lines = [f'Ref_RealBudgetValues.csv, built {datetime.datetime.now():%Y-%m-%d %H:%M}; {snapshot}',
              'Build: build_real_budget_ranges.py (change use-real-budget-ranges). Rules: see the script docstring.',
              'Unit: VND per m2 of fee-paying NFA per month, excluding VAT; value_m2_month at budget-year prices,',
@@ -416,6 +568,8 @@ def summarise(rows, chosen, cpi, snapshot, log, codes=rbr.ALL_CODES, nfa_log=())
     lines += ['', 'NFA source of the projects kept: ' + ', '.join(f'{k} {v}' for k, v in sorted(nfa_src.items())),
               'Files that took a checked NFA from the per-file table or the master list (store ids only; fee check within '
               f'{FEE_CHECK_BAND:.0%}):'] + ['  ' + x for x in nfa_log]
+    if sf_text:
+        lines += sf_text.rstrip('\n').splitlines()
     lines += ['', 'Files excluded or merged (store ids only):'] + ['  ' + x for x in log]
     return '\n'.join(lines) + '\n'
 
@@ -441,12 +595,14 @@ def usage_rows(files, chosen, decisions):
     return out
 
 
-def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage=None):
+def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage=None, sf_rows=None):
     texts = [(f'README line {i}', t) for i, t in enumerate(readme.splitlines(), start=1)]
     texts += [(f'usage {r["file_id"]}.{k}', r[k]) for r in (usage or []) for k in USAGE_COLUMNS
               if not (k == 'usage' and r[k] in (USAGE_USED, USAGE_MERGED, USAGE_LEFT_OUT))
               and not (k == 'reason_code' and r[k] in USAGE_REASONS)]
     name_scan(rows, texts, names)
+    if sf_rows is not None:
+        name_scan(sf_rows, [], names, columns=rbr.SF_VALUE_COLUMNS)
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(map_dir, exist_ok=True)
     with open(os.path.join(out_dir, VALUES_FILE), 'w', encoding='utf-8-sig', newline='') as fh:
@@ -454,6 +610,11 @@ def write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage=Non
         w.writeheader()
         for r in rows:
             w.writerow(r)
+    if sf_rows is not None:
+        with open(os.path.join(out_dir, SF_VALUES_FILE), 'w', encoding='utf-8-sig', newline='') as fh:
+            w = csv.DictWriter(fh, fieldnames=rbr.SF_VALUE_COLUMNS, extrasaction='ignore')
+            w.writeheader()
+            w.writerows(sf_rows)
     with open(os.path.join(out_dir, README_FILE), 'w', encoding='utf-8') as fh:
         fh.write(readme)
     if usage is not None:
@@ -486,10 +647,13 @@ def build(store, out_dir, cpi_path=None, map_dir=None, nfa_table=None, master_pa
     cands = candidates(files, log, load_nfa_table(nfa_table), load_master(master_path), cuts, nfa_log, decisions)
     chosen = group_projects(cands, log, decisions)
     rows, pids = build_rows(chosen, lines, cpi, log=log, decisions=decisions)
+    sf_rows, sf_counts = build_sf_rows(chosen, pids, read_sf_lines(path, [c['file_id'] for c in chosen]), cpi,
+                                       master_lifts(master_path, chosen))
     usage = usage_rows(files, chosen, decisions)
     snapshot = f'store {datetime.datetime.fromtimestamp(os.path.getmtime(path)):%Y-%m-%d}, {len(files)} files'
-    readme = summarise(rows, chosen, cpi, snapshot, log, nfa_log=nfa_log)
-    write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage)
+    readme = summarise(rows, chosen, cpi, snapshot, log, nfa_log=nfa_log,
+                       sf_text=sf_summary(sf_rows, sf_counts, len(chosen)))
+    write_outputs(rows, chosen, pids, names, readme, out_dir, map_dir, usage, sf_rows)
     return rows, readme
 
 
@@ -508,7 +672,7 @@ def main(argv=None):
     except Exception:
         pass
     print(readme)
-    print(f'written: {os.path.join(a.out, VALUES_FILE)} ({len(rows)} rows)')
+    print(f'written: {os.path.join(a.out, VALUES_FILE)} ({len(rows)} rows), {os.path.join(a.out, SF_VALUES_FILE)}')
     return 0
 
 

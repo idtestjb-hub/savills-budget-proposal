@@ -55,6 +55,18 @@ FUND_TIMES_COL = 4                         # D: number of times for Optional
 FUND_MONTHLY_COL = 6                       # F
 FUND_MONTH_FIRST_COL = 8                   # H .. S
 FUND_CHECK_TIMES_COL = 21                  # U: the form's times check
+# '3. Budget-Sinking Fund' (change add-sinking-fund, design D6) has the same grammar one column to the right: D
+# frequency, E times, G unit price, I..T months, Z code. Its lines are linked as Schedule rows (I..T from this sheet)
+# and never change frequency here.
+SF_SHEET = '3. Budget-Sinking Fund'
+
+
+def fund_cols(sheet):
+    """(code, freq, times, monthly, first month, times check) columns of a fund sheet (a title or a worksheet)."""
+    title = sheet if isinstance(sheet, str) else sheet.title
+    s = 1 if title == SF_SHEET else 0
+    return (FUND_CODE_COL + s, FUND_FREQ_COL + s, FUND_TIMES_COL + s, FUND_MONTHLY_COL + s,
+            FUND_MONTH_FIRST_COL + s, FUND_CHECK_TIMES_COL + s)
 
 # Frequency cells (change add-line-frequency, design D2): appended after AD so no earlier column moves.
 # AE new frequency, AF first month, AG new times (formula), AH..AS the 12 month inputs (a tick "x" for Optional, VND
@@ -121,15 +133,16 @@ def find_fund_row(ws, code, hint_row=None):
     """The row of `code` in column Y of a fund sheet. `hint_row` wins when the code appears more than once (or
     when it is blank there but the hint row carries it). Raises when the code is nowhere on the sheet."""
     code = str(code).strip()
+    code_col = fund_cols(ws)[0]
     hits = [r for r in range(1, ws.max_row + 1)
-            if isinstance(ws.cell(row=r, column=FUND_CODE_COL).value, str)
-            and ws.cell(row=r, column=FUND_CODE_COL).value.strip() == code]
+            if isinstance(ws.cell(row=r, column=code_col).value, str)
+            and ws.cell(row=r, column=code_col).value.strip() == code]
     if hint_row in hits or (hint_row and not hits):
         return hint_row
     if len(hits) == 1:
         return hits[0]
     if not hits:
-        raise ValueError(f"code {code!r} not found in column Y of '{ws.title}'")
+        raise ValueError(f"code {code!r} not found in column {get_column_letter(code_col)} of '{ws.title}'")
     raise ValueError(f"code {code!r} appears {len(hits)} times on '{ws.title}' (rows {hits}); pass the row")
 
 
@@ -321,6 +334,8 @@ def _own_formula(value):
 def freq_editable(wb, item):
     """A line can change frequency unless its F or H:S cells are formulas of their own (EMH2's link into A1). Under
     Schedule the form ignores F, so a Schedule line's F link (a rate into '0. Info') does not lock it."""
+    if item['sheet'] == SF_SHEET:
+        return False                     # sinking-fund lines are Schedule rows linked month by month (design D6)
     ws = wb[item['sheet']]
     r = item['row']
     cols = [FUND_MONTH_FIRST_COL + k for k in range(12)]
@@ -470,10 +485,15 @@ def _link_fund_row(wb, item, parent_row, editable=None):
         else:
             cell.value = month_formula(parent_row, month_index)
 
+    _, freq_col, _, monthly_col, first_col, _ = fund_cols(ws)
+    if item['sheet'] == SF_SHEET:
+        # a Schedule row: the twelve month cells carry the figure, the unit price is not read (design D6)
+        ws.cell(row=r, column=freq_col, value=line_frequency.SCHEDULE)
+        ws.cell(row=r, column=monthly_col, value=None)
     for k in range(12):
-        link(FUND_MONTH_FIRST_COL + k, k)
-    if str(item.get('freq') or '').strip().lower() == 'monthly':
-        link(FUND_MONTHLY_COL, 0)
+        link(first_col + k, k)
+    if item['sheet'] != SF_SHEET and str(item.get('freq') or '').strip().lower() == 'monthly':
+        link(monthly_col, 0)
     return r
 
 
@@ -564,7 +584,8 @@ def upgrade(wb):
                 'freq': ws.cell(row=r, column=COL['freq']).value,
                 'months': [_num(ws.cell(row=r, column=MONTH_FIRST_COL + k).value) for k in range(12)]}
         fws = wb[sheet]
-        cols = [FUND_MONTHLY_COL] + [FUND_MONTH_FIRST_COL + k for k in range(12)]
+        _, _, _, monthly_col, first_col, _ = fund_cols(fws)
+        cols = [monthly_col] + [first_col + k for k in range(12)]
         editable = not any(isinstance(fws.cell(row=item['row'], column=c).value, str)
                            and fws.cell(row=item['row'], column=c).value.startswith('=(') for c in cols)
         validations = validations or _freq_validations_of(ws)
@@ -632,14 +653,17 @@ def lumped_item(wb, sheet, code, name, value_col, first_month_col, defaults=None
     if not annual.startswith(f'=SUM({first_month_col}'):
         return None, 'không phải dòng chi tiết của form (không có công thức năm =SUM tháng)'
     lf = line_frequency
+    freq_col = fund_cols(ws)[1]
     defaults = lf.load_table() if defaults is None else defaults
     try:
-        freq = lf.normalise(ws.cell(row=row, column=FUND_FREQ_COL).value)
+        freq = lf.normalise(ws.cell(row=row, column=freq_col).value)
     except ValueError:
         freq = None
-    default = defaults.get(code)
+    default = defaults.get(code) if sheet != SF_SHEET else None    # the default table is for sheet 2 codes
     first = None
-    if pm_line and freq == lf.MONTHLY and default and default.frequency != lf.MONTHLY:
+    if sheet == SF_SHEET:
+        freq = lf.SCHEDULE                           # linked month by month (design D6)
+    elif pm_line and freq == lf.MONTHLY and default and default.frequency != lf.MONTHLY:
         freq = None                                  # the default below applies
     if freq in (None, lf.OPTIONAL):
         freq = default.frequency if default else lf.MONTHLY
@@ -648,7 +672,7 @@ def lumped_item(wb, sheet, code, name, value_col, first_month_col, defaults=None
         paid = lf.payment_months(ws, row)
         first = (min(paid) if paid else
                  default.first_month if default and default.frequency == freq else 1)
-    ws.cell(row=row, column=FUND_FREQ_COL).value = freq
+    ws.cell(row=row, column=freq_col).value = freq
     name = name or code
     return dict(code=code, sheet=sheet, row=row, name_vi=name, freq=freq, first_month=first,
                 months=[0.0] * 12, annual=0.0,
@@ -667,9 +691,10 @@ def shade_pm_fund_row(ws, row, cyclic=False):
     """A line left for the PM on its fund sheet: F and H:S light yellow, a 0 shown as nothing (design D3). A cyclic
     line (change default-frequency-from-real-budgets, D4): H:S show the months of payment as on any cyclic row of the
     form, so they keep the row-8 month format and no fill; only F is shaded."""
-    for col in [FUND_MONTHLY_COL] + [FUND_MONTH_FIRST_COL + k for k in range(12)]:
+    _, _, _, monthly_col, first_col, _ = fund_cols(ws)
+    for col in [monthly_col] + [first_col + k for k in range(12)]:
         cell = ws.cell(row=row, column=col)
-        if cyclic and col != FUND_MONTHLY_COL:
+        if cyclic and col != monthly_col:
             cell.fill = PatternFill(fill_type=None)
             cell.number_format = ws.cell(row=8, column=col).number_format
             continue

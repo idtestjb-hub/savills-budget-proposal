@@ -332,6 +332,8 @@ body.adj-full-on { overflow: hidden; }
       <div class="field"><label>Thể tích hồ bơi (m³) <small>tổng mọi hồ; 0 = chưa có số</small></label><input type="number" name="pool_volume" min="0" step="any"></div>
       <div class="field"><label>Số cổng ra vào</label><input type="number" name="gate_count" min="0" step="1"></div>
       <div class="field"><label>Tháng bắt đầu ngân sách <small>MM/YYYY, 12 tháng từ đây</small></label><input type="text" name="budget_start" placeholder="01/2027" pattern="\d{2}/\d{4}"></div>
+      <div class="field"><label>Số tháng bảo hành còn lại <small>tính từ tháng đầu ngân sách; để trống = 24, 0 = hết bảo hành</small></label><input type="number" name="warranty_months" min="0" max="60" step="1" placeholder="24"></div>
+      <div class="field"><label>Tổng số thang máy <small>cả dự án, gồm thang dịch vụ; để trống = PM điền dòng thang máy quỹ bảo trì</small></label><input type="number" name="total_lifts" min="0" step="1"></div>
       <div class="field"><label>Tháng lập lịch trực mẫu <small>tháng / năm</small></label>
         <div style="display:flex;gap:6px"><input type="number" name="roster_month" min="1" max="12" step="1"><input type="number" name="roster_year" min="2024" max="2035" step="1"></div></div>
     </section>
@@ -682,6 +684,7 @@ body.adj-full-on { overflow: hidden; }
       <div class="field"><label>Số chỗ đậu ô tô <small>để trống = lấy theo sheet 0. Info</small></label><input type="number" name="car_slots" min="0" step="1"></div>
       <div class="field"><label>Số chỗ đậu xe máy</label><input type="number" name="moto_slots" min="0" step="1"></div>
       <div class="field"><label>Số thang máy mỗi tháp</label><input type="number" name="elevators" min="0" step="1"></div>
+      <div class="field"><label>Tổng số thang máy <small>cả dự án, gồm thang dịch vụ; tính quỹ bảo trì thang máy</small></label><input type="number" name="total_lifts" min="0" step="1"></div>
       <div class="field"><label>Số tầng hầm</label><input type="number" name="basements" min="0" step="1"></div>
       <div class="field"><label>Số hồ bơi</label><input type="number" name="pool_count" min="0" step="1"></div>
       <div class="field"><label>Địa chỉ <small>tuỳ chọn</small></label><input type="text" name="street"></div>
@@ -719,6 +722,12 @@ body.adj-full-on { overflow: hidden; }
         <p class="src" id="rv-top-src"></p>
       </section>
       <section>
+        <h2><button type="button" class="fold" data-fold="rv-fold-sf" aria-expanded="true" title="Thu gọn / mở mục này">▾</button>Quỹ bảo trì</h2>
+        <p class="src" id="rv-sf-meta"></p>
+        <div class="dg-wrap"><table id="rv-sf"><thead><tr><th>Mã</th><th>Hạng mục</th><th class="num">Duyệt (quy đổi)</th><th class="num">Công cụ</th><th class="num">Tham chiếu trung vị</th><th class="num">Chênh</th><th class="num">%</th><th>Gắn cờ</th></tr></thead><tbody></tbody></table></div>
+        <p class="src" id="rv-sf-src"></p>
+      </section>
+      <section>
         <h2>Ghi chú nhập</h2>
         <p class="src" id="rv-notes-sum"></p>
         <details><summary>Xem toàn bộ ghi chú</summary>
@@ -746,7 +755,7 @@ body.adj-full-on { overflow: hidden; }
         </ol>
         <div class="adj-tools">
           <label>Tìm <input type="text" id="adj-q" placeholder="mã hoặc hạng mục" size="18"></label>
-          <label>Quỹ <select id="adj-fund"><option value="">Tất cả</option><option value="MF">Quỹ quản lý vận hành</option><option value="CA">Quỹ khu vực chung</option></select></label>
+          <label>Quỹ <select id="adj-fund"><option value="">Tất cả</option><option value="MF">Quỹ quản lý vận hành</option><option value="CA">Quỹ khu vực chung</option><option value="SF">Quỹ bảo trì</option></select></label>
           <label>Mục <select id="adj-sec"><option value="">Thu và chi</option><option value="R">Thu</option><option value="E">Chi</option></select></label>
           <label><input type="checkbox" id="adj-only"> Chỉ mã đã điều chỉnh</label>
           <label id="adj-abn-wrap" class="hidden" title="Chênh so với duyệt từ 20% và từ 50 triệu VND/năm (mã không có số duyệt: chỉ xét số tiền)"><input type="checkbox" id="adj-abn"> Chỉ dòng bất thường</label>
@@ -1098,7 +1107,7 @@ document.querySelector('#lib tbody').addEventListener('click', e => {
 // Mục 2 điền sẵn khi chọn một dòng kho (change prefill-review-facts): lượt trước cùng dự án > sheet 0. Info > danh sách
 // master. Mỗi ô ghi nguồn, và số của nguồn khác khi khác nhau. PM sửa ô nào thì trang gửi số PM.
 const FACT_KEYS = ['city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots', 'moto_slots',
-                   'elevators', 'basements', 'pool_count', 'street'];
+                   'elevators', 'basements', 'pool_count', 'street', 'total_lifts'];
 function factNote(key, text) {
   const el = formReview.elements[key];
   if (!el) return;
@@ -1336,7 +1345,7 @@ function renderReview(run) {
   document.getElementById('rv-title').textContent = `Ngân sách đã duyệt ${py} so với ngân sách ${by} do công cụ sinh`;
   document.getElementById('rv-meta').textContent = s.note ? s.note :
     `Nguồn: ${run.source && run.source.startsWith('lượt') ? run.source + ' (bản giao, Excel tính lại)' : (m.file_name || run.source || '')}; kỳ ${m.period_text || ''}; file ${m.file_incl ? 'gồm' : 'chưa gồm'} VAT, so trên cơ sở ${m.deliverable_incl ? 'gồm' : 'chưa gồm'} VAT của bản giao. Đơn vị: triệu VND/năm.`;
-  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung', SF: 'Quỹ bảo trì' };
   const thead = document.querySelector('#rv-sum thead'), tbody = document.querySelector('#rv-sum tbody');
   // Cột năm trước đọc từ chính file (Duyệt N-1, Thực tế, Dự kiến N-1): chỉ hiện cột mà lượt chạy có.
   const mm = m.measures || {}, n1 = py ? py - 1 : '';
@@ -1366,7 +1375,16 @@ function renderReview(run) {
         pcols.map(([k]) => `<td class="${negCls(t[k])}">${pct(t[k])}</td>`).join('') + `</tr>`;
     }
   }
+  // Quỹ bảo trì (change add-sinking-fund, D6): chỉ có chi; số duyệt và số công cụ từ sf_totals, không có cột năm trước.
+  if (rows && s.sf_totals) {
+    const a = s.sf_totals.approved, n = s.sf_totals.new, d = n - a;
+    rows += `<tr><td colspan="${ncol}" style="background:var(--sav-total);font-weight:700">${FUND_VI.SF}</td></tr>` +
+      `<tr><td>Tổng chi${s.sf_none ? ' <small style="color:var(--sav-muted)">(file không có quỹ bảo trì)</small>' : ''}</td>` + mcols.map(() => '<td class="num">—</td>').join('') +
+      `<td class="${negCls(a)}">${mil(a)}</td><td class="${negCls(n)}">${mil(n)}</td><td class="${negCls(d)}">${mil(d)}</td><td class="${negCls(d)}">${pct(a ? d / a : null)}</td>` +
+      pcols.map(() => '<td class="num">—</td>').join('') + `</tr>`;
+  }
   tbody.innerHTML = rows || `<tr><td colspan="${ncol}">${esc(s.note || 'Chưa có số tóm tắt.')}</td></tr>`;
+  renderSinkingFund(s);
   const c = s.counts || {};
   document.getElementById('rv-counts').textContent = c.lines == null ? '' :
     `Dòng so sánh: ${c.lines} (cả hai có số ${c.both}, chỉ file duyệt ${c.only_approved}, chỉ công cụ ${c.only_tool}); mã không có trên form 2027: ${c.not_on_form}; chưa có phương pháp: ${c.no_method}; công cụ ra 0: ${c.tool_zero}` +
@@ -1388,6 +1406,28 @@ function renderReview(run) {
     (fl.facts && fl.facts.length ? `Từ dữ kiện trên trang: ${fl.facts.join(', ')}.` : '');
   document.querySelector('#rv-notes tbody').innerHTML = notes.map(n => `<tr><td>${esc(n.kind)}</td><td>${esc(n.where)}</td><td>${esc(n.text)}</td></tr>`).join('');
   renderInfo('rv', s.project_info);
+}
+
+// Mục Quỹ bảo trì của lượt review (change add-sinking-fund, D6): từng mã duyệt năm cũ so với công cụ, tham chiếu trung vị,
+// gắn cờ; file không có quỹ bảo trì thì ghi một dòng.
+function renderSinkingFund(s) {
+  const sec = document.getElementById('rv-sf').closest('section');
+  const rowsSf = s.sf_rows;
+  sec.classList.toggle('hidden', !Array.isArray(rowsSf));       // lượt cũ, trước quỹ bảo trì: không hiện mục
+  if (!Array.isArray(rowsSf)) return;
+  const m = s.meta || {};
+  document.getElementById('rv-sf-meta').textContent = s.sf_none
+    ? `File duyệt ${m.prior_year || ''} không có quỹ bảo trì: các dòng dưới là số công cụ tính cho năm ${m.budget_year || ''} (trung vị dự án thực tế, hoặc PM điền).`
+    : `Số duyệt của quỹ bảo trì (quy đổi sang cơ sở VAT của bản giao) so với số công cụ năm ${m.budget_year || ''}. Nguồn số duyệt: ` +
+      ([...new Set(rowsSf.filter(x => x.approved).map(x => x.source).filter(Boolean))].join('; ') || '—') +
+      `. Năm mới = số duyệt từng mã × CPI từ năm của số duyệt; mã không có số duyệt lấy trung vị. Triệu VND/năm.`;
+  const t = s.sf_totals || {};
+  document.querySelector('#rv-sf tbody').innerHTML = rowsSf.map(x =>
+    `<tr><td>${esc(x.code)}</td><td>${esc(x.item)}</td><td class="num">${mil(x.approved)}</td><td class="num">${mil(x.new)}</td><td class="num">${mil(x.median_ref)}</td><td class="${negCls(x.diff)}">${mil(x.diff)}</td><td class="${negCls(x.pct)}">${pct(x.pct)}</td><td>${esc((x.tags || []).join(', '))}</td></tr>`).join('') +
+    (rowsSf.length ? `<tr style="font-weight:700"><td></td><td>Tổng</td><td class="num">${mil(t.approved)}</td><td class="num">${mil(t.new)}</td><td></td><td class="${negCls((t.new || 0) - (t.approved || 0))}">${mil((t.new || 0) - (t.approved || 0))}</td><td></td><td></td></tr>`
+      : `<tr><td colspan="8">${s.sf_none ? 'File không có quỹ bảo trì, công cụ cũng không có dòng nào.' : 'Chưa có dòng.'}</td></tr>`);
+  document.getElementById('rv-sf-src').textContent = 'Gắn cờ: "cao hơn trung vị" khi số công cụ trên 2 lần tham chiếu; "PM điền" khi công cụ không tính được; "B8" khi mã đang tính ở quỹ quản lý. ' +
+    'Mã duyệt có số mà công cụ ra 0 có dòng Nhập số ở bảng điều chỉnh (Quỹ: Quỹ bảo trì). Cùng bảng nằm ở sheet "Review - Quỹ bảo trì" của bản phân tích nội bộ.';
 }
 
 // Mục Thông tin dự án (change project-info-everywhere): mọi dữ kiện lượt đã dùng, kèm nguồn; ô trống tô vàng.
@@ -1828,7 +1868,7 @@ function renderAdjust() {
   adj.groups = {};
   // Thu và chi tách thành hai khu vực, mỗi khu vực một dòng tổng; trong đó các mã xếp và lồng theo nhóm của form 2027
   // (như sheet Review): quỹ MF trước CA, theo dòng của template, mỗi nhóm một dòng "Cộng" thu/mở được.
-  const FUND_RANK = { MF: 0, CA: 1 };
+  const FUND_RANK = { MF: 0, CA: 1, SF: 2 };
   for (const sec of ['R', 'E']) {
     const group = adj.items.map((it, i) => [it, i]).filter(([it]) => it.section === sec && visible(it))
       .sort(([a, i], [b, j]) => ((FUND_RANK[a.fund] ?? 9) - (FUND_RANK[b.fund] ?? 9)) || ((a.order ?? 0) - (b.order ?? 0)) || (i - j))
@@ -1943,14 +1983,14 @@ function refreshGroups() {
 
 function renderAdjPreview() {
   renderPmCount();                                         // số dòng chờ PM điền theo cả số đang gõ, chưa lưu
-  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung', SF: 'Quỹ bảo trì' };
   let rows = '', dirty = 0;
-  for (const fund of ['MF', 'CA']) {
+  for (const fund of ['MF', 'CA', 'SF']) {
     const its = adj.items.filter(i => i.fund === fund);
     if (!its.length) continue;
     rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
     const t = {};
-    for (const sec of ['R', 'E']) {
+    for (const sec of fund === 'SF' ? ['E'] : ['R', 'E']) {        // quỹ bảo trì: chỉ có chi
       const o = its.filter(i => i.section === sec).reduce((a, i) => a + i.amount, 0);
       const n = its.filter(i => i.section === sec).reduce((a, i) => a + itemNew(i), 0);
       t[sec] = [o, n];
@@ -2163,14 +2203,14 @@ function renderAdjResult(last) {
   const box = document.getElementById('adj-res');
   if (!last || !last.after) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung' };
+  const FUND_VI = { MF: 'Quỹ quản lý vận hành', CA: 'Quỹ khai thác khu vực chung', SF: 'Quỹ bảo trì' };
   document.getElementById('adj-res-head').textContent = `Lưu lúc ${(last.saved_at || '').replace('T', ' ')} ${last.written.length ? ` · ${last.written.length} mã: ${last.written.join(', ')}` : ''} · backup: ${last.backup}${remarkResult(last).replace(/\.$/, '').replace(/^ /, ' · ')}`;
   let rows = '';
-  for (const fund of ['MF', 'CA']) {
+  for (const fund of ['MF', 'CA', 'SF']) {
     const a = (last.after || {})[fund], b = (last.baseline || {})[fund];
     if (!a || !b) continue;
     rows += `<tr><td colspan="5" style="background:var(--sav-total);font-weight:700">${FUND_VI[fund]}</td></tr>`;
-    for (const [k, lab] of [['R', 'Tổng thu'], ['E', 'Tổng chi'], ['S', 'Thặng dư']]) {
+    for (const [k, lab] of fund === 'SF' ? [['E', 'Tổng chi']] : [['R', 'Tổng thu'], ['E', 'Tổng chi'], ['S', 'Thặng dư']]) {
       const d = (a[k] || 0) - (b[k] || 0);
       rows += `<tr><td>${lab}</td><td class="${negCls(b[k])}">${vnd(b[k])}</td><td class="${negCls(a[k])}">${vnd(a[k])}</td><td class="${negCls(d)}">${vnd(d)}</td><td class="${negCls(d)}">${vpct(d, b[k] || 0)}</td></tr>`;
     }

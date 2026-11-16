@@ -125,6 +125,19 @@ def test_review_summary_reader(runs_dir):
     assert results.review_summary(str(runs_dir))['note'].startswith('Chưa có review_summary.json')
     assert results.summarize_run(str(wd), 'review')['kind'] == 'review'
     assert s['measure_ties'] == [] and s['meta']['measures'] is None          # a run without N-1 columns
+    assert 'sf_rows' not in s                                                  # a run before the sinking fund
+
+
+def test_review_summary_reader_carries_the_sinking_fund(runs_dir):
+    """Change add-sinking-fund (task 6.2): sf_rows / sf_totals / sf_none reach the page. TEST DATA."""
+    wd = _review_run(runs_dir)
+    path = wd / 'review_summary.json'
+    data = json.loads(path.read_text(encoding='utf-8'))
+    data.update(sf_rows=[dict(code='ERE2', item='TEST', approved=10.0, new=12.0, median_ref=None, diff=2.0, pct=0.2,
+                              tags=[], source='TEST')], sf_totals=dict(approved=10.0, new=12.0), sf_none=False)
+    path.write_text(json.dumps(data), encoding='utf-8')
+    s = results.review_summary(str(wd))
+    assert s['sf_rows'][0]['code'] == 'ERE2' and s['sf_totals'] == dict(approved=10.0, new=12.0) and s['sf_none'] is False
 
 
 def test_review_summary_reader_with_n1_columns(runs_dir):

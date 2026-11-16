@@ -163,6 +163,34 @@ def test_leak_words_and_find_leaks(data, tmp_path):
     assert hits[os.path.join('app', 'bad.txt')] == ['Tháp Mây Xanh']
 
 
+def test_sinking_fund_reference_travels_unchanged_and_prices_the_same(tmp_path):
+    """Change add-sinking-fund, tasks 7.1-7.2: the package carries Ref_SinkingFundValues.csv byte for byte (coded
+    name_key, no MASK), so a package run prices sheet 3 exactly as an office run; the leak scan covers the file."""
+    import real_budget_ranges as rbr
+    src = tmp_path / 'data'
+    rows = [[f'P{i:03d}', f'{i:016x}', str(10_000 + 1_000 * i), '2026', code, basis, str(v), '1.04', str(v * 1.04), '']
+            for i in range(1, 13) for code, basis, v in (('ERA1', 'fee_nfa', 30 + i), ('ERLM1', 'lift', 900_000 + i))]
+    _csv(str(src / 'real_budget_ranges' / 'Ref_SinkingFundValues.csv'), rbr.SF_VALUE_COLUMNS, rows)
+    for rel in sd.KEEP:
+        p = src.joinpath(*rel.split('/'))
+        if not p.exists():
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('a,b\n1,2\n', encoding='utf-8')
+    dst = tmp_path / 'pkg_data'
+    out = sd.build(str(src), str(dst), own_names=['Khu Thu Nghiem'])
+    rel = 'real_budget_ranges/Ref_SinkingFundValues.csv'
+    assert rel in out['copied'] and rel not in out['masked']
+    office, package = src / 'real_budget_ranges' / 'Ref_SinkingFundValues.csv', dst / 'real_budget_ranges' / 'Ref_SinkingFundValues.csv'
+    assert office.read_bytes() == package.read_bytes()
+    args = dict(nfa=40_000, lifts=6, warranty_months=0)
+    a = rbr.price_sf(['ERA1', 'ERLM1'], rbr.load_sf_values(str(office)), **args)
+    b = rbr.price_sf(['ERA1', 'ERLM1'], rbr.load_sf_values(str(package)), **args)
+    assert a == b and a['ERA1'].status == rbr.SF_STATUS_PRICED
+    package.write_text(package.read_text(encoding='utf-8-sig') + 'Tháp Mây Xanh\n', encoding='utf-8')
+    hits = dict(sd.find_leaks(str(dst), ['Tháp Mây Xanh']))
+    assert os.path.join('real_budget_ranges', 'Ref_SinkingFundValues.csv') in hits
+
+
 def test_pseudonyms_are_stable_per_name():
     p = sd.Pseudonyms(keep=['Khu Thu Nghiem'])
     assert p('Tháp A') == 'Dự án tham chiếu 01' and p(' tháp a ') == 'Dự án tham chiếu 01'

@@ -201,7 +201,26 @@ def master_facts_for(site, master_row='', no_master=False, master_path=None):
     return facts, notes
 
 
-def build(site, prior, runtime, out, facts, store_id='', library_id='', fact_notes=()):
+def blank_facts_for(keys, facts, fact_notes):
+    """Các ô văn phòng để trống cho PM nhập dù master có số (change add-sinking-fund, người dùng chốt 16/11/2026: master
+    ghi 1 thang máy cho một dự án, nghi sai). Gỡ khỏi `facts` (sửa tại chỗ), thêm một ghi chú cho ô, trả danh sách khoá
+    để ghi vào site.json `blank_facts`: lúc Review, server gửi các ô này cho facts_prefill.master_fallback để không lấy
+    lại số master."""
+    from webapp import facts_prefill as fp
+    out = []
+    for key in keys:
+        if key not in fp.LABELS:
+            raise SystemExit(f'--blank-fact {key!r}: không phải ô dữ kiện ({", ".join(sorted(fp.LABELS))}).')
+        if key in out:
+            continue
+        dropped = facts.pop(key, None)
+        out.append(key)
+        fact_notes.append(dict(key=key, text='văn phòng để trống khi đóng gói (số master chưa chắc); PM nhập'))
+        print(f'để trống cho PM: {key}' + (f' (bỏ số {dropped!r})' if dropped is not None else ''))
+    return out
+
+
+def build(site, prior, runtime, out, facts, store_id='', library_id='', fact_notes=(), blank_facts=()):
     pkg = os.path.join(out, 'BudgetAgent-' + _safe(site))
     if os.path.exists(pkg):
         _rmtree(pkg)
@@ -228,7 +247,8 @@ def build(site, prior, runtime, out, facts, store_id='', library_id='', fact_not
     built = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     with open(os.path.join(site_dir, 'site.json'), 'w', encoding='utf-8') as fh:
         json.dump(dict(project=site, prior_file=prior_name, facts=facts, fact_notes=list(fact_notes),
-                       store_id=store_id or library_id or '', built_at=built, code=code), fh, ensure_ascii=False, indent=1)
+                       blank_facts=list(blank_facts), store_id=store_id or library_id or '', built_at=built, code=code),
+                  fh, ensure_ascii=False, indent=1)
     for d in ('runs', 'tmp'):
         os.makedirs(os.path.join(pkg, d))
     with open(os.path.join(pkg, 'Chay Budget Agent.cmd'), 'w', encoding='utf-8') as fh:
@@ -353,6 +373,9 @@ def main(argv=None):
     ap.add_argument('--store', default=DEFAULT_STORE, help='thư mục kho quét (dim_file.csv) để lấy tên file cho bước quét rò rỉ')
     ap.add_argument('--master-row', default='', help='tên đúng của dòng master của dự án, khi tên dự án khớp nhiều dòng')
     ap.add_argument('--no-master', action='store_true', help='không lấy dữ kiện từ danh sách master')
+    ap.add_argument('--blank-fact', action='append', default=[], metavar='KHOÁ',
+                    help='ô dữ kiện để trống cho PM nhập dù master có số (lặp được), ví dụ total_lifts; lúc Review, '
+                         'ô này PM để trống thì cũng không lấy số master')
     ap.add_argument('--zip', action='store_true')
     ap.add_argument('--check', action='store_true')
     a = ap.parse_args(argv)
@@ -372,10 +395,11 @@ def main(argv=None):
     mfacts, fact_notes = master_facts_for(a.site, a.master_row, a.no_master)
     facts = dict(mfacts, **facts_for(a.library_id, a.facts, a.city))
     fact_notes = [n for n in fact_notes if n.get('key') not in facts]
+    blank_facts = blank_facts_for(a.blank_fact, facts, fact_notes)
     if not facts.get('city'):
         print('Chú ý: chưa có Tỉnh / thành phố; PM phải chọn trên trang trước khi chạy.')
     pkg = build(a.site, os.path.abspath(a.prior) if a.prior else '', os.path.abspath(a.runtime), os.path.abspath(a.out), facts,
-                library_id=a.library_id, fact_notes=fact_notes)
+                library_id=a.library_id, fact_notes=fact_notes, blank_facts=blank_facts)
     # --zip luôn kiểm trước (kể cả khi quên --check); kiểm không đạt thì không nén, để gói rò rỉ không ra được file gửi đi.
     ok = check(pkg, _leak_words(a.site, a.store)) if (a.check or a.zip) else True
     if a.zip:

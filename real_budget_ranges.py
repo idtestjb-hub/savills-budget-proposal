@@ -380,6 +380,200 @@ def month_values(annual_excl, vat_factors):
     return [round(annual_excl / MONTHS * f) for f in vat_factors]
 
 
+SF_VALUES_CSV = os.path.join(DATA_DIR, 'Ref_SinkingFundValues.csv')
+BASIS_LIFT = 'lift'                    # value per lift per month (SF_LIFT_CODES)
+SF_LIFT_CODES = ('ERLM1', 'ERLM2', 'ERLM3', 'ERLM4', 'ESA1')
+SF_VALUE_COLUMNS = ['project_id', 'name_key', 'nfa_m2', 'budget_year', 'code', 'basis', 'value_unit_month',
+                    'cpi_factor', 'value_unit_month_2027', 'flag']
+# Sinking-fund lines still costed during the warranty (user, 2026-11-12; design D3): the maintenance contracts (40
+# codes), the safety inspections ESA1-21, periodic cleaning ERCS1-5, outsourced sewage plant ERS1, bank fees EMB1,
+# miscellaneous ERM (priced on sheet 2 today) and irrigation / plumbing ERPS4-5. A closed list, checked against the
+# template's sheet 3 codes at start-up (generate_project_budget).
+SF_WARRANTY_CODES = frozenset(
+    ['ERE1', 'ERG1', 'ERT1', 'ERB1', 'ERLM1', 'ERLM1#', 'ERLM1##', 'ERA1', 'ERCL1', 'ERCL#1', 'ERCL##1', 'ERVR1', 'ERV1',
+     'ERPS1', 'ERC1', 'ERAC1', 'ERP1', 'ERPL1', 'ERFS1', 'ERD1', 'ERL1', 'ERCC1', 'ERPA1', 'ERO1', 'ERSP1', 'ERAM1',
+     'ERGS1', 'ERSM1', 'ERMF1'] + [f'ERF{i}.1' for i in range(1, 12)]
+    + [f'ESA{i}' for i in range(1, 22)]
+    + [f'ERCS{i}' for i in range(1, 6)]
+    + ['ERS1', 'EMB1', 'ERM', 'ERPS4', 'ERPS5'])
+SF_STATUS_PRICED = 'priced'
+SF_STATUS_PM = 'pm_fill'
+SF_STATUS_WARRANTY = 'warranty_zero'
+SF_STATUS_OTHER_FUND = 'other_fund'
+SF_STATUS_CARRY = 'carry_forward'
+SF_OTHER_FUND_PRICED = 'đang tính ở quỹ quản lý'
+SF_OTHER_FUND_PM = 'để PM điền ở quỹ quản lý'
+SF_REASON_TOO_FEW = f'dưới {MIN_PROJECTS} dự án tham chiếu'
+SF_REASON_NO_LIFTS = 'chưa có số thang máy'
+SF_REASON_NO_NFA = 'chưa có NFA thu phí'
+SF_REASON_NO_DATA = 'chưa có bảng số liệu quỹ bảo trì thực tế'
+DEFAULT_WARRANTY_MONTHS = 24
+MAX_WARRANTY_MONTHS = 60
+WARRANTY_LABEL = 'Remaining Warranty Months'               # Project Info labels (task 3.1), read by label
+TOTAL_LIFTS_LABEL = 'Total Elevators (incl. service)'
+
+
+def warranty_months_of(value):
+    """The input's remaining warranty months: blank -> 24; a whole number 0-60; anything else stops the run."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return DEFAULT_WARRANTY_MONTHS
+    try:
+        n = float(str(value).replace(',', '').strip())
+    except ValueError:
+        n = None
+    if n is None or n != int(n) or not 0 <= n <= MAX_WARRANTY_MONTHS:
+        raise ValueError(f"Project Info '{WARRANTY_LABEL}' is {value!r}: enter a whole number of months from 0 to "
+                         f"{MAX_WARRANTY_MONTHS}, or leave it blank for {DEFAULT_WARRANTY_MONTHS}.")
+    return int(n)
+
+
+@dataclass
+class SfResult:
+    code: str
+    status: str = SF_STATUS_PM
+    basis: str = BASIS_FEE_NFA
+    months: list = field(default_factory=lambda: [0] * MONTHS)   # the twelve month cells, on the deliverable's basis
+    figure_excl_vat: float = 0.0
+    n: int = 0
+    median: float | None = None
+    p25: float | None = None
+    p75: float | None = None
+    driver: float | None = None      # m2 NFA or lifts
+    reason: str = ''                 # pm_fill: why; other_fund: which remark
+    remark: str = ''
+    warranty_months: int = 0         # months of the budget year inside the warranty (non-warranty codes only)
+    prior: float | None = None       # carry_forward: the base, per year excluding VAT
+    prior_year: int | None = None
+    prior_source: str = ''
+
+    @property
+    def figure(self):
+        return sum(self.months)
+
+    @property
+    def even(self):
+        return len(set(self.months)) == 1
+
+
+def load_sf_values(path=None):
+    """Rows of the sinking-fund values file, typed; None when the file does not exist (every line left for the PM)."""
+    path = path or SF_VALUES_CSV
+    if not os.path.exists(path):
+        return None
+    rows = []
+    with open(path, encoding='utf-8-sig', newline='') as fh:
+        for r in csv.DictReader(fh):
+            rows.append({'project_id': r['project_id'], 'name_key': (r.get('name_key') or '').strip(),
+                         'nfa_m2': _num(r.get('nfa_m2')), 'budget_year': int(float(r['budget_year'])),
+                         'code': r['code'].strip(), 'basis': (r.get('basis') or BASIS_FEE_NFA).strip(),
+                         'value_unit_month_2027': _num(r.get('value_unit_month_2027')), 'flag': r.get('flag') or ''})
+    return rows
+
+
+def sf_reference(code, rows, self_name=None, self_nfa=None):
+    """(values, n_left_out): the code's per-unit values at 2027 prices, plain (no IQR trim; the rule approved
+    2026-11-12), leaving out the project itself by name key or NFA within 0.5% when `self_name` is given (Review)."""
+    keys = self_keys(self_name) if self_name else set()
+    vals, out = [], 0
+    for r in rows or ():
+        if r['code'] != code or r['value_unit_month_2027'] is None:
+            continue
+        if self_name and is_self({'name_key': r['name_key'], 'nfa_m2': r['nfa_m2']}, keys, self_nfa):
+            out += 1
+            continue
+        vals.append(r['value_unit_month_2027'])
+    return vals, out
+
+
+def _sf_months(monthly_excl, n_zero, vat_factors):
+    """Twelve month cells: the first `n_zero` months 0 (warranty), the rest the monthly amount on the deliverable's
+    basis, each rounded."""
+    return [0 if i < n_zero else round(monthly_excl * f) for i, f in enumerate(vat_factors)]
+
+
+def _sf_unit(basis):
+    return 'đ/thang máy/tháng' if basis == BASIS_LIFT else 'đ/m²/tháng'
+
+
+def _sf_driver_text(res):
+    if res.basis == BASIS_LIFT:
+        return f'{res.driver:g} thang máy (gồm thang dịch vụ)'
+    return f'{res.driver:,.0f} m² NFA thu phí'
+
+
+def price_sf(codes, rows, *, nfa, lifts, warranty_months=DEFAULT_WARRANTY_MONTHS, vat_factors=None,
+             vat_clause=None, budget_year=TARGET_YEAR, self_name=None, self_nfa=None, prior=None, cpi=None,
+             excluded=None):
+    """{code: SfResult} for the template's sheet 3 codes (design D2-D5).
+
+    `rows` = load_sf_values() (None: no file). `vat_factors` = the twelve (1 + VAT) factors of the deliverable's basis
+    (all 1.0 on the KHOÁN model), `vat_clause` its remark wording. `prior` (Review) = {code: (amount per year excluding
+    VAT, year, source note)}; the warranty does not apply then. `excluded` = {code: SF_OTHER_FUND_PRICED or
+    SF_OTHER_FUND_PM} for the codes sheet 2 holds (design D5). `self_name` / `self_nfa` leave the project out of its own
+    reference (Review only)."""
+    factors = list(vat_factors or [1.0] * MONTHS)
+    excluded = excluded or {}
+    review = prior is not None
+    w = 0 if review else max(0, min(int(warranty_months or 0), MONTHS))
+    out = {}
+    for code in codes:
+        res = SfResult(code=code, basis=BASIS_LIFT if code in SF_LIFT_CODES else BASIS_FEE_NFA)
+        out[code] = res
+        if code in excluded:
+            res.status, res.reason = SF_STATUS_OTHER_FUND, excluded[code]
+            res.remark = f'Để 0: {excluded[code]}.'
+            continue
+        if review and code in prior:
+            amount, year, source = prior[code]
+            factor = cpi_factor(year, cpi, target=budget_year) if cpi else 1.0
+            res.status, res.prior, res.prior_year, res.prior_source = SF_STATUS_CARRY, amount, int(year), source
+            res.figure_excl_vat = amount * factor
+            res.months = _sf_months(res.figure_excl_vat / MONTHS, 0, factors)
+            res.remark = (f'Theo số duyệt năm {int(year)} × CPI: {amount:,.0f} VND/năm (chưa VAT; {source}) × '
+                          f'{factor:.4f} (CPI {int(year)}→{budget_year})'
+                          + (f', {vat_clause}' if vat_clause else '') + f' = {res.figure:,.0f} VND/năm.')
+            continue
+        if rows is None:
+            res.reason = SF_REASON_NO_DATA
+            continue
+        vals, _ = sf_reference(code, rows, self_name, self_nfa)
+        res.n = len(vals)
+        if vals:
+            res.p25, res.median, res.p75 = (percentile_inc(vals, 0.25), percentile_inc(vals, 0.5),
+                                            percentile_inc(vals, 0.75))
+        res.driver = (lifts if lifts and lifts > 0 else None) if res.basis == BASIS_LIFT else (nfa if nfa and nfa > 0 else None)
+        if w >= MONTHS and code not in SF_WARRANTY_CODES:
+            # the whole year is inside the warranty: 0 whatever the reference holds; not a PM line (spec)
+            res.status, res.warranty_months = SF_STATUS_WARRANTY, w
+            res.remark = f'Để 0: trong thời gian bảo hành ({int(warranty_months)} tháng).'
+            continue
+        if res.n < MIN_PROJECTS:
+            res.reason = SF_REASON_TOO_FEW
+            continue
+        if res.driver is None:
+            res.reason = SF_REASON_NO_LIFTS if res.basis == BASIS_LIFT else SF_REASON_NO_NFA
+            continue
+        monthly = res.median * res.driver
+        source = (f'Ước tính từ quỹ bảo trì thực tế của {res.n} dự án do Savills quản lý: trung vị '
+                  f'{res.median:,.1f} {_sf_unit(res.basis)} (chưa VAT, theo giá năm {TARGET_YEAR}; khoảng giữa '
+                  f'P25–P75: {res.p25:,.1f}–{res.p75:,.1f} {_sf_unit(res.basis)}) × {_sf_driver_text(res)}')
+        if w and code not in SF_WARRANTY_CODES:
+            res.warranty_months = w
+            res.status = SF_STATUS_PRICED
+            res.figure_excl_vat = monthly * (MONTHS - w)
+            res.months = _sf_months(monthly, w, factors)
+            res.remark = (f'{source} × {MONTHS - w} tháng; {w} tháng đầu nằm trong thời gian bảo hành '
+                          f'({int(warranty_months)} tháng) nên để 0'
+                          + (f', {vat_clause}' if vat_clause else '') + f' = {res.figure:,.0f} VND/năm.')
+            continue
+        res.status = SF_STATUS_PRICED
+        res.figure_excl_vat = monthly * MONTHS
+        res.months = _sf_months(monthly, 0, factors)
+        res.remark = f'{source} × {MONTHS} tháng' + (f', {vat_clause}' if vat_clause else '') + \
+            f' = {res.figure:,.0f} VND/năm.'
+    return out
+
+
 def price_all(rows, *, nfa, vat_rate, vat_inclusive=True, budget_year=TARGET_YEAR, self_name=None,
               has_pool=None, tower_count=None, inhouse_pool_staff=0, staff_lump=False, vat_factors=None,
               vat_clause=None, codes=ALL_CODES):

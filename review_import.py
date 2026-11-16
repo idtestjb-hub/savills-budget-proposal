@@ -163,6 +163,9 @@ PM_SCALE_LABELS = ('Site Area', 'Garden / Landscape Area', 'Circulation / Hardsc
 NUMERIC_SCALE_LABELS = ('Site Area', 'Garden / Landscape Area', 'Circulation / Hardscape Area', 'Floor Count',
                         'Tower Count', 'Gate / Entrance Count', 'Latitude', 'Longitude', 'Passenger Elevators per Tower',
                         'Number of Basements', 'Number of Pools', 'Pool Area', 'Pool Volume')
+# Fact labels newer than the live input form: written on an appended row when the form lacks them (label as the form
+# builder writes it). Change add-sinking-fund: the total lift count prices the sinking-fund lift lines.
+APPENDABLE_FACT_LABELS = {'Total Elevators (incl. service)': 'Total Elevators (incl. service) — leave blank if unknown'}
 
 # The new input sheet (design D8).
 SHEET = 'Prior-Year Budget'
@@ -238,6 +241,7 @@ class PriorBudget:
     period: list                  # [(y, m), ...] of the Management Fund sheet
     measures: dict = field(default_factory=dict)   # {fund: {'n1' | 'actual' | 'expected': column}} of year N-1
     n_year: 'int | None' = None   # year N for the N-1 columns: head cells of the sheet, else budget_year
+    sf: dict = field(default_factory=dict)         # change add-sinking-fund: {code: SF prior dict}, see read_sf_prior
 
     def lines(self):
         for fund in FUNDS:
@@ -1003,11 +1007,151 @@ def read_prior_budget(path, workdir=None, template=TEMPLATE_PATH, other_names=()
         measures, m_notes = choose_measures(funds, report_cands, n_year, project_name, other_names,
                                             _saved_month(wb, path))
         notes.extend(m_notes)
-        return PriorBudget(path, project_name, funds, notes, budget_year, list(mf.period), measures, n_year)
+        sf, sf_notes = read_sf_prior(wb, template)
+        notes.extend(sf_notes)
+        return PriorBudget(path, project_name, funds, notes, budget_year, list(mf.period), measures, n_year, sf)
     finally:
         wb.close()
         if wbf is not None:
             wbf.close()
+
+
+# ------------------------------------------------------------------------------------------------
+# The sinking fund (change add-sinking-fund, design D4): read apart from FUNDS so that the management and common-area
+# funds read exactly as before
+# ------------------------------------------------------------------------------------------------
+SF_SHEET = '3. Budget-Sinking Fund'
+SF_REPORT_SHEET = '3.1 Report-Sinking Fund'
+SF_PRIOR_SHEET = 'Sinking Fund Prior'
+SF_PRIOR_COLS = ('Code', 'Item', 'Year', 'Approved excl. VAT (VND/year)', 'Source', 'Actual excl. VAT (VND)')
+SF_SRC_BUDGET = 'sheet 3 của file đã duyệt, năm {year}'
+SF_SRC_REPORT = 'số duyệt năm {year} trên 3.1 (sheet 3 không có số)'
+NOTE_SF_NO_TOTAL = 'quỹ bảo trì: sheet không có dòng tổng R/E, cộng các dòng lá, không đối soát'
+NOTE_SF_NONE = 'file không có quỹ bảo trì'
+_SF_TEMPLATE_CODES = {}
+
+
+def template_sf_codes(path=TEMPLATE_PATH):
+    """The leaf expense codes of the template's sheet 3 (a code in Z and the Total Price formula in H)."""
+    if path not in _SF_TEMPLATE_CODES:
+        wb = openpyxl.load_workbook(path, read_only=True)
+        try:
+            codes = set()
+            if SF_SHEET in wb.sheetnames:
+                for row in wb[SF_SHEET].iter_rows(min_row=15, max_col=26, values_only=True):
+                    code, h = row[25], str(row[7] or '').upper()
+                    if isinstance(code, str) and code.strip().startswith('E') and h.startswith('=IF('):
+                        codes.add(code.strip())
+        finally:
+            wb.close()
+        _SF_TEMPLATE_CODES[path] = codes
+    return _SF_TEMPLATE_CODES[path]
+
+
+def _find_head(rows, pattern, max_row=14):
+    """(row index, column index) of the first head cell matching `pattern` in the first rows, or (None, None)."""
+    rx = re.compile(pattern, re.I)
+    for r, row in enumerate(rows[:max_row]):
+        for c, v in enumerate(row):
+            if isinstance(v, str) and rx.search(_key(v)):
+                return r, c
+    return None, None
+
+
+def _sf_vat_factor(rows, year):
+    """(divisor, basis) to take a sheet's amounts out of VAT: the title rows say including / excluding VAT; an
+    including sheet is divided by 1 + the average general VAT of its year's months (the dated rate)."""
+    basis = None
+    for row in rows[:7]:
+        for v in row:
+            if isinstance(v, str):
+                basis = basis or vat_of(v)
+    if basis != 'incl' or not year:
+        return 1.0, basis or 'unknown'
+    import utility_tariffs as ut
+    rates = [ut.vat_rate(int(year), m) for m in range(1, 13)]
+    return 1 + sum(rates) / 12 / 100, basis
+
+
+def read_sf_prior(wb, template=TEMPLATE_PATH):
+    """({code: dict(item, year, approved, source, actual)}, notes) of the approved file's sinking fund, per code in this
+    order (design D4): the budget sheet's own Total Price (column H, never a column chosen by its header) when the sheet
+    carries figures, as year N; else the report sheet's approved column, with its year. Amounts per year excluding VAT.
+    {} with the note "file không có quỹ bảo trì" when neither carries a figure."""
+    names = wb.sheetnames
+    budget = next((n for n in names if _key(n) == _key(SF_SHEET)), None) or next(
+        (n for n in names if fund_of(n) == 'SF' and kind_of(n) == 'budget'), None)
+    report = next((n for n in names if _key(n) == _key(SF_REPORT_SHEET)), None) or next(
+        (n for n in names if fund_of(n) == 'SF' and kind_of(n) == 'report'), None)
+    leaf = template_sf_codes(template)
+    out, notes = {}, []
+    if budget:
+        rows = _rows_of(wb[budget])
+        hr, code_c = _find_head(rows, r'^code')
+        _, total_c = _find_head(rows, r'^total price')
+        year = head_year(rows[:9])
+        if hr is not None and total_c is not None:
+            div, basis = _sf_vat_factor(rows, year)
+            for row in rows[hr + 1:]:
+                code = row[code_c] if code_c < len(row) else None
+                amount = row[total_c] if total_c < len(row) else None
+                if not (isinstance(code, str) and code.strip() in leaf and isinstance(amount, (int, float)) and amount):
+                    continue
+                code = code.strip()
+                item = ' '.join(str(row[code_c + 1] or '').split()) if code_c + 1 < len(row) else ''
+                prev = out.get(code, {}).get('approved', 0.0)
+                out[code] = dict(item=item, year=year, approved=prev + amount / div,
+                                 source=SF_SRC_BUDGET.format(year=year), actual=None)
+            if out:
+                notes.append((NOTE_SOURCE, budget, NOTE_SF_NO_TOTAL))
+                if basis == 'unknown':
+                    notes.append((NOTE_UNREAD, budget, 'quỹ bảo trì: không đọc được cơ sở VAT, coi là chưa VAT'))
+    if not out and report:
+        rows = _rows_of(wb[report])
+        hr, code_c = _find_head(rows, r'^code')
+        ar, appr_c = _find_head(rows, r'approved budget of year')
+        _, act_c = _find_head(rows, r'^total actual')
+        if hr is not None and appr_c is not None:
+            m = re.search(r'(20\d\d)', _key(rows[ar][appr_c]))
+            year = int(m.group(1)) if m else head_year(rows[:9])
+            div, _ = _sf_vat_factor(rows, year)
+            for row in rows[max(hr, ar) + 1:]:
+                code = row[code_c] if code_c < len(row) else None
+                amount = row[appr_c] if appr_c < len(row) else None
+                if not (isinstance(code, str) and code.strip() in leaf and isinstance(amount, (int, float)) and amount):
+                    continue
+                code = code.strip()
+                actual = row[act_c] if act_c is not None and act_c < len(row) else None
+                item = ' '.join(str(row[code_c + 1] or '').split()) if code_c + 1 < len(row) else ''
+                out[code] = dict(item=item, year=year, approved=out.get(code, {}).get('approved', 0.0) + amount / div,
+                                 source=SF_SRC_REPORT.format(year=year),
+                                 actual=(actual / div) if isinstance(actual, (int, float)) else None)
+            if out:
+                notes.append((NOTE_SOURCE, report, f'quỹ bảo trì: sheet 3 không có số; lấy số duyệt năm {year} trên 3.1'))
+    if not out:
+        notes.append((NOTE_SOURCE, budget or SF_SHEET, NOTE_SF_NONE))
+    return out, notes
+
+
+def add_sf_prior_sheet(wb, sf):
+    """The input form's 'Sinking Fund Prior' sheet (task 5.2): one row per code; the generator reads it (always written
+    in a Review, empty when the file has no sinking fund, so the run knows it is a Review)."""
+    if SF_PRIOR_SHEET in wb.sheetnames:
+        del wb[SF_PRIOR_SHEET]
+    ws = wb.create_sheet(SF_PRIOR_SHEET)
+    for c, h in enumerate(SF_PRIOR_COLS, start=1):
+        ws.cell(row=1, column=c, value=h)
+    for r, (code, d) in enumerate(sorted(sf.items()), start=2):
+        ws.cell(row=r, column=1, value=code)
+        ws.cell(row=r, column=2, value=d.get('item') or '')
+        ws.cell(row=r, column=3, value=d.get('year'))
+        ws.cell(row=r, column=4, value=round(d['approved']))
+        ws.cell(row=r, column=5, value=d.get('source') or '')
+        if d.get('actual') is not None:
+            ws.cell(row=r, column=6, value=round(d['actual']))
+    for col, w in zip('ABCDEF', (10, 40, 8, 22, 44, 20)):
+        ws.column_dimensions[col].width = w
+    return ws
 
 
 # ------------------------------------------------------------------------------------------------
@@ -1334,6 +1478,10 @@ def write_form(prior, info, facts, out_dir, base_form=None, now=None, stamp=None
         if label in PM_SCALE_LABELS or label == es.REGION_LABEL:
             continue
         row = _label_row(pi, label, required=False)
+        if row is None and label in APPENDABLE_FACT_LABELS:
+            # a label added after the live form was built (change add-sinking-fund): appended below the last row
+            row = (pi.max_row or 1) + 1
+            pi.cell(row=row, column=1).value = APPENDABLE_FACT_LABELS[label]
         if row is None:
             notes.append((NOTE_UNREAD, label, 'nhãn trong file dữ kiện không có trên form'))
             continue
@@ -1369,6 +1517,7 @@ def write_form(prior, info, facts, out_dir, base_form=None, now=None, stamp=None
                       f"(gồm VAT: {'Yes' if mf.vat_basis == 'incl' else 'No'}); không có 12 tháng hoá đơn"))
 
     add_prior_budget_sheet(wb, prior, notes)
+    add_sf_prior_sheet(wb, getattr(prior, 'sf', None) or {})          # change add-sinking-fund, task 5.2
     # Where every fact came from (change project-info-everywhere): the file's own facts, then the page / master /
     # package facts (their later write wins on the form, so their source wins here too).
     fact_sources = dict(file_sources, **{es.MODE_LABEL: pf.SRC_FILE, es.PRIOR_YEAR_LABEL: pf.SRC_FILE})

@@ -1092,6 +1092,28 @@ def main(force=False):
         "Savills' own fee (EMH1) and the residents' own water and electricity collected on their behalf (EEW.A, "
         "EEE.A). Enter 0% to budget no contingency; above 10% stops the run.", 'Budget Planning Agent')
 
+    # Appended (rows 61-62 were free), read by label. Change add-sinking-fund, task 3.1 (user, 2026-11-12).
+    import real_budget_ranges as rbr
+    c_warranty = labeled_input(ws1, 61, rbr.WARRANTY_LABEL, rbr.DEFAULT_WARRANTY_MONTHS, fmt='0')
+    dv_warranty = DataValidation(type='whole', operator='between', formula1='0', formula2=str(rbr.MAX_WARRANTY_MONTHS),
+                                 allow_blank=True, showErrorMessage=True, errorTitle='Remaining Warranty Months',
+                                 error=f'Enter 0 to {rbr.MAX_WARRANTY_MONTHS} months, or leave blank for 24')
+    ws1.add_data_validation(dv_warranty)
+    dv_warranty.add(c_warranty)
+    c_warranty.comment = Comment(
+        "Số tháng bảo hành còn lại tính từ tháng đầu ngân sách (Budget Start Month). Blank means 24. During these "
+        "months the sinking fund (sheet 3) costs only the maintenance contracts, the safety inspections, periodic "
+        "cleaning, the outsourced sewage plant, bank fees, miscellaneous and irrigation / plumbing; spare parts, "
+        "repairs, renovation and 'Others' are 0. Enter 0 when the warranty is over. Not used by a Budget Review.",
+        'Budget Planning Agent')
+    c_lifts = labeled_input(ws1, 62, rbr.TOTAL_LIFTS_LABEL + ' — leave blank if unknown', None)
+    c_lifts.alignment = LEFT
+    c_lifts.comment = Comment(
+        "Tổng số thang máy của dự án, gồm cả thang dịch vụ / thang hàng (every lift of the project, all towers). "
+        "Prices the sinking-fund lift lines (ERLM1-ERLM4, ESA1) per lift, on the same count as the real budgets "
+        "they come from. Blank leaves those lines for the PM. Separate from 'Passenger Elevators per Tower' above, "
+        "which sizes the lift advertising revenue.", 'Budget Planning Agent')
+
 
     for col, w in {'A': 34, 'B': 16, 'C': 16, 'D': 14, 'E': 18, 'F': 14}.items():
         ws1.column_dimensions[col].width = w

@@ -217,7 +217,8 @@ What it does, in order:
    the approved figure is never copied), `Công cụ ra 0`, `Chỉ công cụ`. Codes the 2027 form does not carry are listed
    under their own heading and stay in the approved totals. The command prints and writes `review_summary.md` /
    `.json`, and exits 1 when either of two ties fails: tool column R/E = the deliverable's own R/E rows; approved
-   column R/E = the source file's own R/E rows.
+   column R/E = the source file's own R/E rows. The sinking fund is compared apart, on `Review - Quỹ bảo trì` (see
+   "The sinking fund" below): sheet 3 has no R/E rows, so it is never a tie.
 
 Not in this first version, said plainly: the per-position roster from the file's staff sheet, the twelve monthly
 bills, and carry-forward rules for lines other than staff and utilities. PDF and xlsb files are refused with a message;
@@ -398,6 +399,46 @@ annual figure there (web adjust table or Excel). A line that is genuinely 0 (no 
 a 0% contingency rate, EMO2) keeps 0 and "Để ở mức 0". The analysis lists them on sheet `Dòng chờ PM điền`; the run log
 records `pm_lines`; `verify.py` checks them (`checks.check_pm_lines`). Change `leave-unpriced-lines-for-pm`, docs/32.
 
+## The sinking fund: sheets 3 and 3.1 (change `add-sinking-fund`)
+
+The tool prices `3. Budget-Sinking Fund` line by line; `1. Summary` rows 66–70 read its total (row E.S = sheet 3 AF14)
+through the form's own formulas. Both sheets are shown when sheet 3 has a figure or 3.1 holds prior figures, and stay
+hidden otherwise.
+
+- **New project:** each code priced in at least 10 real budgets = the median per m² of fee-paying NFA per month (per
+  lift per month for ERLM1–ERLM4 and ESA1) × NFA (or the lift count) × 12, on sheet 2's VAT basis. The remark gives n,
+  the median and the P25–P75 range. Two Project Info inputs drive it:
+  - `Remaining Warranty Months` (Số tháng bảo hành còn lại tính từ tháng đầu ngân sách): blank = 24, allowed 0–60. Those
+    first months are 0 for every code outside the warranty list (`real_budget_ranges.SF_WARRANTY_CODES`: maintenance
+    contracts, ESA1–21, ERCS1–5, ERS1, EMB1, ERM, ERPS4–5), which are costed all year. 12 or more months: the code is 0
+    for the year with the remark "Để 0: trong thời gian bảo hành".
+  - `Total Elevators (incl. service)`: every lift of the project, service lifts included (the master's
+    `ElevatorCount`). Blank or 0 leaves the lift codes for the PM ("chưa có số thang máy").
+- **A code under 10 budgets, or without its driver,** is a "PM điền" line, blank and shaded, with its "Nhập số" row on
+  `4. Điều chỉnh` (key `SF|<code>` on the web); 54 such lines on the standard sample (kept, user 12/11). The sheet 3 line
+  is a Schedule row whose twelve months link to that row, so the PM's annual figure fills I:T and AF.
+- **One fund per code:** a code sheet 2 prices or leaves for the PM (today ERM, EMB1, ERCS1) is 0 on sheet 3 with the
+  remark "đang tính ở quỹ quản lý" / "để PM điền ở quỹ quản lý" (B8 is open with the Head of PM).
+- **Review / Existing:** no warranty. A Review's input form carries the sheet `Sinking Fund Prior` (code, item, year,
+  approved per year excl. VAT, source), written by `review_import`: the approved file's sheet 3 Total Price (H), else
+  its 3.1 approved column with that year. The generator carries each code forward as prior × CPI(year → budget year),
+  writes the prior figures into 3.1 (column N, and the actual in H when read) so sheet 3's AC/AD show them, and prices
+  the codes without a prior figure by the median. An Existing form without that sheet (no Review) is priced by the
+  median for all twelve months (user, 12/11). The Review adds `Review - Quỹ bảo trì` to the analysis, `sf_rows` /
+  `sf_totals` / `sf_none` to `review_summary.json`, and the web's "Quỹ bảo trì" section; an approved code the tool
+  gives 0 gets a "Nhập số" row, unless sheet 2 holds it ("B8").
+- **The data** is `data/real_budget_ranges/Ref_SinkingFundValues.csv` (anonymous: coded `name_key`, NFA, per-unit value
+  at budget-year and 2027 prices; its section of `README.txt` gives n and the median per code). The same
+  `build_real_budget_ranges.py` run builds it beside `Ref_RealBudgetValues.csv`, from the store's budget sheets of the
+  sinking fund: Total Price (H) first, only sheets of the file's own budget year (A/B sheets summed), placeholder sheets
+  (5+ lines with one amount) left out, each line out of VAT. Build it as an overlay first (`--out` a scratch folder),
+  get the sign-off, then copy the CSV and the README section in. The current file comes from store `final_v5`;
+  `Ref_RealBudgetValues.csv` stays on its own build. Site packages carry the file unchanged (no names in it).
+- **Checks:** `verification/checks.check_sinking_fund` recomputes every line from the file (median, warranty, prior
+  × CPI), ties 1. Summary E.S to AF14, and checks one fund per code and the visibility rule; `check_pm_lines` and
+  `check_adjustment_sheet` cover sheet 3's PM rows. `verify.py` runs it on the standard and Existing samples and on a
+  Review form (section 8b: the Existing sample plus an invented `Sinking Fund Prior` sheet).
+
 ## Printing the Management Fund (change `add-budget-print-layout`)
 
 Sheet `2. Budget-Management Fund` of every deliverable is ready to print like an approved, signed budget:
@@ -462,6 +503,11 @@ approved budget), `runs\`, `tmp\`, `Chay Budget Agent.cmd` (local web, three tab
 Kết quả dự án mới, so a project with no approved budget yet is budgeted from its own facts (change
 `site-package-new-project-entry`); `HUONG-DAN.txt` names both ways. A package with an approved budget stays
 Review-only (`POST api/runs` answers 403).
+`--blank-fact <key>` (repeatable, a fact key such as `total_lifts`) leaves that fact blank for the PM even when the
+master list has a figure: the key is dropped from `site.json` facts, noted, and listed in `site.json` `blank_facts`;
+in a Review the server sends those labels as `_no_master`, so `facts_prefill.master_fallback` does not fill them back
+from the master unless the PM types a figure (change `add-sinking-fund`, user 2026-11-16: a master lift count of 1
+looked wrong for a six-tower project).
 `--check` imports the modules with the packaged Python, reads the approved budget (when the package has one), and scans the package for the build
 PC's user name, machine name, paths and AI-tool names, and for every other project's name (the two master lists, the
 reference-project registry's names and aliases, the scan store's file names). Inside a package every project other
@@ -503,6 +549,8 @@ analysis workbook's payroll caps and rates, and drives the staff lines in Existi
 
 `data/real_budget_ranges/Ref_RealBudgetValues.csv` and `data/generation_B_verified/Ref_CPI_VN.csv` are read on every
 run for the seven lines priced from real Savills budgets and the analysis sheet `Real-Budget Ranges`.
+`data/real_budget_ranges/Ref_SinkingFundValues.csv` is read on every run for sheet 3 (the sinking fund); without it
+every sheet 3 line is left for the PM and the run still completes.
 
 `data/service_levels/Ref_ServiceLevelThresholds.csv` and `Ref_ServiceLevelProjects.csv` are read on every run for
 the analysis workbook's `Service Levels` sheet only (display; no figure depends on them). A missing file gives a

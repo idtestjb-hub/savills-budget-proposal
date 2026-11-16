@@ -21,9 +21,9 @@ MASTER_CSV = os.path.join(os.path.dirname(SOURCE_DIR), 'data', 'master_list_veri
 
 # Ô của mục 2 -> nhãn trên form nhập liệu (fill_input.SCALARS)
 FIELDS = ('city', 'district', 'tower_count', 'floor_count', 'gate_count', 'has_pool', 'pool_volume', 'car_slots',
-          'moto_slots', 'elevators', 'basements', 'pool_count', 'street')
+          'moto_slots', 'elevators', 'basements', 'pool_count', 'street', 'total_lifts')
 NUMERIC = {'tower_count', 'floor_count', 'gate_count', 'pool_volume', 'car_slots', 'moto_slots', 'elevators',
-           'basements', 'pool_count'}
+           'basements', 'pool_count', 'total_lifts'}
 MASTER_COLUMNS = {'city': 'City_Province', 'district': 'District', 'tower_count': 'TowerCount',
                   'floor_count': 'FloorCount', 'gate_count': 'GateCount', 'car_slots': 'CarParkingSlots',
                   'moto_slots': 'BikeParkingSlots', 'basements': 'BasementCount', 'pool_count': 'PoolCount',
@@ -103,6 +103,9 @@ def row_facts(row):
     towers = facts.get('tower_count')
     elevators = _clean('elevators', row.get('ElevatorCount'))
     if elevators is not None:
+        # Tổng số thang cả dự án (gồm thang dịch vụ) dùng thẳng cho mã thang máy quỹ bảo trì (change add-sinking-fund,
+        # người dùng chốt 12/11/2026): cùng cách đếm với số tham chiếu, không chia theo tháp.
+        facts['total_lifts'] = elevators
         # Master ghi tổng số thang của dự án; ô trên form là số thang mỗi tháp: chỉ chia được khi dự án có một tháp.
         if towers == 1:
             facts['elevators'] = elevators
@@ -128,13 +131,17 @@ def master_fallback(facts, name, keep=(), path=MASTER_CSV):
     """Lúc chạy Review (change project-info-everywhere): ô dữ kiện còn trống lấy từ master theo tên gấp.
 
     `facts` = {nhãn Project Info: giá trị, '_sources': {...}} như server gửi; sửa tại chỗ. `keep` = các khoá đã có số từ
-    file ngân sách đã duyệt (số chỗ đậu xe), master không ghi đè. Trả (danh sách nhãn đã điền, ghi chú)."""
+    file ngân sách đã duyệt (số chỗ đậu xe), master không ghi đè. `facts['_no_master']` (nhãn, do gói site gửi theo
+    `blank_facts` của site.json) = các ô văn phòng cố ý để trống khi đóng gói: master không điền, PM nhập (change
+    add-sinking-fund, người dùng chốt 16/11/2026 cho tổng số thang máy). Khoá này bị gỡ khỏi `facts`.
+    Trả (danh sách nhãn đã điền, ghi chú)."""
+    no_master = set(facts.pop('_no_master', None) or ())
     mfacts, notes = master_facts(name, path)
     sources = facts.setdefault('_sources', {})
     added = []
     for key, value in mfacts.items():
         label = LABELS[key]
-        if key in keep or label in facts:
+        if key in keep or label in facts or label in no_master:
             continue
         facts[label] = value
         sources[label] = SOURCE_MASTER

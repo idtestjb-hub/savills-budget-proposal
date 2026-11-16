@@ -37,6 +37,54 @@ EXISTING_LUMP_SAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
                                     'Sample_Existing_Lump_Input.xlsx')
 
 
+# The sinking fund in a Review (change add-sinking-fund, task 8.2): the first Existing sample plus the 'Sinking Fund
+# Prior' sheet review_import writes, with invented figures (TEST DATA). It runs the generator's carry-forward half;
+# review_import's reading of an approved file is covered by tests/test_review_sinking_fund.py, not here.
+SF_PRIOR_TEST = {
+    'ERA1': dict(item='TEST DATA lift repair', year=2026, approved=120_000_000.0, source='TEST DATA sheet 3'),
+    'ERE2': dict(item='TEST DATA electrical repair', year=2025, approved=36_000_000.0, source='TEST DATA 3.1'),
+    'ERM': dict(item='TEST DATA miscellaneous', year=2026, approved=20_000_000.0, source='TEST DATA sheet 3'),
+}
+
+
+def build_sf_review_sample(src, dst):
+    """A copy of input form `src` with the 'Sinking Fund Prior' sheet of SF_PRIOR_TEST; returns `dst`."""
+    import shutil
+
+    import openpyxl
+
+    import review_import as ri
+    shutil.copyfile(src, dst)
+    wb = openpyxl.load_workbook(dst)
+    ri.add_sf_prior_sheet(wb, SF_PRIOR_TEST)
+    wb.save(dst)
+    wb.close()
+    return dst
+
+
+MID_YEAR_WARRANTY = 6       # months: the warranty ends inside the budget year, so sheet 3 gets Schedule lines
+
+
+def build_mid_year_warranty_sample(src, dst, months=MID_YEAR_WARRANTY, lifts=6):
+    """A copy of input form `src` with 'Remaining Warranty Months' and 'Total Elevators (incl. service)' set
+    (TEST DATA; labels appended when the form predates them, as the web does). Returns `dst`."""
+    import shutil
+
+    import openpyxl
+
+    from input_labels import SheetLabels
+    from webapp import fill_input
+    shutil.copyfile(src, dst)
+    wb = openpyxl.load_workbook(dst)
+    ws = wb['Project Info']
+    L = SheetLabels(ws)
+    for label, value in (('Remaining Warranty Months', months), ('Total Elevators (incl. service)', lifts)):
+        ws.cell(row=fill_input._ensure_label(ws, L, label), column=L.value_col, value=value)
+    wb.save(dst)
+    wb.close()
+    return dst
+
+
 def _headline(text):
     print(f'\n{text}\n' + '-' * len(text))
 
@@ -456,7 +504,10 @@ def main(argv=None):
                                lambda: checks.check_print_layout(paths)),
                               # Change project-info-everywhere (spec deliverable-project-info).
                               ('0. Info: every project fact with its source from row 23, parking rows priced like B5',
-                               lambda: checks.check_project_info(paths))]):
+                               lambda: checks.check_project_info(paths)),
+                              # Change add-sinking-fund (task 8.1): sheet 3 by the median, warranty and PM rules.
+                              ('Sinking fund: sheet 3 lines by their rule, one fund per code, 1. Summary E.S = AF14',
+                               lambda: checks.check_sinking_fund(paths, sample))]):
             return 1
         existing_paths = None                      # the first Existing run, kept for section 9
         for ex_sample, sub in ((EXISTING_SAMPLE, 'existing'), (EXISTING_LUMP_SAMPLE, 'existing_lump')):
@@ -505,9 +556,75 @@ def main(argv=None):
                  lambda: checks.check_real_budget_ranges(ex_paths)),
                 ('Lines the tool cannot price are blank, shaded, "PM điền", on sheet 4 and fillable',
                  lambda: checks.check_pm_lines(ex_paths)),
+                ('Sinking fund: sheet 3 lines by their rule (Existing: no warranty), one fund per code, E.S = AF14',
+                 lambda: checks.check_sinking_fund(ex_paths, ex_sample)),
             ]
             if not _run_sections(sections):
                 return 1
+
+        # ---- 8b. the sinking fund of a Review's input form ---------------------------------
+        # Change add-sinking-fund (task 8.2): the Existing sample with a 'Sinking Fund Prior' sheet of invented
+        # figures. Sheet 3 must carry each prior code x CPI, 3.1 the prior figures, ERM stay on sheet 2.
+        _headline('8b. SINKING FUND IN A REVIEW FORM')
+        sf_sample = build_sf_review_sample(EXISTING_SAMPLE, os.path.join(workdir, 'Sample_Existing_SF_Prior_Input.xlsx'))
+        sf_dir = os.path.join(workdir, 'sf_review')
+        os.makedirs(sf_dir, exist_ok=True)
+        try:
+            sf_outputs, sf_before, sf_after = run_workflow(sample=sf_sample, workdir=sf_dir)
+        except (PartialRun, ProductionTouched) as exc:
+            print(f'FAIL  {type(exc).__name__}\n{exc}')
+            return 1
+        if diff_snapshots(sf_before, sf_after):
+            print('FAIL  production artefacts changed during the sinking-fund Review run')
+            return 1
+        sf_paths = locate_outputs(sf_outputs)
+        print(f'OK    both generators completed on {os.path.basename(sf_sample)}')
+        try:
+            check_artifacts(sf_paths)
+            sffe = check_formula_errors(sf_paths)
+        except (CorruptionArtifact, FormulaError) as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        print(f'OK    no corruption artifacts, no Excel errors introduced ({sffe["method"]})')
+        if not _run_sections([
+            ('Sinking fund: prior x CPI per code, the rest by median, 3.1 carries the prior figures, ERM on sheet 2',
+             lambda: checks.check_sinking_fund(sf_paths, sf_sample)),
+            ('4. Điều chỉnh ties to its fund lines and leaves every figure unchanged',
+             lambda: checks.check_adjustment_sheet(sf_paths)),
+            ('Lines the tool cannot price are blank, shaded, "PM điền", on sheet 4 and fillable',
+             lambda: checks.check_pm_lines(sf_paths)),
+        ]):
+            return 1
+
+        # ---- 8c. a warranty that ends mid-year ---------------------------------------------
+        # Change add-sinking-fund (found by the browser check of task 6.3): the standard sample with a 6-month
+        # warranty and a lift count, so sheet 3 carries Schedule lines whose month cells must stay numbers.
+        _headline('8c. SINKING FUND WITH A MID-YEAR WARRANTY')
+        mw_sample = build_mid_year_warranty_sample(sample, os.path.join(workdir, 'Sample_Mid_Year_Warranty_Input.xlsx'))
+        mw_dir = os.path.join(workdir, 'sf_mid_year')
+        os.makedirs(mw_dir, exist_ok=True)
+        try:
+            mw_outputs, mw_before, mw_after = run_workflow(sample=mw_sample, workdir=mw_dir)
+        except (PartialRun, ProductionTouched) as exc:
+            print(f'FAIL  {type(exc).__name__}\n{exc}')
+            return 1
+        if diff_snapshots(mw_before, mw_after):
+            print('FAIL  production artefacts changed during the mid-year warranty run')
+            return 1
+        mw_paths = locate_outputs(mw_outputs)
+        print(f'OK    both generators completed on {os.path.basename(mw_sample)}')
+        try:
+            check_artifacts(mw_paths)
+            mwfe = check_formula_errors(mw_paths)
+        except (CorruptionArtifact, FormulaError) as exc:
+            print(f'FAIL  {exc}')
+            return 1
+        print(f'OK    no corruption artifacts, no Excel errors introduced ({mwfe["method"]})')
+        if not _run_sections([
+            ('Sinking fund: first months 0 inside the warranty, the rest by median, E.S = AF14',
+             lambda: checks.check_sinking_fund(mw_paths, mw_sample)),
+        ]):
+            return 1
 
         # ---- 9. the operating-project path on its own invented sample -----------------------
         # Change use-operating-project-actuals. Entered rates, the stable switch, recorded parking and

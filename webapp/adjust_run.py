@@ -35,14 +35,32 @@ RESULT_FILE = 'adjust_result.json'
 RECALC_FILE = 'adjust_recalc.xlsx'
 BASELINE_FILE = 'adjust_baseline_recalc.xlsx'
 ERROR_TEXTS = ('#REF!', '#DIV/0!', '#VALUE!', '#NAME?', '#N/A', '#NUM!', '#NULL!')
-CHECK_SHEETS = ('4. Điều chỉnh', '2. Budget-Management Fund', '2.2 Common area Fund', '1. Summary')
+CHECK_SHEETS = ('4. Điều chỉnh', '2. Budget-Management Fund', '2.2 Common area Fund', '3. Budget-Sinking Fund',
+                '1. Summary')
+SF_SHEET, SF_TOTAL_CELL = '3. Budget-Sinking Fund', 'AF14'   # dòng E.S: tổng chi quỹ bảo trì mà 1. Summary đọc
 
 
-def _totals(tool):
+def _sf_total(recalc_path):
+    """Tổng chi quỹ bảo trì (AF14 của sheet 3) đo bằng Excel; None khi bản giao không có sheet hoặc ô không có số."""
+    import openpyxl
+    wb = openpyxl.load_workbook(recalc_path, read_only=True, data_only=True)
+    try:
+        if SF_SHEET not in wb.sheetnames:
+            return None
+        v = wb[SF_SHEET][SF_TOTAL_CELL].value
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    finally:
+        wb.close()
+
+
+def _totals(tool, recalc_path=None):
     out = {}
     for fund, v in tool.items():
         r, e = v['totals'].get('R'), v['totals'].get('E')
         out[fund] = dict(R=r, E=e, S=(r - e) if r is not None and e is not None else None)
+    sf = _sf_total(recalc_path) if recalc_path else None
+    if sf is not None:                           # change add-sinking-fund: quỹ bảo trì chỉ có chi
+        out['SF'] = dict(R=None, E=sf, S=None)
     return out
 
 
@@ -121,7 +139,7 @@ def main():
                 print('    Excel đo số trước điều chỉnh (lần lưu đầu)')
                 base = os.path.join(workdir, BASELINE_FILE)
                 review.recalc_copy(deliverable, base)
-            state['baseline'] = _totals(review.tool_lines(deliverable, base))
+            state['baseline'] = _totals(review.tool_lines(deliverable, base), base)
             state['baseline_source'] = os.path.basename(base)
 
         stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -140,7 +158,7 @@ def main():
         print('[3/3] Excel tính lại bản giao đã điều chỉnh')
         recalc = os.path.join(workdir, RECALC_FILE)
         review.recalc_copy(deliverable, recalc)
-        after = _totals(review.tool_lines(deliverable, recalc))
+        after = _totals(review.tool_lines(deliverable, recalc), recalc)
         keys = {adjust._text(e.get('key')) for e in edits}
         measured = _new_amounts(recalc, keys)
         errors = _errors(recalc)
@@ -167,8 +185,8 @@ def main():
         json.dump(result, fh, ensure_ascii=False, indent=1)
     for fund, t in after.items():
         b = state['baseline'].get(fund, {})
-        print(f"    {adjust.FUND_VI.get(fund, fund)}: thu {b.get('R') or 0:,.0f} → {t['R'] or 0:,.0f}; "
-              f"chi {b.get('E') or 0:,.0f} → {t['E'] or 0:,.0f}")
+        income = f"thu {b.get('R') or 0:,.0f} → {t['R'] or 0:,.0f}; " if fund != 'SF' else ''
+        print(f"    {adjust.FUND_VI.get(fund, fund)}: {income}chi {b.get('E') or 0:,.0f} → {t['E'] or 0:,.0f}")
     print(f'    ô lỗi sau tính lại: {len(errors)}')
     return 0
 

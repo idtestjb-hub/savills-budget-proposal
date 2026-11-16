@@ -302,6 +302,8 @@ def measure(deliverable, analysis, input_path, classification_csv, now=None):
     try:
         import generate_project_budget as gpb
         rec['pm_lines'] = [dict(code=ln['code'], kind=ln['kind']) for ln in gpb.pm_lines_of(deliverable)]
+        # change add-sinking-fund (task 4.4): the sheet 3 lines left for the PM, keyed like the web (SF|code)
+        rec['sf_pm_lines'] = [f"SF|{ln['code']}" for ln in gpb.sf_lines_of(deliverable) if ln['status'] == 'pm_fill']
     except Exception as exc:
         rec['pm_lines'] = None
         problems.append(f'pm_lines_unreadable:{type(exc).__name__}')

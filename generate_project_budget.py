@@ -709,6 +709,15 @@ def _count_older_patrol_row_on_three_shifts(demand):
     return out
 
 
+def _positive_or_none(value):
+    """A count from the form: a number above 0, else None (blank, 0, text)."""
+    try:
+        n = float(str(value).replace(',', '').strip()) if value is not None else None
+    except ValueError:
+        return None
+    return n if n and n > 0 else None
+
+
 def read_input(path):
     if not os.path.exists(path):
         raise FileNotFoundError(
@@ -814,6 +823,13 @@ def read_input(path):
         # any other sheet reads it. Validated, with its evidenced default applied, just below.
         capex_drop_year=(L.value('Capex Drop-to-Reserve Year')
                          if L.has('Capex Drop-to-Reserve Year') else None),
+        # Change add-sinking-fund (task 3.2): optional, absent on older forms. Warranty months left from the budget
+        # start (blank -> 24); every lift of the project, service lifts included (blank or 0 -> the sinking-fund lift
+        # lines are left for the PM).
+        warranty_months=real_budget_ranges.warranty_months_of(
+            L.value(real_budget_ranges.WARRANTY_LABEL) if L.has(real_budget_ranges.WARRANTY_LABEL) else None),
+        total_lifts=_positive_or_none(
+            L.value(real_budget_ranges.TOTAL_LIFTS_LABEL) if L.has(real_budget_ranges.TOTAL_LIFTS_LABEL) else None),
     )
     project['lat'], project['lon'] = _resolve_coords(project['lat'], project['lon'])
     project['operating_years'] = _resolve_operating_years(project['operating_years'])
@@ -842,6 +858,7 @@ def read_input(path):
     # Change project-info-everywhere: every project fact with its source (the form's 'Fact Sources' sheet, else
     # "form nhập liệu"), shown on 0. Info from row 23; and which car-park row the car slots belong to.
     project['facts_list'] = project_facts.facts_of(wb)
+    project['input_path'] = path          # change add-sinking-fund: its 'Sinking Fund Prior' sheet, read when written
     project['car_owner'] = str((L.value(project_facts.CAR_OWNER_LABEL) if L.has(project_facts.CAR_OWNER_LABEL)
                                 else None) or project_facts.CAR_OWNER_COMMON).strip()
     # Each product read from the row bearing ITS OWN name, inside the Product Mix block. Reading
@@ -2607,6 +2624,58 @@ def pm_lines_of(path):
         wb.close()
 
 
+SF_STATUS_VI = {'priced': 'trung vị dự án thực tế', 'carry_forward': 'số duyệt năm trước × CPI',
+                'warranty_zero': 'trong bảo hành (0)', 'other_fund': 'tính ở quỹ quản lý (0)', 'pm_fill': 'PM điền'}
+
+
+def sf_status_of(remark):
+    """The status of a sheet 3 line from its remark (the deliverable is the record; see fill_sinking_fund_sheet)."""
+    text = str(remark or '')
+    if text.startswith(PM_FILL_LEAD):
+        return 'pm_fill'
+    if text.startswith('Để 0: trong thời gian bảo hành'):
+        return 'warranty_zero'
+    if text.startswith('Để 0:') and 'quỹ quản lý' in text:
+        return 'other_fund'
+    if text.startswith('Theo số duyệt'):
+        return 'carry_forward'
+    return 'priced' if text.startswith('Ước tính từ quỹ bảo trì') else ''
+
+
+def sf_lines_of(path):
+    """The sheet 3 lines the tool wrote, read back from a deliverable (task 4.4/4.5): [dict(code, name, status, reason,
+    annual, row, sheet4)] in form order. `annual` = the written year (G x 12 for Monthly, the month sum for Schedule;
+    0 for a line linked to '4. Điều chỉnh'). [] when the file or the sheet is missing."""
+    if not path or not os.path.exists(path):
+        return []
+    import budget_adjustment
+    wb = openpyxl.load_workbook(path)
+    try:
+        if SF_SHEET not in wb.sheetnames:
+            return []
+        ws = wb[SF_SHEET]
+        marked = (budget_adjustment.pm_rows(wb[budget_adjustment.SHEET_NAME])
+                  if budget_adjustment.SHEET_NAME in wb.sheetnames else {})
+        out = []
+        for code, r in sf_leaf_rows(ws).items():
+            remark = ws.cell(row=r, column=SF_REMARK_COL).value
+            status = sf_status_of(remark)
+            if not status:
+                continue
+            if str(ws.cell(row=r, column=SF_FREQ_COL).value or '') == 'Schedule':
+                annual = sum(v for k in range(12) if isinstance(v := ws.cell(row=r, column=SF_MONTH_FIRST_COL + k).value,
+                                                                (int, float)))
+            else:
+                g = ws.cell(row=r, column=SF_PRICE_COL).value
+                annual = g * 12 if isinstance(g, (int, float)) else 0
+            out.append(dict(code=code, name=_sf_line_name(ws, r), status=status,
+                            reason=str(remark)[len(PM_FILL_LEAD):].strip() if status == 'pm_fill' else str(remark),
+                            annual=annual, row=r, sheet4=(code, SF_SHEET) in marked))
+        return out
+    finally:
+        wb.close()
+
+
 def _add_pm_rows(wb, budget_adjustment):
     """Every line left for the PM gets its "Nhập số" row on '4. Điều chỉnh', marked "PM điền", and its fund cells
     shaded (change leave-unpriced-lines-for-pm, design D4) — on every run, before a Review adds its own zero rows.
@@ -2621,6 +2690,204 @@ def _add_pm_rows(wb, budget_adjustment):
     print(f"  {len(lines)} dòng để PM điền; {len(added)} dòng Nhập số trên '4. Điều chỉnh'")
     for code, why in skipped:
         print(f"  {code}: không có dòng trên '4. Điều chỉnh' ({why}); ô vẫn tô vàng và ghi 'PM điền'")
+
+
+# ------------------------------------------------------------------------------------------------
+# '3. Budget-Sinking Fund' and '3.1 Report-Sinking Fund' (change add-sinking-fund, design D2-D7)
+# ------------------------------------------------------------------------------------------------
+SF_SHEET = '3. Budget-Sinking Fund'
+SF_REPORT_SHEET = '3.1 Report-Sinking Fund'
+SF_PRIOR_SHEET = 'Sinking Fund Prior'           # the input form's sheet a Review writes (review_import, task 5.2)
+SF_FREQ_COL, SF_PRICE_COL, SF_MONTH_FIRST_COL, SF_REMARK_COL, SF_CODE_COL = 4, 7, 9, 21, 26     # D, G, I..T, U, Z
+SF_REPORT_CODE_COL, SF_REPORT_ACTUAL_COL, SF_REPORT_APPROVED_COL = 5, 8, 14                    # 3.1: E, H, N
+SF_FIRST_EXPENSE_ROW = 15                       # below 'E.S' (row 14); rows 12-13 are income
+# Lines of sheet 3 left for the PM: code -> dict(row, reason). Cleared by build_budget() with _PM_LINES.
+_SF_PM_LINES = {}
+# The sheet 3 results of this run (code -> real_budget_ranges.SfResult), for the analysis sheet and run.log.
+_SF_RESULTS = {}
+
+
+def sf_leaf_rows(ws):
+    """{code: row} of the sinking-fund expense lines of sheet 3: a code in Z and the form's own Total Price formula in
+    H (not a SUBTOTAL), first row of a code only (ERM appears twice in the form)."""
+    out = {}
+    for r in range(SF_FIRST_EXPENSE_ROW, ws.max_row + 1):
+        code = ws.cell(row=r, column=SF_CODE_COL).value
+        h = str(ws.cell(row=r, column=8).value or '').upper()
+        if isinstance(code, str) and code.strip().startswith('E') and h.startswith('=IF(') and code.strip() not in out:
+            out[code.strip()] = r
+    return out
+
+
+def check_sf_template(rows):
+    """Start-up check (task 2.2): every code of the warranty list is a line of the template's sheet 3."""
+    missing = sorted(real_budget_ranges.SF_WARRANTY_CODES - set(rows))
+    if missing:
+        raise RuntimeError(f"'{SF_SHEET}' of the template has no line for warranty-list code(s) {missing}; "
+                           f"update real_budget_ranges.SF_WARRANTY_CODES")
+
+
+def sf_excluded_codes(wb, codes):
+    """{code: remark} of the sheet 3 codes that sheet 2 holds (design D5): priced there with a figure, or left there
+    for the PM. Read from sheet 2 as written, before '4. Điều chỉnh' turns its cells into formulas."""
+    ws = wb['2. Budget-Management Fund']
+    rows = {}
+    for r in range(1, ws.max_row + 1):
+        v = ws.cell(row=r, column=_CODE_COL).value
+        if isinstance(v, str) and v.strip() in codes:
+            rows.setdefault(v.strip(), r)
+    out = {}
+    for code, r in rows.items():
+        if code in _PM_LINES:
+            out[code] = real_budget_ranges.SF_OTHER_FUND_PM
+        elif any(isinstance(ws.cell(row=r, column=c).value, (int, float)) and ws.cell(row=r, column=c).value
+                 for c in (6, *range(8, 20))):
+            out[code] = real_budget_ranges.SF_OTHER_FUND_PRICED
+    return out
+
+
+def read_sf_prior(input_path):
+    """The input form's 'Sinking Fund Prior' sheet (written by a Review): ({code: (approved per year excl. VAT, year,
+    source)}, {code: actual}) or (None, {}) when the form has no such sheet."""
+    if not input_path or not os.path.exists(input_path):
+        return None, {}
+    wb = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
+    try:
+        if SF_PRIOR_SHEET not in wb.sheetnames:
+            return None, {}
+        rows = list(wb[SF_PRIOR_SHEET].iter_rows(values_only=True))
+    finally:
+        wb.close()
+    head = [str(h or '').strip() for h in rows[0]] if rows else []
+    idx = {h: i for i, h in enumerate(head)}
+    prior, actual = {}, {}
+    for r in rows[1:]:
+        code = str(r[idx['Code']] or '').strip() if 'Code' in idx else ''
+        amount = r[idx['Approved excl. VAT (VND/year)']] if 'Approved excl. VAT (VND/year)' in idx else None
+        if not code or not isinstance(amount, (int, float)):
+            continue
+        year = r[idx['Year']] if 'Year' in idx else None
+        if not isinstance(year, (int, float)):
+            year = budget_period.default().budget_year - 1     # an unread year: the year before the default budget year
+        prior[code] = (float(amount), int(year), str(r[idx['Source']] or '') if 'Source' in idx else '')
+        a = r[idx['Actual excl. VAT (VND)']] if 'Actual excl. VAT (VND)' in idx else None
+        if isinstance(a, (int, float)):
+            actual[code] = float(a)
+    return prior, actual
+
+
+def _write_sf_report(wb, prior, actual):
+    """3.1: the prior approved figure of each code in N (and the actual in H when read), so sheet 3's AC/AD lookups
+    show them (task 4.2); the report year is the prior figures' year. Returns the number of codes written."""
+    ws = wb[SF_REPORT_SHEET]
+    rows = {}
+    for r in range(SF_FIRST_EXPENSE_ROW, ws.max_row + 1):
+        v = ws.cell(row=r, column=SF_REPORT_CODE_COL).value
+        if isinstance(v, str) and v.strip() and v.strip() not in rows:
+            rows[v.strip()] = r
+    years = [y for _, y, _ in prior.values()]
+    if years:
+        year = max(set(years), key=years.count)
+        ws['L4'] = year
+        ws['H5'] = datetime.datetime(year, 1, 1)
+        ws['L5'] = datetime.datetime(year, 12, 31)
+    n = 0
+    for code, (amount, _year, _src) in prior.items():
+        r = rows.get(code)
+        if r is None:
+            continue
+        ws.cell(row=r, column=SF_REPORT_APPROVED_COL, value=round(amount))
+        if code in actual:
+            ws.cell(row=r, column=SF_REPORT_ACTUAL_COL, value=round(actual[code]))
+        n += 1
+    return n
+
+
+def fill_sinking_fund_sheet(wb, project, input_path=None, existing=None):
+    """Price '3. Budget-Sinking Fund' (design D2-D5) and, in a Review, write the prior figures into 3.1 (D4); show both
+    sheets when they hold figures (D7). A new project: the real-budget median per code, the warranty months, the PM
+    lines. An Existing / Review project: the prior approved per code x CPI from the form's 'Sinking Fund Prior' sheet,
+    else the median, and no warranty (D3). Returns {code: SfResult}."""
+    _SF_PM_LINES.clear()
+    _SF_RESULTS.clear()
+    if SF_SHEET not in wb.sheetnames:
+        return {}
+    ws = wb[SF_SHEET]
+    rows = sf_leaf_rows(ws)
+    check_sf_template(rows)
+    excluded = sf_excluded_codes(wb, set(rows))
+    prior, actual = read_sf_prior(input_path)
+    review = existing is not None or prior is not None
+    if review and prior is None:
+        prior = {}
+    bp = project.get('budget_period') or budget_period.default()
+    incl_vat = bool(_ACTIVE_VAT_SENTENCE)
+    rates = _general_vat_months(project)
+    factors = [1 + r / 100 for r in rates] if incl_vat else [1.0] * 12
+    clause = (f"cộng VAT {_rate_phrase(bp.months, rates)} theo từng tháng" if incl_vat
+              else "chưa cộng VAT theo mô hình tài chính đã chọn")
+    results = real_budget_ranges.price_sf(
+        list(rows), real_budget_ranges.load_sf_values(), nfa=project.get('total_nfa'), lifts=project.get('total_lifts'),
+        warranty_months=project.get('warranty_months', real_budget_ranges.DEFAULT_WARRANTY_MONTHS),
+        vat_factors=factors, vat_clause=clause, budget_year=bp.budget_year,
+        self_name=project.get('name') if review else None, self_nfa=project.get('total_nfa') if review else None,
+        prior=prior if review else None, cpi=real_budget_ranges.load_cpi() if review else None, excluded=excluded)
+    rb = real_budget_ranges
+    for code, res in results.items():
+        r = rows[code]
+        if res.status == rb.SF_STATUS_PM:
+            ws.cell(row=r, column=SF_PRICE_COL, value=None)
+            remark = f'{PM_FILL_LEAD} {res.reason}'
+            _SF_PM_LINES[code] = dict(row=r, reason=res.reason)
+        elif res.even:
+            ws.cell(row=r, column=SF_FREQ_COL, value='Monthly')
+            ws.cell(row=r, column=SF_PRICE_COL, value=res.months[0])
+            remark = res.remark
+        else:
+            ws.cell(row=r, column=SF_FREQ_COL, value='Schedule')
+            for k, v in enumerate(res.months):
+                # I:T carry the form's month format ('mmm', for dates of execution): a number left in it shows as a
+                # month and comes back as a date or #VALUE! when the workbook is reloaded, so force a number format
+                cell = ws.cell(row=r, column=SF_MONTH_FIRST_COL + k, value=v)
+                cell.number_format = _NUM_FMT
+            remark = res.remark
+        if remark:
+            if res.status in (rb.SF_STATUS_PRICED, rb.SF_STATUS_CARRY):
+                remark = _append_vat(remark)
+            c = ws.cell(row=r, column=SF_REMARK_COL, value=remark)
+            c.alignment = Alignment(wrap_text=True, vertical='top')
+    _SF_RESULTS.update(results)
+    n_report = _write_sf_report(wb, prior, actual) if prior else 0
+    if any(res.figure for res in results.values()) or n_report:
+        ws.sheet_state = 'visible'
+        wb[SF_REPORT_SHEET].sheet_state = 'visible'
+    counts = {}
+    for res in results.values():
+        counts[res.status] = counts.get(res.status, 0) + 1
+    print(f"  Quỹ bảo trì: {sum(res.figure for res in results.values()):,.0f} VND/năm; "
+          + ', '.join(f'{k} {v}' for k, v in sorted(counts.items()))
+          + (f'; {n_report} mã số năm trước trên 3.1' if n_report else ''))
+    return results
+
+
+def _add_sf_pm_rows(wb, budget_adjustment):
+    """Every sheet 3 line left for the PM gets its "Nhập số" row on '4. Điều chỉnh' (SF| prefix on the web), its fund
+    cells shaded (task 4.4)."""
+    if not _SF_PM_LINES or SF_SHEET not in wb.sheetnames:
+        return
+    ws = wb[SF_SHEET]
+    lines = [dict(code=code, name=_sf_line_name(ws, info['row']), reason=info['reason'])
+             for code, info in sorted(_SF_PM_LINES.items(), key=lambda kv: kv[1]['row'])]
+    added, skipped = budget_adjustment.add_pm_rows(wb, lines, SF_SHEET, 'AF', 'AL')
+    print(f"  Quỹ bảo trì: {len(lines)} dòng để PM điền; {len(added)} dòng Nhập số trên '4. Điều chỉnh'")
+    for code, why in skipped:
+        print(f"  {code}: không có dòng trên '4. Điều chỉnh' ({why}); ô vẫn tô vàng và ghi 'PM điền'")
+
+
+def _sf_line_name(ws, row):
+    """The Vietnamese item name of a sheet 3 row: the last line of its bilingual column AA."""
+    name = str(ws.cell(row=row, column=27).value or '').strip()
+    return name.splitlines()[-1].strip() if name else ''
 
 
 def template_vat_inclusive():
@@ -5292,6 +5559,9 @@ def build_budget(project, demand, year):
     # COMMON_AREA_FUND_ROWS and fill_common_area_fund_sheet()'s docstring above. ----
     fill_common_area_fund_sheet(wb, project)
 
+    # ---- 3. Budget-Sinking Fund / 3.1 (change add-sinking-fund): after sheet 2, whose codes stay there (D5). ----
+    fill_sinking_fund_sheet(wb, project, project.get('input_path'), existing)
+
     # ---- A2-A4, B1-B5 helper sheets: this project's own posts, reception calendar and helper figures, from what
     # the two fund sheets just priced (change apply-head-of-pm-decisions-2026-10, D15). No formula outside these
     # sheets reads them, so no fund figure can move. ----
@@ -5371,6 +5641,7 @@ def build_budget(project, demand, year):
     if budget_adjustment is not None:
         budget_adjustment.apply(wb, _adjust_items)
         _add_pm_rows(wb, budget_adjustment)
+        _add_sf_pm_rows(wb, budget_adjustment)
     _hidden = print_layout.apply(wb, not_use=_not_use)
     print(f"Print layout: {len(_hidden)} unused lines hidden on '{print_layout.SHEET}'"
           + (f', {len(_unknown)} kept visible (figures only Excel can work out)' if _unknown else ''))

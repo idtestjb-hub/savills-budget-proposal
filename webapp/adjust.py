@@ -36,8 +36,10 @@ TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_INFLATION, TYPE_ENTER = (ba.TYPE_QTY,
                                                                     ba.TYPE_INFLATION, ba.TYPE_ENTER)
 DETAIL_TYPES = (TYPE_QTY, TYPE_PRICE, TYPE_QTY_PRICE, TYPE_ENTER)          # cần dòng Chi tiết
 C = ba.COL
-FUND_SHORT = {'2. Budget-Management Fund': 'MF', '2.2 Common area Fund': 'CA'}
-FUND_VI = {'MF': 'Quỹ quản lý vận hành', 'CA': 'Quỹ khai thác khu vực chung'}
+FUND_SHORT = {'2. Budget-Management Fund': 'MF', '2.2 Common area Fund': 'CA',
+              '3. Budget-Sinking Fund': 'SF'}             # change add-sinking-fund (design D6)
+FUND_VI = {'MF': 'Quỹ quản lý vận hành', 'CA': 'Quỹ khai thác khu vực chung', 'SF': 'Quỹ bảo trì'}
+REVIEW_FUNDS = ('MF', 'CA')     # các quỹ của sheet 'Review'; quỹ bảo trì so ở review_summary.json (sf_rows)
 CODE_RE = re.compile(r'^[A-Z][A-Z0-9#.]*[a-z]?$')
 
 
@@ -75,14 +77,20 @@ def _scan(ws):
 
 
 REMARK_COL = 20     # T của sheet quỹ: Remarks / Ghi chú của năm mới (generate_project_budget._REMARKS_COL)
+SF_REMARK_COL = 21  # U của '3. Budget-Sinking Fund' (cùng bố cục, lệch một cột; generate_project_budget.SF_REMARK_COL)
+
+
+def remark_col(fund_sheet):
+    """Cột remark năm mới của một sheet quỹ: U trên sheet quỹ bảo trì, T trên hai sheet còn lại."""
+    return SF_REMARK_COL if fund_sheet == ba.SF_SHEET else REMARK_COL
 
 
 def _fund_remark(wb, fund_sheet, fund_row):
-    """Remark của năm mới của một mã: ô T tại dòng của mã trên sheet quỹ (cột fund_row của sheet điều chỉnh).
-    Chuỗi rỗng khi không tìm được dòng, hoặc ô là công thức (không đọc được giá trị khi chưa tính)."""
+    """Remark của năm mới của một mã: ô T (U với quỹ bảo trì) tại dòng của mã trên sheet quỹ (cột fund_row của sheet
+    điều chỉnh). Chuỗi rỗng khi không tìm được dòng, hoặc ô là công thức (không đọc được giá trị khi chưa tính)."""
     if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or isinstance(fund_row, bool):
         return ''
-    text = _text(wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL).value)
+    text = _text(wb[fund_sheet].cell(row=int(fund_row), column=remark_col(fund_sheet)).value)
     return '' if text.startswith('=') else text
 
 
@@ -112,7 +120,8 @@ def _freq_of(wb, ws, prow, fund_sheet, fund_row):
         editable = True
         if fund_sheet in wb.sheetnames and isinstance(fund_row, (int, float)) and not isinstance(fund_row, bool):
             fws = wb[fund_sheet]
-            cols = [ba.FUND_MONTH_FIRST_COL + k for k in range(12)] + ([] if freq == lf.SCHEDULE else [ba.FUND_MONTHLY_COL])
+            _, _, _, monthly_col, first_col, _ = ba.fund_cols(fws)
+            cols = [first_col + k for k in range(12)] + ([] if freq == lf.SCHEDULE else [monthly_col])
             editable = not any(_text(fws.cell(row=int(fund_row), column=c).value).startswith('=(') for c in cols)
     try:
         new_freq = lf.normalise(g(C['new_freq'])) or ''
@@ -197,15 +206,44 @@ OFF_FORM_GROUP = '__off_form__'
 OFF_FORM_NAME = 'Mã ngoài form 2027'
 
 
-def add_groups(items, codes=None, groups=None):
+_SF_ROWS = {}
+
+
+def sf_template_rows(path=None):
+    """{mã: dòng} của các dòng chi trên sheet quỹ bảo trì của template (mã ở cột Z, từ dòng 15). Cached."""
+    import review_import as ri
+    path = path or ri.TEMPLATE_PATH
+    if path not in _SF_ROWS:
+        wb = openpyxl.load_workbook(path, read_only=True)
+        try:
+            rows = {}
+            if ba.SF_SHEET in wb.sheetnames:
+                for i, row in enumerate(wb[ba.SF_SHEET].iter_rows(min_row=15, max_row=400, min_col=26, max_col=26,
+                                                                  values_only=True), start=15):
+                    if isinstance(row[0], str) and row[0].strip():
+                        rows.setdefault(row[0].strip(), i)
+        finally:
+            wb.close()
+        _SF_ROWS[path] = rows
+    return _SF_ROWS[path]
+
+
+def add_groups(items, codes=None, groups=None, sf_rows=None):
     """Gắn nhóm của form 2027 cho từng mã, như sheet Review (review_import.group_chain): it['groups'] = [{code, name}]
     từ cấp trên xuống, không gồm chính mã đó; it['order'] = dòng của mã trên template (mã ngoài form: sau cùng, trong
-    nhóm OFF_FORM_GROUP). Bảng điều chỉnh trên web dùng để xếp và cộng theo nhóm."""
+    nhóm OFF_FORM_GROUP). Bảng điều chỉnh trên web dùng để xếp và cộng theo nhóm. Mã quỹ bảo trì (change
+    add-sinking-fund): không chia nhóm, xếp theo dòng trên sheet 3 của template."""
     import review_import as ri
     codes = ri.template_codes() if codes is None else codes
     groups = ri.template_groups() if groups is None else groups
     for it in items:
         fund, code = it.get('fund'), it.get('code')
+        if fund == 'SF':
+            sf_rows = sf_template_rows() if sf_rows is None else sf_rows
+            row = sf_rows.get(code)
+            it['groups'] = [] if row is not None else [dict(code=OFF_FORM_GROUP, name=OFF_FORM_NAME)]
+            it['order'] = row if row is not None else 10 ** 6
+            continue
         row = (codes.get(fund) or {}).get(code)
         if row is None:
             it['groups'], it['order'] = [dict(code=OFF_FORM_GROUP, name=OFF_FORM_NAME)], 10 ** 6
@@ -398,7 +436,8 @@ MAX_REMARK = 5000
 
 
 def _validate_remark(wb, code, remark, fund_sheet, fund_row):
-    """(sheet quỹ, dòng, nội dung) để ghi vào ô Remarks (T) của mã. Dòng của mã trên sheet quỹ lấy từ sheet điều chỉnh."""
+    """(sheet quỹ, dòng, nội dung) để ghi vào ô Remarks (T; U với quỹ bảo trì) của mã. Dòng của mã trên sheet quỹ lấy từ
+    sheet điều chỉnh."""
     if not isinstance(remark, str):
         raise AdjustError(f'{code}: remark phải là chữ.')
     text = remark.strip()
@@ -446,7 +485,7 @@ def _write_freq(wb, ws, prow, item, adj_type, inflation, subs, freq):
     amount = new_amount(item, adj_type, inflation, new_subs, freq)
     sheet, row = item['fund_sheet'], ws.cell(row=prow, column=C['fund_row']).value
     if sheet in wb.sheetnames and isinstance(row, (int, float)):
-        cell = wb[sheet].cell(row=int(row), column=REMARK_COL)
+        cell = wb[sheet].cell(row=int(row), column=remark_col(sheet))
         if isinstance(cell.value, str) and cell.value.startswith('='):
             return FORMULA_REMARK
         current = cell.value if isinstance(cell.value, str) else ''
@@ -502,7 +541,7 @@ def apply_edits(wb, edits, report=None):
         upgrade_sheet(ws, index.values())
     written = []
     for sheet, row, text in remarks:
-        wb[sheet].cell(row=row, column=REMARK_COL).value = text or None
+        wb[sheet].cell(row=row, column=remark_col(sheet)).value = text or None
     sent_remark = {(s, r) for s, r, _t in remarks}
     for prow, srows, editable, code, adj_type, inflation, subs, freq in plan:
         if freq is not None:
@@ -535,7 +574,7 @@ def _fix_remark(wb, item, entry, fixed, skipped):
     if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or isinstance(fund_row, bool):
         skipped.append((code, 'không tìm được dòng của mã trên sheet quỹ'))
         return
-    cell = wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL)
+    cell = wb[fund_sheet].cell(row=int(fund_row), column=remark_col(fund_sheet))
     if isinstance(cell.value, str) and cell.value.startswith('='):
         skipped.append((code, FORMULA_REMARK))
         return
@@ -575,7 +614,7 @@ def _pm_remark(wb, ws, prow, srows, sent, item=None, adj_type=None, inflation=No
     if fund_sheet not in wb.sheetnames or not isinstance(fund_row, (int, float)) or (fund_sheet, int(fund_row)) in sent:
         return
     figure = sum(_num(ws.cell(row=r, column=C['new_price']).value) or 0.0 for r in srows)
-    cell = wb[fund_sheet].cell(row=int(fund_row), column=REMARK_COL)
+    cell = wb[fund_sheet].cell(row=int(fund_row), column=remark_col(fund_sheet))
     new = pm_remark_text(_text(cell.value), figure)
     if item is not None and (new.startswith(PM_LEAD) or new.startswith(PM_FILLED_LEAD.split('{')[0])):
         sentence = None
@@ -620,8 +659,8 @@ def review_columns(analysis_path):
         fund, cols = None, {'approved': 4}
         for row in wb['Review'].iter_rows(values_only=True):
             a = _text(row[0]) if row else ''
-            for short, vi in FUND_VI.items():
-                if a.startswith(vi):
+            for short in REVIEW_FUNDS:
+                if a.startswith(FUND_VI[short]):
                     fund = short
             if a == 'Mã':
                 cols = {}
@@ -675,6 +714,16 @@ def _summary_json(workdir):
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def sf_approved(workdir):
+    """{'SF|<mã>': số duyệt năm cũ đã quy đổi} của quỹ bảo trì, từ sf_rows trong review_summary.json của lượt review
+    (change add-sinking-fund, D6): quỹ này không nằm trên sheet 'Review'. {} khi lượt không có sf_rows."""
+    out = {}
+    for x in _summary_json(workdir).get('sf_rows') or []:
+        if isinstance(x, dict) and x.get('code') and isinstance(x.get('approved'), (int, float)):
+            out[f"SF|{x['code']}"] = float(x['approved'])
+    return out
 
 
 def _keys_of(rows):
