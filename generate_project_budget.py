@@ -2776,6 +2776,20 @@ def read_sf_prior(input_path):
     return prior, actual
 
 
+def _write_budget_period(wb, period):
+    """One budget period, written to every place that shows it: sheet 2's first/last day and budget year (AH6, AL6,
+    AL5), `1. Summary` H4/H5, and sheet 3's budget year AG4. Sheet 3's own period cells (AC5/AG5) are formulas on
+    sheet 2; its AG4 is a typed year in the template that only labels feed (title Z1, headers AF8-AL8, AF9, AG9), so a
+    run whose budget year is not the template's would otherwise show the template's year on sheet 3."""
+    first = datetime.datetime.combine(period.first_day, datetime.time())
+    last = datetime.datetime.combine(period.last_day, datetime.time())
+    fund = wb['2. Budget-Management Fund']
+    fund['AH6'], fund['AL6'], fund['AL5'] = first, last, period.budget_year
+    wb['1. Summary']['H4'], wb['1. Summary']['H5'] = first, last
+    if SF_SHEET in wb.sheetnames:
+        wb[SF_SHEET]['AG4'] = period.budget_year
+
+
 def _write_sf_report(wb, prior, actual):
     """3.1: the prior approved figure of each code in N (and the actual in H when read), so sheet 3's AC/AD lookups
     show them (task 4.2); the report year is the prior figures' year. Returns the number of codes written."""
@@ -5409,12 +5423,7 @@ def build_budget(project, demand, year):
     # and AL5 (the budget year the narratives quote) is the year holding most of its months (change
     # budget-year-by-most-months: 08/2025-07/2026 is 2026, as the form and the PM files name it).
     _period = project['budget_period']
-    _fund = wb['2. Budget-Management Fund']
-    _fund['AH6'] = datetime.datetime.combine(_period.first_day, datetime.time())
-    _fund['AL6'] = datetime.datetime.combine(_period.last_day, datetime.time())
-    _fund['AL5'] = _period.budget_year
-    wb['1. Summary']['H4'] = datetime.datetime.combine(_period.first_day, datetime.time())
-    wb['1. Summary']['H5'] = datetime.datetime.combine(_period.last_day, datetime.time())
+    _write_budget_period(wb, _period)
 
     # The AI Guideline's universal VAT-treatment sentence for this run — appended to every line-level
     # remark (via _write_remark -> _append_vat) and to every composed `1. Summary` narrative, or ''
