@@ -299,6 +299,10 @@ body.adj-full-on { overflow: hidden; }
   <h1>Nhập thông tin dự án, bấm <b>Tạo ngân sách</b></h1>
   <p class="lead">Dự án mới: tab Nhập liệu, sửa các ô (giá trị đang hiện là mẫu) rồi bấm nút. Dự án đang vận hành: tab Review, chọn ngân sách đã duyệt năm ngoái của dự án, công cụ lập ngân sách năm mới, so từng dòng và cho điều chỉnh ngay trên cùng màn. Mỗi lượt khoảng một đến hai phút.</p>
 
+  <div class="field hidden" id="pick-project" style="max-width:520px;margin:0 0 10px">
+    <label for="project-code">Dự án <small id="pick-project-note"></small></label>
+    <select id="project-code"></select>
+  </div>
   <nav class="tabs" role="tablist">
     <button type="button" class="on site-hide site-new-ok" data-tab="nhap">Nhập liệu dự án mới</button>
     <button type="button" data-tab="review" id="tab-review">Review dự án đang vận hành</button>
@@ -860,6 +864,30 @@ const PRODUCT_VI = {
   'Nursery / Nhà trẻ': 'Nhà trẻ'
 };
 const PREFIX = '__PREFIX__';
+// Phạm vi người xem (change budget-web-project-access): office / viewer / project, và các dự án được chọn.
+let ME = { kind: 'office', projects: [], may_add_project: true };
+const isProject = () => ME.kind === 'project';
+const pickedCode = () => { const el = document.getElementById('project-code'); return el && !document.getElementById('pick-project').classList.contains('hidden') ? el.value : ''; };
+async function loadMe() {
+  try { const r = await fetch(`${PREFIX}/api/me`); if (r.ok) ME = await r.json(); } catch (e) { /* trang vẫn chạy như văn phòng */ }
+  const box = document.getElementById('pick-project'), sel = document.getElementById('project-code');
+  if (!ME.projects.length) return;
+  sel.innerHTML = (ME.may_add_project ? '<option value="">Dự án mới / chưa có mã</option>' : '') +
+    ME.projects.map(p => `<option value="${esc(p.code)}">${esc(p.name)} (${esc(p.code)})</option>`).join('');
+  if (isProject()) {
+    sel.value = ME.projects[0].code;
+    document.getElementById('pick-project-note').textContent = 'bạn chỉ thấy dữ liệu của dự án mình';
+    const kho = document.getElementById('tab-kho');
+    if (kho) kho.remove();
+  }
+  box.classList.remove('hidden');
+  const fillName = () => {
+    const p = ME.projects.find(x => x.code === sel.value);
+    if (p && form && form.elements.project_name && (isProject() || !form.elements.project_name.value)) form.elements.project_name.value = p.name;
+  };
+  sel.addEventListener('change', fillName);
+  defaultsReady.then(fillName);
+}
 const form = document.getElementById('f');
 const go = document.getElementById('go');
 const goReview = document.getElementById('go-review');
@@ -957,7 +985,7 @@ async function loadDefaults() {
   if (r.status === 401) { location.reload(); return; }
   const d = await r.json();
   fillForm(d);
-  setStatus('Sẵn sàng. Kết quả ghi vào ' + d.runs_dir);
+  setStatus(d.runs_dir ? 'Sẵn sàng. Kết quả ghi vào ' + d.runs_dir : 'Sẵn sàng.');
 }
 
 // ---- Nguồn ngân sách đã duyệt năm ngoái (tab Review) ----
@@ -1396,7 +1424,7 @@ function renderReview(run) {
   document.querySelector('#rv-top tbody').innerHTML = (s.top || []).map((x, i) =>
     `<tr><td>${i + 1}</td><td>${esc(x.fund)}</td><td>${esc(x.code)}${x.abnormal ? abnTag() : ''}</td><td>${esc(x.item)}</td><td class="num">${mil(x.converted)}</td><td class="num">${mil(x.tool_num)}</td><td class="${negCls(x.diff)}">${mil(x.diff)}</td><td class="${negCls(x.pct)}">${pct(x.pct)}</td><td>${esc(x.label)}${x.remark ? ` <small style="color:var(--sav-muted)">${esc(x.remark)}</small>` : ''}</td></tr>`).join('') ||
     '<tr><td colspan="9">Chưa có dòng.</td></tr>';
-  document.getElementById('rv-top-src').textContent = 'Triệu VND/năm.' + (SITE ? ' Toàn bộ các dòng, từng mã, xem ở bảng điều chỉnh bên dưới.' : ' Toàn bộ các dòng, từng mã, nằm ở sheet "Review" cuối bản phân tích nội bộ.');
+  document.getElementById('rv-top-src').textContent = 'Triệu VND/năm.' + (SITE || isProject() ? ' Toàn bộ các dòng, từng mã, xem ở bảng điều chỉnh bên dưới.' : ' Toàn bộ các dòng, từng mã, nằm ở sheet "Review" cuối bản phân tích nội bộ.');
   const notes = s.notes || [];
   const by_kind = {};
   notes.forEach(n => { by_kind[n.kind] = (by_kind[n.kind] || 0) + 1; });
@@ -1616,6 +1644,7 @@ goReview.addEventListener('click', async () => {
   }
   if (!facts.city || !facts.city.trim()) { setStatus('Tỉnh / thành phố không được để trống (biểu giá nước lấy theo đó).', true, 'review'); formReview.elements.city.focus(); return; }
   fd.append('facts', JSON.stringify(facts));
+  if (pickedCode()) fd.append('project_code', pickedCode());
   setStatus(srcMode === 'run' ? 'Đang chuẩn bị lượt review từ bản giao của lượt cũ…' : (srcMode === 'lib' ? `Đang chép ${libPick.file_name}…` : (srcMode === 'site' ? `Đang chép ${siteInfo.prior_file}…` : 'Đang tải file lên…')), false, 'review');
   await startRun(`${PREFIX}/api/reviews`, fd, null, 'review');
 });
@@ -1737,7 +1766,7 @@ async function openAdjust(id, slot) {
   document.getElementById('adj-abn').checked = false;
   body.classList.remove('hidden');
   document.getElementById('adj-head').textContent = `Lượt ${id}` + (d.project ? ` · ${d.project}` : '') + ` · bản giao: ${d.deliverable} · ${d.items.length} mã có dòng chi tiết` +
-    (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi${SITE ? '' : ' (sheet Review)'}` : '');
+    (d.has_approved ? ` · cột Duyệt = NS ${d.prior_year || 'năm cũ'} đã quy đổi${SITE || isProject() ? '' : ' (sheet Review)'}` : '');
   document.querySelectorAll('.adj-ap').forEach(th => { th.classList.toggle('hidden', !d.has_approved); th.textContent = `Duyệt NS ${d.prior_year || ''}`; });
   document.querySelectorAll('.adj-df').forEach(th => th.classList.toggle('hidden', !d.has_approved));
   // Tiêu đề ghi năm của lượt (không cố định năm): số công cụ và số sau điều chỉnh là của năm ngân sách.
@@ -2304,11 +2333,14 @@ async function genFromRun(id, project) {
 
 go.addEventListener('click', async () => {
   setStatus('Đang ghi file nhập liệu…', false, 'nhap');
-  await startRun(`${PREFIX}/api/runs`, JSON.stringify(collect()), { 'Content-Type': 'application/json' }, 'nhap');
+  const payload = collect();
+  if (pickedCode()) payload.project_code = pickedCode();
+  await startRun(`${PREFIX}/api/runs`, JSON.stringify(payload), { 'Content-Type': 'application/json' }, 'nhap');
 });
 
 const defaultsReady = loadDefaults().catch(e => setStatus('Không tải được giá trị mặc định: ' + e, true, 'nhap'));
 if (SITE) initSite();
+loadMe();
 </script>
 <!-- Ô tên người đang đăng nhập, do cổng đăng nhập của Hub phục vụ qua Caddy (/_auth/*, đường dẫn tuyệt đối, không mang prefix). Mở trực tiếp không qua Caddy thì 404, vô hại. -->
 <script src="/_auth/badge.js" defer></script>

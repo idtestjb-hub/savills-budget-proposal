@@ -133,7 +133,8 @@ def describe(workdir, run_id=None):
         status = 'done' if is_complete(outputs) else 'failed'
         if kind == 'review' and status == 'done' and not os.path.exists(os.path.join(workdir, 'review_summary.json')):
             status = 'failed'
-    return dict(id=run_id, kind=kind, project=project, budget_year=budget_year, prior_year=prior_year,
+    return dict(id=run_id, kind=kind, project=project, project_code=str(meta.get('project_code') or ''),
+                budget_year=budget_year, prior_year=prior_year,
                 started=meta.get('started') or _started_from_name(run_id), finished=meta.get('finished'),
                 user=meta.get('user') or '', status=status, rc=meta.get('rc'), outputs=outputs,
                 input_form=input_form_of(workdir, kind), source=meta.get('source') or '', workdir=workdir,

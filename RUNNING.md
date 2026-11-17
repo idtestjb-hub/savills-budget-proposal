@@ -517,6 +517,60 @@ than the site's own reads "Dự án tham chiếu NN", the eight reference budget
 even in a comment (the check would refuse every other site's package); `tests/test_build_site_package_prior.py`
 scans the shipped source for every master-list and registry name.
 
+## The outside link: each project sees only its own data (change `budget-web-project-access`)
+
+Site PMs open the Budget web from a Cloudflare link. The web opens a second port only for that link and proves every
+request's email from the Cloudflare Access token. The token's signature, audience, issuer and expiry are all checked;
+a bare email header is never trusted. The office route through the Hub (Windows login) works as before.
+
+Server settings (the [Hub] session sets them):
+
+| Variable | Meaning |
+|---|---|
+| `BUDGET_WEB_LINK_PORT` | the second port, for example `8091`, on the same host `127.0.0.1`. Point the tunnel at this port only, never at the normal port or at Caddy. |
+| `BUDGET_WEB_CF_TEAM` | the Cloudflare Zero Trust team, for example `savillsvn` or `savillsvn.cloudflareaccess.com` |
+| `BUDGET_WEB_CF_AUD` | the AUD tag of the Access application for this link |
+| `BUDGET_WEB_ACCESS_BOOK` | the access workbook (default copy `PM/Project/config/Budget-web-quyen-du-an.xlsx`) |
+| `BUDGET_WEB_SCOPED_ROOT` | where the masked mirrors live (default `<runs>\..\scoped`) |
+
+When the link port is set and any of the next three settings is missing, the web does not start.
+
+**The access workbook** has two sheets:
+- `Du an`: `Ma`, `Ten`, `Ten khac` (other names separated by `;`; they match library files and old runs);
+- `Nguoi dung`: `Email`, `Ma du an` (codes separated by `;`, or `ALL` for the office view).
+
+Saving the workbook takes effect within a minute. If the workbook is broken, the web keeps the last good list and
+logs why. Anyone not in the list, or with no valid code, sees a page that says so and gets no data. To make a blank
+copy, run `python webapp/make_access_book.py --out <file> [--sample]`.
+
+**What a project user gets:**
+- only their projects' runs, approved budgets and facts;
+- no library overview;
+- for each run: the client deliverable, its PDF prints and the roster, but never the internal analysis;
+- the run log filtered as for a viewer.
+
+Every route checks the run itself, so another project's run answers 404 even when its id is typed by hand. A test
+fails if a route skips the check (`tests/test_webapp_project_access.py::test_every_route_checks_scope`).
+
+Their runs use a masked mirror (`build_scoped_data.py`): a copy of this code whose `data\` has every other project's
+name changed to "Dự án tham chiếu NN", the same masking as a site package. Figures are unchanged. Before a file or log
+line reaches them, it is scanned for other projects' names: a file with a hit answers 409, and a log line with a hit is
+dropped. Both are logged on the server. Names that already stand in the standard 2027 template are not counted.
+
+**Old runs** get their code once, on the server:
+
+```bash
+python webapp/map_run_codes.py --runs <runs> --book <access workbook> --propose bang-ma.csv
+```
+
+The user approves `bang-ma.csv`, then:
+
+```bash
+python webapp/map_run_codes.py --runs <runs> --book <access workbook> --apply bang-ma.csv
+```
+
+A run left without a code is seen by office and `ALL` users only.
+
 ## Verifying a run
 
 ```bash

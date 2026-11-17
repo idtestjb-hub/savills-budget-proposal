@@ -15,9 +15,17 @@ Biến môi trường:
 
 Redirect URI phải khai trong app registration: <BUDGET_WEB_PUBLIC_URL>/auth/callback.
 Danh tính lấy từ claim `preferred_username` (UPN) của id_token, và `email` nếu có; một trong hai khớp danh sách là được.
+
+Link ngoài qua Cloudflare Access (change budget-web-project-access), chỉ trên cổng BUDGET_WEB_LINK_PORT:
+  BUDGET_WEB_CF_TEAM         team domain của Cloudflare Zero Trust, ví dụ "savillsvn" hoặc "savillsvn.cloudflareaccess.com"
+  BUDGET_WEB_CF_AUD          AUD tag của Access application trỏ vào link này
+Web tự kiểm token Cf-Access-Jwt-Assertion: chữ ký RS256 theo khoá công khai của team (tải từ
+https://<team>.cloudflareaccess.com/cdn-cgi/access/certs, nhớ theo kid), aud, iss, hạn dùng. Tiêu đề email trần
+(Cf-Access-Authenticated-User-Email) không bao giờ được tin.
 """
 import os
 import secrets
+import threading
 
 AUTH_MODE = (os.environ.get('BUDGET_WEB_AUTH') or 'sso').strip().lower()
 TENANT_ID = os.environ.get('BUDGET_WEB_TENANT_ID', '').strip()
@@ -107,3 +115,74 @@ def finish_login(flow, query_params):
 
 def logout_url():
     return f'{authority()}/oauth2/v2.0/logout?post_logout_redirect_uri={PUBLIC_URL}/'
+
+
+# ---- Cloudflare Access (link ngoài) ---------------------------------------------------------------------------------
+
+CF_TOKEN_HEADER = 'Cf-Access-Jwt-Assertion'
+CF_LEEWAY_S = 60
+
+
+def cf_team_url(raw=None):
+    """https://<team>.cloudflareaccess.com từ BUDGET_WEB_CF_TEAM (tên team, tên miền, hoặc URL đầy đủ); '' khi chưa đặt."""
+    text = (os.environ.get('BUDGET_WEB_CF_TEAM', '') if raw is None else raw).strip().rstrip('/')
+    if not text:
+        return ''
+    text = text.removeprefix('https://').removeprefix('http://')
+    if '.' not in text:
+        text += '.cloudflareaccess.com'
+    return 'https://' + text
+
+
+def cf_audience():
+    return os.environ.get('BUDGET_WEB_CF_AUD', '').strip()
+
+
+class CfTokenError(ValueError):
+    """Token Cloudflare Access thiếu hoặc không hợp lệ (nội dung chỉ để ghi log, không trả cho trình duyệt)."""
+
+
+_jwk = {'client': None, 'url': None}
+_jwk_lock = threading.Lock()
+
+
+def _cf_key(token):
+    """Khoá công khai đúng kid của token, từ bộ khoá của team (PyJWKClient tự nhớ và tải lại khi gặp kid lạ)."""
+    import jwt
+    url = cf_team_url() + '/cdn-cgi/access/certs'
+    with _jwk_lock:
+        if _jwk['client'] is None or _jwk['url'] != url:
+            _jwk['client'], _jwk['url'] = jwt.PyJWKClient(url, cache_keys=True, lifespan=3600, timeout=10), url
+        client = _jwk['client']
+    return client.get_signing_key_from_jwt(token).key
+
+
+def verify_cf_token(token, get_key=None, team_url=None, audience=None):
+    """Email (chữ thường) trong token Cloudflare Access sau khi kiểm chữ ký RS256, aud, iss, exp/nbf. Mọi lỗi ->
+    CfTokenError. `get_key`, `team_url`, `audience` chỉ để kiểm thử."""
+    import jwt
+    team_url = cf_team_url() if team_url is None else team_url
+    audience = cf_audience() if audience is None else audience
+    if not team_url or not audience:
+        raise CfTokenError('BUDGET_WEB_CF_TEAM / BUDGET_WEB_CF_AUD chưa đặt')
+    if not token:
+        raise CfTokenError('thiếu token Cf-Access-Jwt-Assertion')
+    try:
+        key = (get_key or _cf_key)(token)
+        claims = jwt.decode(token, key=key, algorithms=['RS256'], audience=audience, issuer=team_url,
+                            leeway=CF_LEEWAY_S, options={'require': ['exp', 'iat', 'iss', 'aud']})
+    except Exception as exc:  # noqa: BLE001 - chữ ký, hạn, aud, iss sai, hoặc không tải được khoá: đều từ chối
+        raise CfTokenError(f'{type(exc).__name__}: {exc}') from exc
+    email = str(claims.get('email') or '').strip().lower()
+    if '@' not in email:
+        raise CfTokenError('token không có email (token dịch vụ?)')
+    return email
+
+
+def missing_link_settings():
+    """Biến còn thiếu khi bật cổng link ngoài (BUDGET_WEB_LINK_PORT); rỗng = đủ."""
+    if not os.environ.get('BUDGET_WEB_LINK_PORT', '').strip():
+        return []
+    needed = {'BUDGET_WEB_CF_TEAM': cf_team_url(), 'BUDGET_WEB_CF_AUD': cf_audience(),
+              'BUDGET_WEB_ACCESS_BOOK': os.environ.get('BUDGET_WEB_ACCESS_BOOK', '').strip()}
+    return [k for k, v in needed.items() if not v]

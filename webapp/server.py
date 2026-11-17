@@ -43,7 +43,8 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import adjust, auth, facts_prefill, fill_input, history, library, results  # noqa: E402
+from webapp import adjust, auth, facts_prefill, fill_input, history, library, project_access, results  # noqa: E402
+from webapp.project_access import KIND_NONE, KIND_OFFICE, KIND_PROJECT, KIND_VIEWER, Scope  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
 PORT = int(os.environ.get('BUDGET_WEB_PORT') or 8090)
@@ -53,6 +54,14 @@ RUNS_DIR = os.path.abspath(os.environ.get('BUDGET_WEB_RUNS') or os.path.join(BUD
 # (site.json + file ngân sách đã duyệt). Trang chỉ còn ba tab, nguồn Review mặc định là file trong gói, không có kho.
 SITE_DIR = os.path.abspath(os.environ['BUDGET_WEB_SITE']) if os.environ.get('BUDGET_WEB_SITE') else None
 SITE_FILE = 'site.json'
+# Link ngoài (change budget-web-project-access): cổng riêng cho tunnel Cloudflare; mọi yêu cầu trên cổng này phải có
+# token Cloudflare Access hợp lệ, và người dùng chỉ thấy dự án của mình theo file phân quyền BUDGET_WEB_ACCESS_BOOK.
+# Cổng thường (đường Hub, đăng nhập Windows) giữ nguyên như trước.
+LINK_PORT = int(os.environ.get('BUDGET_WEB_LINK_PORT') or 0)
+ACCESS_BOOK = (os.environ.get('BUDGET_WEB_ACCESS_BOOK') or '').strip()
+# Bản chạy ẩn danh theo mã dự án (build_scoped_data.py) cho lượt của người dùng dự án; mặc định cạnh thư mục runs.
+SCOPED_ROOT = os.path.abspath(os.environ.get('BUDGET_WEB_SCOPED_ROOT')
+                              or os.path.join(os.path.dirname(RUNS_DIR), 'scoped'))
 
 
 def site_info():
@@ -75,6 +84,18 @@ def site_info():
 def site_prior_path():
     info = site_info()
     return os.path.join(SITE_DIR, info['prior_file']) if info and info['prior_exists'] else None
+
+_access = {'reader': None}
+
+
+def access_list():
+    """Danh sách phân quyền hiện hành (project_access.AccessList) hoặc None khi chưa đặt file / chưa từng đọc được."""
+    if not ACCESS_BOOK:
+        return None
+    if _access['reader'] is None:
+        _access['reader'] = project_access.Reader(ACCESS_BOOK, log=_log)
+    return _access['reader'].current()
+
 
 _lock = threading.Lock()
 _runs = {}          # run_id -> dict(kind, status, log, rc, started, finished, workdir, outputs, summary, ...)
@@ -123,8 +144,11 @@ def _worker(run_id):
     log_path = os.path.join(run['workdir'], run.get('log_name') or 'run.log')
     env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1')
     try:
+        cmd, cwd = run['cmd'], SOURCE_DIR
+        if run.get('scoped'):
+            cmd, cwd = _scoped_cmd(run)
         with open(log_path, 'w', encoding='utf-8') as log_file:
-            proc = subprocess.Popen(run['cmd'], cwd=SOURCE_DIR, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, env=env)
             assert proc.stdout is not None
             for raw in proc.stdout:
@@ -174,6 +198,10 @@ def _worker(run_id):
 ROLE_HEADER = 'X-Hub-Role'
 ROLE_VIEWER = 'viewer'
 VIEWER_KINDS = {'deliverable', 'deliverable_pdf_a4', 'deliverable_pdf_a3'}   # bản in PDF cũng là bản giao khách
+# Người dùng dự án qua link ngoài: bản giao khách (Excel + PDF) và lịch trực; không bao giờ có bản phân tích nội bộ.
+ROLE_PROJECT = 'project'
+PROJECT_KINDS = VIEWER_KINDS | {'roster'}
+ROLE_KINDS = {ROLE_VIEWER: VIEWER_KINDS, ROLE_PROJECT: PROJECT_KINDS}
 _INTERNAL_LOG_MARKERS = ('[2/2]', 'generate_project_output', 'Internal analysis', '  analysis ', '  roster ',
                          'phân tích:', "Sheet 'Review'")
 
@@ -196,8 +224,8 @@ SITE_HIDDEN_KINDS = {'analysis'}
 def visible_outputs(outputs, role, site=None):
     """Danh sách file người có vai trò `role` được thấy: viewer chỉ bản giao khách; trong gói site bỏ bản phân tích
     nội bộ; còn lại đủ 3 file. `site` mặc định theo chế độ của server (SITE_DIR)."""
-    if role == ROLE_VIEWER:
-        return _strip(o for o in outputs if o['kind'] in VIEWER_KINDS)
+    if role in ROLE_KINDS:
+        return _strip(o for o in outputs if o['kind'] in ROLE_KINDS[role])
     if SITE_DIR if site is None else site:
         return _strip(o for o in outputs if o['kind'] not in SITE_HIDDEN_KINDS)
     return _strip(outputs)
@@ -206,7 +234,7 @@ def visible_outputs(outputs, role, site=None):
 def may_download(run, name, role, site=None):
     """Viewer chỉ tải được file có trong danh sách của mình; trong gói site không tải được bản phân tích nội bộ; ai khác
     tải mọi file trong thư mục chạy."""
-    if role == ROLE_VIEWER:
+    if role in ROLE_KINDS:
         return any(o['name'] == name for o in visible_outputs(run['outputs'], role))
     if SITE_DIR if site is None else site:
         return not any(o['name'] == name and o['kind'] in SITE_HIDDEN_KINDS for o in run['outputs'])
@@ -215,7 +243,7 @@ def may_download(run, name, role, site=None):
 
 def visible_log(lines, outputs, role):
     """Log cho viewer: bỏ các dòng nêu tên hoặc đường dẫn của file bị ẩn và tiến trình của bước phân tích nội bộ."""
-    if role != ROLE_VIEWER:
+    if role not in ROLE_KINDS:
         return list(lines)
     hidden = [o['name'] for o in outputs if o['kind'] not in VIEWER_KINDS] + ['Project_Budget_Output.xlsx',
                                                                             'Roster_Demand_Model.xlsx']
@@ -223,14 +251,44 @@ def visible_log(lines, outputs, role):
             if not any(h in ln for h in hidden) and not any(m in ln for m in _INTERNAL_LOG_MARKERS)]
 
 
-def _public(run_id, since=0, role=None):
+def _scan_log(lines, role, scope):
+    """Người dùng dự án: bỏ dòng log có tên dự án khác (ghi log server); vai trò khác: giữ nguyên."""
+    if role != ROLE_PROJECT or scope is None:
+        return lines
+    words = _leak_words(scope)
+    out = []
+    for ln in lines:
+        hits = _text_hits(ln, words)
+        if hits:
+            _log(f'log line held back from {scope.email!r}: {len(hits)} name(s)')
+            continue
+        out.append(ln)
+    return out
+
+
+def _project_summary(summary, scope):
+    """Tóm tắt kết quả cho người dùng dự án: bỏ phần so sánh với dự án tham chiếu (lấy từ bản phân tích nội bộ); phần
+    còn lại có tên dự án khác thì thay bằng lời nhắn."""
+    if not isinstance(summary, dict):
+        return summary
+    out = {k: v for k, v in summary.items() if k != 'compare'}
+    if _text_hits(json.dumps(out, ensure_ascii=False, default=str), _leak_words(scope)):
+        _log(f'run summary held back from {scope.email!r}')
+        return dict(kind=summary.get('kind'), note=LEAK_HOLD_MESSAGE)
+    return out
+
+
+def _public(run_id, since=0, role=None, scope=None):
     run = _runs[run_id]
     # `since` đếm trên log đầy đủ để trang không nhận trùng dòng; chỉ phần trả về được lọc theo vai trò.
     return dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'), source=run.get('source', ''),
+                project_code=run.get('project_code') or '',
                 status=run['status'], rc=run['rc'], started=run['started'], finished=run['finished'],
-                workdir=run['workdir'],
-                log=visible_log(run['log'][since:], run['outputs'], role), log_total=len(run['log']),
-                outputs=visible_outputs(run['outputs'], role), summary=run.get('summary'))
+                workdir='' if role == ROLE_PROJECT else run['workdir'],
+                log=_scan_log(visible_log(run['log'][since:], run['outputs'], role), role, scope),
+                log_total=len(run['log']),
+                outputs=visible_outputs(run['outputs'], role),
+                summary=_project_summary(run.get('summary'), scope) if role == ROLE_PROJECT and scope else run.get('summary'))
 
 
 def _ensure_run(run_id):
@@ -243,7 +301,8 @@ def _ensure_run(run_id):
     if not os.path.isdir(workdir):
         raise HTTPException(404, 'Không có lượt chạy này.')
     d = history.describe(workdir, run_id)
-    run = dict(kind=d['kind'], project=d['project'], source=d['source'], status=d['status'], rc=d['rc'],
+    run = dict(kind=d['kind'], project=d['project'], project_code=d.get('project_code') or '', source=d['source'],
+               status=d['status'], rc=d['rc'],
                started=d['started'], finished=d['finished'], workdir=workdir, input=d['input_form'],
                outputs=d['outputs'], log=history.read_log(workdir),
                summary=results.summarize_run(workdir, d['kind']), budget_year=d['budget_year'],
@@ -277,8 +336,47 @@ def _who(request, user):
     return (request.headers.get('X-Hub-User') or '').strip() or user.get('email') or user.get('name') or ''
 
 
+def on_link(request):
+    """Yêu cầu đến qua cổng link ngoài (BUDGET_WEB_LINK_PORT)."""
+    server = request.scope.get('server') or (None, None)
+    return bool(LINK_PORT) and server[1] == LINK_PORT
+
+
+def link_email(request):
+    """Email đã kiểm từ token Cloudflare Access; 401 khi thiếu hoặc sai. Tiêu đề X-Hub-* bị bỏ qua trên cổng này."""
+    cached = getattr(request.state, 'link_email', None)
+    if cached:
+        return cached
+    try:
+        email = auth.verify_cf_token(request.headers.get(auth.CF_TOKEN_HEADER))
+    except auth.CfTokenError as exc:
+        _log(f'link refused ({request.url.path}): {exc}')
+        raise HTTPException(401, 'Chưa đăng nhập qua link của Savills. Mở lại link để đăng nhập.')
+    request.state.link_email = email
+    return email
+
+
+def scope_of(request):
+    """Phạm vi xem của người gọi. Cổng link: theo file phân quyền (không có danh sách = không thấy gì). Cổng Hub:
+    viewer khi Hub gắn vai trò viewer, còn lại văn phòng (như trước change này)."""
+    if on_link(request):
+        email = link_email(request)
+        acl = access_list()
+        return acl.scope_for(email) if acl is not None else Scope(KIND_NONE, frozenset(), email)
+    return Scope(KIND_VIEWER) if role_of(request) == ROLE_VIEWER else Scope(KIND_OFFICE)
+
+
+def out_role(scope):
+    """Vai trò dùng để lọc file và log: 'viewer', 'project' hoặc None (văn phòng)."""
+    return {KIND_VIEWER: ROLE_VIEWER, KIND_PROJECT: ROLE_PROJECT}.get(scope.kind)
+
+
 def current_user(request: Request):
-    """Người đang đăng nhập (dict name/email), hoặc None. Chế độ off: một người dùng cục bộ."""
+    """Người đang đăng nhập (dict name/email), hoặc None. Chế độ off: một người dùng cục bộ. Cổng link: email trong
+    token Cloudflare (401 khi thiếu hoặc sai)."""
+    if on_link(request):
+        email = link_email(request)
+        return dict(name=email, email=email)
     if not auth.enabled():
         return dict(name='máy cá nhân', email='')
     return request.session.get('user')
@@ -291,12 +389,191 @@ def require_user(request: Request):
     return user
 
 
+NO_PROJECT_MESSAGE = ('Email của bạn chưa được gắn dự án nào trên trang Budget. Liên hệ văn phòng (Project Management) '
+                      'để được cấp quyền.')
+
+
+def require_scope(request: Request, user=Depends(require_user)):
+    """Phụ thuộc chung của mọi API dữ liệu: người đã đăng nhập và phạm vi xem; không có dự án nào -> 403."""
+    scope = scope_of(request)
+    if scope.kind == KIND_NONE:
+        _log(f'no project for {scope.email!r} ({request.url.path})')
+        raise HTTPException(403, NO_PROJECT_MESSAGE)
+    return scope
+
+
+def _run_for(scope, run_id):
+    """Lượt `run_id` nếu người gọi được xem; lượt của dự án khác trả 404 như lượt không tồn tại."""
+    run = _ensure_run(run_id)
+    if not scope.may_see(run.get('project_code') or None):
+        _log(f'run {run_id} hidden from {scope.email!r} (code {run.get("project_code")!r})')
+        raise HTTPException(404, 'Không có lượt chạy này.')
+    return run
+
+
+def _scoped_cmd(run):
+    """Lệnh và thư mục chạy của một lượt người dùng dự án: cùng script, nhưng trong bản mã nguồn có data\\ ẩn danh
+    (build_scoped_data.ensure; mọi tên dự án khác thành "Dự án tham chiếu NN", số liệu không đổi)."""
+    import build_scoped_data
+    code, names = run['scoped']
+    run['log'].append('Chuẩn bị dữ liệu tham chiếu ẩn danh cho dự án...')
+    if not build_scoped_data.master_names(names):
+        run['log'].append('Chú ý: tên dự án trong file phân quyền không khớp tên nào trong danh sách master, nên dữ kiện '
+                          'master của dự án không được dùng. Báo văn phòng thêm đúng tên vào cột Ten khac.')
+        _log(f'scoped run {code}: no master-list name matches {names!r}')
+    mirror = build_scoped_data.ensure(code, names, SCOPED_ROOT, log=_log)
+    build_scoped_data.prune(code, SCOPED_ROOT, mirror)
+    src = build_scoped_data.source_dir(mirror)
+    cmd = list(run['cmd'])
+    for i, part in enumerate(cmd):
+        if isinstance(part, str) and os.path.normcase(part).startswith(os.path.normcase(HERE + os.sep)):
+            cmd[i] = os.path.join(src, 'webapp', os.path.relpath(part, HERE))
+    return cmd, src
+
+
+def _scoped_for(scope, code):
+    """(mã, tên của dự án) khi lượt phải chạy trên dữ liệu ẩn danh (người dùng dự án), None khi không."""
+    if not scope.is_project:
+        return None
+    acl = access_list()
+    names = acl.names_of(code) if acl is not None else []
+    if not names:
+        raise HTTPException(403, 'Dự án này chưa có tên trong danh sách phân quyền; liên hệ văn phòng.')
+    return (code, names)
+
+
+# ---- quét lộ tên trước khi trả cho người dùng dự án ----------------------------------------------------------------
+_leak_cache = {}            # (path, mtime_ns, size, words key) -> [tên]
+_leak_words_cache = {}      # (mã..., dấu) -> (danh sách từ, từ đã có sẵn trong form chuẩn)
+
+
+def _leak_words(scope):
+    """Từ cần quét cho người dùng `scope`: như kiểm tra gói site (site_data.leak_words), trừ tên các dự án của họ.
+    Tên đã có sẵn trong form chuẩn 2027 (ghi chú của biểu mẫu, mọi PM đều có) được tách riêng, không chặn."""
+    import build_scoped_data
+    import site_data
+    acl = access_list()
+    own = build_scoped_data.own_names_for({n for c in scope.codes for n in (acl.names_of(c) if acl is not None else [])})
+    key = (tuple(sorted(scope.codes)), build_scoped_data.stamp(own))
+    if key not in _leak_words_cache:
+        store = library.store_dir()
+        words = site_data.leak_words(build_scoped_data.DATA_DIR, own_names=own,
+                                     store_dir=store if store and os.path.isdir(store) else None)
+        tpl = _template_text()
+        in_tpl = {w for w in words if site_data.norm(w) and site_data.norm(w) in tpl}
+        if len(_leak_words_cache) > 64:
+            _leak_words_cache.clear()
+        _leak_words_cache[key] = ([w for w in words if w not in in_tpl], in_tpl)
+    return _leak_words_cache[key][0]
+
+
+_template_cache = {}
+
+
+def _template_text():
+    """Chữ của form chuẩn 2027 (gấp hoa thường), nhớ theo mtime."""
+    import build_scoped_data
+    import site_data
+    path = build_scoped_data.TEMPLATE
+    try:
+        mt = os.stat(path).st_mtime_ns
+    except OSError:
+        return ''
+    if _template_cache.get('mt') != mt:
+        _template_cache.update(mt=mt, text=site_data.norm(site_data._xlsx_text(path)))
+    return _template_cache['text']
+
+
+def _text_hits(text, words):
+    import site_data
+    low = site_data.norm(text)
+    return [w for w in words if site_data.norm(w) and site_data.norm(w) in low]
+
+
+def _xlsx_text_strict(path):
+    """Mọi chuỗi của một workbook; ném lỗi khi không đọc được (quét cho người dùng dự án không được 'mở khi lỗi')."""
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    try:
+        parts = []
+        for ws in wb.worksheets:
+            parts.append(ws.title)
+            for row in ws.iter_rows(values_only=True):
+                parts.extend(v for v in row if isinstance(v, str))
+        return chr(10).join(parts)
+    finally:
+        wb.close()
+
+
+def _file_hits(path, words, run=None):
+    """Tên dự án khác trong file `path`. PDF được xét theo bản giao mà nó được in ra (cùng lượt). File không đọc được
+    trả về ['(không đọc được để kiểm tra)'] để bị giữ lại."""
+    if path.lower().endswith('.pdf'):
+        deliverable = next((o['path'] for o in (run or {}).get('outputs', []) if o['kind'] == 'deliverable'), None)
+        if not deliverable:
+            return ['(không có bản giao để kiểm tra bản in)']
+        path = deliverable
+    st = os.stat(path)
+    key = (os.path.normcase(path), st.st_mtime_ns, st.st_size, len(words))
+    if key not in _leak_cache:
+        try:
+            text = _xlsx_text_strict(path) if path.lower().endswith('.xlsx') else None
+        except Exception as exc:  # noqa: BLE001
+            _log(f'leak scan could not read {os.path.basename(path)}: {type(exc).__name__}: {exc}')
+            text = None
+        _leak_cache[key] = ['(không đọc được để kiểm tra)'] if text is None else _text_hits(text, words)
+    return _leak_cache[key]
+
+
+def _guard_json(scope, payload, what):
+    """Người dùng dự án: 409 khi dữ liệu trả về (JSON) có tên dự án khác; ghi log server."""
+    if not scope.is_project:
+        return payload
+    hits = _text_hits(json.dumps(payload, ensure_ascii=False, default=str), _leak_words(scope))
+    if hits:
+        _log(f'{what} held back from {scope.email!r}: {len(hits)} other project name(s)')
+        raise HTTPException(409, LEAK_HOLD_MESSAGE)
+    return payload
+
+
+LEAK_HOLD_MESSAGE = 'File này cần văn phòng kiểm tra trước khi tải. Liên hệ văn phòng (Project Management).'
+
+
+def _project_code_for(scope, code, required):
+    """Mã dự án gửi từ form, đã kiểm: người dùng dự án chỉ được mã của mình (403); văn phòng được mã có trong file
+    phân quyền hoặc để trống (dự án mới) khi `required` là False."""
+    code = (code or '').strip()
+    if scope.is_project:
+        if not code and len(scope.codes) == 1:
+            code = next(iter(scope.codes))
+        if code not in scope.codes:
+            raise HTTPException(403, 'Bạn không được lập ngân sách cho dự án này.')
+        return code
+    if not code:
+        if required:
+            raise HTTPException(400, 'Chưa chọn dự án.')
+        return ''
+    acl = access_list()
+    if acl is not None and code not in acl.projects:
+        raise HTTPException(400, f'Mã dự án {code!r} không có trong danh sách dự án.')
+    return code
+
+
 router = APIRouter()
 
 
 @router.get('/', response_class=HTMLResponse)
 def index(request: Request):
-    """Trang nhập liệu khi đã đăng nhập; trang đăng nhập (vẫn 200, cho heartbeat) khi chưa."""
+    """Trang nhập liệu khi đã đăng nhập; trang đăng nhập (vẫn 200, cho heartbeat) khi chưa. Cổng link: token sai -> 401,
+    email chưa có dự án -> trang báo, không có dữ liệu."""
+    if on_link(request):
+        try:
+            scope = scope_of(request)
+        except HTTPException as exc:
+            return HTMLResponse(_page('login.html', MESSAGE=_escape(exc.detail)), status_code=exc.status_code)
+        if scope.kind == KIND_NONE:
+            return HTMLResponse(_page('login.html', MESSAGE=_escape(NO_PROJECT_MESSAGE)), status_code=403)
+        return _page('index.html', USER=_escape(scope.email), SITE='')
     user = current_user(request)
     if not user:
         message = request.session.pop('auth_message', '') if auth.enabled() else ''
@@ -355,11 +632,23 @@ def auth_logout(request: Request):
 
 
 @router.get('/api/defaults')
-def defaults(user=Depends(require_user)):
+def defaults(scope=Depends(require_scope)):
     data = fill_input.read_defaults()
-    data['template'] = fill_input.TEMPLATE_INPUT
-    data['runs_dir'] = RUNS_DIR
+    data['template'] = '' if scope.is_project else fill_input.TEMPLATE_INPUT
+    data['runs_dir'] = '' if scope.is_project else RUNS_DIR
     return JSONResponse(data)
+
+
+@router.get('/api/me')
+def get_me(request: Request, scope=Depends(require_scope)):
+    """Người đang xem: kind (office / viewer / project), các dự án được chọn trên form (mã + tên), email."""
+    acl = access_list()
+    projects = []
+    if acl is not None:
+        codes = sorted(scope.codes) if scope.is_project else sorted(acl.projects)
+        projects = [dict(code=c, name=(acl.projects.get(c) or {}).get('name') or c) for c in codes]
+    return JSONResponse(dict(kind=scope.kind, email=scope.email, projects=projects, link=on_link(request),
+                             may_add_project=not scope.is_project))
 
 
 def _start(run_id, run, who, what):
@@ -368,6 +657,7 @@ def _start(run_id, run, who, what):
     _active['id'] = run_id
     if run['kind'] != 'adjust':
         history.write_meta(run['workdir'], kind=run['kind'], project=run.get('project'), user=who,
+                           project_code=run.get('project_code') or '',
                            started=run['started'], status='running', source=run.get('source', ''),
                            facts=run.get('facts'))
     _log(f'run {run_id} started {what} by {who}')
@@ -388,11 +678,13 @@ def _failed_before_start(workdir, kind, project, who, started, exc):
 
 
 @router.post('/api/runs')
-def start_run(request: Request, values: dict, user=Depends(require_user)):
+def start_run(request: Request, values: dict, user=Depends(require_user), scope=Depends(require_scope)):
     # Gói site có kèm ngân sách đã duyệt chỉ chạy Review; gói không kèm (dựng không có --prior) lập được dự án mới
     # (change site-package-new-project-entry).
     if SITE_DIR and (site_info() or {}).get('prior_file'):
         raise HTTPException(403, 'Gói này lập ngân sách từ ngân sách đã duyệt của dự án: dùng tab Review.')
+    code = _project_code_for(scope, str(values.get('project_code') or ''), required=False)
+    scoped = _scoped_for(scope, code)
     with _lock:
         if _active['id']:
             raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')
@@ -411,10 +703,11 @@ def start_run(request: Request, values: dict, user=Depends(require_user)):
                                        HTTPException(400, f'Không ghi được file nhập liệu: {exc}'))
         cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'run_budget.py'),
                '--input', input_path, '--workdir', workdir]
-        run = dict(kind='new', project=name, source='', status='running', rc=None, log=[f'Thư mục chạy: {workdir}'],
+        run = dict(kind='new', project=name, project_code=code, source='', status='running', rc=None,
+                   log=[f'Thư mục chạy: {workdir}'], scoped=scoped,
                    started=started, finished=None, workdir=workdir, input=input_path, outputs=[], summary=None, cmd=cmd)
         _start(run_id, run, _who(request, user), f'for project {name!r}')
-    return _public(run_id, role=role_of(request))
+    return _public(run_id, role=out_role(scope), scope=scope)
 
 
 def _facts_from_form(raw):
@@ -463,11 +756,22 @@ def _mark_package_facts(fact_map, raw):
 @router.post('/api/reviews')
 async def start_review(request: Request, prior: UploadFile | None = File(None), source_run: str = Form(''),
                        library_id: str = Form(''), facts: str = Form('{}'), site: str = Form(''),
-                       user=Depends(require_user)):
+                       project_code: str = Form(''), user=Depends(require_user), scope=Depends(require_scope)):
     """Lượt review, ngân sách năm ngoái lấy từ một trong bốn nguồn: `site=1` (file đóng trong gói site, chép một bản vào
     thư mục prior của lượt), `library_id` (dự án có sẵn trong kho, file sống trên SharePoint, chép một bản vào thư mục
     prior của lượt), `source_run` (bản giao của lượt cũ, Excel tính lại trước khi đọc), hoặc `prior` (file .xlsx tải
     lên). `facts` là JSON các ô dữ kiện của trang."""
+    # Quyền trước mọi kiểm tra khác (change budget-web-project-access): nguồn của dự án khác -> 404, mã dự án không
+    # phải của mình -> 403, kể cả khi phần dữ kiện gửi lên còn thiếu.
+    # Văn phòng giữ đúng thứ tự kiểm tra cũ.
+    if scope.is_project and (library_id or '').strip():
+        _entry = library.find(library_id.strip())
+        if _entry is None or not scope.may_see(_library_code(_entry)):
+            raise HTTPException(404, 'Không có dự án này trong danh sách có sẵn.')
+    elif scope.is_project and (source_run or '').strip():
+        _run_for(scope, source_run.strip())
+    elif scope.is_project:
+        _project_code_for(scope, project_code, required=False)
     try:
         raw = json.loads(facts or '{}')
         if not isinstance(raw, dict):
@@ -478,6 +782,7 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
     _mark_package_facts(fact_map, raw)
     source_run, library_id = (source_run or '').strip(), (library_id or '').strip()
     upload, copy_from = None, None
+    code = None                     # mã dự án của lượt; nguồn kho / lượt cũ quyết định mã khi có
     if (site or '').strip() in ('1', 'true', 'yes'):
         info = site_info()
         if not SITE_DIR or info is None:
@@ -492,8 +797,9 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         prior_src = None
     elif library_id:
         entry = library.find(library_id)
-        if entry is None:
+        if entry is None or not scope.may_see(_library_code(entry)):
             raise HTTPException(404, 'Không có dự án này trong danh sách có sẵn.')
+        code = _library_code(entry) or None
         if not entry['selectable']:
             raise HTTPException(400, f"Không dùng được file này: {entry['reason']}.")
         stem, recalc, copy_from = os.path.splitext(entry['file_name'])[0], False, entry['path']
@@ -502,7 +808,8 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         project = entry['project']
         prior_src = None
     elif source_run:
-        src = _ensure_run(source_run)
+        src = _run_for(scope, source_run)
+        code = src.get('project_code') or None
         deliverable = next((o for o in src['outputs'] if o['kind'] == 'deliverable'), None)
         if not deliverable:
             raise HTTPException(400, f'Lượt {source_run} không có bản giao để lấy làm ngân sách năm ngoái.')
@@ -521,6 +828,11 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
         prior_src, recalc = None, False
         tag, source, what = 'review-' + _safe(stem, 'file'), f'file {os.path.basename(prior.filename)}', f'from file {prior.filename!r}'
         project = ''
+    if code is None:
+        code = _project_code_for(scope, project_code, required=False)
+    elif (project_code or '').strip() and project_code.strip() != code and scope.is_project:
+        raise HTTPException(403, 'Bạn không được lập ngân sách cho dự án này.')
+    scoped = _scoped_for(scope, code)
     with _lock:
         if _active['id']:
             raise HTTPException(409, 'Đang có một lượt chạy. Chờ xong rồi bấm lại.')
@@ -543,23 +855,24 @@ async def start_review(request: Request, prior: UploadFile | None = File(None), 
             raise _failed_before_start(workdir, 'review', project, _who(request, user), started, exc)
         cmd = [sys.executable, '-X', 'utf8', os.path.join(HERE, 'review_run.py'),
                '--prior', prior_src, '--facts', facts_path, '--workdir', workdir] + (['--recalc'] if recalc else [])
-        run = dict(kind='review', project=project, source=source, status='running', rc=None,
+        run = dict(kind='review', project=project, project_code=code, source=source, status='running', rc=None,
+                   scoped=scoped,
                    log=[f'Thư mục chạy: {workdir}', f'Ngân sách năm ngoái: {source}'], started=started, finished=None,
                    workdir=workdir, input=None, outputs=[], summary=None, cmd=cmd, facts=raw)
         _start(run_id, run, _who(request, user), what)
-    return _public(run_id, role=role_of(request))
+    return _public(run_id, role=out_role(scope), scope=scope)
 
 
 @router.get('/api/runs/{run_id}')
-def get_run(request: Request, run_id: str, since: int = 0, user=Depends(require_user)):
-    _ensure_run(run_id)
-    return _public(run_id, since, role_of(request))
+def get_run(request: Request, run_id: str, since: int = 0, scope=Depends(require_scope)):
+    _run_for(scope, run_id)
+    return _public(run_id, since, out_role(scope), scope)
 
 
 @router.get('/api/runs/{run_id}/input')
-def get_run_input(request: Request, run_id: str, user=Depends(require_user)):
+def get_run_input(request: Request, run_id: str, scope=Depends(require_scope)):
     """Giá trị form của lượt đó (Clone, và dữ kiện cho Gen budget for new year), đọc theo nhãn như api/defaults."""
-    run = _ensure_run(run_id)
+    run = _run_for(scope, run_id)
     path = run.get('input') or history.input_form_of(run['workdir'], run.get('kind', 'new'))
     if not path or not os.path.isfile(path):
         raise HTTPException(404, 'Lượt này không còn file nhập liệu.')
@@ -570,21 +883,30 @@ def get_run_input(request: Request, run_id: str, user=Depends(require_user)):
     data['id'] = run_id
     data['kind'] = run.get('kind', 'new')
     data['project'] = run.get('project')
-    return JSONResponse(data)
+    data['project_code'] = run.get('project_code') or ''
+    return JSONResponse(_guard_json(scope, data, f'input of {run_id}'))
 
 
 @router.get('/api/runs/{run_id}/files/{name}')
-def get_file(request: Request, run_id: str, name: str, user=Depends(require_user)):
-    run = _ensure_run(run_id)
+def get_file(request: Request, run_id: str, name: str, scope=Depends(require_scope)):
+    run = _run_for(scope, run_id)
     if os.sep in name or '/' in name or '..' in name:
         raise HTTPException(400, 'Tên file không hợp lệ.')
-    if not may_download(run, name, role_of(request)):
-        _log(f'download refused for viewer: {run_id}/{name}')
+    role = out_role(scope)
+    if not may_download(run, name, role):
+        _log(f'download refused for {role}: {run_id}/{name}')
+        if role == ROLE_PROJECT:
+            raise HTTPException(404, 'File không tồn tại.')
         raise HTTPException(403, 'Tài khoản của bạn chỉ được tải bản giao khách.')
     known = next((o['path'] for o in run['outputs'] if o['name'] == name), None)
     path = known or os.path.join(run['workdir'], name)
     if not os.path.isfile(path):
         raise HTTPException(404, 'File không tồn tại.')
+    if role == ROLE_PROJECT:
+        hits = _file_hits(path, _leak_words(scope), run)
+        if hits:
+            _log(f'download held back: {run_id}/{name} for {scope.email!r}: {len(hits)} other project name(s): {hits[:5]}')
+            raise HTTPException(409, LEAK_HOLD_MESSAGE)
     media = ('application/pdf' if name.lower().endswith('.pdf')
              else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     return FileResponse(path, filename=name, media_type=media)
@@ -594,14 +916,14 @@ PRINT_TIMEOUT_S = 300
 
 
 @router.post('/api/runs/{run_id}/print')
-def print_pdf(request: Request, run_id: str, body: dict, user=Depends(require_user)):
+def print_pdf(request: Request, run_id: str, body: dict, user=Depends(require_user), scope=Depends(require_scope)):
     """Xuất PDF A4 (X:AO) hoặc A3 (X:BB) sheet '2. Budget-Management Fund' của bản giao hiện tại, kể cả điều chỉnh đã
     lưu (change add-budget-print-layout). Excel làm trên bản sao trong một tiến trình riêng; bản giao không đổi.
     Mọi vai trò tải được bản giao đều xuất được."""
     paper = str((body or {}).get('paper') or '').strip().upper()
     if paper not in ('A4', 'A3'):
         raise HTTPException(400, 'Chọn khổ giấy A4 hoặc A3.')
-    run = _ensure_run(run_id)
+    run = _run_for(scope, run_id)
     if run.get('status') == 'running':
         raise HTTPException(409, 'Lượt này đang chạy.')
     path = next((o['path'] for o in run['outputs'] if o['kind'] == 'deliverable'), None)
@@ -629,7 +951,7 @@ def print_pdf(request: Request, run_id: str, body: dict, user=Depends(require_us
         run['outputs'] = _outputs(run['workdir'])
         _log(f'print {run_id} {paper} -> {os.path.basename(out)} by {_who(request, user)}')
         return JSONResponse(dict(pdf=os.path.basename(out), message=lines[-1] if lines else '',
-                                 outputs=visible_outputs(run['outputs'], role_of(request))))
+                                 outputs=visible_outputs(run['outputs'], out_role(scope))))
     finally:
         with _lock:
             _active['id'] = None
@@ -643,10 +965,10 @@ def _deliverable_of(run):
 
 
 @router.get('/api/runs/{run_id}/adjust')
-def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
+def get_adjust(request: Request, run_id: str, scope=Depends(require_scope)):
     """Các mã trên sheet '4. Điều chỉnh' của bản giao (giá trị nhập hiện tại), số duyệt năm cũ khi là lượt review,
     và kết quả lần lưu gần nhất."""
-    run = _ensure_run(run_id)
+    run = _run_for(scope, run_id)
     path = _deliverable_of(run)
     try:
         items = adjust.read_items(path)
@@ -676,23 +998,23 @@ def get_adjust(request: Request, run_id: str, user=Depends(require_user)):
         abnormal_keys = adjust.abnormal_keys(run['workdir'])
         if abnormal_keys is None:                                             # lượt cũ, file tóm tắt chưa có danh sách
             abnormal_keys = adjust.flag_abnormal(items)
-    return JSONResponse(dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'),
+    return JSONResponse(_guard_json(scope, dict(id=run_id, kind=run.get('kind', 'new'), project=run.get('project'),
                              deliverable=os.path.basename(path), items=items, has_approved=bool(approved), top_keys=top_keys,
                              abnormal_keys=abnormal_keys, abnormal_rule=adjust.abnormal_rule(),
                              measure_labels={k: v for k, v in (cols.get('labels') or {}).items() if measures.get(k)},
                              prior_year=years[0], budget_year=years[1],
                              period=adjust.period_labels(path, run['workdir']),   # 'MM/YYYY' x 12, danh sách Tháng đầu
                              last=results.adjust_result(run['workdir']) or None,
-                             can_save=role_of(request) != ROLE_VIEWER, active=_active['id']))
+                             can_save=scope.kind != KIND_VIEWER, active=_active['id']), f'adjust table of {run_id}'))
 
 
 @router.post('/api/runs/{run_id}/adjust')
-def start_adjust(request: Request, run_id: str, body: dict, user=Depends(require_user)):
+def start_adjust(request: Request, run_id: str, body: dict, user=Depends(require_user), scope=Depends(require_scope)):
     """Ghi đè bản giao của lượt bằng các chỉnh sửa (backup có ngày bên cạnh), rồi Excel tính lại. Chạy như một lượt
     trong hàng đợi chung; trang theo dõi bằng api/runs/<id trả về>."""
-    if role_of(request) == ROLE_VIEWER:
+    base = _run_for(scope, run_id)
+    if scope.kind == KIND_VIEWER:
         raise HTTPException(403, 'Tài khoản chỉ xem không được lưu điều chỉnh.')
-    base = _ensure_run(run_id)
     if base.get('status') == 'running':
         raise HTTPException(409, 'Lượt này đang chạy.')
     edits = body.get('edits')
@@ -721,16 +1043,17 @@ def start_adjust(request: Request, run_id: str, body: dict, user=Depends(require
         baseline = os.path.join(workdir, 'deliverable_recalc.xlsx')
         if os.path.exists(baseline):
             cmd += ['--baseline-recalc', baseline]
-        run = dict(kind='adjust', base_id=run_id, project=base.get('project'), source=f'điều chỉnh lượt {run_id}',
+        run = dict(kind='adjust', base_id=run_id, project=base.get('project'), project_code=base.get('project_code') or '',
+                   source=f'điều chỉnh lượt {run_id}',
                    status='running', rc=None, log=[f'Điều chỉnh bản giao của lượt {run_id}: {len(edits)} mã'],
                    started=_now(), finished=None, workdir=workdir, input=None, outputs=base['outputs'], summary=None,
                    cmd=cmd, log_name='adjust.log')
         _start(job_id, run, _who(request, user), f'adjust of {run_id} ({len(edits)} codes)')
-    return _public(job_id, role=role_of(request))
+    return _public(job_id, role=out_role(scope), scope=scope)
 
 
 @router.get('/api/site')
-def get_site(user=Depends(require_user)):
+def get_site(scope=Depends(require_scope)):
     """Chế độ gói site: dự án, tên file ngân sách đã duyệt, dữ kiện điền sẵn (không có đường dẫn). 404 ngoài chế độ site."""
     info = site_info()
     if info is None:
@@ -739,55 +1062,76 @@ def get_site(user=Depends(require_user)):
                                                                  'store_id', 'built_at', 'code', 'prior_exists')})
 
 
+def _library_code(entry):
+    """Mã dự án của một dòng kho: khớp tên dự án đọc trong file với tên / tên khác trong file phân quyền; '' khi không
+    khớp hoặc chưa có danh sách (khi đó người dùng dự án không thấy dòng đó)."""
+    acl = access_list()
+    return (acl.match(entry.get('project')) if acl is not None else None) or ''
+
+
 @router.get('/api/library')
-def get_library(user=Depends(require_user)):
+def get_library(scope=Depends(require_scope)):
     """Ngân sách đã duyệt có sẵn (kho quét) cho tab Review; không trả đường dẫn. Chế độ gói site: danh sách rỗng, kể
     cả khi máy dựng gói có kho ở đường dẫn mặc định."""
     if SITE_DIR:
         return JSONResponse(dict(entries=[], total=0, selectable=0, root='', store=''))
-    rows = [{k: v for k, v in e.items() if k != 'path'} for e in library.entries()]
+    rows = [{k: v for k, v in e.items() if k != 'path'} for e in library.entries()
+            if not scope.is_project or scope.may_see(_library_code(e))]
+    hide = scope.is_project
     return JSONResponse(dict(entries=rows, total=len(rows), selectable=sum(e['selectable'] for e in rows),
-                             root=library.root_dir(), store=library.store_dir()))
+                             root='' if hide else library.root_dir(), store='' if hide else library.store_dir()))
 
 
 @router.get('/api/library/{file_id}/facts')
-def get_library_facts(file_id: str, user=Depends(require_user)):
+def get_library_facts(file_id: str, scope=Depends(require_scope)):
     """Dữ kiện điền sẵn cho mục 2 của tab Review khi chọn một dòng kho (change prefill-review-facts): lượt trước cùng
     dự án > sheet 0. Info > danh sách master, mỗi ô kèm nguồn và số khác của nguồn sau."""
     if SITE_DIR:
         raise HTTPException(404, 'Gói site không có kho.')
     entry = library.find(file_id)
-    if entry is None:
+    if entry is None or not scope.may_see(_library_code(entry)):
         raise HTTPException(404, 'Không thấy dòng này trong kho.')
     entry = dict(entry, path=library.long_path(entry['path']) if entry.get('selectable') else '')
-    return JSONResponse(facts_prefill.prefill(entry, history.scan(RUNS_DIR)))
+    runs = [e for e in history.scan(RUNS_DIR) if scope.may_see(e.get('project_code') or None)]
+    return JSONResponse(facts_prefill.prefill(entry, runs))
 
 
 @router.get('/api/library/overview')
-def get_library_overview(user=Depends(require_user)):
-    """Số tổng hợp của kho (tab Kho ngân sách): theo năm, nhóm, lý do, loại file. Chỉ có số đếm, không có tên hay đường dẫn."""
-    if SITE_DIR:
+def get_library_overview(scope=Depends(require_scope)):
+    """Số tổng hợp của kho (tab Kho ngân sách): theo năm, nhóm, lý do, loại file. Chỉ có số đếm, không có tên hay đường dẫn.
+    Người dùng dự án không có tab này."""
+    if SITE_DIR or scope.is_project:
         raise HTTPException(404, 'Gói site không có kho.')
     return JSONResponse(library.overview())
 
 
 @router.get('/api/history')
-def get_history(request: Request, user=Depends(require_user)):
-    """Mọi lượt trong thư mục runs, mới nhất trước; file theo vai trò (viewer chỉ bản giao)."""
-    role = role_of(request)
+def get_history(request: Request, scope=Depends(require_scope)):
+    """Mọi lượt trong thư mục runs mà người gọi được xem, mới nhất trước; file theo vai trò (viewer chỉ bản giao, người
+    dùng dự án bản giao + lịch trực)."""
+    role = out_role(scope)
     rows = []
     for e in history.scan(RUNS_DIR, _active['id']):
+        if not scope.may_see(e.get('project_code') or None):
+            continue
         live = _runs.get(e['id'])
         if live:
             e['status'], e['project'] = live['status'], live.get('project') or e['project']
-        rows.append(dict(id=e['id'], kind=e['kind'], project=e['project'], budget_year=e['budget_year'],
-                         prior_year=e['prior_year'], started=e['started'], finished=e['finished'], user=e['user'],
-                         status=e['status'], source=e['source'], outputs=visible_outputs(e['outputs'], role),
-                         error=e.get('error', '') if role != ROLE_VIEWER else '',
+        rows.append(dict(id=e['id'], kind=e['kind'], project=e['project'], project_code=e.get('project_code') or '',
+                         budget_year=e['budget_year'],
+                         prior_year=e['prior_year'], started=e['started'], finished=e['finished'],
+                         user='' if role == ROLE_PROJECT else e['user'],
+                         status=e['status'],
+                         source=('' if role == ROLE_PROJECT and _text_hits(e['source'] or '', _leak_words(scope))
+                                 else e['source']),
+                         outputs=visible_outputs(e['outputs'], role),
+                         error=e.get('error', '') if role is None else '',
                          can_clone=bool(e['input_form']),
                          can_gen=any(o['kind'] == 'deliverable' for o in e['outputs']),
                          gen_block=_gen_block(e['budget_year'])))
-    return JSONResponse(dict(runs=rows, runs_dir=RUNS_DIR, active=_active['id']))
+    return JSONResponse(dict(runs=rows, runs_dir='' if scope.is_project else RUNS_DIR,
+                             active=_active['id'] if not scope.is_project or any(r['id'] == _active['id'] for r in rows)
+                             else ('busy' if _active['id'] else None)))
 
 
 def _gen_block(budget_year):

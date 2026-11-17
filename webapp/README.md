@@ -191,6 +191,18 @@ tên. Vắng tiêu đề hoặc giá trị khác: đủ 3 file. Thư mục chạ
 
 Gói site (`BUDGET_WEB_SITE`, 09/11/2026): PM ở site không cần bản phân tích nội bộ, nên `visible_outputs` bỏ file loại `analysis` và `files/<tên>` của file đó trả 403; bản giao khách và lịch trực vẫn tải được, lưu điều chỉnh vẫn được. File vẫn được sinh trong thư mục lượt (bảng điều chỉnh đọc từ đó).
 
+## Link ngoài theo dự án (change `budget-web-project-access`)
+
+Người ở site mở trang qua link Cloudflare. Web mở thêm một cổng riêng (`BUDGET_WEB_LINK_PORT`) chỉ cho link này:
+- Mọi yêu cầu trên cổng này phải có token Cloudflare Access, và web tự kiểm token đó (`auth.verify_cf_token`).
+- Danh sách email và dự án nằm trong file Excel `BUDGET_WEB_ACCESS_BOOK`, đọc bằng `project_access.py`.
+- Mọi API dữ liệu đi qua `require_scope` và `_run_for`, nên người dùng dự án chỉ thấy lượt và file của dự án mình.
+- Lượt của họ chạy trên bản dữ liệu ẩn danh (`build_scoped_data.py`).
+- Họ chỉ tải được bản giao, bản in PDF và lịch trực, sau khi file đã được quét không có tên dự án khác.
+
+Cổng thường (đường Hub) không đổi. Biến môi trường, file phân quyền và cách gắn mã cho lượt cũ (`map_run_codes.py`)
+xem `RUNNING.md`, mục "The outside link".
+
 ## Đăng nhập SSO (Microsoft Entra ID)
 
 Mặc định (`BUDGET_WEB_AUTH=sso`) trang đòi đăng nhập bằng tài khoản Microsoft của Savills và chỉ cho những email
