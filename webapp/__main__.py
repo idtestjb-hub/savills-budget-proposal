@@ -7,7 +7,8 @@ BUDGET_WEB_PREFIX (/budget), BUDGET_WEB_RUNS (..\\reports\\web_runs). Chỉ bind
 Log ra stdout/stderr.
 
 Link ngoài (change budget-web-project-access): đặt BUDGET_WEB_LINK_PORT (ví dụ 8091) để mở thêm cổng thứ hai, cùng host,
-chỉ dành cho tunnel Cloudflare. Cần thêm BUDGET_WEB_CF_TEAM, BUDGET_WEB_CF_AUD, BUDGET_WEB_ACCESS_BOOK; thiếu là không
+chỉ dành cho tunnel Cloudflare. Cần thêm BUDGET_WEB_ACCESS_BOOK, và theo BUDGET_WEB_LINK_AUTH (cf | otp | cf+otp) các biến
+Cloudflare và/hoặc đăng nhập bằng mã (xem webapp/auth.py); thiếu là không
 khởi động. Tunnel chỉ được trỏ vào cổng này, không bao giờ vào cổng thường hay cổng của Caddy.
 """
 import asyncio
@@ -17,7 +18,7 @@ import sys
 import uvicorn
 
 from webapp import auth
-from webapp.server import ACCESS_BOOK, HOST, LINK_PORT, PORT, PREFIX, RUNS_DIR, access_list, app
+from webapp.server import ACCESS_BOOK, HOST, LINK_PORT, PORT, PREFIX, RUNS_DIR, access_list, app, link_store
 
 
 def main():
@@ -51,7 +52,14 @@ def main():
         uvicorn.run(app, host=HOST, port=PORT, log_level='info')
         return
     acl = access_list()
-    print(f'Budget web: link ngoài http://{HOST}:{LINK_PORT}/ (token Cloudflare bắt buộc, team {auth.cf_team_url()}; '
+    mode = auth.link_mode()
+    ways = []
+    if auth.link_uses_cf(mode):
+        ways.append(f'token Cloudflare, team {auth.cf_team_url()}')
+    if auth.link_uses_otp(mode):
+        store = link_store()      # khoá ngắn hoặc thư mục DB hỏng: dừng ở đây
+        ways.append(f'mã qua email, outbox {store.outbox}, kho {store.path}, Origin {auth.link_public_origin()}')
+    print(f'Budget web: link ngoài http://{HOST}:{LINK_PORT}/ (chế độ {mode}: {"; ".join(ways)}; '
           f'phân quyền {ACCESS_BOOK}: ' + (f'{len(acl.projects)} dự án, {len(acl.people)} email' if acl else
                                            'CHƯA ĐỌC ĐƯỢC, mọi người dùng link bị từ chối') + ')', flush=True)
 

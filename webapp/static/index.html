@@ -864,6 +864,29 @@ const PRODUCT_VI = {
   'Nursery / Nhà trẻ': 'Nhà trẻ'
 };
 const PREFIX = '__PREFIX__';
+// Link ngoài có đăng nhập bằng mã (change add-link-email-code-login): mọi POST mang X-CSRF-Token; trống ở đường Hub.
+const CSRF = '__CSRF__';
+if (CSRF) {
+  const plainFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    opts = opts || {};
+    if ((opts.method || 'GET').toUpperCase() !== 'GET') {
+      const h = new Headers(opts.headers || {});
+      h.set('X-CSRF-Token', CSRF);
+      opts = Object.assign({}, opts, { headers: h });
+    }
+    return plainFetch(url, opts);
+  };
+  document.addEventListener('click', async ev => {
+    if (!ev.target || ev.target.id !== 'link-logout') return;
+    ev.preventDefault();
+    try {
+      const r = await fetch(`${PREFIX}/auth/code/logout`, { method: 'POST' });
+      const j = await r.json();
+      location.href = j.redirect || `${PREFIX}/`;
+    } catch (e) { location.reload(); }
+  });
+}
 // Phạm vi người xem (change budget-web-project-access): office / viewer / project, và các dự án được chọn.
 let ME = { kind: 'office', projects: [], may_add_project: true };
 const isProject = () => ME.kind === 'project';

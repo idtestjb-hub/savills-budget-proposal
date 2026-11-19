@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đăng nhập Budget</title>
+<style>
+:root {
+  --sav-bg: #FFFFFF; --sav-surface: #FFFFFF; --sav-panel: #F7F4F1;
+  --sav-text: #000000; --sav-muted: #595959; --sav-rule: #D9D9D9; --sav-link: #25273A;
+  --sav-yellow: #FFDF00; --sav-on-yellow: #000000; --sav-navy: #25273A; --sav-neg: #CE181E; --sav-pos: #1D7A3E;
+  --sav-font: Arial, Helvetica, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+    --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00; --sav-neg: #D95F65; --sav-pos: #7FC79A;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sav-bg: #25273A; --sav-surface: #36384A; --sav-panel: #303244;
+  --sav-text: #FFFFFF; --sav-muted: #BEBFC4; --sav-rule: #696975; --sav-link: #FFDF00; --sav-neg: #D95F65; --sav-pos: #7FC79A;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sav-bg); color: var(--sav-text); font: 15px/1.5 var(--sav-font); }
+.edge { position: fixed; top: 0; right: 0; width: 7px; height: 100vh; background: var(--sav-yellow); }
+.page { max-width: 520px; margin: 10vh auto 0; padding: 0 16px; }
+.eyebrow { display: inline-block; font-size: 12px; letter-spacing: .7px; text-transform: uppercase;
+  background: var(--sav-yellow); color: var(--sav-on-yellow); padding: 3px 8px; }
+h1 { font-size: 30px; font-weight: 400; margin: 10px 0 8px; }
+p { color: var(--sav-muted); }
+label { display: block; font-weight: 700; margin: 18px 0 6px; }
+input { width: 100%; font: 18px var(--sav-font); padding: 10px 12px; border: 1px solid var(--sav-rule);
+  background: var(--sav-surface); color: var(--sav-text); }
+input#code { letter-spacing: 6px; font-size: 24px; max-width: 220px; }
+button { margin-top: 14px; font: 700 16px var(--sav-font); background: var(--sav-navy); color: #FFFFFF; border: 0;
+  padding: 12px 26px; cursor: pointer; }
+button:hover { background: #000000; }
+button:disabled { opacity: .55; cursor: default; }
+button.link { background: none; color: var(--sav-link); padding: 12px 0 0; font-weight: 400; text-decoration: underline; }
+.msg { border-left: 6px solid var(--sav-neg); background: var(--sav-panel); color: var(--sav-text); padding: 10px 14px; margin: 16px 0; }
+.msg.ok { border-left-color: var(--sav-pos); }
+.msg:empty { display: none; }
+.hidden { display: none; }
+.note { font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="edge"></div>
+<div class="page">
+  <span class="eyebrow">Budget Agent</span>
+  <h1>Đăng nhập trang Budget</h1>
+
+  <form id="step-email">
+    <p>Nhập email công ty của bạn. Nếu email đã được cấp quyền, bạn sẽ nhận một mã 6 số qua email.</p>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="email" required placeholder="ten.ho@savills.com.vn">
+    <button id="send" type="submit">Gửi mã</button>
+  </form>
+
+  <form id="step-code" class="hidden">
+    <div id="sent" class="msg ok"></div>
+    <label for="code">Mã 6 số</label>
+    <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
+    <div>
+      <button id="go" type="submit">Đăng nhập</button>
+    </div>
+    <button id="again" class="link" type="button">Gửi lại mã</button>
+    <button id="other" class="link" type="button" style="margin-left:18px">Dùng email khác</button>
+    <p class="note">Mail gửi từ hộp thư dịch vụ của Savills, tiêu đề "Mã đăng nhập Budget". Không thấy thì xem thư mục
+      Junk hoặc Quarantine. Mã dùng được __MINUTES__ phút và chỉ một lần.</p>
+  </form>
+
+  <div id="msg" class="msg"></div>
+</div>
+<script>
+const PREFIX = '__PREFIX__';
+const $ = id => document.getElementById(id);
+const say = (text) => { $('msg').textContent = text || ''; };
+
+async function post(path, body) {
+  const r = await fetch(`${PREFIX}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify(body), credentials: 'same-origin' });
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* trả lời không phải JSON */ }
+  return { ok: r.ok, status: r.status, data: j };
+}
+
+async function sendCode() {
+  const email = $('email').value.trim();
+  if (!email) { $('email').focus(); return; }
+  say('');
+  $('send').disabled = $('again').disabled = true;
+  try {
+    const r = await post('/auth/code/request', { email });
+    if (!r.ok) { say(r.data.detail || 'Không gửi được yêu cầu. Thử lại sau ít phút.'); return; }
+    $('sent').textContent = r.data.message;
+    $('step-email').classList.add('hidden');
+    $('step-code').classList.remove('hidden');
+    $('code').value = '';
+    $('code').focus();
+  } catch (e) {
+    say('Không kết nối được tới trang Budget. Kiểm tra mạng rồi thử lại.');
+  } finally {
+    $('send').disabled = $('again').disabled = false;
+  }
+}
+
+$('step-email').addEventListener('submit', ev => { ev.preventDefault(); sendCode(); });
+$('again').addEventListener('click', sendCode);
+$('other').addEventListener('click', () => {
+  say('');
+  $('step-code').classList.add('hidden');
+  $('step-email').classList.remove('hidden');
+  $('email').focus();
+});
+$('step-code').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  say('');
+  $('go').disabled = true;
+  try {
+    const r = await post('/auth/code/verify', { email: $('email').value.trim(), code: $('code').value.trim() });
+    if (r.ok) { location.href = `${PREFIX}/`; return; }
+    say(r.data.detail || 'Đăng nhập không thành công.');
+  } catch (e) {
+    say('Không kết nối được tới trang Budget. Kiểm tra mạng rồi thử lại.');
+  } finally {
+    $('go').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

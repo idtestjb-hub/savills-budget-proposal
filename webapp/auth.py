@@ -22,6 +22,13 @@ Link ngoài qua Cloudflare Access (change budget-web-project-access), chỉ trê
 Web tự kiểm token Cf-Access-Jwt-Assertion: chữ ký RS256 theo khoá công khai của team (tải từ
 https://<team>.cloudflareaccess.com/cdn-cgi/access/certs, nhớ theo kid), aud, iss, hạn dùng. Tiêu đề email trần
 (Cf-Access-Authenticated-User-Email) không bao giờ được tin.
+
+Đăng nhập bằng mã qua email trên cổng link (change add-link-email-code-login, webapp/link_login.py):
+  BUDGET_WEB_LINK_AUTH       cf (mặc định) | otp | cf+otp
+  BUDGET_WEB_LINK_SECRET     khoá HMAC của mã và CSRF, ít nhất 32 ký tự, chỉ nằm trong biến môi trường
+  BUDGET_WEB_OTP_OUTBOX      thư mục outbox (OneDrive riêng của tài khoản dịch vụ) mà flow gửi mail theo dõi
+  BUDGET_WEB_LINK_PUBLIC_URL địa chỉ người dùng mở link, ví dụ https://power.savills-hub.com.vn (để kiểm Origin)
+  BUDGET_WEB_LINK_DB         file sqlite lưu mã / phiên (mặc định link_login.sqlite cạnh thư mục runs)
 """
 import os
 import secrets
@@ -179,10 +186,50 @@ def verify_cf_token(token, get_key=None, team_url=None, audience=None):
     return email
 
 
+LINK_MODES = ('cf', 'otp', 'cf+otp')
+
+
+def link_mode(raw=None):
+    """Cách đăng nhập trên cổng link (BUDGET_WEB_LINK_AUTH): 'cf' (mặc định, chỉ token Cloudflare Access), 'otp'
+    (chỉ mã qua email) hoặc 'cf+otp' (một trong hai). Giá trị lạ -> '' (không khởi động)."""
+    text = (os.environ.get('BUDGET_WEB_LINK_AUTH', '') if raw is None else raw).strip().lower().replace(' ', '')
+    text = text or 'cf'
+    if text == 'otp+cf':
+        text = 'cf+otp'
+    return text if text in LINK_MODES else ''
+
+
+def link_uses_cf(mode=None):
+    return 'cf' in (link_mode() if mode is None else mode)
+
+
+def link_uses_otp(mode=None):
+    return 'otp' in (link_mode() if mode is None else mode)
+
+
+def link_public_origin(raw=None):
+    """scheme://host[:port] của BUDGET_WEB_LINK_PUBLIC_URL (địa chỉ người dùng mở link); '' khi chưa đặt."""
+    from urllib.parse import urlsplit
+    text = (os.environ.get('BUDGET_WEB_LINK_PUBLIC_URL', '') if raw is None else raw).strip()
+    if not text:
+        return ''
+    parts = urlsplit(text)
+    return f'{parts.scheme}://{parts.netloc}'.lower() if parts.scheme and parts.netloc else ''
+
+
 def missing_link_settings():
     """Biến còn thiếu khi bật cổng link ngoài (BUDGET_WEB_LINK_PORT); rỗng = đủ."""
     if not os.environ.get('BUDGET_WEB_LINK_PORT', '').strip():
         return []
-    needed = {'BUDGET_WEB_CF_TEAM': cf_team_url(), 'BUDGET_WEB_CF_AUD': cf_audience(),
-              'BUDGET_WEB_ACCESS_BOOK': os.environ.get('BUDGET_WEB_ACCESS_BOOK', '').strip()}
+    mode = link_mode()
+    if not mode:
+        return ['BUDGET_WEB_LINK_AUTH (chỉ nhận cf, otp hoặc cf+otp)']
+    needed = {'BUDGET_WEB_ACCESS_BOOK': os.environ.get('BUDGET_WEB_ACCESS_BOOK', '').strip()}
+    if link_uses_cf(mode):
+        needed.update({'BUDGET_WEB_CF_TEAM': cf_team_url(), 'BUDGET_WEB_CF_AUD': cf_audience()})
+    if link_uses_otp(mode):
+        needed.update({'BUDGET_WEB_OTP_OUTBOX': os.environ.get('BUDGET_WEB_OTP_OUTBOX', '').strip(),
+                       'BUDGET_WEB_LINK_PUBLIC_URL': link_public_origin()})
+        if len(os.environ.get('BUDGET_WEB_LINK_SECRET', '').strip()) < 32:
+            needed['BUDGET_WEB_LINK_SECRET (ít nhất 32 ký tự)'] = ''
     return [k for k, v in needed.items() if not v]

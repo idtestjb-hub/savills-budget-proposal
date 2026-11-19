@@ -1,0 +1,85 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": { "defaultValue": {}, "type": "Object" },
+    "$authentication": { "defaultValue": {}, "type": "SecureObject" }
+  },
+  "triggers": {
+    "Khi_co_file_yeu_cau": {
+      "type": "OpenApiConnection",
+      "recurrence": { "frequency": "Minute", "interval": 1 },
+      "splitOn": "@triggerOutputs()?['body/value']",
+      "conditions": [
+        { "expression": "@and(startsWith(triggerOutputs()?['body/Name'], 'otp-'), endsWith(triggerOutputs()?['body/Name'], '.json'))" }
+      ],
+      "inputs": {
+        "host": {
+          "connectionName": "shared_onedriveforbusiness",
+          "operationId": "OnNewFilesV2",
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness"
+        },
+        "parameters": {
+          "folderId": "__FOLDER_ID__",
+          "includeSubfolders": false,
+          "maxFileCount": 20
+        },
+        "authentication": "@parameters('$authentication')"
+      }
+    }
+  },
+  "actions": {
+    "Doc_file": {
+      "type": "OpenApiConnection",
+      "runAfter": {},
+      "inputs": {
+        "host": {
+          "connectionName": "shared_onedriveforbusiness",
+          "operationId": "GetFileContent",
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness"
+        },
+        "parameters": {
+          "id": "@triggerOutputs()?['body/Id']",
+          "inferContentType": false
+        }
+      }
+    },
+    "Yeu_cau": {
+      "type": "Compose",
+      "runAfter": { "Doc_file": [ "Succeeded" ] },
+      "inputs": "@json(base64ToString(body('Doc_file')?['$content']))"
+    },
+    "Gui_ma": {
+      "type": "OpenApiConnection",
+      "runAfter": { "Yeu_cau": [ "Succeeded" ] },
+      "inputs": {
+        "host": {
+          "connectionName": "shared_office365",
+          "operationId": "SendEmailV2",
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+        },
+        "parameters": {
+          "emailMessage/To": "@{outputs('Yeu_cau')?['to']}",
+          "emailMessage/Subject": "Mã đăng nhập Budget",
+          "emailMessage/Body": "<p style=\"font-family:Arial,sans-serif;font-size:15px\">Mã đăng nhập trang Budget của bạn là:</p><p style=\"font-family:Arial,sans-serif;font-size:28px;font-weight:bold;letter-spacing:6px\">@{outputs('Yeu_cau')?['code']}</p><p style=\"font-family:Arial,sans-serif;font-size:15px\">Mã dùng được @{outputs('Yeu_cau')?['minutes']} phút (đến @{outputs('Yeu_cau')?['valid_until']}) và chỉ một lần. Không chia sẻ mã này cho người khác.</p><p style=\"font-family:Arial,sans-serif;font-size:13px;color:#595959\">Nếu bạn không yêu cầu mã, hãy bỏ qua email này. Đây là email tự động, vui lòng không trả lời.</p>",
+          "emailMessage/Importance": "High"
+        }
+      }
+    },
+    "Xoa_file": {
+      "type": "OpenApiConnection",
+      "runAfter": { "Gui_ma": [ "Succeeded", "Failed", "Skipped", "TimedOut" ] },
+      "inputs": {
+        "host": {
+          "connectionName": "shared_onedriveforbusiness",
+          "operationId": "DeleteFile",
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness"
+        },
+        "parameters": {
+          "id": "@triggerOutputs()?['body/Id']"
+        }
+      }
+    }
+  },
+  "outputs": {}
+}

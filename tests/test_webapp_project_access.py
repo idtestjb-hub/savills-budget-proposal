@@ -239,7 +239,8 @@ def test_defaults_hide_paths_for_project_user(env, link):
 
 # ---- every data route goes through the access check ----------------------------------------------------------------
 
-OPEN_PATHS = {'/', '/auth/login', '/auth/callback', '/auth/logout'}
+OPEN_PATHS = {'/', '/auth/login', '/auth/callback', '/auth/logout',
+              '/auth/code/request', '/auth/code/verify', '/auth/code/logout'}   # change add-link-email-code-login
 
 
 def _dep_calls(dependant):

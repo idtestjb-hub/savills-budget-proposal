@@ -24,6 +24,7 @@ mở trực tiếp http://host:port/budget/ (không qua proxy) cũng chạy. GET
 """
 import contextlib
 import datetime
+import hmac
 import json
 import os
 import re
@@ -43,7 +44,7 @@ BUDGET_AGENT = os.path.dirname(SOURCE_DIR)
 if SOURCE_DIR not in sys.path:
     sys.path.insert(0, SOURCE_DIR)
 
-from webapp import adjust, auth, facts_prefill, fill_input, history, library, project_access, results  # noqa: E402
+from webapp import adjust, auth, facts_prefill, fill_input, history, library, link_login, project_access, results  # noqa: E402,E501
 from webapp.project_access import KIND_NONE, KIND_OFFICE, KIND_PROJECT, KIND_VIEWER, Scope  # noqa: E402
 
 HOST = os.environ.get('BUDGET_WEB_HOST') or '127.0.0.1'
@@ -353,18 +354,58 @@ def on_link(request):
     return bool(LINK_PORT) and server[1] == LINK_PORT
 
 
+_link = {'store': None, 'key': None}
+
+
+def link_store():
+    """Kho mã / phiên của đăng nhập bằng mã (link_login.Store), tạo một lần theo biến môi trường."""
+    key = (os.environ.get('BUDGET_WEB_LINK_DB') or os.path.join(os.path.dirname(RUNS_DIR), 'link_login.sqlite'),
+           os.environ.get('BUDGET_WEB_LINK_SECRET', '').strip(), os.environ.get('BUDGET_WEB_OTP_OUTBOX', '').strip())
+    if _link['store'] is None or _link['key'] != key:
+        _link['store'], _link['key'] = link_login.Store(key[0], key[1], key[2], log=_log), key
+    return _link['store']
+
+
+def client_ip(request):
+    """IP người dùng theo khả năng (CF-Connecting-IP > X-Forwarded-For > socket). Chỉ dùng cho giới hạn phụ và log;
+    trên cổng link mọi yêu cầu đến từ 127.0.0.1 nên không bao giờ dùng để phân quyền."""
+    ip = (request.headers.get('CF-Connecting-IP') or '').strip()
+    if not ip:
+        ip = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    if not ip and request.client:
+        ip = request.client.host or ''
+    return ip[:64]
+
+
+def link_identity(request):
+    """(email, 'cf' | 'otp', csrf) của người gọi trên cổng link, hoặc None. Thứ tự (design D1): token Cloudflare hợp lệ
+    (khi chế độ có cf), rồi cookie phiên mã (khi chế độ có otp). Tiêu đề X-Hub-* và email trần không bao giờ được tin."""
+    if getattr(request.state, 'link_checked', False):
+        return request.state.link_identity
+    mode, ident = auth.link_mode(), None
+    token = request.headers.get(auth.CF_TOKEN_HEADER)
+    if auth.link_uses_cf(mode) and (token or not auth.link_uses_otp(mode)):
+        try:
+            email = auth.verify_cf_token(token)
+            ident = (email, 'cf', link_store().cf_csrf(email) if auth.link_uses_otp(mode) else '')
+        except auth.CfTokenError as exc:
+            _log(f'link token refused ({request.url.path}): {exc}')
+    if ident is None and auth.link_uses_otp(mode):
+        sess = link_store().session(request.cookies.get(link_login.COOKIE_NAME))
+        if sess:
+            ident = (sess['email'], 'otp', sess['csrf'])
+    request.state.link_checked, request.state.link_identity = True, ident
+    return ident
+
+
 def link_email(request):
-    """Email đã kiểm từ token Cloudflare Access; 401 khi thiếu hoặc sai. Tiêu đề X-Hub-* bị bỏ qua trên cổng này."""
-    cached = getattr(request.state, 'link_email', None)
-    if cached:
-        return cached
-    try:
-        email = auth.verify_cf_token(request.headers.get(auth.CF_TOKEN_HEADER))
-    except auth.CfTokenError as exc:
-        _log(f'link refused ({request.url.path}): {exc}')
+    """Email của người gọi trên cổng link; 401 khi chưa đăng nhập. Tiêu đề X-Hub-* bị bỏ qua trên cổng này."""
+    ident = link_identity(request)
+    if ident is None:
+        if auth.link_uses_otp():
+            raise HTTPException(401, 'Chưa đăng nhập hoặc phiên đã hết. Tải lại trang để đăng nhập.')
         raise HTTPException(401, 'Chưa đăng nhập qua link của Savills. Mở lại link để đăng nhập.')
-    request.state.link_email = email
-    return email
+    return ident[0]
 
 
 def scope_of(request):
@@ -581,20 +622,105 @@ def index(request: Request):
         try:
             scope = scope_of(request)
         except HTTPException as exc:
+            if exc.status_code == 401 and auth.link_uses_otp():
+                return HTMLResponse(_page('login_code.html', MINUTES=str(link_login.CODE_MINUTES)))
             return HTMLResponse(_page('login.html', MESSAGE=_escape(exc.detail)), status_code=exc.status_code)
         if scope.kind == KIND_NONE:
             return HTMLResponse(_page('login.html', MESSAGE=_escape(NO_PROJECT_MESSAGE)), status_code=403)
-        return _page('index.html', USER=_escape(scope.email), SITE='')
+        ident = link_identity(request)
+        who = _escape(scope.email)
+        if ident and auth.link_uses_otp():
+            who += ' · <a href="#" id="link-logout">Đăng xuất</a>'
+        return _page('index.html', USER=who, SITE='', CSRF=_escape(ident[2] if ident else ''))
     user = current_user(request)
     if not user:
         message = request.session.pop('auth_message', '') if auth.enabled() else ''
         return _page('login.html', MESSAGE=_escape(message))
     who = '' if not auth.enabled() else (
         f'{_escape(user["name"])} · <a href="{PREFIX}/auth/logout">Đăng xuất</a>')
-    return _page('index.html', USER=who, SITE='1' if SITE_DIR else '')
+    return _page('index.html', USER=who, SITE='1' if SITE_DIR else '', CSRF='')
 
 
-@router.get('/auth/login')
+def _not_on_link(request: Request):
+    """Các route đăng nhập Entra không tồn tại trên cổng link."""
+    if on_link(request):
+        raise HTTPException(404, 'Not Found')
+
+
+CODE_SENT_MESSAGE = ('Nếu email này có quyền dùng trang Budget, mã đăng nhập sẽ tới hộp thư trong vài phút '
+                     f'(thường 1 đến 5 phút). Mã dùng được {link_login.CODE_MINUTES} phút và chỉ một lần.')
+
+
+def _otp_route(request):
+    if not (on_link(request) and auth.link_uses_otp()):
+        raise HTTPException(404, 'Not Found')
+
+
+async def _fields(request):
+    """Trường của form hoặc JSON gửi lên (trang đăng nhập gửi JSON)."""
+    if (request.headers.get('content-type') or '').startswith('application/json'):
+        try:
+            data = await request.json()
+        except ValueError:
+            data = {}
+        return data if isinstance(data, dict) else {}
+    return dict(await request.form())
+
+
+def _is_listed(email):
+    acl = access_list()
+    return acl is not None and email in acl.people
+
+
+@router.post('/auth/code/request')
+async def code_request(request: Request):
+    """Bước 1: xin mã. Mọi kết quả (gửi, email lạ, quá giới hạn, lỗi ghi file) trả cùng một câu, cùng mã 200."""
+    _otp_route(request)
+    data = await _fields(request)
+    link_store().request_code(data.get('email'), client_ip(request), _is_listed)
+    return JSONResponse(dict(ok=True, message=CODE_SENT_MESSAGE, minutes=link_login.CODE_MINUTES))
+
+
+@router.post('/auth/code/verify')
+async def code_verify(request: Request):
+    """Bước 2: nhập mã. Đúng -> tạo phiên phía server và đặt cookie HttpOnly, Secure, SameSite=Lax."""
+    _otp_route(request)
+    data = await _fields(request)
+    store = link_store()
+    email = link_login.normal_email(data.get('email'))
+    result = store.verify_code(email, data.get('code'), client_ip(request))
+    if result == link_login.CHECK_LIMITED:
+        raise HTTPException(429, 'Bạn đã thử quá nhiều lần. Đợi một giờ rồi thử lại.')
+    if result == link_login.EXPIRED:
+        raise HTTPException(400, 'Mã đã hết hạn, đã dùng hoặc chưa được gửi. Bấm "Gửi lại mã" để nhận mã mới.')
+    if result != link_login.OK:
+        raise HTTPException(400, f'Mã không đúng. Sai {link_login.MAX_WRONG} lần thì mã bị huỷ, phải xin mã mới.')
+    if not _is_listed(email):          # bị gỡ khỏi file phân quyền giữa lúc xin mã và lúc nhập
+        raise HTTPException(403, NO_PROJECT_MESSAGE)
+    token, _, max_age = store.create_session(email)
+    response = JSONResponse(dict(ok=True))
+    response.set_cookie(link_login.COOKIE_NAME, token, max_age=max_age, path=PREFIX or '/', secure=True,
+                        httponly=True, samesite='lax')
+    return response
+
+
+@router.post('/auth/code/logout')
+def code_logout(request: Request):
+    """Đăng xuất: xoá phiên phía server (cookie cũ không còn dùng được) và xoá cookie. Người vào bằng Cloudflare được
+    chuyển tới trang đăng xuất của Cloudflare Access."""
+    _otp_route(request)
+    ident = link_identity(request)
+    token = request.cookies.get(link_login.COOKIE_NAME)
+    link_store().logout(token)
+    if ident:
+        _log(f'link-login logout email={ident[0]} ip={client_ip(request) or "-"}')
+    redirect = '/cdn-cgi/access/logout' if ident and ident[1] == 'cf' else (PREFIX or '') + '/'
+    response = JSONResponse(dict(ok=True, redirect=redirect))
+    response.delete_cookie(link_login.COOKIE_NAME, path=PREFIX or '/', secure=True, httponly=True, samesite='lax')
+    return response
+
+
+@router.get('/auth/login', dependencies=[Depends(_not_on_link)])
 def auth_login(request: Request):
     if not auth.enabled():
         return RedirectResponse(PREFIX + '/', status_code=302)
@@ -608,7 +734,7 @@ def auth_login(request: Request):
     return RedirectResponse(flow['auth_uri'], status_code=302)
 
 
-@router.get('/auth/callback')
+@router.get('/auth/callback', dependencies=[Depends(_not_on_link)])
 def auth_callback(request: Request):
     if not auth.enabled():
         return RedirectResponse(PREFIX + '/', status_code=302)
@@ -634,7 +760,7 @@ def auth_callback(request: Request):
     return RedirectResponse(PREFIX + '/', status_code=302)
 
 
-@router.get('/auth/logout')
+@router.get('/auth/logout', dependencies=[Depends(_not_on_link)])
 def auth_logout(request: Request):
     request.session.clear()
     if not auth.enabled():
@@ -658,8 +784,10 @@ def get_me(request: Request, scope=Depends(require_scope)):
     if acl is not None:
         codes = sorted(scope.codes) if scope.is_project else sorted(acl.projects)
         projects = [dict(code=c, name=(acl.projects.get(c) or {}).get('name') or c) for c in codes]
+    ident = link_identity(request) if on_link(request) else None
     return JSONResponse(dict(kind=scope.kind, email=scope.email, projects=projects, link=on_link(request),
-                             may_add_project=not scope.is_project))
+                             may_add_project=not scope.is_project, login=ident[1] if ident else '',
+                             csrf=ident[2] if ident else ''))
 
 
 def _start(run_id, run, who, what):
@@ -1180,6 +1308,37 @@ async def _lifespan(app):
 
 
 app = FastAPI(title='Budget Agent - nhập liệu', docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+
+LOGIN_STEPS = ('/auth/code/request', '/auth/code/verify')
+
+
+@app.middleware('http')
+async def _link_post_guard(request: Request, call_next):
+    """Chống CSRF trên cổng link khi bật đăng nhập bằng mã (design D8): mọi POST/PUT/PATCH/DELETE phải có Origin đúng
+    địa chỉ link công khai; ngoài hai bước đăng nhập, còn phải có X-CSRF-Token khớp với người gọi. Sai -> 403, không
+    route nào chạy."""
+    if request.method in ('GET', 'HEAD', 'OPTIONS') or not on_link(request) or not auth.link_uses_otp():
+        return await call_next(request)
+    origin = (request.headers.get('Origin') or '').strip().lower().rstrip('/')
+    if not origin or origin != auth.link_public_origin():
+        _log(f'link post refused ({request.url.path}): origin {origin or "-"}')
+        return JSONResponse(dict(detail='Yêu cầu không đến từ trang Budget. Tải lại trang rồi thử lại.'), status_code=403)
+    path = request.url.path
+    if PREFIX and path.startswith(PREFIX + '/'):
+        path = path[len(PREFIX):]
+    if path not in LOGIN_STEPS:
+        ident = link_identity(request)
+        sent = request.headers.get('X-CSRF-Token') or ''
+        if ident is None:
+            return JSONResponse(dict(detail='Chưa đăng nhập hoặc phiên đã hết. Tải lại trang để đăng nhập.'),
+                                status_code=401)
+        if not ident[2] or not hmac.compare_digest(sent.encode('utf-8'), ident[2].encode('utf-8')):
+            _log(f'link post refused ({request.url.path}): csrf token missing or wrong for {ident[0]}')
+            return JSONResponse(dict(detail='Phiên trang đã cũ. Tải lại trang rồi thử lại.'), status_code=403)
+    return await call_next(request)
+
+
 app.include_router(router)                 # sau khi proxy bỏ tiền tố: "/"
 if PREFIX:
     app.include_router(router, prefix=PREFIX)   # mở trực tiếp, không qua proxy: "/budget/"
