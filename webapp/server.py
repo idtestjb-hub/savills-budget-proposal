@@ -251,6 +251,17 @@ def visible_log(lines, outputs, role):
             if not any(h in ln for h in hidden) and not any(m in ln for m in _INTERNAL_LOG_MARKERS)]
 
 
+# Đường dẫn Windows (ổ đĩa hoặc \\máy\chia sẻ) tới hết dấu \ hoặc / cuối cùng. Tên thư mục có thể có dấu cách nhưng không
+# có dấu ':', nên hai đường dẫn trên cùng một dòng được bắt riêng; chữ trước ổ đĩa (http:, https:) không bị bắt.
+_PATH_DIRS_RE = re.compile(r'(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\[^\\/:*?"<>|\r\n]+[\\/])(?:[^\\/:*?"<>|\r\n]*[\\/])*')
+
+
+def hide_paths(lines):
+    """Log hiện trên trang: bỏ phần thư mục của mọi đường dẫn, chỉ giữ tên file hoặc tên thư mục cuối. run.log trên
+    đĩa vẫn giữ đường dẫn đầy đủ để tra lỗi."""
+    return [_PATH_DIRS_RE.sub('', ln) for ln in lines]
+
+
 def _scan_log(lines, role, scope):
     """Người dùng dự án: bỏ dòng log có tên dự án khác (ghi log server); vai trò khác: giữ nguyên."""
     if role != ROLE_PROJECT or scope is None:
@@ -285,7 +296,7 @@ def _public(run_id, since=0, role=None, scope=None):
                 project_code=run.get('project_code') or '',
                 status=run['status'], rc=run['rc'], started=run['started'], finished=run['finished'],
                 workdir='' if role == ROLE_PROJECT else run['workdir'],
-                log=_scan_log(visible_log(run['log'][since:], run['outputs'], role), role, scope),
+                log=hide_paths(_scan_log(visible_log(run['log'][since:], run['outputs'], role), role, scope)),
                 log_total=len(run['log']),
                 outputs=visible_outputs(run['outputs'], role),
                 summary=_project_summary(run.get('summary'), scope) if role == ROLE_PROJECT and scope else run.get('summary'))
