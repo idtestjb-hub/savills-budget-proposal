@@ -447,6 +447,36 @@ class PrintError(Exception):
     """A plain-Vietnamese reason the PDF could not be made; the deliverable is untouched."""
 
 
+class PaperSizeError(PrintError):
+    """Excel produced pages of another size than the paper asked for; the wrong PDF is not handed out."""
+
+
+# Landscape page size in points (width, height) of each paper, for checking what Excel actually produced.
+PAPER_POINTS = {'A4': (842, 595), 'A3': (1191, 842)}
+
+
+def check_paper(pdf_path, paper, tol=3):
+    """Raise PaperSizeError when any page of `pdf_path` is not `paper` landscape; None when PyMuPDF is missing.
+    Excel can swap A4 for Letter without an error (its 'scale content for A4 or 8.5 x 11' option on a machine whose
+    Windows region uses Letter paper), so the size is read back from the PDF itself."""
+    try:
+        import pymupdf
+    except ImportError:
+        try:
+            import fitz as pymupdf  # noqa: N813  (older PyMuPDF name)
+        except ImportError:
+            return None
+    want_w, want_h = PAPER_POINTS[paper]
+    with pymupdf.open(pdf_path) as doc:
+        sizes = {(round(p.rect.width), round(p.rect.height)) for p in doc}
+    wrong = [s for s in sizes if abs(s[0] - want_w) > tol or abs(s[1] - want_h) > tol]
+    if wrong:
+        got = ', '.join(f'{w}x{h}' for w, h in sorted(wrong))
+        raise PaperSizeError(f'Excel xuất PDF sai khổ giấy: cần {paper} ngang ({want_w}x{want_h} pt) nhưng ra '
+                             f'{got} pt. Không giao file sai khổ; báo bộ phận IT kiểm tra Excel trên máy chủ.')
+    return True
+
+
 def pdf_name(deliverable, paper):
     stem = os.path.splitext(os.path.basename(deliverable))[0]
     return f'{stem} - In {paper}.pdf'
@@ -492,6 +522,7 @@ def export_pdf(deliverable, paper, out_pdf):
     tmp_pdf = os.path.join(work_dir, 'out.pdf')
     pythoncom.CoInitialize()
     xl = wb = None
+    map_paper = None
     try:
         try:
             xl = w32.DispatchEx('Excel.Application')
@@ -499,6 +530,14 @@ def export_pdf(deliverable, paper, out_pdf):
             raise PrintError('Xuất PDF cần Microsoft Excel trên máy chủ; không mở được Excel.') from exc
         xl.Visible = False
         xl.DisplayAlerts = False
+        # With 'scale content for A4 or 8.5 x 11 paper sizes' on and a Windows region that uses Letter (en-US),
+        # Excel exports an A4 page setup on Letter. Turn it off for this export only: it is a per-user Excel option
+        # saved when Excel quits, so the user's own value is put back in `finally`.
+        try:
+            map_paper = bool(xl.MapPaperSize)
+            xl.MapPaperSize = False
+        except Exception:
+            map_paper = None
         wb = xl.Workbooks.Open(work, UpdateLinks=0, ReadOnly=True)
         xl.CalculateFull()
         ws = wb.Worksheets(SHEET)
@@ -542,6 +581,7 @@ def export_pdf(deliverable, paper, out_pdf):
             ws.ExportAsFixedFormat(0, tmp_pdf, 0, True, False)
         wb.Close(SaveChanges=False)
         wb = None
+        check_paper(tmp_pdf, paper)
     except PrintError:
         raise
     except Exception as exc:
@@ -550,6 +590,11 @@ def export_pdf(deliverable, paper, out_pdf):
         if wb is not None:
             try:
                 wb.Close(SaveChanges=False)
+            except Exception:
+                pass
+        if xl is not None and map_paper is not None:
+            try:
+                xl.MapPaperSize = map_paper
             except Exception:
                 pass
         if xl is not None:

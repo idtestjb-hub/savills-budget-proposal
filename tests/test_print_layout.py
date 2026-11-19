@@ -176,6 +176,61 @@ def test_adjust_run_applies_the_layout():
     assert 'excel_not_use_rows(recalc)' in src
 
 
+def _blank_pdf(path, width, height, pages=2):
+    pymupdf = pytest.importorskip('pymupdf')
+    doc = pymupdf.open()
+    for _ in range(pages):
+        doc.new_page(width=width, height=height)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def test_check_paper_refuses_letter_for_a4(tmp_path):
+    """Excel can hand back Letter for an A4 setup with no error; the size check stops that file going out."""
+    letter = _blank_pdf(tmp_path / 'letter.pdf', 792, 612)
+    with pytest.raises(pl.PaperSizeError, match='A4'):
+        pl.check_paper(str(letter), 'A4')
+    with pytest.raises(pl.PaperSizeError):
+        pl.check_paper(str(_blank_pdf(tmp_path / 'a4-portrait.pdf', 595, 842)), 'A4')
+    assert pl.check_paper(str(_blank_pdf(tmp_path / 'a4.pdf', 842, 595)), 'A4') is True
+    assert pl.check_paper(str(_blank_pdf(tmp_path / 'a3.pdf', 1191, 842)), 'A3') is True
+    assert issubclass(pl.PaperSizeError, pl.PrintError)      # the page shows it like any other print error
+
+
+def test_export_pdf_puts_excel_paper_option_back(wb, tmp_path):
+    """The export turns Excel's A4/Letter scaling off for itself only: the user's own value is restored."""
+    w32 = pytest.importorskip('win32com.client')
+    pythoncom = pytest.importorskip('pythoncom')
+    pytest.importorskip('pymupdf')
+
+    def read_option():                 # export_pdf uninitialises COM on its way out, so each read sets it up again
+        pythoncom.CoInitialize()
+        try:
+            xl = w32.DispatchEx('Excel.Application')
+            try:
+                return bool(xl.MapPaperSize)
+            finally:
+                xl.Quit()
+        finally:
+            pythoncom.CoUninitialize()
+
+    try:
+        before = read_option()
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f'Excel not usable here: {exc}')
+    pl.apply(wb)
+    deliv = tmp_path / 'Demo - Sample Consulting Budget.xlsx'
+    wb.save(deliv)
+    try:
+        pl.export_pdf(str(deliv), 'A4', str(tmp_path / 'out.pdf'))
+    except pl.PaperSizeError:
+        raise
+    except pl.PrintError as exc:
+        pytest.skip(f'Excel not usable here: {exc}')
+    assert read_option() == before
+
+
 def test_export_pdf_a4_and_a3(wb, tmp_path):
     """Excel exports both papers from a copy; the deliverable is not touched (spec budget-web-print-pdf)."""
     pytest.importorskip('win32com.client')
@@ -184,14 +239,17 @@ def test_export_pdf_a4_and_a3(wb, tmp_path):
     deliv = tmp_path / 'Demo - Sample Consulting Budget.xlsx'
     wb.save(deliv)
     before = (os.path.getmtime(deliv), deliv.read_bytes())
-    for paper, width in (('A4', 842), ('A3', 1191)):
+    for paper in ('A4', 'A3'):
+        width, height = pl.PAPER_POINTS[paper]
         out = tmp_path / pl.pdf_name(str(deliv), paper)
         try:
             pl.export_pdf(str(deliv), paper, str(out))
+        except pl.PaperSizeError:
+            raise                      # a wrong paper is the bug under test, never a reason to skip
         except pl.PrintError as exc:
             pytest.skip(f'Excel not usable here: {exc}')
         with pymupdf.open(out) as doc:
-            assert all(abs(p.rect.width - width) < 3 and p.rect.width > p.rect.height for p in doc), paper
+            assert all(abs(p.rect.width - width) < 3 and abs(p.rect.height - height) < 3 for p in doc), paper
             texts = [p.get_text() for p in doc]
         assert not any('TRUE' in t for t in texts), paper
         sign = [t for t in texts if 'Đề xuất' in t]
